@@ -6,15 +6,31 @@ One directory per pkgbase: the `PKGBUILD`, plus the patches, install hooks,
 `.SRCINFO`, `.nvchecker.toml`, licence and keyring material it needs. This is
 the source-controlled asset — build output is never committed.
 
-`tools/bq.py` in [omarchy-ppc64le](https://github.com/jbettcher-wg/omarchy-ppc64le)
-builds from **this tree and nothing else**. Arch's GitLab and the AUR are
-import sources reached through `tools/fetch.sh`, which places a fetched recipe
-in the right category *here*; they are not consulted at build time. That split
-is the point: when three trees could each supply a recipe, versions drifted
-silently between builders.
+## The two repositories
 
-Point a builder at a clone with `OMARCHY_PACKAGING=/path/to/this/checkout`;
-the default is `~/Development/omarchy-ppc64le-packaging`.
+The distribution is two repositories.
+
+| | |
+|---|---|
+| **this one** | every build script the distribution builds from — 4,562 pkgbases, 199 of them ours |
+| [**omarchy-ppc64le**](https://github.com/jbettcher-wg/omarchy-ppc64le) | the installer and ISO, the build tooling, the repo databases, and the docs |
+
+`tools/bq.py` over there builds from **this tree and nothing else**. Arch's
+GitLab and the AUR are import sources reached through its `tools/fetch.sh`,
+which places a fetched recipe in the right category *here*; neither is
+consulted at build time. That split is the point: when three trees could each
+supply a recipe, versions drifted silently between builders.
+
+A builder needs both, and locates this tree through `OMARCHY_PACKAGING`:
+
+```sh
+git clone git@github.com:jbettcher-wg/omarchy-ppc64le.git
+git clone git@github.com:jbettcher-wg/omarchy-ppc64le-packaging.git
+export OMARCHY_PACKAGING=$PWD/omarchy-ppc64le-packaging
+```
+
+Clone them side by side under `~/Development` and the variable is unnecessary —
+that is the default the tools assume.
 
 ## Layout
 
