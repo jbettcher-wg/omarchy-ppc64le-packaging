@@ -1,0 +1,19 @@
+pkgbase = python-pluggy
+	pkgdesc = Plugin and hook calling mechanisms for python
+	pkgver = 1.6.0
+	pkgrel = 3
+	url = https://github.com/pytest-dev/pluggy
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-setuptools-scm
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/pytest-dev/pluggy.git#tag=1.6.0
+	sha512sums = 4164457975bae12c798ba87fca38ef776468cb3b879c95696be8525778b9bc83fe9947f6ec707b478f79e93f6d4ddd9cb669d6bbc59929e107c447c4237f61f5
+
+pkgname = python-pluggy

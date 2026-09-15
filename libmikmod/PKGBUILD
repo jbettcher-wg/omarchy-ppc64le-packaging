@@ -1,0 +1,53 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: David Runge <dvzrv@archlinux.org>
+# Contributor: Allan McRae <allan@archlinux.org>
+# Contributor: Tom Newsom <Jeepster@gmx.co.uk>
+
+pkgname=libmikmod
+pkgver=3.3.13
+pkgrel=1
+pkgdesc="Module player library supporting many formats, including MOD, S3M, IT and XM"
+url="https://mikmod.sourceforge.net"
+license=(LGPL-2.0-or-later)
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+depends=(
+  glibc
+  sh
+)
+makedepends=(
+  alsa-lib
+  cmake
+  git
+  libpulse
+  ninja
+)
+provides=(libmikmod.so)
+source=(
+  "git+https://git.code.sf.net/p/mikmod/mikmod#tag=libmikmod-$pkgver"
+  0001-libmikmod-cmake-Install-documentation-and-autoconf-m.patch
+)
+b2sums=('4a5001249655eae7b6a93c4d3a79de93ae58b702bc3fa7ebc5fa16d8006b749f4eeb365fdcf0ea8fa0d47affa1932f99a31e9bfdaab516b0e1d5ee873cc3c5c6'
+        'ba79a911013dceef7c58c8a495f27127f0a5a878ab83eff6e336bdf4d6dfa791171b3c91c0e12ca73fba8fa7825e676b42aad24723f2255114d5968a88d5889f')
+
+prepare() {
+  cd mikmod
+  git apply -3 ../0001-libmikmod-cmake-Install-documentation-and-autoconf-m.patch
+}
+
+build() {
+  local cmake_options=(
+    -D CMAKE_BUILD_TYPE=None
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D ENABLE_DL=1
+  )
+
+  cmake -S mikmod/libmikmod -B build -G Ninja "${cmake_options[@]}"
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}
+
+# vim:set sw=2 sts=-1 et:

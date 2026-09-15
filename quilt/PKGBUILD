@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Konstantin Gizdov <arch at kge dot pw>
+# Contributor: Sébastien Luttringer
+# Contributor: Peter Richard Lewis <plewis@aur.archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+# Contributor: dibblethewrecker <dibblethewrecker.at.jiwe.org>
+
+pkgname=quilt
+pkgver=0.69
+pkgrel=1
+pkgdesc='Manage a series of patches by keeping track of the changes each patch makes'
+arch=(any)
+url='https://savannah.nongnu.org/projects/quilt/'
+license=('GPL-2.0-or-later')
+depends=(
+  'bash'
+  'bzip2'
+  'diffstat'
+  'diffutils'
+  'findutils'
+  'gawk'
+  'gettext'
+  'gzip'
+  'patch'
+  'perl'
+)
+checkdepends=('ed')
+validpgpkeys=('7CA69F4460F1BDC41FD2C858A5526B9BB3CD4E6A') # Jean Delvare
+source=("https://savannah.nongnu.org/download/quilt/$pkgname-$pkgver.tar.gz"{,.sig})
+sha256sums=('555ddffde22da3c86d1caf5a9c1fb8a152ac2b84730437bd39cc08849c9f4852'
+            'SKIP')
+
+build() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  ./configure --prefix=/usr --sysconfdir=/etc --without-rpmbuild
+  make
+}
+
+check() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  make check
+}
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  make BUILD_ROOT="$pkgdir" install
+  # move bash completion in right place
+  install -d -m 755 "$pkgdir/usr/share/bash-completion"
+  mv "$pkgdir/etc/bash_completion.d" "$pkgdir/usr/share/bash-completion/completions"
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,25 @@
+pkgbase = glslang
+	pkgdesc = OpenGL and OpenGL ES shader front end and validator
+	pkgver = 1.4.357.0
+	pkgrel = 1
+	epoch = 1
+	url = https://github.com/KhronosGroup/glslang
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = cmake
+	makedepends = ninja
+	makedepends = spirv-headers
+	makedepends = python
+	makedepends = git
+	depends = glibc
+	depends = libstdc++
+	depends = spirv-tools
+	options = staticlibs
+	source = git+https://github.com/KhronosGroup/glslang.git#tag=vulkan-sdk-1.4.357.0
+	sha256sums = 8643f6ebfeb91fd6cbdc1462a428862b6ea8ae288d91562603a146365d9c70c6
+
+pkgname = glslang

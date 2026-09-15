@@ -1,0 +1,33 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=litehtml
+pkgver=0.10
+pkgrel=1
+pkgdesc='Fast and lightweight HTML/CSS rendering engine'
+url='http://www.litehtml.com/'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(BSD-3-Clause)
+depends=(glibc
+         gumbo-parser
+         libgcc
+         libstdc++)
+makedepends=(cmake)
+source=(https://github.com/litehtml/litehtml/archive/v$pkgver/$pkgname-$pkgver.tar.gz)
+sha256sums=('7700eced92847d34ad9846b138cf195a9c974b519be70de58797880ae9da649e')
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DEXTERNAL_GUMBO=ON \
+    -DBUILD_SHARED_LIBS=ON \
+    -DLITEHTML_BUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 $pkgname-$pkgver/LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+# Don't search for non-existant gumbo cmake config
+  sed -e '/gumbo/d' -i "$pkgdir"/usr/lib/cmake/litehtml/litehtmlConfig.cmake
+}

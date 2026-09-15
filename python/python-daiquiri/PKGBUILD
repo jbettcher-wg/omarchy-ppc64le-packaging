@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-daiquiri
+pkgver=3.4.0
+pkgrel=2
+pkgdesc='Library to configure Python logging easily'
+arch=(any)
+license=('Apache-2.0')
+url='https://github.com/Mergifyio/daiquiri'
+depends=('python-json-logger')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-setuptools-scm')
+checkdepends=('python-pytest')
+source=("git+https://github.com/Mergifyio/daiquiri.git#tag=$pkgver")
+sha512sums=('26703419f4ffc693656b1c00b815432977ca8c756d61022054d30d1531723912e7ff503fd3b5581b57e40c85a39aca0014adfdd612f6061720251a2ed6b4d65b')
+
+build() {
+  cd daiquiri
+  python -m build -nw
+}
+
+check() {
+  cd daiquiri
+  python -m pytest
+}
+
+package() {
+  cd daiquiri
+  python -m installer -d "$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,69 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Lukas Fleischer <lfleischer@archlinux.org>
+# Contributor: Roman Kyrylych <roman@archlinux.org>
+# Contributor: Sven Kauber <celeon@gmail.com>
+# Contributor: tardo <tardo@nagi-fanboi.net>
+# Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
+
+pkgname=partimage
+pkgver=0.6.9
+pkgrel=16
+pkgdesc='Partition Image saves partitions in many formats to an image file.'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://www.partimage.org/'
+license=('GPL')
+depends=('libnewt' 'bzip2' 'openssl')
+backup=('etc/partimaged/partimagedusers')
+source=("https://downloads.sourceforge.net/${pkgname}/${pkgname}-${pkgver}.tar.bz2"
+        'partimage-0.6.9-zlib-1.2.6.patch'
+        'use-SSLv3-by-default.patch'
+        'partimage-build-fix.patch'
+        'partimaged-gencrt'
+        'partimaged.service'
+        'partimage.sysusers')
+sha256sums=('753a6c81f4be18033faed365320dc540fe5e58183eaadcd7a5b69b096fec6635'
+            '9d6aa1a37647349aa70f89ab134574c1750e70c6904baa30211f965f35f42b9c'
+            '1b35697e349e5baca2a0d57d04d2a90f8dacfbf69b0bfb1d8661d9f08cead1fd'
+            'b228103401a0e62158234d7a2f69cab237624c4f352a492a6c8bf629d7e124d3'
+            '4c14d9fb10d994e04887d774e4c530ec92c99e32adf727e439ffdf6333886359'
+            '6127a866a1b54b77b5ca7616fec1bad29ec0f394b9c5edb8209fde2b4b0552fd'
+            '435adbb7415ba5ff8eb6eff361efb9f1c74df68979b5e917c0febc29ef2f78dc')
+
+prepare() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  patch -Np1 -i ../partimage-0.6.9-zlib-1.2.6.patch
+  patch -Np1 -i ../use-SSLv3-by-default.patch
+  patch -p1 -i ../partimage-build-fix.patch # Fix build with recent glibc
+
+  sed -e 's/CRYPTO_lock/X509_new/g' -i configure
+}
+
+build() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --sbindir=/usr/bin \
+    --enable-pam \
+    --build=${CHOST}
+
+  make
+  make pamfile
+}
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  make DESTDIR="${pkgdir}" install
+
+  install -Dm0644 partimaged.pam "${pkgdir}/etc/pam.d/partimaged"
+  install -Dm0755 "${srcdir}/partimaged-gencrt" "${pkgdir}/usr/bin/partimaged-gencrt"
+
+  chmod 644 "${pkgdir}/etc/partimaged/partimagedusers"
+  chown 110:110 "${pkgdir}/etc/partimaged/partimagedusers"
+
+  install -Dm0644 ../partimaged.service "${pkgdir}/usr/lib/systemd/system/partimaged.service"
+  install -Dm0644 ../partimage.sysusers "${pkgdir}/usr/lib/sysusers.d/partimage.conf"
+}

@@ -1,0 +1,27 @@
+pkgbase = open-iscsi
+	pkgdesc = iSCSI userland tools
+	pkgver = 2.1.11
+	pkgrel = 1
+	url = https://www.open-iscsi.com/
+	install = open-iscsi.install
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	arch = espresso
+	license = GPL
+	makedepends = meson
+	makedepends = systemd
+	depends = systemd-libs
+	depends = util-linux-libs
+	depends = kmod
+	depends = openssl
+	depends = open-isns
+	options = docs
+	backup = etc/iscsi/iscsid.conf
+	backup = etc/iscsi/initiatorname.iscsi
+	source = open-iscsi-2.1.11.tar.gz::https://github.com/open-iscsi/open-iscsi/archive/2.1.11.tar.gz
+	sha256sums = f288d1823b15782432608e5f53723159562e2c44e9a72b40fe15a5ca064ac86a
+
+pkgname = open-iscsi

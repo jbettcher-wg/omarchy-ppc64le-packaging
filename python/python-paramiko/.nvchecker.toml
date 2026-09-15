@@ -1,0 +1,3 @@
+[python-paramiko]
+source = "pypi"
+pypi = "paramiko"

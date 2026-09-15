@@ -1,0 +1,4 @@
+[ruby-rake]
+source = "git"
+git = "https://github.com/ruby/rake.git"
+prefix = "v"

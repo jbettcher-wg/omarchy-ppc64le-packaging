@@ -1,0 +1,20 @@
+pkgbase = libisofs
+	pkgdesc = Library to pack up hard disk files and directories into a ISO 9660 disk image
+	pkgver = 1.5.8.2
+	pkgrel = 1
+	url = https://dev.lovelyhq.com/libburnia/libisofs
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	makedepends = git
+	depends = glibc
+	depends = acl
+	depends = zlib
+	source = libisofs::git+https://dev.lovelyhq.com/libburnia/libisofs#tag=release-1.5.8.pl02
+	sha512sums = c942c7d327889d3e4c6cd414e6fdf2509ee10305d7afdaccb733a0301163fa6ad4dcd14776e6575de324dd7b362c1a62b8270604aca6d3999077d6112f2d2d49
+	b2sums = 897e2b0a9231bfe42081cf9780d62c63148d63e0d97523deb4867ce83ebd3896754a28aec2f50f5d8312570346e978f6cdeccf8209800f2e5971e5d1196e1b37
+
+pkgname = libisofs

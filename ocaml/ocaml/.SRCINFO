@@ -1,0 +1,30 @@
+pkgbase = ocaml
+	pkgdesc = A functional language with OO extensions
+	pkgver = 4.14.2
+	pkgrel = 1.3
+	url = https://caml.inria.fr/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL2.1
+	license = custom: QPL-1.0
+	makedepends = ncurses>=5.6-7
+	optdepends = ncurses: advanced ncurses features
+	optdepends = tk: advanced tk features
+	options = !makeflags
+	options = !emptydirs
+	options = staticlibs
+	source = https://caml.inria.fr/distrib/ocaml-4.14/ocaml-4.14.2.tar.xz
+	source = ocaml-4.08.0-elfv2-ppc64.patch
+	sha512sums = acd0c0434d3e98fd97c22b77cabdb02f46e5b68504b751e0fce4886b35b751c1ac89030d380c2b94b096b73ea96b419168c4ecd1b4c8651535cae93de0e81e58
+	sha512sums = a6dd3a2cfef21c1df7286ec2f4ad6ca48deac1f450232e7533a46e00867b0b1521d228345b5ee7212dc86c8e39295d152aed27c3e7f374b4c6a5595c425422a6
+
+pkgname = ocaml
+
+pkgname = ocaml-compiler-libs
+	pkgdesc = Several modules used internally by the OCaml compiler
+	license = custom: QPL-1.0
+	depends = ocaml
+	optdepends = 

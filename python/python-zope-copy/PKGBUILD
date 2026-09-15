@@ -1,0 +1,47 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-zope-copy
+_pkgname=zope.copy
+pkgver=6.0
+pkgrel=3
+pkgdesc="Pluggable object copying mechanism"
+arch=(any)
+url="https://github.com/zopefoundation/zope.copy"
+license=('ZPL-2.1')
+depends=(
+  'python'
+  'python-zodbpickle'
+  'python-zope-interface'
+)
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=(
+  'python-zope-location'
+  'python-zope-testing'
+  'python-zope-testrunner'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/zopefoundation/zope.copy/archive/$pkgver.tar.gz")
+sha512sums=('483a54afa4149e70461885eb7751eef6511b265486f504343f37e827979fe4095f58f76f31ebe7a49a8304c249b5ce9f0e22c459b5804881573c263413ff4311')
+
+build() {
+  cd $_pkgname-$pkgver
+  python -m build --wheel --no-isolation --skip-dependency-check
+}
+
+check() {
+  cd $_pkgname-$pkgver
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m zope.testrunner -vc --test-path src/
+}
+
+package() {
+  cd $_pkgname-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

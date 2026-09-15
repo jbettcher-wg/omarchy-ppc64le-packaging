@@ -1,0 +1,63 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+
+_name=BLAKE3
+pkgname=(
+  b3sum
+  libblake3
+)
+pkgver=1.8.4
+pkgrel=1
+pkgdesc='Command line implementation of the BLAKE3 hash function'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://github.com/BLAKE3-team/BLAKE3
+license=('CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception')
+depends=(glibc libgcc)
+makedepends=(
+  cmake
+  git
+  onetbb
+  rust
+)
+source=("git+$url.git#tag=$pkgver")
+b2sums=('2525d6cb5b038560211c3934e7e0de520e150fd3602cc4ded77f927762e5dacfec611063c850409490c1acebd57c598fc87cefec3c2b231a6a89ac0bb9808014')
+
+prepare() {
+  cd $_name/"${pkgname[0]}"
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  local cmake_options=(
+    -B build
+    -S "$_name"/c
+    -W no-dev
+    -D CMAKE_BUILD_TYPE=None
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D BUILD_SHARED_LIBS=ON
+    -D BLAKE3_USE_TBB=1
+  )
+
+  cmake "${cmake_options[@]}"
+  cmake --build build
+
+  cd $_name/"${pkgname[0]}"
+  cargo build --release --locked --offline
+}
+
+check() {
+  cd $_name/"${pkgname[0]}"
+  cargo test --locked --offline
+}
+
+package_b3sum() {
+  cd $_name/"${pkgname[0]}"
+  install -Dt "$pkgdir"/usr/bin target/release/"${pkgname[0]}"
+}
+
+package_libblake3() {
+  pkgdesc='The official C implementation of BLAKE3'
+  depends+=(onetbb)
+
+  DESTDIR="$pkgdir" cmake --install build
+}

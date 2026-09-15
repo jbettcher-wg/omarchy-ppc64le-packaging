@@ -1,0 +1,20 @@
+pkgbase = python-jaraco.collections
+	pkgdesc = Models and classes to supplement the stdlib 'collections' module.
+	pkgver = 5.1.0
+	pkgrel = 3
+	url = https://github.com/jaraco/jaraco.collections
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	depends = python-jaraco.text
+	conflicts = python-jaraco
+	replaces = python-jaraco
+	source = jaraco.collections-5.1.0.tar.gz::https://github.com/jaraco/jaraco.collections/archive/refs/tags/v5.1.0.tar.gz
+	sha512sums = 6dfb5bf22e55a5148e8c846bf2d3f5a6c628bbe2034b8425153c3978aeff738a9fe00e426e7e2c421827e8a87e5270716d211d9ee42eed786d81e14791cec842
+
+pkgname = python-jaraco.collections

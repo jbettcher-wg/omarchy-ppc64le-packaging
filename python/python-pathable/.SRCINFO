@@ -1,0 +1,17 @@
+pkgbase = python-pathable
+	pkgdesc = Object-oriented paths
+	pkgver = 0.5.0
+	pkgrel = 1
+	url = https://github.com/p1c2u/pathable
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	depends = python
+	source = git+https://github.com/p1c2u/pathable.git#tag=0.5.0
+	sha512sums = 5c2d69556e3b8a7054be77014109d01b40289d098e0674ae51f7555cf18b017c6fe93849b7c7e8bb72288e15b0af4776c83d4f21fcc353f8557ae60ee7da0dbf
+
+pkgname = python-pathable

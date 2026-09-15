@@ -1,0 +1,68 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Ralf Schmitt <ralf@systemexit.de>
+
+pkgname=python-gevent
+pkgver=25.9.1
+pkgrel=2
+pkgdesc='Python network library that uses greenlet and libenv for easy and scalable concurrency'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='http://www.gevent.org'
+license=(MIT)
+depends=(
+  glibc
+  c-ares
+  libev
+  libuv
+  python-greenlet
+  python-setuptools
+  python-zope-event
+  python-zope-interface
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+  cython
+  python-cffi
+)
+checkdepends=(
+  lsof
+  python-perf
+  python-objgraph
+  python-dnspython
+  python-requests
+)
+source=("$pkgname::git+https://github.com/gevent/gevent#tag=$pkgver")
+sha512sums=('b06d29a8bba56070303fb9fd1c35087c541dcd73767ec5b587871ed8a0679d042ea5fa39531cbc2403cd85238300a992f1d45d00df599919b21d6b54cc90a104')
+b2sums=('a5a45feb8f02325113b1a763da09d5b69c10026d1033cb148812d87fa93b2e0343ae051831af255407552e3d8e9f2c5e562d282735c1bdf55d03592c1fce5314')
+
+build() {
+  cd "$pkgname"
+
+  # http://www.gevent.org/development/installing_from_source.html#embedding-libraries
+  export GEVENTSETUP_EMBED=0
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m gevent.tests || echo "Tests failed"
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

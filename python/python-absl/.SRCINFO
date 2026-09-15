@@ -1,0 +1,19 @@
+pkgbase = python-absl
+	pkgdesc = Abseil Python Common Libraries
+	pkgver = 2.5.0
+	pkgrel = 1
+	url = https://github.com/abseil/abseil-py
+	arch = any
+	license = APACHE
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	makedepends = python-hatchling
+	provides = absl-py
+	conflicts = absl-py
+	replaces = absl-py
+	source = https://pypi.io/packages/source/a/absl-py/absl_py-2.5.0.tar.gz
+	sha512sums = ebc1e9fc05199a71cf42a000cfce45485a0b4ed99e9078543effc8ccd276e97a3867c738d045e23c83ea3ef75402804e66b60ad3759ace80f1c35b0b84fc9aff
+
+pkgname = python-absl

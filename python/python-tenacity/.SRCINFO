@@ -1,0 +1,23 @@
+pkgbase = python-tenacity
+	pkgdesc = Retry code until it succeeeds
+	pkgver = 9.1.4
+	pkgrel = 1
+	url = https://github.com/jd/tenacity
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest
+	checkdepends = python-tornado
+	checkdepends = python-trio
+	checkdepends = python-typeguard
+	makedepends = git
+	makedepends = python-setuptools-scm
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-build
+	makedepends = python-installer
+	depends = python
+	optdepends = python-tornado: for Tornado coroutines support
+	source = git+https://github.com/jd/tenacity.git#tag=9.1.4
+	sha512sums = a82a4233a1978b126ba326a556997a588037e098d55ee4052126228740b0353f93b7077db5d9667b1e0fc136cc8e3bf330c8eda22b98d09f1ef6cd5129f6669a
+
+pkgname = python-tenacity

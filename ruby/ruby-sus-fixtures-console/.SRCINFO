@@ -1,0 +1,21 @@
+pkgbase = ruby-sus-fixtures-console
+	pkgdesc = Test fixtures for capturing Console output
+	pkgver = 0.5.0
+	pkgrel = 1
+	url = https://github.com/socketry/sus-fixtures-console
+	arch = any
+	license = MIT
+	checkdepends = ruby-bake
+	checkdepends = ruby-bake-test
+	checkdepends = ruby-bundler
+	checkdepends = ruby-covered
+	checkdepends = ruby-decode
+	checkdepends = ruby-sus
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/socketry/sus-fixtures-console/archive/v0.5.0/ruby-sus-fixtures-console-0.5.0.tar.gz
+	sha512sums = dd32dad2288ecdb8777cdc51c3808d1f4a8b67652500d2439ca20f19657ec1ec6abfc0bb272d8dbac157c1ac1a7d051621ca3e886181193ff0a529bc0e8c50fc
+	b2sums = 7e11efff4b8b11d60de28c2bd568b0f7248833f2469a0364dac509a6523f109ccc8c54b53b1bbdbb276ba633fa29a5f08d4012dbb04655d25784c4adf2c47ea7
+
+pkgname = ruby-sus-fixtures-console

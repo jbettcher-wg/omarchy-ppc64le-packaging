@@ -1,0 +1,19 @@
+pkgbase = syndication5
+	pkgdesc = RSS/Atom parser library
+	pkgver = 5.116.0
+	pkgrel = 2
+	url = https://community.kde.org/Frameworks
+	arch = x86_64
+	groups = kf5
+	license = LGPL
+	makedepends = extra-cmake-modules
+	depends = kcodecs5
+	conflicts = syndication<5.111
+	replaces = syndication<5.111
+	source = https://download.kde.org/stable/frameworks/5.116/syndication-5.116.0.tar.xz
+	source = https://download.kde.org/stable/frameworks/5.116/syndication-5.116.0.tar.xz.sig
+	validpgpkeys = 53E6B47B45CEA3E0D5B7457758D0EE648A48B3BB
+	sha256sums = 74d78593d40ac89221fe195076f1b6a06fa2f70d2227032c8e21b0620b4d5c0d
+	sha256sums = SKIP
+
+pkgname = syndication5

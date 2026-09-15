@@ -1,0 +1,28 @@
+pkgbase = libstaroffice
+	pkgdesc = filter for old StarOffice documents(.sdc, .sdw, ...) based on librevenge
+	pkgver = 0.0.8
+	pkgrel = 1
+	url = https://github.com/fosnola/libstaroffice
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later OR MPL-2.0
+	makedepends = doxygen
+	makedepends = librevenge
+	makedepends = zlib
+	makedepends = gcc-libs
+	makedepends = glibc
+	source = https://github.com/fosnola/libstaroffice/releases/download/0.0.8/libstaroffice-0.0.8.tar.xz
+	sha256sums = bbca92882e96c55bd1527670866d6bc7529ccb12786da55a2398b60a063378da
+
+pkgname = libstaroffice
+	depends = librevenge
+	depends = zlib
+	depends = glibc
+	depends = libstdc++
+	depends = libgcc
+
+pkgname = libstaroffice-doc
+	pkgdesc = filter for old StarOffice documents(.sdc, .sdw, ...) based on librevenge - documentation

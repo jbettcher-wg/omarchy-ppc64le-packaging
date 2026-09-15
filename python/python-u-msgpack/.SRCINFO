@@ -1,0 +1,19 @@
+pkgbase = python-u-msgpack
+	pkgdesc = A portable, lightweight MessagePack serializer and deserializer written in pure Python
+	pkgver = 2.8.0
+	pkgrel = 5
+	url = https://github.com/vsergeev/u-msgpack-python
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = python-u-msgpack::git+https://github.com/vsergeev/u-msgpack-python#tag=v2.8.0
+	sha512sums = 20bd837869e856e327dea5b6fff166c4d1eb28199afc57f6e145eaa738af53418ceb8003c091fac1ee5b2ad7477b0d9fde7d8f6b2df74e37a7d397b795936220
+	b2sums = 427c31d2042b01a3043e2d156e966406be4dc8da67a8eaf318e091a750e2ff214fbea3f337b1337b929279ad665aef098877b153c6a102b5c0e35b396d540555
+
+pkgname = python-u-msgpack

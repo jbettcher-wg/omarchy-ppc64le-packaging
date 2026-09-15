@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Florian Bruhin (The Compiler) <archlinux.org@the-compiler.org>
+# Contributor: Brecht Machiels <brecht at mos6581 dot org>
+
+pkgname=pyprof2calltree
+pkgver=1.4.5
+pkgrel=13
+pkgdesc="Help visualize profiling data from cProfile with kcachegrind"
+url="https://github.com/pwaller/pyprof2calltree"
+arch=(any)
+license=('MIT')
+depends=('python')
+makedepends=('python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha512sums=('2fcda74ae67dc3a8abb5dc153864ef59f96cc62b1c9359d02be12e83966c17738f5aa4a3d1c6e2ff81614dc963fc4b2faf375bbbb1ad15650a6817e493cdde39')
+
+build() {
+  cd $pkgname-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $pkgname-$pkgver
+  python -m unittest discover
+}
+
+package() {
+  cd $pkgname-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -D -m644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

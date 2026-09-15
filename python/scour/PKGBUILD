@@ -1,0 +1,33 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+
+pkgname=scour
+pkgver=0.38.2
+pkgrel=7
+pkgdesc='An SVG scrubber'
+arch=(any)
+url=https://github.com/scour-project/scour
+license=(Apache-2.0)
+depends=(
+  python
+  python-six
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+source=(git+https://github.com/scour-project/scour.git#tag=v${pkgver})
+b2sums=('cdbf1fc01c56b57b7b67f7200cb2098335ed29160a6dfeb4293d672b4d12a3bab26581fe037b00f05df9abc2306bd40dd77c46780fa81aeb0d950bd66ac282a4')
+
+build() {
+  cd scour
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd scour
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+}

@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+
+pkgname=zfp
+pkgver=1.0.1
+pkgrel=5
+pkgdesc="Compressed numerical arrays that support high-speed random access"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://computing.llnl.gov/projects/floating-point-compression"
+license=(BSD)
+depends=(glibc gcc-libs)
+makedepends=(cmake gcc-fortran cython python python-numpy python-setuptools)
+source=(https://github.com/LLNL/zfp/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz)
+sha256sums=('4984db6a55bc919831966dd17ba5e47ca7ac58668f4fd278ebd98cd2200da66f')
+
+build() {
+  cmake -B build -S ${pkgname}-${pkgver} \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_SKIP_RPATH=ON \
+    -DBUILD_CFP=ON \
+    -DBUILD_ZFPY=ON \
+    -DBUILD_ZFORP=ON
+  make -C build
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd build
+  LD_LIBRARY_PATH="$(pwd)"/lib/ ctest --output-on-failure
+}
+
+package() {
+  make -C build DESTDIR="${pkgdir}" install
+  install -D build/bin/zfp -t "${pkgdir}"/usr/bin
+  install -Dm644 ${pkgname}-${pkgver}/LICENSE -t "${pkgdir}"/usr/share/licenses/${pkgname}
+}

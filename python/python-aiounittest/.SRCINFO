@@ -1,0 +1,17 @@
+pkgbase = python-aiounittest
+	pkgdesc = Test asyncio code more easily
+	pkgver = 1.5.0
+	pkgrel = 4
+	url = https://github.com/kwarunek/aiounittest
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python-wrapt
+	source = git+https://github.com/kwarunek/aiounittest.git#tag=1.5.0
+	sha512sums = ae8c3c2ff504f095e5b90dd898a60c6d8bfc844e7fa6f81c56bad1d183b55e723861844bbd820ff57ae6b69b1e336c70e67b5a4d4e2249fc8f3d7dea5ca55c8b
+
+pkgname = python-aiounittest

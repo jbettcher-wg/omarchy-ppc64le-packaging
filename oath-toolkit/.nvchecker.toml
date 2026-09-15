@@ -1,0 +1,5 @@
+[oath-toolkit]
+source = "git"
+git = "https://gitlab.com/oath-toolkit/oath-toolkit.git"
+prefix = "v"
+include_regex = "v.*"

@@ -1,0 +1,67 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Christian Rebischke <Chris.Rebischke@archlinux.org>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+# Contributor: lucke <lucke at o2 dot pl>
+
+pkgname=weechat
+pkgver=4.9.0
+pkgrel=1
+pkgdesc="Fast, light and extensible IRC client (curses UI)"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://www.weechat.org/"
+license=('GPL-3.0-only')
+depends=('curl'
+         'gnutls'
+         'cjson'
+         'libgcrypt')
+makedepends=('asciidoctor'
+             'cmake'
+             'enchant'
+             'guile'
+             'lua'
+             'perl'
+             'python'
+             'ruby'
+             'tcl')
+optdepends=('enchant: spellchecker support'
+            'guile: support for guile scripts'
+            'lua: support for lua scripts'
+            'perl: support for perl scripts'
+            'python: support for python scripts'
+            'ruby: support for ruby scripts'
+            'tcl: support for tcl scripts')
+source=("https://www.weechat.org/files/src/${pkgname}-${pkgver}.tar.xz"{,.asc})
+sha512sums=('3c2dec099637b4f71bb1e4f6821e41a8157d2fe7b24565d1d7fd3fd393e3e1e3152a77cf6fa9493f8562871d449653e06b1bda40cdeb12bc238854f5476f22cd'
+            'SKIP')
+b2sums=('dc619204dc303e24158ce43bbd6ddb90e18af22f958054d6cfbcf1b43f9a017722471fd651c5f2bce02e7debaf37cdcc17e080e924b2014745eb69b05a3d1f8e'
+        'SKIP')
+validpgpkeys=('A9AB5AB778FA5C3522FD0378F82F4B16DEC408F8') # WeeChat (signing key) <webmaster@weechat.org>
+
+# cmake does not correctly handle CPPFLAGS, so kludge it in anyway:
+# https://gitlab.kitware.com/cmake/cmake/-/issues/12928
+CFLAGS+=" ${CPPFLAGS}"
+
+build() {
+  local cmake_options=(
+    -B build
+    -S $pkgname-$pkgver
+    -DCMAKE_BUILD_TYPE=None
+    -DCMAKE_INSTALL_PREFIX=/usr
+    -DENABLE_MAN=ON
+    -DENABLE_DOC=ON
+    -DENABLE_DOC_INCOMPLETE=ON
+    -DENABLE_ENCHANT=ON
+    -DENABLE_JAVASCRIPT=OFF
+    -DENABLE_PHP=OFF
+    -Wno-dev
+  )
+  cmake "${cmake_options[@]}"
+  cmake --build build
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+}

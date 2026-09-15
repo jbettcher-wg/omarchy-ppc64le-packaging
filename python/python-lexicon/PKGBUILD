@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-lexicon
+pkgver=3.0.0
+pkgrel=2
+pkgdesc="Powerful dict subclass(es) with aliasing & attribute access"
+arch=(any)
+url="https://github.com/bitprophet/lexicon"
+license=('BSD-2-Clause')
+depends=('python')
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=('python-pytest-relaxed')
+source=("$url/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('ed9caedd0d6abb6ecb10f4227bc13d7fdecd5af7854824b8fe752207c369cb4028bfaa9c65781cceee937a7595e7514cc669a3e7c530e0f4f6fd3b41e2cb62c2')
+
+build() {
+  cd ${pkgname#python-}-${pkgver}
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}-${pkgver}
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  # Deselect failing tests, not sure why they fail.
+  test-env/bin/python -m pytest \
+    --deselect tests/alias_dict.py::AliasDict_::aliases_are_not_real_keys \
+    --deselect tests/alias_dict.py::AliasDict_::aliases_of
+}
+
+package() {
+  cd ${pkgname#python-}-${pkgver}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Frederik Schwan <freswa at archlinux.org>
+
+pkgname=wasm-pkg-tools
+pkgver=0.15.1
+pkgrel=1
+pkgdesc="Tools to package up Wasm Components"
+url="https://github.com/bytecodealliance/wasm-pkg-tools"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('MIT')
+depends=(
+  cargo
+  glibc
+  libgcc
+)
+makedepends=(
+  git
+)
+options=(!lto)
+source=("git+https://github.com/bytecodealliance/wasm-pkg-tools.git#tag=v${pkgver}")
+sha256sums=('1383a57cc388d71d96ce8988f56ec8b4edd752c16b610e11c712f331435f0d4c')
+b2sums=('6765521d4be383ea4cff299c05489f426c9646225a986ae5bad83109e62d95c10d7c03fc559c07a3927ca18a5120e77c1654ae75443c85fa1a82bfcc66655819')
+
+prepare() {
+  cd ${pkgname}
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd ${pkgname}
+  cargo build --release --locked
+}
+
+package() {
+  cd ${pkgname}
+  install -Dm755 target/release/wkg -t "${pkgdir}"/usr/bin
+  install -Dm644 LICENSE -t "${pkgdir}"/usr/share/licenses/${pkgname}
+}

@@ -1,0 +1,20 @@
+pkgbase = ruby-webrick
+	pkgdesc = An HTTP server toolkit that can be configured as an HTTPS server
+	pkgver = 1.9.2
+	pkgrel = 1
+	url = https://github.com/ruby/webrick
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = ruby-bundler
+	checkdepends = ruby-rake
+	checkdepends = ruby-test-unit
+	checkdepends = ruby-test-unit-ruby-core
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-erb
+	options = !emptydirs
+	source = https://github.com/ruby/webrick/archive/v1.9.2/ruby-webrick-1.9.2.tar.gz
+	sha512sums = 4db8d8d6fbe051b8d8a377c9a2fc7991c7239cc24fa082bfcfe568c99bd006bfebb36068c6b9816abc6182a14cccbe4684e8caf9fd218d2674237748f40225a5
+	b2sums = 2e6c1ff39144e01fc48186e056b1aecc2c456da0076bfbd2ac04b95fb6d7b685489d5573a12430e3543548df72c78854b99f0793bab150d497ae220e40988749
+
+pkgname = ruby-webrick

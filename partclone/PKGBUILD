@@ -1,0 +1,58 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jonathan Steel <jsteel at archlinux.org>
+# Contrinutor: Dan Serban
+# Contributor: Franz Burgmann
+# Contributor: Todd Partridge (Gen2ly)
+# Contributor: Ivan Sichmann Freitas
+
+pkgname=partclone
+pkgver=0.3.47
+pkgrel=1
+pkgdesc='Utilities to save and restore used blocks on a partition'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://partclone.org'
+license=('GPL-2.0-or-later')
+depends=('e2fsprogs' 'glibc' 'liburcu' 'ncurses' 'nilfs-utils' 'ntfs-3g' 'openssl' 'util-linux-libs' 'xxhash')
+makedepends=('git' 'docbook-xsl')
+source=("git+https://github.com/Thomas-Tsai/partclone#tag=${pkgver}")
+sha256sums=('dcae1ea77828a3724615d38e000f3689f4f690669fc43e6205efd70f5da38627')
+
+prepare() {
+  cd "$pkgname"
+
+  sed -i \
+    -e '/^XSLTPROC=/c XSLTPROC=xsltproc --nonet' \
+    -e '/^MAN_STYLESHEET=/c MAN_STYLESHEET=/usr/share/xml/docbook/xsl-stylesheets/manpages/docbook.xsl' \
+    docs/Makefile.am
+  autoreconf -fi
+}
+
+build() {
+  cd "$pkgname"
+  ./configure \
+    bashcompletiondir='/usr/share/bash-completion/completions' \
+    --prefix=/usr \
+    --enable-extfs \
+    --enable-fat \
+    --enable-hfsp \
+    --enable-btrfs \
+    --enable-ncursesw \
+    --enable-ntfs \
+    --enable-exfat \
+    --enable-f2fs \
+    --enable-minix \
+    --disable-nilfs2 \
+    --enable-xfs \
+    --sbindir=/usr/bin
+  make
+}
+
+package() {
+  cd "$pkgname"
+  make PREFIX=/usr DESTDIR="$pkgdir" install
+
+  # Allow bash completions to dynamically load completions for each commands.
+  for binfile in "$pkgdir/usr/bin/"*; do
+    ln -s 'partclone-prompt' "$pkgdir/usr/share/bash-completion/completions/$(basename "$binfile")"
+  done
+}

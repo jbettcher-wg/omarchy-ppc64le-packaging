@@ -1,0 +1,33 @@
+pkgbase = python-scikit-build
+	pkgdesc = Improved build system generator for CPython C, C++, Cython and Fortran extensions
+	pkgver = 0.18.1
+	pkgrel = 6
+	url = https://scikit-build.readthedocs.io/
+	arch = any
+	license = MIT
+	checkdepends = cython
+	checkdepends = gcc
+	checkdepends = gcc-fortran
+	checkdepends = ninja
+	checkdepends = python-build
+	checkdepends = python-path
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	checkdepends = python-requests
+	checkdepends = python-virtualenv
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	makedepends = python-hatch-fancy-pypi-readme
+	depends = cmake
+	depends = python-distro
+	depends = python-packaging
+	depends = python-setuptools
+	depends = python-wheel
+	source = git+https://github.com/scikit-build/scikit-build.git#tag=0.18.1?signed
+	validpgpkeys = 2FDEC9863E5E14C7BC429F27B9D0E45146A241E8
+	sha256sums = cd413fdbc831255205f55bcfbe5a6badeb0d2f3bb3d63be79d8a6c855e1e08cc
+
+pkgname = python-scikit-build

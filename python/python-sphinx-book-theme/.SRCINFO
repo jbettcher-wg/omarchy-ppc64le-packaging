@@ -1,0 +1,22 @@
+pkgbase = python-sphinx-book-theme
+	pkgdesc = A clean book theme for scientific explanations and documentation with Sphinx
+	pkgver = 1.2.0
+	pkgrel = 1
+	url = https://github.com/executablebooks/sphinx-book-theme
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	checkdepends = python-pytest-regressions
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-sphinx-theme-builder
+	makedepends = python-wheel
+	depends = python
+	depends = python-docutils
+	depends = python-pydata-sphinx-theme
+	depends = python-sphinx
+	source = https://github.com/executablebooks/sphinx-book-theme/archive/v1.2.0/python-sphinx-book-theme-1.2.0.tar.gz
+	b2sums = fc958965095fd68b4d7d5efcfec9820cf8e465685d864605ec90005aef597a26f0b047336dbbfe4442b396f65c3549067d098743e4e628e1a2cf8d6a9ab5b640
+
+pkgname = python-sphinx-book-theme

@@ -1,0 +1,87 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Zuf <kontakt.zuf@gmail.com>
+# Contributor: Darwin Bautista <djclue917@gmail.com>
+# Contributor: Gustavo Alvarez <sl1pkn07@gmail.com>
+
+pkgname=kdenlive
+pkgver=26.08.0
+pkgrel=1
+pkgdesc='A non-linear video editor for Linux using the MLT video framework'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://apps.kde.org/kdenlive/'
+license=(GPL-2.0-or-later)
+depends=(ffmpeg
+         frei0r-plugins
+         glibc
+         karchive
+         kbookmarks
+         kcodecs
+         kcolorscheme
+         kcompletion
+         kconfig
+         kconfigwidgets
+         kcoreaddons
+         kcrash
+         kdbusaddons
+         kddockwidgets
+         kfilemetadata
+         kguiaddons
+         ki18n
+         kiconthemes
+         kio
+         kitemviews
+         knewstuff
+         knotifications
+         knotifyconfig
+         ktextwidgets
+         kwidgetsaddons
+         kxmlgui
+         libstdc++
+         mlt
+         opentimelineio
+         purpose
+         qqc2-desktop-style
+         qt6-base
+         qt6-declarative
+         qt6-multimedia
+         qt6-networkauth
+         qt6-svg
+         solid)
+makedepends=(extra-cmake-modules
+             imath
+             kdoctools)
+optdepends=('bigsh0t: VR360 effects'
+            'dvgrab: for firewire capture'
+            'kimageformats: support for dds, xcf, exr, psd, and more image formats'
+            'noise-suppression-for-voice: noise suppression effect'
+            'opencv: for motion tracking'
+            'plasma-desktop: theme configuration'
+            'python-openai-whisper: speech to text (Whisper engine)'
+            'python-srt_equalizer: speech to text (Whisper engine)'
+            'python-vosk: speech to text (VOSK engine)'
+            'qt6-imageformats: support for tiff, webp, and more image formats'
+            'recordmydesktop: for screen capture')
+groups=(kde-applications
+        kde-multimedia)
+source=(https://download.kde.org/stable/release-service/$pkgver/src/$pkgname-$pkgver.tar.xz{,.sig})
+sha256sums=('754e1b3e288f8529b2739cfe8ce702d3880f3f3239b0d73f2aef2c88aca49b12'
+            'SKIP')
+validpgpkeys=(CA262C6C83DE4D2FB28A332A3A6A4DB839EAA6D7  # Albert Astals Cid <aacid@kde.org>
+              F23275E4BF10AFC1DF6914A6DBD2CE893E2D1C87  # Christoph Feck <cfeck@kde.org>
+              D81C0CB38EB725EF6691C385BB463350D6EF31EF) # Heiko Becker <heiko.becker@kde.org>
+
+prepare() {
+  sed -e '/qmllint/d' -i $pkgname-$pkgver/src/CMakeLists.txt
+}
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

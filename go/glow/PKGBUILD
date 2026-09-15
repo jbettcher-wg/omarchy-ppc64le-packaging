@@ -1,0 +1,61 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Christian Muehlhaeuser <muesli at gmail dot com>
+# Contributor: Stephen Gregoratto <dev@sgregoratto.me>
+
+pkgname=glow
+pkgver=2.1.0
+pkgrel=1
+pkgdesc="Command-line markdown renderer"
+url="https://github.com/charmbracelet/glow"
+arch=(x86_64 powerpc64 powerpc64le riscv64)
+license=('MIT')
+depends=('glibc')
+makedepends=('git' 'go')
+options=('!lto')
+source=("git+${url}.git#tag=v${pkgver}")
+b2sums=('79f1adc3d45dc3035e0b0f718162c8c44c2d328a23213b558f0e9b2eaeedece525968981ffdf962830cf234cbb3dae26c947c58d0b0525e59722f5c6e1d5eacc')
+
+prepare() {
+	cd "${pkgname}"
+
+	mkdir -p build/
+	go mod download
+}
+
+build() {
+	cd "${pkgname}"
+	export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
+	case "${CARCH}" in
+		"powerpc64")
+			export GOFLAGS="-trimpath -mod=readonly -modcacherw"
+			LINKMODE="-linkmode=internal"
+	 	;;
+		*)
+			LINKMODE="-linkmode=external"
+		;;
+	esac
+	export CGO_CPPFLAGS="${CPPFLAGS}"
+	export CGO_CFLAGS="${CFLAGS}"
+	export CGO_CXXFLAGS="${CXXFLAGS}"
+	export CGO_LDFLAGS="${LDFLAGS}"
+	go build -v -ldflags "${LINKMODE} -X main.Version=${pkgver}" -o build .
+
+	build/glow completion bash > completion.bash
+	build/glow completion fish > completion.fish
+	build/glow completion zsh > completion.zsh
+}
+
+package() {
+	cd "${pkgname}"
+
+	install -Dm 755 "build/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+
+	install -Dm 644 completion.bash "${pkgdir}/usr/share/bash-completion/completions/${pkgname}"
+	install -Dm 644 completion.fish "${pkgdir}/usr/share/fish/vendor_completions.d/${pkgname}.fish"
+	install -Dm 644 completion.zsh "${pkgdir}/usr/share/zsh/site-functions/_${pkgname}"
+
+	install -Dm 644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+	install -Dm 644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}

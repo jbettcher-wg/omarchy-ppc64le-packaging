@@ -1,0 +1,4 @@
+[serd]
+source = "git"
+git = "https://gitlab.com/drobilla/serd"
+prefix = "v"

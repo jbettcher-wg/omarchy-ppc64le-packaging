@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Daniel Wallace <danielwallace at gtmanfred dot com>
+
+pkgname=python-glanceclient
+pkgver=4.11.0
+pkgrel=1
+pkgdesc="OpenStack Image API Client Library"
+arch=(any)
+url="https://docs.openstack.org/developer/python-glanceclient"
+license=('Apache-2.0')
+depends=('python-pbr' 'python-prettytable' 'python-keystoneauth1' 'python-requests' 'python-warlock'
+         'python-oslo-utils' 'python-oslo-i18n' 'python-wrapt' 'python-pyopenssl')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-stestr' 'python-ddt' 'python-requests-mock' 'python-testscenarios')
+options=('!emptydirs')
+source=("git+https://github.com/openstack/python-glanceclient.git#tag=$pkgver"
+         0001-Fix-bytes-related-test-failures-with-urllib-3.patch)
+sha512sums=('e351414494e5699b1bec584e78057ae9b8087ed68994917c0eb0093f3d22457513319faf8272a8de841f0fbd9aa9110a3aab2300ee8e2bb68ddeb1b199f12926'
+            '7d97c196adbd5ca5de6dbee12f25abd8e22394e81594180103fc0bd3e4a968f2d76b4943400f28805c4dbef5c2e0147953da699308b8997a50bc92643ae6416e')
+
+prepare() {
+  cd python-glanceclient
+  # https://review.opendev.org/c/openstack/python-glanceclient/+/922179/2
+  patch -p1 -i ../0001-Fix-bytes-related-test-failures-with-urllib-3.patch
+}
+
+build() {
+  cd python-glanceclient
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd python-glanceclient
+  # TODO: Failing ssl tests starting 3.12, needs further investigation
+  stestr run --exclude-regex 'glanceclient.tests.unit.test_ssl'
+}
+
+package() {
+  cd python-glanceclient
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

@@ -1,0 +1,19 @@
+pkgbase = python-incremental
+	pkgdesc = A small library that versions your Python projects
+	pkgver = 24.11.0
+	pkgrel = 1
+	url = https://github.com/twisted/incremental
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-twisted
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-wheel
+	depends = python-packaging
+	source = git+https://github.com/twisted/incremental.git#tag=incremental-24.11.0
+	sha512sums = 7fba8d7a3c167884c0b853945b574b7aaf790cebc133f26c305ad903c43b491502172d2c62704bb5b963d0e73a3b58caf18a7a126bf01d13320add4ca664e65d
+
+pkgname = python-incremental

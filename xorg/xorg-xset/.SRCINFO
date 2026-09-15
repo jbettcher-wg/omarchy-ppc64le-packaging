@@ -1,0 +1,25 @@
+pkgbase = xorg-xset
+	pkgdesc = User preference utility for X
+	pkgver = 1.2.6
+	pkgrel = 1
+	url = https://xorg.freedesktop.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xorg-apps
+	groups = xorg
+	license = MIT-open-group
+	makedepends = xorg-util-macros
+	depends = libxmu
+	depends = libx11
+	depends = libxext
+	depends = glibc
+	source = https://xorg.freedesktop.org/archive/individual/app/xset-1.2.6.tar.xz
+	source = https://xorg.freedesktop.org/archive/individual/app/xset-1.2.6.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = 5031166960eea0588b9ef643677d5aef44c83c6d6070234a68f247ea947b94818d94c6958d9abe05cfa99ceee98ad3c95443f5f0c54cf0d086407ffe816d19ca
+	sha512sums = SKIP
+
+pkgname = xorg-xset

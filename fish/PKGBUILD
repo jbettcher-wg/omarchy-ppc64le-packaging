@@ -1,0 +1,71 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: Kaiting Chen <kaitocracy@gmail.com>
+# Contributor: Abhishek Dasgupta <abhidg@gmail.com>
+# Contributor: Eric Belanger <eric@archlinux.org>
+# Contributor: Jan Fader <jan.fader@web.de>
+
+pkgname=fish
+pkgver=4.8.1
+pkgrel=1
+pkgdesc='Smart and user friendly shell intended mostly for interactive use'
+url='https://fishshell.com/'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-only AND BSD-3-Clause AND ISC AND MIT AND PSF-2.0')
+depends=(glibc libgcc pcre2)
+makedepends=(cmake git jq rust python-sphinx)
+checkdepends=(expect procps-ng python-pexpect)
+optdepends=(
+  'python: man page completion parser / web config tool'
+  'pkgfile: command-not-found hook'
+  'groff: --help for built-in commmands'
+  'mandoc: --help for built-in commmands (alternative)'
+  'xsel: X11 clipboard integration'
+  'xclip: X11 clipboard integration (alternative)'
+  'wl-clipboard: Wayland clipboard integration'
+)
+install=fish.install
+backup=(etc/fish/config.fish)
+source=("${pkgname}::git+https://github.com/fish-shell/fish-shell#tag=${pkgver}")
+#validpgpkeys=(003837986104878835FA516D7A67D962D88A709A) # David Adam <zanchey@gmail.com>
+sha512sums=('abebf6069d47da0d612f5666b4d3292c38286bc4b981dd71aa9e7e23ab4309652eb569b11644b08d00605c90a659c05c87f87c835c1f4d3d5518bdf03fb0823c')
+b2sums=('72e5624fd590281e70b4219aa2ecabbee1a8dc036f6bf91f0422c0f0f0d47dabd94274bafbd134fb30ea7b2d23aa4952cca515d94ee1730551b96c881ea01553')
+
+build() {
+  cd ${pkgname}
+
+  export CXXFLAGS+=" ${CPPFLAGS}"
+
+  local cmake_options=(
+    -B build
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D CMAKE_INSTALL_SYSCONFDIR=/etc
+    -D CMAKE_BUILD_TYPE=Release
+    -D WITH_DOCS=ON
+    -D FISH_USE_SYSTEM_PCRE2=ON
+    -D WITH_MESSAGE_LOCALIZATION=ON
+    -W no-dev
+  )
+  cmake "${cmake_options[@]}"
+
+  make -C build VERBOSE=1
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd ${pkgname}
+
+  cmake --build build --target fish_run_tests
+}
+
+package() {
+  cd ${pkgname}
+
+  DESTDIR="$pkgdir" cmake --install build
+}
+
+# vim: ts=2 sw=2 et:

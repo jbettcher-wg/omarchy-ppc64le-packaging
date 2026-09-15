@@ -1,0 +1,16 @@
+pkgbase = python-types-python-dateutil
+	pkgdesc = Typing stubs for python-dateutil
+	pkgver = 2.9.0.20260402
+	pkgrel = 1
+	url = https://pypi.org/project/types-python-dateutil/
+	arch = any
+	license = Apache-2.0
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://files.pythonhosted.org/packages/source/t/types_python_dateutil/types_python_dateutil-2.9.0.20260402.tar.gz
+	b2sums = 8f5bcd0b848915ced25bb31cf19d4387234030122de5011c0fff6df1ba31b77082afb43341a11362d32be095f0a01b8144c380867f2a04341a4a1746feece70b
+
+pkgname = python-types-python-dateutil

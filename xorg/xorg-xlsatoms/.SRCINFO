@@ -1,0 +1,24 @@
+pkgbase = xorg-xlsatoms
+	pkgdesc = List interned atoms defined on server
+	pkgver = 1.1.5
+	pkgrel = 1
+	url = https://xorg.freedesktop.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xorg-apps
+	groups = xorg
+	license = MIT-open-group
+	makedepends = xorg-util-macros
+	makedepends = xorgproto
+	depends = libxcb
+	depends = glibc
+	source = https://xorg.freedesktop.org/archive/individual/app/xlsatoms-1.1.5.tar.xz
+	source = https://xorg.freedesktop.org/archive/individual/app/xlsatoms-1.1.5.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = a3e91814d6484f7bd6bb55d49ab898e685beb0bb5c86209cfc3e2f3b9aa85c81e09322f25b315bb0afe2ce86b8344adb81c47ed38730a1d4ffa15ce07c230631
+	sha512sums = SKIP
+
+pkgname = xorg-xlsatoms

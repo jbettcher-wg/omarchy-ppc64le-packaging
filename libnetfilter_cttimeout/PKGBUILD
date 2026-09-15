@@ -1,0 +1,27 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sébastien Luttringer <seblu@archlinux.org>
+
+pkgname=libnetfilter_cttimeout
+pkgver=1.0.1
+pkgrel=2.1
+pkgdesc='Library for the connection tracking timeout infrastructure'
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url='https://www.netfilter.org/projects/libnetfilter_cttimeout/'
+license=('GPL2')
+depends=('libmnl')
+validpgpkeys=('37D964ACC04981C75500FB9BD55D978A8A1420E4') # Netfilter Core Team
+source=("https://www.netfilter.org/projects/$pkgname/files/$pkgname-$pkgver.tar.bz2"{,.sig})
+sha512sums=('3f7886b2b8c67fb45d9f6d03f8a327d0f04072abf75ec0fa310f4a321a1749607e79b48f47c8b8488f9833734689419264afada0cbc1f0360a5ae9e17d4a1100'
+            'SKIP')
+
+build() {
+  cd $pkgname-$pkgver
+  ./configure --prefix=/usr
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set ts=2 sw=2 et:

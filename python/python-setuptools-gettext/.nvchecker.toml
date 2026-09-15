@@ -1,0 +1,5 @@
+[python-setuptools-gettext]
+source = "github"
+github = "breezy-team/setuptools-gettext"
+use_latest_release = true
+prefix = "v"

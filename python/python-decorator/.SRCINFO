@@ -1,0 +1,17 @@
+pkgbase = python-decorator
+	pkgdesc = Python Decorator module
+	pkgver = 5.3.1
+	pkgrel = 1
+	url = https://pypi.python.org/pypi/decorator
+	arch = any
+	license = BSD-2-Clause
+	makedepends = python
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	source = https://pypi.python.org/packages/source/d/decorator/decorator-5.3.1.tar.gz
+	sha512sums = 55fe7d85849916cecb3f55b582ca325764af654769f5ea93ee3f877304dbc776ab7d0eda8f7d5f6d2f36c18717f7237ab10aef3c8a6b65822a648c9dbaea4772
+
+pkgname = python-decorator

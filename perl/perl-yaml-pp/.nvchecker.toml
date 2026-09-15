@@ -1,0 +1,4 @@
+[perl-yaml-pp]
+source = "cpan"
+cpan = "YAML-PP"
+prefix = 'v'

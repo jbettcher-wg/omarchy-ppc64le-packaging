@@ -1,0 +1,29 @@
+pkgbase = libxfce4ui
+	pkgdesc = Widgets library for the Xfce desktop environment
+	pkgver = 4.20.2
+	pkgrel = 1
+	url = https://docs.xfce.org/xfce/libxfce4ui/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-only
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = vala
+	makedepends = xfce4-dev-tools
+	depends = libxfce4util
+	depends = gtk3
+	depends = xfconf
+	depends = libsm
+	depends = startup-notification
+	depends = libgtop
+	depends = libepoxy
+	depends = hicolor-icon-theme
+	depends = libgudev
+	source = git+https://gitlab.xfce.org/xfce/libxfce4ui.git#tag=libxfce4ui-4.20.2
+	sha256sums = 60f017035fbdafab61da4bc803b206095b6e57b3f9865e0c692fdf1b45f56f2e
+
+pkgname = libxfce4ui

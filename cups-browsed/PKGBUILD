@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+
+pkgname=cups-browsed
+pkgver=2.1.1
+pkgrel=1
+pkgdesc="a helper daemon to browse the network for remote CUPS queues and IPP network printers"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url="https://wiki.linuxfoundation.org/openprinting/cups-filters"
+license=('Apache-2.0 WITH LLVM-exception')
+depends=('libcups' 'libcupsfilters' 'libppd'
+          'avahi' 'glib2' 'glibc')
+makedepends=('glib2-devel')
+backup=(etc/cups/cups-browsed.conf)
+source=(https://github.com/OpenPrinting/$pkgname/releases/download/$pkgver/$pkgname-$pkgver.tar.xz)
+sha256sums=('d185169a74e6a5731b6bd74cba8d269f34e5c71cb71ef1841f2fa91637ba1d58')
+
+build() {
+  cd "$pkgname"-$pkgver
+  ./configure --prefix=/usr  \
+    --sysconfdir=/etc \
+    --sbindir=/usr/bin \
+    --localstatedir=/var \
+    --with-rcdir=no \
+    --enable-auto-setup-driverless-only
+  make
+}
+
+check() {
+  cd "$pkgname"-$pkgver
+# "make check" hangs
+#  make test - does nothing
+}
+
+package() {
+  cd "$pkgname"-$pkgver
+  make DESTDIR="$pkgdir/" install
+  
+  # add upstream systemd support file
+  install -Dm644 daemon/cups-browsed.service "${pkgdir}"/usr/lib/systemd/system/cups-browsed.service
+  sed -i "s|/usr/sbin/cups-browsed|/usr/bin/cups-browsed|" "${pkgdir}"/usr/lib/systemd/system/cups-browsed.service
+  
+  # use cups group from cups pkg FS#56818
+  chgrp -R 209 "${pkgdir}"/etc/cups
+
+  # license
+  mkdir -p "${pkgdir}"/usr/share/licenses/${pkgname}
+  install -m644 "${srcdir}"/${pkgname}-${pkgver}/{COPYING,NOTICE} "${pkgdir}"/usr/share/licenses/${pkgname}/
+}

@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=python-rjsmin
+_name="${pkgname#python-}"
+pkgver=1.2.5
+pkgrel=2
+pkgdesc="Fast javascript minifier for Python"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/ndparker/rjsmin"
+license=(Apache-2.0)
+depends=(
+  glibc
+  python
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=($_name-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz)
+sha512sums=('26c44fd15c08d1e4b816681657ca846f14660694c0c9624d8b6e957f74d39e6a5b691e39ef50d20feb6f81074ad523ebeec20e994867665aedf9357af46a34af')
+b2sums=('b33800d8b202680ab70eb7bbfc6fe704c5483294cacb399551a31210be6fbe05ed0aecf754cf028fa6d537b8199f7eb448659eb671a3201408c5ef4831153f92')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  local _site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  # install to temporary location, as importlib is used
+  python -m installer --destdir=test_dir dist/*.whl
+  export PYTHONPATH="test_dir/$_site_packages:$PYTHONPATH"
+  pytest -vv
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 {docs/DESCRIPTION,CHANGES,README.md} -t "$pkgdir/usr/share/doc/$pkgname/"
+}

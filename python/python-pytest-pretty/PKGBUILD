@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=python-pytest-pretty
+_name="${pkgname#python-}"
+pkgver=1.3.0
+pkgrel=2
+pkgdesc="Pytest plugin for pretty printing the test summary"
+arch=(any)
+url="https://github.com/samuelcolvin/pytest-pretty"
+license=(MIT)
+depends=(
+  python
+  python-pytest
+  python-rich
+)
+makedepends=(
+  python-build
+  python-hatchling
+  python-installer
+)
+source=($_name-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz)
+sha512sums=('25bf212f4b347de80222f70cde2bf2f5264e1383ca636e67927aef38afcd73c5558d0e764cda48f17632f80b7dad8707a893684e88a2a5359b9fbaebc3a4246b')
+b2sums=('484f2991ff16223790d6e26b8f664a28ae54edd26a9abad680afbd8108962a23ce2537e2d66b74a912c284f191f89a1e7e450e16c170901a899e93f5c4a27482')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  local pytest_options=(
+    -vv
+  )
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  # install to temporary location, as importlib is used
+  python -m installer --destdir=test_dir dist/*.whl
+  export PYTHONPATH="$PWD/test_dir/$site_packages:$PYTHONPATH"
+  pytest "${pytest_options[@]}"
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 644 README.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}

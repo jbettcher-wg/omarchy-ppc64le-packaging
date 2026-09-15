@@ -1,0 +1,26 @@
+pkgbase = python-botocore
+	pkgdesc = A low-level interface to a growing number of Amazon Web Services
+	pkgver = 1.42.91
+	pkgrel = 1
+	url = https://github.com/boto/botocore
+	arch = any
+	license = Apache-2.0
+	checkdepends = procps-ng
+	checkdepends = python-jsonschema
+	checkdepends = python-pytest
+	checkdepends = python-pytest-xdist
+	makedepends = python-awscrt
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-certifi
+	depends = python-dateutil
+	depends = python-jmespath
+	depends = python-urllib3
+	optdepends = python-awscrt: use AWS Common Runtime
+	source = https://github.com/boto/botocore/archive/1.42.91/python-botocore-1.42.91.tar.gz
+	b2sums = b5090d9707e20d83bdcc2757f13f6555a2fe50bc10361c8bbea9fba5fe09183ac588700864fec9677ba0bc84d85337c0b2a5f8d38ab0a832068dd1292000ee95
+
+pkgname = python-botocore

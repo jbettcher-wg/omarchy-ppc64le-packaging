@@ -1,0 +1,58 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Omar Sandoval <osandov at cs dot washington dot edu>
+# Contributor: Alexander Slesarev <slesarew at gmail dot com>
+
+pkgname=python-gmpy2
+pkgver=2.3.0
+pkgrel=1
+pkgdesc='Provides C-coded Python modules for fast multiple-precision arithmetic'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/aleaxit/gmpy'
+license=(LGPL-2.1-only)
+depends=(glibc
+         gmp
+         libmpc
+         mpfr
+         python
+         python-packaging)
+makedepends=(git
+             python-build
+             python-installer
+             python-setuptools
+             python-setuptools-scm
+             python-wheel)
+checkdepends=(python-hypothesis
+              python-pytest)
+source=(git+https://github.com/aleaxit/gmpy#tag=v$pkgver)
+sha256sums=('eb972811817f7fe2253ecaced9ae5a1deaab03673f719bc6c834dcb935833765')
+
+prepare() {
+  sed -e 's|,<80||' -i gmpy/pyproject.toml # Drop setuptools version constraint
+}
+
+build() {
+  cd gmpy
+  SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver \
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc64le) return 0 ;;
+  esac
+
+  cd gmpy
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  rm -r gmpy2
+  test-env/bin/python -m pytest -v
+}
+
+package() {
+  cd gmpy 
+  python -m installer --destdir="$pkgdir" dist/*.whl
+ 
+  install -d -m 755 $pkgdir/usr/share/doc/$pkgname
+  install -m 644 -t $pkgdir/usr/share/doc/$pkgname docs/*
+}

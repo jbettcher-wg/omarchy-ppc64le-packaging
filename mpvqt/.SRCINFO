@@ -1,0 +1,26 @@
+pkgbase = mpvqt
+	pkgdesc = A libmpv wrapper for QtQuick2 and QML
+	pkgver = 1.2.0
+	pkgrel = 1
+	url = https://invent.kde.org/libraries/mpvqt
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-only
+	license = LGPL-3.0-only
+	makedepends = extra-cmake-modules
+	depends = glibc
+	depends = libglvnd
+	depends = libstdc++
+	depends = mpv
+	depends = qt6-base
+	depends = qt6-declarative
+	source = https://download.kde.org/stable/mpvqt/mpvqt-1.2.0.tar.xz
+	source = https://download.kde.org/stable/mpvqt/mpvqt-1.2.0.tar.xz.sig
+	validpgpkeys = 4E421C6554B89766DF9B7A37E12AB207C8755905
+	sha256sums = 8660ad79c0d60fed77f29b36e1742841466af5405de702c81a121e6eeb625ebb
+	sha256sums = SKIP
+
+pkgname = mpvqt

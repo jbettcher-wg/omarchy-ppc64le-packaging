@@ -1,0 +1,15 @@
+pkgbase = perl-ipc-run
+	pkgdesc = IPC::Run - system() and background procs w/ piping, redirs, ptys
+	pkgver = 20260402.0
+	pkgrel = 1
+	url = https://search.cpan.org/dist/IPC-Run
+	arch = any
+	license = GPL
+	license = PerlArtistic
+	depends = perl
+	depends = perl-io-tty
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/T/TO/TODDR/IPC-Run-20260402.0.tar.gz
+	sha256sums = d6a326a8b1ffb19495dea4ff5a09ef138bf3562ab1b069d3fb7efbc77b9f6aca
+
+pkgname = perl-ipc-run

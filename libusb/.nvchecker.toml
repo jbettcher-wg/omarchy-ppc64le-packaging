@@ -1,0 +1,5 @@
+[libusb]
+source = "git"
+git = "https://github.com/libusb/libusb.git"
+prefix = "v"
+exclude_regex = ".*(alpha|beta|rc|pre).*"

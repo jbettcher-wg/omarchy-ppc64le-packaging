@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+
+_pkgname=ruff-api
+pkgname=python-$_pkgname
+pkgver=0.2.1
+pkgrel=1
+pkgdesc='Experimental Python API for Ruff'
+arch=(x86_64 powerpc64le powerpc64)
+url='https://github.com/amyreese/ruff-api'
+license=('MIT')
+makedepends=('python-build' 'python-installer' 'python-maturin')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha512sums=('e3f39d4e9006fe0fa4bc291181e4d8ee16b79db9470c2fe2c83fea0494d17c57758af9d496081124799db3bafc74b02493e086023dff1c4ed7129073e4be45e7')
+
+build() {
+  cd $_pkgname-$pkgver
+
+  python -m build -nwx
+}
+
+package() {
+  cd $_pkgname-$pkgver
+
+  python -m installer -d "$pkgdir" dist/*.whl
+
+  install -Dm 644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+
+# vim:set ts=2 sw=2 et:

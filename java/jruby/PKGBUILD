@@ -1,0 +1,55 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: FaziBear <fazibear@gmail.com>
+
+pkgname=jruby
+pkgver=10.0.5.0
+pkgrel=1
+pkgdesc="100% pure-Java implementation of the Ruby programming language"
+url="https://www.jruby.org/"
+arch=(any)
+license=(
+  '(EPL-2.0 OR GPL-2.0-only OR LGPL-2.1-only) AND BSD-3-Clause AND MIT AND MIT-0 AND Apache-2.0 AND Ruby'
+)
+depends=(
+  bash
+  glibc
+  java-runtime-headless
+  libgcc
+)
+options=(
+  !debug
+  !strip
+)
+source=(
+  "https://repo1.maven.org/maven2/org/jruby/jruby-dist/$pkgver/jruby-dist-$pkgver-bin.tar.gz"{,.asc}
+)
+b2sums=('48db4f26d5796190c45630b6ce1825d3dccae2f9bb83339da0e5145e1412f7d451b94f08be72b21dcdac5a0f8850ce98a88d4f913f7fcd4c54a6db9a5227d17a'
+        'SKIP')
+validpgpkeys=(
+  416952B945B78A34C6C7678562EBFC78FE4156D1  # Thomas E. Enebo <tom.enebo@gmail.com>
+)
+
+# https://www.jruby.org/download
+md5sums=('0484e55c4f7057ce84950083290e7fd0'
+         'SKIP')
+sha1sums=('4ee41055d54bf36d8bf88b1b1a733917b0f68840'
+          'SKIP')
+sha256sums=('6b3aa0340bd60a2b131e12490bb498c45359d9c91e477f5760c3aa18e37d1988'
+            'SKIP')
+
+prepare() {
+  cd jruby-$pkgver
+  rm -rv bin/*.{bat,dll,exe} lib/jni/{Darwin,*-SunOS,*-Windows,*-AIX,*-*BSD}
+  chmod -cR g-w .
+}
+
+package() {
+  mkdir -p "$pkgdir"/{opt,usr/bin,usr/share/licenses/$pkgname}
+  cp -a jruby-$pkgver "$pkgdir/opt/jruby"
+  ln -srt "$pkgdir/usr/bin" \
+    "$pkgdir"/opt/jruby/bin/j{irb,irb_swing,gem,ruby,rubyc}
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 jruby-$pkgver/COPYING
+}
+
+# vim:set sw=2 sts=-1 et:

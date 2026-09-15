@@ -1,0 +1,33 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=perl-file-copy-recursive-reduced
+pkgver=0.008
+pkgrel=5
+pkgdesc="Recursive copying of files and directories within Perl 5 toolchain"
+arch=(any)
+license=('PerlArtistic' 'GPL')
+options=('!emptydirs')
+depends=('perl')
+makedepends=('perl-capture-tiny' 'perl-path-tiny')
+url='https://search.cpan.org/dist/File-Copy-Recursive-Reduced'
+source=("https://search.cpan.org/CPAN/authors/id/J/JK/JKEENAN/File-Copy-Recursive-Reduced-$pkgver.tar.gz")
+sha512sums=('ea426a7c87909fd819972e8abdc37d2fb506f0c6b9acf6fb313d24a5794685cafefa9bbe42a04a2d429a8c64a9eb3ee8c62216987a44d30c342ce16f6af36be9')
+
+build() {
+  cd "$srcdir/File-Copy-Recursive-Reduced-$pkgver"
+  perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+check() {
+  cd "$srcdir/File-Copy-Recursive-Reduced-$pkgver"
+  make test
+}
+
+package() {
+  cd "$srcdir/File-Copy-Recursive-Reduced-$pkgver"
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set ts=2 sw=2 et:

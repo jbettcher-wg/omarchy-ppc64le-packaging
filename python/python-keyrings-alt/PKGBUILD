@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+# Contributor: Johannes Dewender  arch at JonnyJD dot net
+# Contributor: Ivan Sichmann Freitas <ivansichfreitas@gmail.com>
+# Contributor: Brice Maron <brice@bmaron.net>
+# Contributor: Nuno Araujo <nuno.araujo at russo79.com>
+# Contributor: Steven Allen <steven {at} stebalien {dot} com>
+
+pkgname=python-keyrings-alt
+epoch=1
+pkgver=5.0.2
+pkgrel=3
+pkgdesc="Alternate keyring implementations"
+arch=(any)
+url='https://github.com/jaraco/keyrings.alt'
+license=('MIT')
+depends=('python-keyring' 'python-pycryptodomex')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools-scm' 'python-wheel')
+checkdepends=('python-pycryptodome' 'python-keyring' 'python-pytest-enabler')
+optdepends=('python-pycryptodome: Encrypted file storage')
+source=("git+https://github.com/jaraco/keyrings.alt.git#tag=v${pkgver}")
+sha512sums=('e6c4a46b16595a53ddd7b8a4b5948f266b26a454440e526bf9f92a16381cad8c9c561368cd82d488b9059267545e2eb507a6268ea89bdeae2b115496f17c5d1c')
+
+build() {
+  cd keyrings.alt
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd keyrings.alt
+  pytest
+}
+
+package() {
+  cd keyrings.alt
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}
+
+# vim:set ts=2 sw=2 et:

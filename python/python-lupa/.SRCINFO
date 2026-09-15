@@ -1,0 +1,23 @@
+pkgbase = python-lupa
+	pkgdesc = Python wrapper around Lua and LuaJIT
+	pkgver = 2.6
+	pkgrel = 2
+	url = https://github.com/scoder/lupa
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = gcc-libs
+	depends = glibc
+	depends = python
+	source = https://files.pythonhosted.org/packages/source/l/lupa/lupa-2.6.tar.gz
+	sha256sums = 9a770a6e89576be3447668d7ced312cd6fd41d3c13c2462c9dc2c2ab570e45d9
+
+pkgname = python-lupa

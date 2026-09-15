@@ -1,0 +1,20 @@
+pkgbase = libiscsi
+	pkgdesc = Clientside library to implement the iSCSI protocol
+	pkgver = 1.20.3
+	pkgrel = 1
+	url = https://github.com/sahlberg/libiscsi
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = git
+	depends = glibc
+	depends = gnutls
+	depends = popt
+	depends = libgcrypt
+	source = libiscsi::git+https://github.com/sahlberg/libiscsi.git#tag=1.20.3
+	b2sums = 7ea384839354df8ad562e6ede59d7064b4d315d91e5da682bb4e74761aa8e2e71fd58feb25e3b621bf470928e560696131c4224e0cce19b14ac8f726983fee2a
+
+pkgname = libiscsi

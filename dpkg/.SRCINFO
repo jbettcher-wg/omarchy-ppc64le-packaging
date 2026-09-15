@@ -1,0 +1,35 @@
+pkgbase = dpkg
+	pkgdesc = The Debian Package Manager tools
+	pkgver = 1.23.7
+	pkgrel = 1
+	url = https://tracker.debian.org/pkg/dpkg
+	install = dpkg.install
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	checkdepends = perl-io-string
+	checkdepends = perl-test-pod
+	makedepends = git
+	makedepends = perl-io-string
+	makedepends = perl-timedate
+	depends = bzip2
+	depends = glibc
+	depends = libgcc
+	depends = libmd
+	depends = libstdc++
+	depends = ncurses
+	depends = perl
+	depends = xz
+	depends = zlib-ng
+	depends = zstd
+	options = !emptydirs
+	source = git+https://git.dpkg.org/git/dpkg/dpkg.git?signed#tag=1.23.7
+	source = origin.archpower
+	validpgpkeys = 4F3E74F436050C10F5696574B972BF3EA4AE57A3
+	b2sums = 12ce755ab14a9fc9eafff0fdb33fab7e798351c3c22a40c9b80549d6575879a9753cb5fb9c35fa7dcbce723333a6a371d8fb98c4928be55e305276ca6a97af26
+	b2sums = 9139a61a5cc44db7e0094b5f89b5bb172f275972e626a3a10f5d3c95eefecc28ceeb7e3d76cace3bdc7c35d3775f8982fe2ba60292bba04787adbff33a397d65
+
+pkgname = dpkg

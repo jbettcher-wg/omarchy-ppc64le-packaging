@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: tobias <tobias at archlinux.org>
+# Contributor: Aurelien Foret <orelien@chez.com>
+
+pkgname=xfce4-clipman-plugin
+pkgver=1.7.0
+pkgrel=1
+pkgdesc="A clipboard plugin for the Xfce4 panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-or-later')
+url="https://docs.xfce.org/panel-plugins/xfce4-clipman-plugin/start"
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'libxtst' 'qrencode')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-clipman-plugin.git#tag=$pkgname-$pkgver"
+        git+https://gitlab.freedesktop.org/wlroots/wlr-protocols.git)
+sha256sums=('ab9e5ffa5f6922af60c4fb9ad4a08b0bf507f0e34f2ad1120a46eaefca8f73b3'
+            'SKIP')
+
+prepare() {
+  cd $pkgname
+  git submodule init
+  git config submodule.mate-submodules.url "$srcdir/protocols/wlr-protocols"
+  git -c protocol.file.allow=always submodule update
+}
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

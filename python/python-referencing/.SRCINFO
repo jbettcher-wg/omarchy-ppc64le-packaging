@@ -1,0 +1,26 @@
+pkgbase = python-referencing
+	pkgdesc = An implementation-agnostic implementation of JSON reference resolution
+	pkgver = 0.37.0
+	pkgrel = 3
+	url = https://referencing.readthedocs.io
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-subtests
+	checkdepends = python-jsonschema
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	depends = python
+	depends = python-attrs
+	depends = python-rpds-py
+	source = python-referencing::git+https://github.com/python-jsonschema/referencing#tag=v0.37.0
+	source = github.com-python-jsonschema-referencing-suite::git+https://github.com/python-jsonschema/referencing-suite
+	sha512sums = 60fc7446bd52b33a684c1eeb4f182325f3cdb5eaa5b53fc1b0882447684a8c7c729ed3c77feacd7243dd0a97cd84a41bf4add07fbcc857324effc8d6e729a263
+	sha512sums = SKIP
+	b2sums = b2c8d333388a1ac430912d66e954a79dc555d8c554ad712f5d77d23b3f29c2637bde3a621dbf79ea9c5a46574f6e12303a9496a408f62f96053131dda197de9a
+	b2sums = SKIP
+
+pkgname = python-referencing

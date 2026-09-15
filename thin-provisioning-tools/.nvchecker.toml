@@ -1,0 +1,5 @@
+[thin-provisioning-tools]
+source = "git"
+git = "https://github.com/jthornber/thin-provisioning-tools.git"
+prefix = "v"
+exclude_regex = ".*rc.*"

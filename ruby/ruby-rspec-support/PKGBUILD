@@ -1,0 +1,117 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Artem Vorotnikov <artem@vorotnikov.me>
+
+_gemname=rspec-support
+pkgname=ruby-${_gemname}
+pkgver=3.13.6
+pkgrel=1
+pkgdesc='Common code needed by the other RSpec gems. Not intended for direct use'
+url='https://github.com/rspec/rspec'
+arch=(any)
+license=('MIT')
+depends=(
+  ruby
+)
+makedepends=(
+  git
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bigdecimal
+  ruby-bundler
+  ruby-childprocess
+  ruby-diff-lcs
+  ruby-drb
+  ruby-ffi
+  ruby-minitest
+  ruby-mutex_m
+  ruby-rake
+  ruby-rspec
+  ruby-rspec-core
+  ruby-rspec-expectations
+  ruby-rspec-mocks
+  ruby-test-unit
+  ruby-thread_order
+)
+options=('!emptydirs')
+source=(
+  "${pkgname}::git+${url}#tag=${_gemname}-v${pkgver}"
+  "${pkgname}_no_version_constraints.patch"
+)
+sha512sums=('da000a15d627b32b6e3968ad59f74efe09ffb21094b9b0e0e6a5617dde4e20616485420465c4fc8571169cbed5ee22eba991acb2aa483d0bf2064e4302bd688c'
+            'fc4017b614df31190e13800c7491dbf64997f1752b575c6e6aea2aca3ff8762a121f2e324f8c77fac3f63a3e9acb3f0f34b2a8831df9f44fa54efcaaaaace993')
+b2sums=('11d94bb6eba43a7acb9396d631e394cac4d9a630875fa106c298829b128854b9feee933e341f02ccf72744aff68c8188f892d4108c693842149cc9518a18e37e'
+        '4cc52da007104b31a7173801de625bbc88e19648d25a7b3d9da72267dede0af5210b9b1b2b47d8073eb3f927cf97d7eda0ae94772d3491a0835c3e9c1c831386')
+
+prepare() {
+  cd "${pkgname}"
+
+  patch --verbose --strip=1 --input="../${pkgname}_no_version_constraints.patch"
+
+  sed --in-place --regexp-extended \
+    --expression '/%w\[ core mocks expectations support \]/,+6d' \
+    rspec-support/spec/rspec/support/caller_filter_spec.rb
+}
+
+build() {
+  cd "${pkgname}/rspec-support"
+
+  local _gemdir="$(gem env gemdir)"
+
+  gem build --verbose "${_gemname}.gemspec"
+
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install${_gemdir}" \
+    --bindir "tmp_install/usr/bin" \
+    "${_gemname}-${pkgver}.gem"
+
+  # remove unreproducible files
+  rm --force --recursive --verbose \
+    "tmp_install${_gemdir}/cache/" \
+    "tmp_install${_gemdir}/gems/${_gemname}-${pkgver}/vendor/" \
+    "tmp_install${_gemdir}/doc/${_gemname}-${pkgver}/ri/ext/"
+
+  find "tmp_install${_gemdir}/gems/" \
+    -type f \
+    \( \
+      -iname "*.o" -o \
+      -iname "*.c" -o \
+      -iname "*.so" -o \
+      -iname "*.time" -o \
+      -iname "gem.build_complete" -o \
+      -iname "Makefile" \
+    \) \
+    -delete
+
+  find "tmp_install${_gemdir}/extensions/" \
+    -type f \
+    \( \
+      -iname "mkmf.log" -o \
+      -iname "gem_make.out" \
+    \) \
+    -delete
+}
+
+check() {
+  cd "${pkgname}/rspec-support"
+
+  local _gemdir="$(gem env gemdir)"
+
+  GEM_HOME="tmp_install${_gemdir}" rake spec
+}
+
+package() {
+  cd "${pkgname}/rspec-support"
+
+  cp --archive --verbose tmp_install/* "${pkgdir}"
+
+  install --verbose -D --mode=0644 LICENSE* --target-directory "${pkgdir}/usr/share/licenses/${pkgname}"
+  install --verbose -D --mode=0644 *.md --target-directory "${pkgdir}/usr/share/doc/${pkgname}"
+}
+
+# vim: tabstop=2 shiftwidth=2 expandtab:

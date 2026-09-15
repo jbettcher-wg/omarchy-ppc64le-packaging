@@ -1,0 +1,25 @@
+pkgbase = python-pygal
+	pkgdesc = A Python SVG graph plotting library
+	pkgver = 3.1.0
+	pkgrel = 1
+	epoch = 1
+	url = https://www.pygal.org/en/stable/
+	arch = any
+	license = LGPL-3.0-or-later
+	checkdepends = python-pytest
+	checkdepends = python-lxml
+	checkdepends = python-pyquery
+	checkdepends = python-cairosvg
+	checkdepends = python-flask
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python-setuptools
+	depends = python-importlib-metadata
+	optdepends = python-lxml: for XML output through lxml instead of xml.etree
+	optdepends = python-cairosvg: for PNG output
+	source = git+https://github.com/Kozea/pygal.git#tag=3.1.0
+	sha256sums = 51d903b5876dd79e0e24aebcad5d4b8062b1d8c69e7261486e417c835924a008
+
+pkgname = python-pygal

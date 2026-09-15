@@ -1,0 +1,19 @@
+pkgbase = perl-ev
+	pkgdesc = perl interface to libev, a high performance full-featured event loop
+	pkgver = 4.37
+	pkgrel = 1
+	url = https://metacpan.org/release/EV
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = PerlArtistic
+	license = GPL
+	makedepends = perl-canary-stability
+	depends = perl-common-sense
+	options = !emptydirs
+	source = https://search.cpan.org/CPAN/authors/id/M/ML/MLEHMANN/EV-4.37.tar.gz
+	sha512sums = 05f49784f1602063ecc723c07b8799862db6706aa7a259360d49360b39de29dba62e8c6b6fa8701f00e4c38ac5ea1ec87a9f4e9557750908e2b57ae58a763a38
+
+pkgname = perl-ev

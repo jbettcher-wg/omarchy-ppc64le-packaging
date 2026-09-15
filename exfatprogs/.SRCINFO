@@ -1,0 +1,18 @@
+pkgbase = exfatprogs
+	pkgdesc = exFAT filesystem userspace utilities for the Linux Kernel exfat driver
+	pkgver = 1.4.2
+	pkgrel = 1
+	url = https://github.com/exfatprogs/exfatprogs
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	depends = glibc
+	provides = exfat-utils
+	conflicts = exfat-utils
+	source = https://github.com/exfatprogs/exfatprogs/archive/1.4.2/exfatprogs-1.4.2.tar.gz
+	b2sums = 66fff9a724c85045c64c7cbd26b49bd2e78d3bb3faf35d93cdc57a6c2d836ef8ff308e993a3a2d390956586f65b6e01b0aa4c835d25cf73f595c9cb6c6208f3d
+
+pkgname = exfatprogs

@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+# Contributor: Filip Dvorak <fila@pruda.com>
+
+pkgname=enca
+pkgver=1.22
+pkgrel=1
+pkgdesc="Charset analyser and converter"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://cihar.com/software/enca/"
+license=('GPL-2.0-only')
+depends=(
+  'glibc'
+  'recode'
+)
+makedepends=(
+  'git'
+  'libiconv'
+)
+source=("git+https://github.com/nijel/enca#tag=$pkgver")
+b2sums=('7cb7f391221739d237e9fe19adedf99b741db5b4d1c8740bb6507b3d48823cfee2ebb04755a7db92aeb4d04cecaaf0c39ccd51a098905d5eb4348f3b464cb3ad')
+
+prepare() {
+  cd $pkgname
+  autoreconf -fiv -I /usr/share/gettext/m4
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --libexecdir=/usr/lib \
+    --mandir=/usr/share/man \
+    --with-libiconv=/usr \
+    --with-librecode=/usr \
+    --enable-external
+  make
+}
+
+check() {
+  cd $pkgname
+  make test
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

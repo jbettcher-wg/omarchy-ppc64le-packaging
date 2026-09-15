@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Justin Kromlinger <hashworks@archlinux.org>
+# Contributor: Mark Wagie <mark dot wagie at proton dot me>
+# Contributor: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
+
+pkgname=python-anytree
+pkgver=2.13.0
+pkgrel=2
+pkgdesc="Simple, lightweight and extensible Tree data structure."
+arch=(any)
+url="https://anytree.readthedocs.io/"
+license=('Apache-2.0')
+depends=('python')
+makedepends=('python-build' 'python-installer' 'python-poetry-core' 'python-wheel' 'git' 'python-pdm-backend')
+checkdepends=('python-pytest' 'python-pytest-cov' 'graphviz' 'python-test2ref' 'python-yaml')
+source=(
+  "$pkgname::git+https://github.com/c0fec0de/anytree#tag=$pkgver"
+)
+b2sums=('4995c9defab2d58e1b5a8d4a6f72a9b9c380d796cd765dd14c3a421b6c79d6c58fba91a1e5951c32a1b26151fc01d62dba4921923b2be3dc3d3faf0801dbf6db')
+
+build() {
+  cd "$pkgname"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+  mkdir -p tests/dotexport
+  python -m pytest
+}
+
+package() {
+  cd "$pkgname"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 README.rst -t "$pkgdir/usr/share/doc/$pkgname"
+}

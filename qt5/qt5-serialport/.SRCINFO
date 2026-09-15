@@ -1,0 +1,21 @@
+pkgbase = qt5-serialport
+	pkgdesc = Provides access to hardware and virtual serial ports
+	pkgver = 5.15.19
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = qt5
+	license = GPL3
+	license = LGPL3
+	license = FDL
+	license = custom
+	makedepends = git
+	depends = qt5-base
+	source = kde-qtserialport::git+https://invent.kde.org/qt/qt/qtserialport#commit=ca1f2486527e7acf87d466062c035845f9774573
+	sha256sums = 00a5dcb37f76425ced845b16b7987a410d59f79c0d0c056a33ed999756c16ffa
+
+pkgname = qt5-serialport

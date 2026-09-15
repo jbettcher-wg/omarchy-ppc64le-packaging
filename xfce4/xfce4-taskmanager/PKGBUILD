@@ -1,0 +1,28 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+
+pkgname=xfce4-taskmanager
+pkgver=1.6.0
+pkgrel=1
+pkgdesc="Easy to use task manager"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/apps/xfce4-taskmanager/start"
+license=('GPL-2.0-or-later')
+depends=('libxfce4ui' 'xfconf' 'libxmu' 'libwnck3')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+groups=('xfce4-goodies')
+source=("git+https://gitlab.xfce.org/apps/xfce4-taskmanager.git#tag=$pkgname-$pkgver")
+sha256sums=('2304041ba75c7153f96cbccf238769aaf3e4145874e7d8bef70511185460a68a')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=perl-perl-minimumversion
+pkgver=1.44
+pkgrel=3
+pkgdesc="Find a minimum required version of perl for Perl code"
+arch=(any)
+license=('PerlArtistic')
+url="https://metacpan.org/release/Perl-MinimumVersion"
+depends=('perl-file-find-rule' 'perl-file-find-rule-perl' 'perl-ppi' 'perl-ppix-regexp'
+         'perl-params-util' 'perl-ppix-utils')
+makedepends=('perl-test-script')
+options=('!emptydirs')
+source=("https://cpan.metacpan.org/authors/id/D/DB/DBOOK/Perl-MinimumVersion-$pkgver.tar.gz")
+sha512sums=('e3a7fe8198b0050559ed2e42280dfd9a40765fb52753a24cb679cd521f67346e71bc2677b056b880005c54bee9f0b5c3e22438e5cd75fadd273d037f0dc5414e')
+
+build() {
+  cd Perl-MinimumVersion-$pkgver
+  perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+check() {
+  cd Perl-MinimumVersion-$pkgver
+  make test
+}
+
+package() {
+  cd Perl-MinimumVersion-$pkgver
+  make DESTDIR="$pkgdir" install
+}

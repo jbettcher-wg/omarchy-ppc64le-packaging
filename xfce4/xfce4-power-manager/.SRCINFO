@@ -1,0 +1,28 @@
+pkgbase = xfce4-power-manager
+	pkgdesc = Power Manager for Xfce
+	pkgver = 4.20.1
+	pkgrel = 1
+	url = https://docs.xfce.org/xfce/xfce4-power-manager/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xfce4
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = xfce4-dev-tools
+	makedepends = xfce4-panel
+	makedepends = wayland-protocols
+	depends = libxfce4ui
+	depends = upower
+	depends = libnotify
+	depends = hicolor-icon-theme
+	optdepends = xfce4-notifyd: status notifications
+	source = git+https://gitlab.xfce.org/xfce/xfce4-power-manager.git#tag=xfce4-power-manager-4.20.1
+	source = git+https://gitlab.freedesktop.org/wlroots/wlr-protocols.git
+	sha256sums = 9ed8f15b7674a3696a64e444b0db6624ff57d8745e519de5d52c52da0f43f400
+	sha256sums = SKIP
+
+pkgname = xfce4-power-manager

@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Gaetan Bisson <bisson@archlinux.org>
+# Contributor: Camille Moncelier <pix@devlife.org>
+
+pkgname=m17n-lib
+pkgver=1.8.6
+pkgrel=1
+pkgdesc='Multilingual text processing library (runtimes)'
+url='https://www.nongnu.org/m17n/'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL')
+depends=('libxft' 'm17n-db' 'fribidi' 'libthai' 'libxml2' 'gd' 'libotf')
+makedepends=('anthy' 'ispell')
+optdepends=('anthy: to use the anthy input method'
+            'ispell: to use the ispell input method')
+options=('!makeflags' '!emptydirs')
+validpgpkeys=('D68584F9B40A6502FD7C53015F592A4029890630')
+source=("https://download.savannah.gnu.org/releases/m17n/${pkgname}-${pkgver}.tar.gz")
+sha256sums=('7129fe3b7ad500f88b8af8605ef07b96c87a75ec986a695fffc0a409f44a7c86')
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+  sed -i 's/freetype-config/pkg-config freetype2/' configure
+}
+
+build() {
+  cd ${pkgname}-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  make DESTDIR="${pkgdir}" install
+}

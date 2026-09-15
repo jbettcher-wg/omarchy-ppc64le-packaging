@@ -1,0 +1,4 @@
+[lua]
+source = "regex"
+url = "https://www.lua.org/download.html"
+regex = 'Lua (5\.[45]\.\d+)'

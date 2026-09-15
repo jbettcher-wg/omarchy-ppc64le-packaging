@@ -1,0 +1,18 @@
+pkgbase = python-fissix
+	pkgdesc = Backport of lib2to3, with enhancements
+	pkgver = 24.4.24
+	pkgrel = 2
+	url = https://github.com/amyreese/fissix
+	arch = any
+	license = PSF-2.0
+	checkdepends = python-pytest
+	checkdepends = python-tests
+	makedepends = python-build
+	makedepends = python-flit-core
+	makedepends = python-installer
+	depends = python
+	depends = python-appdirs
+	source = https://github.com/amyreese/fissix/archive/v24.4.24/python-fissix-24.4.24.tar.gz
+	sha256sums = d99a457853d69893ae16d6b843c9d69ad1404853a4a00e33bb6dc12cee2cade7
+
+pkgname = python-fissix

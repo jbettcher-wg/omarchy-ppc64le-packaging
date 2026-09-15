@@ -1,0 +1,20 @@
+pkgbase = ffcall
+	pkgdesc = C library for implementing foreign function calls in embedded interpreters
+	pkgver = 2.5
+	pkgrel = 1
+	url = https://www.gnu.org/software/libffcall/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	depends = glibc
+	options = !makeflags
+	source = https://ftp.gnu.org/gnu/libffcall/libffcall-2.5.tar.gz
+	source = https://ftp.gnu.org/gnu/libffcall/libffcall-2.5.tar.gz.sig
+	validpgpkeys = 9001B85AF9E1B83DF1BDA942F5BE8B267C6A406D
+	sha256sums = 7f422096b40498b1389093955825f141bb67ed6014249d884009463dc7846879
+	sha256sums = SKIP
+
+pkgname = ffcall

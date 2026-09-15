@@ -1,0 +1,56 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: @RubenKelevra <cyrond@gmail.com>
+
+pkgname=python-watchfiles
+pkgver=1.1.1
+pkgrel=3
+pkgdesc='Simple, modern and high performance file watching and code reload in Python'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/samuelcolvin/watchfiles'
+license=(MIT)
+depends=(
+  glibc
+  libgcc
+  python
+  python-anyio
+)
+makedepends=(
+  python-build
+  python-installer
+  python-maturin
+)
+checkdepends=(
+  python-dirty-equals
+  python-pytest
+  python-pytest-mock
+  python-pytest-timeout
+)
+source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('df9831559c0e0bf91b436763aea2a8b7cf85477d33bbe9427118c2b7ef5c6af235c18740f9cdd73b31629de6ec2f2b8b1acdf78da05921d5d0ad3f8deba9b230')
+
+prepare() {
+  cd ${pkgname#python-}-$pkgver
+  # This prevents tests from detecting the watchfiles module.
+  rm -v tests/__init__.py
+}
+
+build() {
+  cd ${pkgname#python-}-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}-$pkgver
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  # Don't add CWD to PYTHONPATH, the watchfiles package in CWD will take
+  # precedence over installed one.
+  test-env/bin/python -Im pytest
+}
+
+package() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

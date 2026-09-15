@@ -1,0 +1,30 @@
+pkgbase = python-isal
+	pkgdesc = Faster zlib and gzip compatible compression and decompression by providing python bindings for the isa-l library
+	pkgver = 1.8.0
+	pkgrel = 2
+	url = https://github.com/pycompression/python-isal
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = PSF-2.0
+	checkdepends = python-pytest
+	checkdepends = python-pytest-timeout
+	checkdepends = python-tests
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = glibc
+	depends = isa-l
+	depends = python
+	source = git+https://github.com/pycompression/python-isal.git#tag=v1.8.0
+	source = git+https://github.com/intel/isa-l.git
+	sha256sums = 33408c552fae7a31f7e7c71f63a26935a6a694c623a278daa976c66cb72ca299
+	sha256sums = SKIP
+	makedepends_x86_64 = nasm
+
+pkgname = python-isal

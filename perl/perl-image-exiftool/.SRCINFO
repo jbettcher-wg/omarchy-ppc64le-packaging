@@ -1,0 +1,19 @@
+pkgbase = perl-image-exiftool
+	pkgdesc = Read and write EXIF information
+	pkgver = 13.55
+	pkgrel = 1
+	url = https://exiftool.org/
+	arch = any
+	license = Artistic-1.0-Perl OR GPL-3.0-or-later
+	makedepends = git
+	depends = perl
+	optdepends = perl-archive-zip: Support for zip files, including epub
+	optdepends = perl-io-compress-brotli: Support for brotli-compressed metadata
+	provides = exiftool
+	provides = perl-exiftool=13.55
+	replaces = perl-exiftool
+	options = !emptydirs
+	source = git+https://github.com/exiftool/exiftool.git#tag=13.55
+	sha256sums = 7c6d27285894bcfdeda40f6fdbbed561797f6ada1220c780830f4697ab74f512
+
+pkgname = perl-image-exiftool

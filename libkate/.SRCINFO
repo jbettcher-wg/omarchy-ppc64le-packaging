@@ -1,0 +1,25 @@
+pkgbase = libkate
+	pkgdesc = A karaoke and text codec for embedding in ogg
+	pkgver = 0.4.3
+	pkgrel = 4
+	url = https://gitlab.xiph.org/xiph/kate
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = liboggz
+	makedepends = python-wxpython
+	depends = glibc
+	depends = libogg
+	depends = libpng
+	optdepends = liboggz: for KateDJ
+	optdepends = python-wxpython: for KateDJ
+	provides = libkate.so
+	provides = liboggkate.so
+	source = https://gitlab.xiph.org/xiph/kate/-/archive/kate-0.4.3/kate-kate-0.4.3.tar.gz
+	sha512sums = 3946bcf87d3f00bcf76d2ea7498274ee71c17ca0d78817fd1e41ee61dc6771b42279f6bbd1788bce6617b14f50517afa097a8b8556f55adc9312e8da52c0e371
+	b2sums = 52c26664dc8aa284aa39b82cf32e54739207ed10077a6ceb574ee5e2de2bf14335b8a4099bb1a973a881d98ab1630328725d70b54e0b59ca88ae9c03466b2cc6
+
+pkgname = libkate

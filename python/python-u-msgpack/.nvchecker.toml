@@ -1,0 +1,4 @@
+[python-u-msgpack]
+source = "git"
+git = "https://github.com/vsergeev/u-msgpack-python.git"
+prefix = "v"

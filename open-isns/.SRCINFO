@@ -1,0 +1,17 @@
+pkgbase = open-isns
+	pkgdesc = iSNS server and client for Linux
+	pkgver = 0.103
+	pkgrel = 1
+	url = https://github.com/gonzoleeman/open-isns
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	license = GPL
+	makedepends = meson
+	depends = openssl
+	source = open-isns-0.103.tar.gz::https://github.com/gonzoleeman/open-isns/archive/v0.103.tar.gz
+	sha256sums = 47499f3ce87a832840884dcf3eedbec8c039f472fe921a5378e3b206a3fc1a32
+
+pkgname = open-isns

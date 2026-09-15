@@ -1,0 +1,25 @@
+pkgbase = pavucontrol-qt
+	pkgdesc = A Pulseaudio mixer in Qt (port of pavucontrol)
+	pkgver = 2.4.0
+	pkgrel = 1
+	url = https://github.com/lxqt/pavucontrol-qt
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = lxqt
+	license = GPL2
+	makedepends = lxqt-build-tools
+	depends = pulse-native-provider
+	depends = qt6-base
+	source = https://github.com/lxqt/pavucontrol-qt/releases/download/2.4.0/pavucontrol-qt-2.4.0.tar.xz
+	source = https://github.com/lxqt/pavucontrol-qt/releases/download/2.4.0/pavucontrol-qt-2.4.0.tar.xz.asc
+	validpgpkeys = 169704C6FB490C6892C7F23C37E0AF1FDA48F373
+	validpgpkeys = 7C733BA5F585AAD669E4D23A42C9C8D3AF5EA5E3
+	validpgpkeys = 19DFDF3A579BD509DBB572D8BE793007AD22DF7E
+	validpgpkeys = 48836EB124A1EAAE695EDFEA229CA0A00A17D258
+	sha256sums = 7f813d3029e9f1b66020cf3da143d07196dd8bce01a95bd754489287ca5b6380
+	sha256sums = SKIP
+
+pkgname = pavucontrol-qt

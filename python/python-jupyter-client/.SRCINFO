@@ -1,0 +1,32 @@
+pkgbase = python-jupyter-client
+	pkgdesc = Jupyter protocol implementation and client libraries
+	pkgver = 8.8.0
+	pkgrel = 2
+	url = https://pypi.python.org/pypi/jupyter_client
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = iproute2
+	checkdepends = net-tools
+	checkdepends = openssh
+	checkdepends = python-ipykernel
+	checkdepends = python-pytest-jupyter
+	checkdepends = python-pytest-timeout
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = ipython
+	depends = python
+	depends = python-dateutil
+	depends = python-jupyter-core
+	depends = python-pexpect
+	depends = python-pyzmq
+	depends = python-tornado
+	depends = python-traitlets
+	provides = python-jupyter_client
+	conflicts = python-jupyter_client
+	replaces = python-jupyter_client
+	source = git+https://github.com/jupyter/jupyter_client#tag=v8.8.0
+	sha256sums = 391352f4c978075c9ac015ab9d40703d8bdcd4cfb959d682a6ec1308a85a80fe
+
+pkgname = python-jupyter-client

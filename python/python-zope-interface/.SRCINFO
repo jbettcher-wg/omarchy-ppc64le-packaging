@@ -1,0 +1,24 @@
+pkgbase = python-zope-interface
+	pkgdesc = Zope Interfaces for Python 3.x
+	pkgver = 8.5
+	pkgrel = 1
+	url = https://github.com/zopefoundation/zope.interface
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = ZPL-2.1
+	checkdepends = python-zope-event
+	checkdepends = python-zope-testing
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = git
+	depends = glibc
+	depends = python
+	source = git+https://github.com/zopefoundation/zope.interface.git#tag=8.5
+	sha512sums = 6d57671d957cf9e787d2eb42724005d027c26e2211d42b2e7773077d089f658add78cbc30b0d9348b6515e5bad94aff5edd8d50a169952083ad88554383bb851
+
+pkgname = python-zope-interface

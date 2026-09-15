@@ -1,0 +1,18 @@
+pkgbase = ruby-net-ftp
+	pkgdesc = Support for the File Transfer Protocol
+	pkgver = 0.3.9
+	pkgrel = 1
+	url = https://github.com/ruby/net-ftp
+	arch = any
+	license = RUBY
+	license = BSD-2-CLAUSE
+	checkdepends = ruby-bundler
+	checkdepends = ruby-rake
+	checkdepends = ruby-test-unit
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/ruby/net-ftp/archive/v0.3.9/ruby-net-ftp-0.3.9.tar.gz
+	sha512sums = d26eb4c0e1d2b635d3aa288da75f1ba38820baec651262d66aac358890127b8297d020746a6173c11b086ddca0fa1838fd15e2a7cc298d3af364ec8700fa8263
+	b2sums = bedc157a4c9e714100ca2ac01750ae9f6e9513b2c616fdc63ecba97948f2ba76ffc5c5e7acdab6e6f26f42de3f444b74b14bdc8c23d2edcd1786366deef154b7
+
+pkgname = ruby-net-ftp

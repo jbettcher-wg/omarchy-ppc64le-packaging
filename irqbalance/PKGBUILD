@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Contributor: Dan McGee <dan@archlinux.org>
+# Contributor: Martin Striz <ms@poruba.net>
+
+pkgname=irqbalance
+pkgver=1.9.5
+pkgrel=3
+pkgdesc="IRQ balancing daemon for SMP systems"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/irqbalance/irqbalance"
+license=(GPL-2.0-only)
+depends=(
+  glibc
+  libnl
+)
+makedepends=(
+  glib2
+  libcap-ng
+  meson
+  ncurses
+  numactl
+  systemd
+  systemd-libs
+)
+source=(
+  $pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz
+)
+sha512sums=('03734f005f3326900f3c08fa982c76245f1adb04babdf36f1471ab5c169807838215445f707758fe2a4b20299861effc1e66d8fcef661d8f04ae0e5c496f171c')
+b2sums=('9a8576ca0c8df2212a95820fe999da4b640cbe04977319bc9fea54b32df07f5cfbb986aeb22cd87597fdeccae19fccb324271177d6ee5ec64a227c6cd97a88cb')
+
+build() {
+  arch-meson $pkgname-$pkgver -D pkgconfdir=/usr/share/$pkgname build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  depends+=(
+    glib2 libglib-2.0.so
+    libcap-ng libcap-ng.so
+    ncurses libncursesw.so
+    numactl libnuma.so
+    systemd-libs libsystemd.so
+  )
+
+  meson install -C build --destdir "$pkgdir"
+  install -vDm 644 $pkgname-$pkgver/{AUTHORS,README.md} -t "$pkgdir/usr/share/doc/$pkgname/"
+}

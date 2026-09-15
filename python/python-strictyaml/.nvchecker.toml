@@ -1,0 +1,3 @@
+[python-strictyaml]
+source = "git"
+git = "https://github.com/crdoconnor/strictyaml.git"

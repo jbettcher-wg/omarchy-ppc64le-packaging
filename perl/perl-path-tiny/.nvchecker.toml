@@ -1,0 +1,4 @@
+[perl-path-tiny]
+source = "git"
+git = "https://github.com/dagolden/Path-Tiny.git"
+prefix = "release-"

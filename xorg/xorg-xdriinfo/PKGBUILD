@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xdriinfo
+pkgver=1.0.8
+pkgrel=1
+pkgdesc="Query configuration information of DRI drivers"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('custom')
+depends=('libx11' 'libgl')
+makedepends=('xorg-util-macros' 'xorgproto')
+groups=('xorg-apps' 'xorg')
+source=(https://xorg.freedesktop.org/archive/individual/app/xdriinfo-${pkgver}.tar.xz{,.sig})
+sha512sums=('36ea6a453b7f3ec7caa028282c701c98dfb45886dc833e31931d3ed6333a96a5bf7d3816bf5db51b3c359297f25e242c913eae4dd01be5de557475b4cd98d458'
+            'SKIP')
+# validpgpkeys=('4A193C06D35E7C670FA4EF0BA2FB9E081F2D130E') # Alan Coopersmith <alan.coopersmith@oracle.com>
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # Alan Coopersmith <alan.coopersmith@oracle.com>
+
+build() {
+  cd xdriinfo-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xdriinfo-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -m755 -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

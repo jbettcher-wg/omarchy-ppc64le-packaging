@@ -1,0 +1,222 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Tom Newsom <Jeepster@gmx.co.uk>
+# Contributor: Paul Mattal <paul@archlinux.org>
+
+pkgname=ffmpeg4.4
+pkgver=4.4.8
+pkgrel=2
+pkgdesc='Complete solution to record, convert and stream audio and video'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://ffmpeg.org/
+license=(GPL-3.0-only)
+depends=(
+  alsa-lib
+  aom
+  bzip2
+  cairo
+  fontconfig
+  fribidi
+  glib2
+  glibc
+  gmp
+  gnutls
+  gsm
+  jack
+  lame
+  libass.so
+  libavc1394
+  libbluray.so
+  libdav1d.so
+  libdrm
+  libfreetype.so
+  libiec61883
+  libmodplug
+  libpulse
+  librav1e.so
+  libraw1394
+  librsvg-2.so
+  libsoxr
+  libssh
+  libtheora
+  libva.so
+  libva-drm.so
+  libva-x11.so
+  libvdpau
+  libvidstab.so
+  libvorbisenc.so
+  libvorbis.so
+  libvpx.so
+  libwebp
+  libx11
+  libx264.so
+  libx265.so
+  libxcb
+  libxext
+  libxml2
+  libxv
+  libxvidcore.so
+  libzimg.so
+  opencore-amr
+  openjpeg2
+  opus
+  sdl2
+  speex
+  srt
+  svt-av1
+  v4l-utils
+  xz
+  zlib
+)
+depends_x86_64=(
+  libmfx
+)
+makedepends=(
+  amf-headers
+  avisynthplus
+  git
+  ladspa
+)
+makedepends_x86_64=(
+  nasm
+)
+optdepends=(
+  'avisynthplus: AviSynthPlus support'
+  'ladspa: LADSPA filters'
+)
+optdepends_x86_64=(
+  'intel-media-sdk: Intel QuickSync support'
+  'nvidia-utils: Nvidia NVDEC/NVENC support'
+)
+provides=(
+  libavcodec.so
+  libavdevice.so
+  libavfilter.so
+  libavformat.so
+  libavutil.so
+  libpostproc.so
+  libswresample.so
+  libswscale.so
+)
+_tag=9bcede27c26b2f7cd469ab6b5c8b9694c30cfca3
+source=(
+  git+https://git.ffmpeg.org/ffmpeg.git#tag=n${pkgver}
+  binutils-2.41.patch
+  powerpc-disable-ppc4xx.patch
+)
+b2sums=('8330b51b7db436c8e3985f7530eaef1ad6815fb2b5537e7f3762abc69459ae858e5bbe530c12bb36939218a85344b099c0248fd230d57ede248cb10480304ee7'
+        'b656a17dd3996c6871d322ba1fcf25410ed580d9600348cda087d705660601d06070492300d31c12d54b0e9914cb92bb9d997e51462c0577e1a90539bf0b76ee'
+        '90cb6bf3c96c4acc3e82190539be8e7fb5db5322190b7a04deb764e0d76f87c1398bf3a79b364126eba65988c20c5474cd04e239dc2a98fd815781dc75fec6f7')
+
+pkgver() {
+  cd ffmpeg
+  git describe --tags | sed 's/^n//'
+}
+
+prepare() {
+  cd ffmpeg
+  git cherry-pick -n 031f1561cd286596cdb374da32f8aa816ce3b135 # remove compressed_ten_bit_format
+  git cherry-pick -n d1ed5c06e3edc5f2b5f3664c80121fa55b0baa95 # Fix build against svt-av1 3.0
+#  git cherry-pick -n a5d4c398b411a00ac09d8fe3b66117222323844c # Fix against avt-av1 4.0
+
+  patch -Np1 -i ${srcdir}/powerpc-disable-ppc4xx.patch
+}
+
+build() {
+  cd ffmpeg
+
+  case "${CARCH}" in
+    powerpc|powerpc64) _configure_flags=(
+               --disable-altivec # altivec support on 32/64be is broken
+               --disable-power8  # buildbot may be a power9
+               --disable-vsx     # later SIMD, disable them forcefully
+            )
+    ;;
+    powerpc64le)
+    ;;
+    x86_64) _configure_flags=(
+               --enable-libmfx
+            )
+    ;;
+  esac
+
+  CFLAGS+=" -Wno-incompatible-pointer-types" \
+  ./configure \
+    --prefix=/usr \
+    --incdir=/usr/include/ffmpeg4.4 \
+    --libdir=/usr/lib/ffmpeg4.4 \
+    --disable-debug \
+    --disable-doc \
+    --disable-programs \
+    --disable-static \
+    --disable-stripping \
+    --enable-amf \
+    --enable-avisynth \
+    --enable-lto \
+    --enable-fontconfig \
+    --enable-gmp \
+    --enable-gnutls \
+    --enable-gpl \
+    --enable-ladspa \
+    --enable-libaom \
+    --enable-libass \
+    --enable-libbluray \
+    --enable-libdav1d \
+    --enable-libdrm \
+    --enable-libfreetype \
+    --enable-libfribidi \
+    --enable-libgsm \
+    --enable-libiec61883 \
+    --enable-libjack \
+    --enable-libmodplug \
+    --enable-libmp3lame \
+    --enable-libopencore_amrnb \
+    --enable-libopencore_amrwb \
+    --enable-libopenjpeg \
+    --enable-libopus \
+    --enable-libpulse \
+    --enable-librav1e \
+    --enable-librsvg \
+    --enable-libsoxr \
+    --enable-libspeex \
+    --enable-libsrt \
+    --enable-libssh \
+    --enable-libsvtav1 \
+    --enable-libtheora \
+    --enable-libv4l2 \
+    --enable-libvidstab \
+    --enable-libvorbis \
+    --enable-libvpx \
+    --enable-libwebp \
+    --enable-libx264 \
+    --enable-libx265 \
+    --enable-libxcb \
+    --enable-libxml2 \
+    --enable-libxvid \
+    --enable-libzimg \
+    --enable-shared \
+    --enable-version3 ${_configure_flags[@]}
+
+  make
+  make tools/qt-faststart
+  make doc/ff{mpeg,play}.1
+}
+
+package() {
+  make DESTDIR="${pkgdir}" -C ffmpeg install
+  cd "${pkgdir}"
+  # Move libs to /usr/lib, except the .so symlinks
+  local f
+  for f in usr/lib/ffmpeg4.4/*; do
+    if [[ $f == *.so ]]; then
+      ln -srf -- usr/lib/"$(readlink "$f")" "$f"
+    elif [[ ! -d $f ]]; then
+      mv "$f" usr/lib
+    fi
+  done
+  rm -r usr/share
+}
+
+# vim:set sw=2 et:

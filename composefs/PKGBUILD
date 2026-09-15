@@ -1,0 +1,47 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=composefs
+pkgver=1.0.8
+pkgrel=1
+pkgdesc="A file system for mounting container images"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/containers/composefs"
+license=(
+  LGPL-2.1-or-later
+  'BSD-2-Clause OR GPL-2.0-or-later'
+  'GPL-2.0-only OR Apache-2.0'
+  GPL-3.0-or-later
+)
+depends=(
+  gcc-libs
+  glibc
+  openssl
+)
+makedepends=(
+  fuse3
+  go-md2man
+  meson
+)
+checkdepends=(
+  python
+)
+source=(
+  $pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz
+)
+sha512sums=('8341092aa5e786f5d0b42990e99888879e703d8caf15ef9d419be517113edc283ddd5caa89780fe59ee041584b3bdebe418f90788a2884680d4bd40c548743f5')
+b2sums=('87256ca47fb16c01e58a5dd4baa90e66989b751d9a1ea906cda997a75dfbec98685fa24602c96f577cc176286eccb28ee4822cf2070c6d4e34dea60728681491')
+
+build() {
+  arch-meson $pkgname-$pkgver build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -vDm 644 $pkgname-$pkgver/BSD-2-Clause.txt -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

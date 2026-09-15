@@ -1,0 +1,26 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+
+pkgname=perl-tree-dag-node
+pkgver=1.39
+pkgrel=1
+pkgdesc="base class for trees"
+arch=(any)
+url="https://search.cpan.org/dist/Tree-DAG_Node"
+license=('GPL' 'PerlArtistic')
+depends=('perl-file-slurper')
+options=('!emptydirs')
+source=(https://www.cpan.org/authors/id/R/RS/RSAVAGE/Tree-DAG_Node-$pkgver.tgz)
+sha512sums=('3b86c5a385d032582cd35d63e476dc136b4b96c396677a5749bd1228218bd73faa266c148674ef212c9ef946f2447bc319176b5d4c46051516a19a5796c93135')
+
+build() {
+  cd  "$srcdir"/Tree-DAG_Node-$pkgver
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+package() {
+  cd  "$srcdir"/Tree-DAG_Node-$pkgver
+  make install DESTDIR="$pkgdir"
+}

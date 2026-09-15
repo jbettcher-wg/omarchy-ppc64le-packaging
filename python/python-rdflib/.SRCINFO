@@ -1,0 +1,20 @@
+pkgbase = python-rdflib
+	pkgdesc = A Python library for working with RDF, a simple yet powerful language for representing information
+	pkgver = 7.6.0
+	pkgrel = 1
+	url = https://github.com/RDFLib/rdflib
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	checkdepends = python-networkx
+	checkdepends = python-lxml
+	checkdepends = python-orjson
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	depends = python-pyparsing
+	source = git+https://github.com/RDFLib/rdflib.git#tag=7.6.0
+	sha512sums = c394cc97ceb1d07bc7cb98575b3c1e1146330cd0c14d69684b8eed43f06f4818ef8e5e977dbe695cf6a07f9cf0af39b112733d92f536834bb3202f4639987921
+
+pkgname = python-rdflib

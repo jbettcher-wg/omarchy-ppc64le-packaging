@@ -1,0 +1,22 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Andy Mender <andymenderunix@gmail.com>
+
+pkgname=nuklear
+pkgver=4.12.8
+pkgrel=1
+pkgdesc='Single-header ANSI C immediate mode cross-platform GUI library'
+url='https://github.com/Immediate-Mode-UI/Nuklear'
+arch=(any)
+license=(MIT)
+source=(${url}/archive/refs/tags/${pkgver}/${pkgname}-${pkgver}.tar.gz)
+sha512sums=('fc3613fc579825d22c103225bcca72d1e9fbb349fe06237e4d77652d7af3293e33e983be03dd4180c93c4c7602a2529c5c1edd87cde3d5efe09ec787818bac48')
+b2sums=('5ccc95d762fbbe4d239449e0b8524779cf0abec0446e8088ecc12a15c30d1c147a67667f749a8485ad03acf88ae0535c2cf4ce62252b98d94579ac9e8e036931')
+
+package() {
+  cd Nuklear-${pkgver}
+  install -Dm 644 nuklear.h -t "$pkgdir"/usr/include
+  install -Dm 644 Readme.md -t "$pkgdir"/usr/share/licenses/"$pkgname"
+}
+
+# vim: ts=2 sw=2 et:

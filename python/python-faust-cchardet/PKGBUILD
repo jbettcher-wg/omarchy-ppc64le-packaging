@@ -1,0 +1,50 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+
+pkgname=python-faust-cchardet
+pkgver=3.0.0
+pkgrel=1
+pkgdesc="Fork of the original cChardet"
+url="https://github.com/faust-streaming/cChardet"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-only OR LGPL-2.1-only OR MPL-1.1')
+depends=(
+  glibc
+  libgcc
+  libstdc++
+  python
+)
+makedepends=(
+  cython
+  git
+  meson-python
+  python-build
+  python-installer
+  python-wheel
+)
+provides=("python-cchardet=$pkgver")
+conflicts=(python-cchardet)
+source=(
+  "faust-cchardet::git+$url#tag=v$pkgver"
+  "git+https://gitlab.freedesktop.org/uchardet/uchardet.git"
+)
+b2sums=('fef41471e37ba6df1b0e608d01b492e0cbf9236706f47686ea4dd42b5c8de7d8cd32779663e1aecff22bcf09946cc7d2f76de263c64e72c105a23c59103c0b87'
+        'SKIP')
+
+prepare() {
+  cd faust-cchardet
+
+  git submodule init
+  git submodule set-url src/ext/uchardet "$srcdir/uchardet"
+  git -c protocol.file.allow=always -c protocol.allow=never submodule update
+}
+
+build() {
+  python -m build --wheel --no-isolation faust-cchardet
+}
+
+package() {
+  python -m installer --destdir="$pkgdir" faust-cchardet/dist/*.whl
+}
+
+# vim:set sw=2 sts=-1 et:

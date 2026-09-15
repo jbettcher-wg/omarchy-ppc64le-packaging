@@ -1,0 +1,44 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-fields
+pkgver=5.0.0
+pkgrel=20
+arch=(any)
+pkgdesc='A totally different take on container boilerplate'
+url='https://github.com/ionelmc/python-fields'
+license=('BSD-2-Clause')
+depends=('python')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-pytest' 'python-attrs')
+source=("git+https://github.com/ionelmc/python-fields.git#tag=v$pkgver"
+        python310.patch)
+sha512sums=('03de8991f025dee62fefbbbb57d7ab9fca9bbdaf46b317110be2673cba714ef851e5a180998ddf12d957217be2e82b3fcc870ab8088085a73d0ef214269b6b38'
+            '72876eba870204558d4f1a8216be5e2240406e669929605919b1adeb03a9cf230909d7658c26197189e61bd4005bcb00665c652bff6f14a97cdff881e6b45f80')
+
+prepare() {
+  cd python-fields
+  patch -Np1 -i ../python310.patch
+  sed -i 's/\[pytest\]/[tool:pytest]/;s/--benchmark-disable//' setup.cfg
+}
+
+build() {
+  cd python-fields
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd python-fields
+  # Drop performance test as it relies on characteristic
+  PYTHONPATH=src python -m pytest --ignore=tests/test_perf.py tests
+}
+
+package() {
+  cd python-fields
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

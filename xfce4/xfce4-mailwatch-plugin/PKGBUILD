@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Suzy Williams <suzanne.williams3@verizon.net>
+
+pkgname=xfce4-mailwatch-plugin
+pkgver=1.4.0
+pkgrel=1
+pkgdesc="Multi-protocol, multi-mailbox mail watcher for the Xfce4 panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/panel-plugins/xfce4-mailwatch-plugin/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'gnutls')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-mailwatch-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('691a6177d2c7d3b0e35c8a75aa838c231101aa9f6ca9e6eb565bb5a835ea901f')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

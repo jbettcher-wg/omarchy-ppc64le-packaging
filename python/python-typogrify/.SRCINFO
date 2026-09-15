@@ -1,0 +1,18 @@
+pkgbase = python-typogrify
+	pkgdesc = filters to make caring about typography on the web a bit easier
+	pkgver = 2.1.0
+	pkgrel = 2
+	url = https://github.com/justinmayer/typogrify
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-smartypants
+	source = https://github.com/justinmayer/typogrify/archive/2.1.0/typogrify-2.1.0.tar.gz
+	sha256sums = 212603210fb5a55fd5bed4c34cd9043b96ab605b190d4e17e27396330147e523
+
+pkgname = python-typogrify

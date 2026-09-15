@@ -1,0 +1,4 @@
+[rtkit]
+source = "git"
+git = "https://gitlab.freedesktop.org/pipewire/rtkit.git"
+prefix = "v"

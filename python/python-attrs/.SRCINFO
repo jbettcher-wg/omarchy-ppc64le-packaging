@@ -1,0 +1,22 @@
+pkgbase = python-attrs
+	pkgdesc = Attributes without boilerplate.
+	pkgver = 26.1.0
+	pkgrel = 1
+	url = https://www.attrs.org
+	arch = any
+	license = MIT
+	checkdepends = python-cloudpickle
+	checkdepends = python-hypothesis
+	checkdepends = python-pytest
+	checkdepends = python-zope-interface
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatch-fancy-pypi-readme
+	makedepends = python-hatch-vcs
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	source = git+https://github.com/python-attrs/attrs.git#tag=26.1.0
+	sha512sums = 6748df23bb17a72d2ce48034d80c718ce707e13504dc7e7cb4c820170e37ce47b21fc71efb0ff742eae2cac6b383d1909c456b899b1f4a213e5a44b0f4104121
+
+pkgname = python-attrs

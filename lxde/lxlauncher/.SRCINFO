@@ -1,0 +1,32 @@
+pkgbase = lxlauncher
+	pkgdesc = Clone of the Asus launcher for EeePC
+	pkgver = 0.2.8
+	pkgrel = 2
+	url = https://github.com/lxde/lxlauncher
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = lxde
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = intltool
+	depends = cairo
+	depends = gdk-pixbuf2
+	depends = glib2
+	depends = glibc
+	depends = gtk3
+	depends = libx11
+	depends = lxmenu-data
+	depends = menu-cache
+	depends = startup-notification
+	conflicts = lxlauncher-gtk3
+	replaces = lxlauncher-gtk3
+	backup = etc/xdg/lxlauncher/gtk.css
+	backup = etc/xdg/lxlauncher/gtkrc
+	backup = etc/xdg/lxlauncher/settings.conf
+	source = git+https://github.com/lxde/lxlauncher.git#tag=0.2.8
+	b2sums = 260cb4ad514381bc9cb4230f98227d9f43dd4237a031604fdcf93de47d680bc2b0127833de6008b113839277fbd1a39db7239d5b42a5855bbbb8b9df6dca7847
+
+pkgname = lxlauncher

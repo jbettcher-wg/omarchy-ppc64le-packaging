@@ -1,0 +1,44 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Jonas Witschel <diabonas@archlinux.org>
+
+pkgname=libtpms
+pkgver=0.10.1
+pkgrel=1
+pkgdesc='Library providing a software emulation of a Trusted Platform Module (TPM 1.2 and TPM 2.0)'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/stefanberger/libtpms'
+license=('BSD-3-Clause')
+depends=(
+  'glibc'
+  'openssl'
+)
+makedepends=('git')
+source=("git+$url.git?signed#tag=v$pkgver")
+sha512sums=('11b023199beb54c38df6d60eedc0dcddcdf99f866788da5e893ec5337795623b3442f8878e3fff06dd31eb5e682c8ef159a8b43f33baeddbe978f563e4f96bc6')
+validpgpkeys=('B818B9CADF9089C2D5CEC66B75AD65802A0B4211') # Stefan Berger <stefanb@linux.vnet.ibm.com>
+
+prepare() {
+	cd "$pkgname"
+	autoreconf --install --force
+}
+
+build() {
+	cd "$pkgname"
+  ./configure \
+    --prefix=/usr \
+    --with-openssl \
+    --with-tpm2
+	make
+}
+
+check() {
+	cd "$pkgname"
+	make check
+}
+
+package() {
+	cd "$pkgname"
+	make DESTDIR="$pkgdir" install
+	install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

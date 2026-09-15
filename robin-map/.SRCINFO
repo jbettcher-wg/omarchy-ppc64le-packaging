@@ -1,0 +1,12 @@
+pkgbase = robin-map
+	pkgdesc = C++ implementation of a fast hash map and hash set using robin hood hashing
+	pkgver = 1.4.1
+	pkgrel = 1
+	url = https://github.com/Tessil/robin-map
+	arch = x86_64
+	license = MIT
+	makedepends = cmake
+	source = robin-map-1.4.1.tar.gz::https://github.com/Tessil/robin-map/archive/v1.4.1.tar.gz
+	sha512sums = c77dba232537e71f930a9a54f4e7575debcac10bbfa67f002a3b7262889871d146de583b774b5c8a0b5bf5a7471ee17c375bda6bb4f3f3cf52e1d33313231be2
+
+pkgname = robin-map

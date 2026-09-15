@@ -1,0 +1,43 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-zope-exceptions
+_pkgname=zope.exceptions
+pkgver=6.0
+pkgrel=3
+pkgdesc="Generic exceptions and implementations for Zope"
+arch=(any)
+url="https://github.com/zopefoundation/zope.exceptions"
+license=('ZPL-2.1')
+depends=(
+  'python'
+  'python-zope-interface'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=('python-zope-testrunner')
+source=("git+$url.git#tag=$pkgver")
+sha512sums=('48e1154fc367d20b159b4f22720b99a2108386d8af03229c0d5f60efe754c673598816b6188457f77d49d5245cb953362dc3afbf447d5cda81e30352545608a2')
+
+build() {
+  cd "$_pkgname"
+  python -m build --wheel --no-isolation --skip-dependency-check
+}
+
+check() {
+  cd "$_pkgname"
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m zope.testrunner -vc --test-path src/
+}
+
+package() {
+  cd "$_pkgname"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

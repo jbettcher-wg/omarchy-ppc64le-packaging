@@ -1,0 +1,86 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas 'Segaja' Schleifer <segaja at archlinux dot org>
+
+_gemname='resolv-replace'
+pkgname="ruby-${_gemname}"
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='Replace Socket DNS with Resolv'
+arch=(any)
+url="https://github.com/ruby/${_gemname}"
+license=('Ruby' 'BSD-2-Clause')
+depends=(
+  ruby
+  ruby-resolv
+)
+makedepends=(
+  ruby-rdoc
+)
+options=('!emptydirs')
+source=("${url}/archive/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
+sha512sums=('be4c16f3edcf3497cb553c3ec477e27c908fc0cb419aedd06c0569ab4d4e5ad03e36776f92b8bef4e36f8269a25d42529f6f2c4940c36a2a39c3d136c5ec89d6')
+b2sums=('f13d3edf63a996c360d82bbb922833afa005374a922436a2b19b40f821603944b07e947dfab28d5f2a92cf80532f09adae5e0cfddef7425ffaab3b646d8cc4a0')
+
+prepare() {
+  cd "${_gemname}-${pkgver}"
+
+  # update gemspec/Gemfile to allow newer version of the dependencies
+  sed --in-place --regexp-extended 's|~>|>=|g' "${_gemname}.gemspec"
+
+  # we don't build from a git checkout
+  sed --in-place --regexp-extended 's|`git ls-files -z`\.split\("\\x0"\)|`find . -type f -not -path "*/\.git*" -printf "%P\\n"`\.split\("\\n"\)|' "${_gemname}.gemspec"
+}
+
+build() {
+  cd "${_gemname}-${pkgver}"
+
+  local _gemdir="$(gem env gemdir)"
+
+  gem build --verbose "${_gemname}.gemspec"
+
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install${_gemdir}" \
+    --bindir "tmp_install/usr/bin" \
+    "${_gemname}-${pkgver}.gem"
+
+  # remove unreproducible files
+  rm --force --recursive --verbose \
+    "tmp_install${_gemdir}/cache/" \
+    "tmp_install${_gemdir}/gems/${_gemname}-${pkgver}/vendor/" \
+    "tmp_install${_gemdir}/doc/${_gemname}-${pkgver}/ri/ext/"
+
+  find "tmp_install${_gemdir}/gems/" \
+    -type f \
+    \( \
+      -iname "*.o" -o \
+      -iname "*.c" -o \
+      -iname "*.so" -o \
+      -iname "*.time" -o \
+      -iname "gem.build_complete" -o \
+      -iname "Makefile" \
+    \) \
+    -delete
+
+  find "tmp_install${_gemdir}/extensions/" \
+    -type f \
+    \( \
+      -iname "mkmf.log" -o \
+      -iname "gem_make.out" \
+    \) \
+    -delete
+}
+
+package() {
+  cd "${_gemname}-${pkgver}"
+
+  cp --archive --verbose tmp_install/* "${pkgdir}"
+
+  install --verbose -D --mode=0644 BSDL COPYING --target-directory "${pkgdir}/usr/share/licenses/${pkgname}"
+  install --verbose -D --mode=0644 *.md --target-directory "${pkgdir}/usr/share/doc/${pkgname}"
+}
+
+# vim: tabstop=2 shiftwidth=2 expandtab:

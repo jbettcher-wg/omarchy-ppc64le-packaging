@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Fabian Bornschein <fabiscafe@archlinux.org>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=uhttpmock
+pkgver=0.11.0
+pkgrel=1.1
+pkgdesc="HTTP web service mocking project for projects which use libsoup"
+url="https://gitlab.freedesktop.org/pwithnall/uhttpmock"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+license=(LGPL-2.1-or-later)
+depends=(
+  gcc-libs
+  glib2
+  glibc
+  libsoup3
+)
+makedepends=(
+  git
+  gobject-introspection
+  gtk-doc
+  meson
+  vala
+)
+source=("git+https://gitlab.freedesktop.org/pwithnall/uhttpmock.git#tag=$pkgver")
+b2sums=('121a8a8b71cb6f3d7faa8c044670ce6de574fc6f92d54a47870477751ef17967c7d4858cae21bb21c8445dc30a95d060a552d100a6901d1adcbc297ae87f898e')
+
+prepare() {
+  cd $pkgname
+}
+
+build() {
+  arch-meson $pkgname build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

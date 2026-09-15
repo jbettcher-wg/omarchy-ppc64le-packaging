@@ -1,0 +1,16 @@
+pkgbase = python-websocket-client
+	pkgdesc = WebSocket client library for Python
+	pkgver = 1.9.0
+	pkgrel = 3
+	url = https://github.com/websocket-client/websocket-client
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python
+	source = https://pypi.io/packages/source/w/websocket-client/websocket_client-1.9.0.tar.gz
+	sha512sums = 63385845aaaf792167d681c4b3089b09ea4dedbf931fa1f4ebc55648b6d864c2a479ac61f758d6a7967ce84e59e197613c976069f64381599c274f89c3edd0b4
+
+pkgname = python-websocket-client

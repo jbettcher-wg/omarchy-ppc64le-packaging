@@ -1,0 +1,60 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Damir Perisa <damir.perisa@bluewin.ch>
+
+pkgbase=openbabel
+pkgname=(openbabel python-openbabel)
+pkgver=3.2.1
+pkgrel=1
+pkgdesc='A library designed to interconvert between many file formats used in molecular modeling and computational chemistry'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://openbabel.org/'
+license=(GPL-2.0-only)
+depends=(libgcc
+         libstdc++
+         glibc)
+makedepends=(boost
+             cmake
+             coordgen
+             eigen
+             git
+             inchi
+             maeparser
+             python-setuptools
+             rapidjson
+             swig
+             wxwidgets-gtk3)
+source=(git+https://github.com/openbabel/openbabel#tag=openbabel-${pkgver//./-})
+sha256sums=('ea037205e22522f87af2dd7f717d3af6511319b778223eb6e39f968309f983a2')
+
+build() {
+  cmake -B build -S openbabel \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DRUN_SWIG=ON \
+    -DPYTHON_BINDINGS=ON \
+    -DOPENBABEL_USE_SYSTEM_INCHI=ON
+  cmake --build build
+
+  # To split python bindings
+  sed -i '/scripts.cmake_install.cmake/d' build/cmake_install.cmake
+}
+
+package_openbabel() {
+  depends+=(cairo
+            coordgen
+            inchi
+            libxml2
+            maeparser
+            zlib)
+  optdepends=('wxwidgets-gtk3: GUI interface')
+
+  DESTDIR="$pkgdir" cmake --install build
+}
+
+package_python-openbabel() {
+  depends+=(openbabel
+            python)
+
+  DESTDIR="$pkgdir" cmake --install build/scripts
+}

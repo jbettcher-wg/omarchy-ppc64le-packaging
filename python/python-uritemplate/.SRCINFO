@@ -1,0 +1,19 @@
+pkgbase = python-uritemplate
+	pkgdesc = A Python implementation of RFC6570
+	pkgver = 4.2.0
+	pkgrel = 2
+	url = https://github.com/python-hyper/uritemplate
+	arch = any
+	license = BSD-3-Clause OR Apache-2.0
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = python-uritemplate::git+https://github.com/python-hyper/uritemplate#tag=4.2.0
+	sha512sums = aa35627b930e352515ae6d4ffc674f1980ffc0b9872d6cff3058d16073caeab5543d4d473c6f7237f4bb4bb886a7d3331565438ee099eeb01b32de5e2476e5fe
+	b2sums = 3d6ea6552ce243670ae4b45d6a380d0201a549b95942bf4d77ac7cb8cfed9852df578447a560713a3513db782c1f20c3635557d16f217a6e9654cd0f46311088
+
+pkgname = python-uritemplate

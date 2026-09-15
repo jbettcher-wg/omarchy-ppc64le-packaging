@@ -1,0 +1,31 @@
+pkgbase = rst2pdf
+	pkgdesc = Use a text editor. Make a PDF
+	pkgver = 0.105
+	pkgrel = 1
+	url = https://github.com/rst2pdf/rst2pdf
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	depends = python-docutils
+	depends = python-jinja
+	depends = python-packaging
+	depends = python-pillow
+	depends = python-pygments
+	depends = python-reportlab
+	depends = python-yaml
+	optdepends = plantuml: for UML diagram support
+	optdepends = python-aafigure: for ASCII image support
+	optdepends = python-pyphen: for hyphenation support
+	optdepends = python-matplotlib: for math support
+	optdepends = python-sphinx: for sphinx support
+	optdepends = python-svglib: for SVG support
+	source = git+https://github.com/rst2pdf/rst2pdf.git#tag=0.105
+	sha512sums = 299cc9b7f164aeb1b2bbf20efb67103f9e60d06fbe6aaea3a0bb9ddfb9ee7b01f6322fd3bc3e8264f0fdf90fd666338f997fe491989c0f68a4c835a9bc191a7e
+	b2sums = be3416aea5e8955c13a2f44bf7ee3cad3add2d6bfb94a677f5329ecda2682f29af3f9b9656e2969626de16274d054de41a0e54979804db954b7de56805485a39
+
+pkgname = rst2pdf

@@ -1,0 +1,24 @@
+pkgbase = python-textual
+	pkgdesc = Modern Text User Interface framework
+	pkgver = 8.2.3
+	pkgrel = 1
+	url = https://github.com/Textualize/textual
+	arch = any
+	license = MIT
+	checkdepends = python-pytest-asyncio
+	checkdepends = python-time-machine
+	checkdepends = python-pytest-xdist
+	checkdepends = python-pytest-textual-snapshot
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	depends = python
+	depends = python-rich
+	depends = python-markdown-it-py
+	depends = python-linkify-it-py
+	depends = python-typing_extensions
+	depends = python-platformdirs
+	source = textual-8.2.3.tar.gz::https://github.com/Textualize/textual/archive/v8.2.3.tar.gz
+	sha512sums = a9949612e58e8e6889c739430c1c15be05c96619bec9386691645e91f6842b422127d4a5b7d5a3dcaf0ed2015864d2338ffde7352b7394c4fdb167f9a129aadd
+
+pkgname = python-textual

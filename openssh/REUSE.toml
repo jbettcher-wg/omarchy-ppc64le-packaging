@@ -1,0 +1,33 @@
+version = 1
+
+[[annotations]]
+path = [
+    "PKGBUILD",
+    "README.md",
+    "keys/**",
+    ".SRCINFO",
+    ".gitignore",
+    ".nvchecker.toml",
+    "*.install",
+    "*.sysusers",
+    "*sysusers.conf",
+    "*.tmpfiles",
+    "*tmpfiles.conf",
+    "*.logrotate",
+    "*.pam",
+    "*.service",
+    "*.socket",
+    "*.timer",
+    "*.desktop",
+    "*.hook",
+    "*.conf",
+]
+SPDX-FileCopyrightText = "Arch Linux contributors"
+SPDX-License-Identifier = "0BSD"
+
+[[annotations]]
+path = [
+    "0001-fix-GSSAPI-option-names.patch",
+]
+SPDX-FileCopyrightText = "openssh contributors"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"

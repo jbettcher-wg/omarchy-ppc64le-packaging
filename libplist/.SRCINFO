@@ -1,0 +1,22 @@
+pkgbase = libplist
+	pkgdesc = Library to handle Apple Property List files
+	pkgver = 2.7.0
+	pkgrel = 3
+	url = https://libimobiledevice.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = cython
+	makedepends = git
+	makedepends = python-setuptools
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	optdepends = python: Python bindings
+	source = git+https://github.com/libimobiledevice/libplist.git#tag=2.7.0
+	b2sums = 11c3255893c3ccc1f7aa3538d3b6cda6180aafdcd46a40c2d41bf160c738d67516e151317cfb68e4b400b1a1865b81400451df1e1378497c49fff10dad164c62
+
+pkgname = libplist

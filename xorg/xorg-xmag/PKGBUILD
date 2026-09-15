@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xmag
+pkgver=1.0.8
+pkgrel=1.1
+pkgdesc="Magnify parts of the screen"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT-open-group' 'X11')
+depends=('libxaw' 'libxmu' 'libxt' 'libx11' 'glibc')
+makedepends=('xorg-util-macros')
+source=(https://xorg.freedesktop.org/archive/individual/app/xmag-${pkgver}.tar.xz{,.sig})
+sha512sums=('d4dbf6bf60a5a3ac88309cdc8f07284a20bd3b044795cd54e002ee5956fa317a09e5f21a9469a6fd9a786f109d8592d8b8e5128ac86850391a6445ccc1f7a11c'
+            'SKIP')
+validpgpkeys=('4A193C06D35E7C670FA4EF0BA2FB9E081F2D130E') # Alan Coopersmith <alan.coopersmith@oracle.com>
+
+build() {
+  cd xmag-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xmag-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+}

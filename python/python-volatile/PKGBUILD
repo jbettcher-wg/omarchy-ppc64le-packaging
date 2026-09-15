@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+
+pkgname=python-volatile
+pkgver=2.1.0
+pkgrel=8
+pkgdesc='A small extension for the tempfile module'
+arch=(any)
+url='https://github.com/mbr/volatile'
+license=(MIT)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=("$pkgname::git+$url#tag=$pkgver")
+sha512sums=('ca94dc3b383827827c9dd0e3ca0f092841c973e63ca68b8c42524ace5b0f3bbc8cebac0efb60763d81f46241fc49f13d3281296e1d3fbc747ffcbc878f2fd649')
+b2sums=('3855753fdca459a7a3e6ce7499cb3f49195e4980aae7ccfe622cb89fdeee48e1a207b82d94356306ddc6c1d21ae60df17b60490c245d3664bde6788312b6721f')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+check() {
+  cd "$pkgname"
+
+  PYTHONPATH=. pytest tests
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

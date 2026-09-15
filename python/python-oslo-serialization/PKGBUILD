@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-oslo-serialization
+pkgver=5.9.1
+pkgrel=1
+pkgdesc="Oslo Serialization library"
+arch=(any)
+url="https://docs.openstack.org/developer/oslo.serialization"
+license=('Apache-2.0')
+depends=('python-msgpack' 'python-oslo-utils')
+makedepends=('git' 'python-build' 'python-installer' 'python-pbr')
+checkdepends=('python-stestr' 'python-oslotest' 'python-oslo-i18n')
+source=("git+https://github.com/openstack/oslo.serialization.git#tag=$pkgver")
+sha512sums=('740a80be974e51df6331f4a8867ce0344a370d4be01c900bdab32cbbe567a9d336b97fa10ae4e5c366b5ae468f09a8d3459cd5735a5fb1f7def7476ef45780dc')
+
+build() {
+  cd oslo.serialization
+  python -m build -nw
+}
+
+check() {
+  cd oslo.serialization
+  stestr run
+}
+
+package() {
+  cd oslo.serialization
+  python -m installer --destdir "$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

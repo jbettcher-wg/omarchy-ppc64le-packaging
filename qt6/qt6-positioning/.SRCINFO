@@ -1,0 +1,26 @@
+pkgbase = qt6-positioning
+	pkgdesc = Provides access to position, satellite and area monitoring classes
+	pkgver = 6.11.1
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	groups = qt6
+	license = GPL-3.0-only
+	license = LGPL-3.0-only
+	license = LicenseRef-Qt-Commercial
+	license = Qt-GPL-exception-1.0
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	makedepends = qt6-declarative
+	makedepends = qt6-serialport
+	depends = gcc-libs
+	depends = glibc
+	depends = qt6-base
+	optdepends = geoclue: geoclue2 plugin
+	optdepends = qt6-declarative: QML bindings
+	optdepends = qt6-serialport: NMEA plugin
+	source = git+https://code.qt.io/qt/qtpositioning#tag=v6.11.1
+	sha256sums = 865ff56995375bb6f58f03241a1dfcc166ea735666578370f6df1a43cab43e3d
+
+pkgname = qt6-positioning

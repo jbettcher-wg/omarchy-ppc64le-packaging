@@ -1,0 +1,23 @@
+pkgbase = python-requests-oauthlib
+	pkgdesc = First-class OAuth library support for Requests
+	pkgver = 2.0.0
+	pkgrel = 1
+	url = https://github.com/requests/requests-oauthlib
+	arch = any
+	license = ISC
+	checkdepends = python-pytest
+	checkdepends = python-requests-mock
+	checkdepends = python-pyjwt
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-requests
+	depends = python-oauthlib
+	source = python-requests-oauthlib::git+https://github.com/requests/requests-oauthlib#tag=v2.0.0
+	sha512sums = 4823e0c027b5b07115530f30517c3cb2fe1841b283257f3a31e5f157edc78f601290ae88394d7011bdee742f08470ad6b9df6dfc3c313849955de069dede1b63
+	b2sums = 84cd1506f72e078a5fbe963ba80ea9265ea9aa3801ab878bb35d5ecbdf77ebcbbfc84220c26ad27b5ee9d5ee1a29f82737053841568a4f5ea5761f7d5087ed03
+
+pkgname = python-requests-oauthlib

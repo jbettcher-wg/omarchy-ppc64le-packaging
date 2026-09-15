@@ -1,0 +1,62 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Geoffroy Carrier <geoffroy.carrier@koon.fr>
+
+pkgname=lxrandr
+pkgver=0.3.3
+pkgrel=3
+pkgdesc='Monitor configuration tool (part of LXDE)'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/lxde/lxrandr'
+license=(GPL-2.0-or-later)
+groups=(lxde)
+depends=(
+  glib2
+  glibc
+  gtk3
+  xorg-xrandr
+)
+makedepends=(
+  git
+  intltool
+)
+conflicts=(lxrandr-gtk3)
+replaces=(lxrandr-gtk3)
+source=(
+  "git+https://github.com/lxde/lxrandr.git#tag=$pkgver"
+  lxrandr-notshowin.patch
+  lxrandr-x11-only.patch
+)
+b2sums=(
+  2a38a2c41f1e45e6bd0cee2e648c477222ec853a091ff410a358788440fa4ea4efe3fafa08aefc9e78e19dc725c1452694b18deb6704b04b05ace82f000c4524
+  68a6a5297ecf2c7689f9b2c1830aeef62ed69c4174b43aa2fbf2dc543d621b0310672c85c2804dceb4cb09a9af8d5409c0b04b03de87b0d567cf2a1e8ffbd21e
+  0b4e6e7c0960ce5b258c0c84372803da1e81f53edc6986d33d1013aabcf687d5f3f105ac0f1f9a6675ef9eb58995c9212ffe0ba3ae74d6062413bad3a2e1d39b
+)
+
+prepare() {
+  cd $pkgname
+
+  # https://github.com/lxde/lxrandr/pull/7
+  git apply -3 ../lxrandr-notshowin.patch
+
+  # https://github.com/lxde/lxrandr/pull/8
+  git apply -3 ../lxrandr-x11-only.patch
+
+  autoreconf -fi
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --enable-gtk3
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

@@ -1,0 +1,51 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Brad Fanella <cesura@archlinux.org>
+# Contributor: Musikolo <musikolo@hotmail.com>
+# Contributor: Ruben Fonseca <fonseka@gmail.com>
+# Contributor: Andreas W. Hauser <andy-aur@splashground.de>
+# Contributor: YongMing Zhang
+
+pkgname=groovy
+pkgver=5.0.4
+pkgrel=1
+pkgdesc='Programming language for the Java platform, inspired by Python, Ruby and Smalltalk'
+arch=(any)
+url='https://groovy-lang.org/'
+license=(Apache-2.0)
+depends=(java-environment)
+makedepends=(gendesk)
+optdepends=('groovy-docs: html and pdf documentation for Groovy')
+validpgpkeys=('34441E504A937F43EB0DAEF96A65176A0FB1CD0B') # Paul King <paulk@apache.org>
+source=("https://groovy.jfrog.io/artifactory/dist-release-local/groovy-zips/apache-$pkgname-binary-$pkgver.zip"
+        "https://downloads.apache.org/groovy/$pkgver/distribution/apache-$pkgname-binary-$pkgver.zip.asc")
+sha256sums=('5e5e9a468d4344e0c8ee0cd68c62751ccf4e5f8f84d7ad9b8abc6a01014b9f79'
+            'SKIP')
+b2sums=('3b4e51b7f4b831ac9c698680a8341b1784e1ab4c0f084bd8c1a4e8dc11aa2f03a23806a6cf6707d9d282b1551dc105f2a71dd42fdd702ee6b207bfdca1375096'
+        'SKIP')
+
+prepare() {
+  gendesk -f -n \
+    --pkgname $pkgname \
+    --pkgdesc 'Groovy programming language' \
+    --exec groovyConsole \
+    --name 'Groovy Console'
+
+  # Modify environment variables in the included scripts
+  for f in $pkgname-$pkgver/bin/*; do
+    sed 's:bin/env\ sh:bin/env\ sh\nGROOVY_HOME=/usr/share/groovy\nexport _JAVA_OPTIONS="-Dawt.useSystemAAFontSettings=gasp $_JAVA_OPTIONS":' -i "$f"
+  done
+}
+
+package() {
+  cd $pkgname-$pkgver
+
+  install -d "$pkgdir/usr/"{bin,share/groovy}
+  cp bin/* "$pkgdir/usr/bin"
+  cp -r lib conf "$pkgdir/usr/share/groovy"
+  rm -v "$pkgdir"/usr/bin/*completion
+  install -Dm644 "$srcdir/$pkgname.desktop" -t "$pkgdir"/usr/share/applications
+  install -Dm644 bin/*completion -t "$pkgdir"/usr/share/bash-completion/completions
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+  find "$pkgdir" -name '*.bat' -type f -exec rm -v {} \;
+}

@@ -1,0 +1,4 @@
+[python-sphinx-hawkmoth]
+source = "git"
+git = "https://github.com/jnikula/hawkmoth.git"
+prefix = "v"

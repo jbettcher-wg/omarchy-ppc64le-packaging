@@ -1,0 +1,23 @@
+pkgbase = python-websockets
+	pkgdesc = Python implementation of the WebSocket Protocol (RFC 6455)
+	pkgver = 16.0
+	pkgrel = 1
+	url = https://github.com/aaugustin/websockets
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	checkdepends = python-werkzeug
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = python
+	source = https://github.com/aaugustin/websockets/archive/16.0/python-websockets-16.0.tar.gz
+	sha512sums = ed0bfe6e6402c1504680e9afcb7478e06a5f1af6c0761e35a9a6192569b59c5cce5d0a9f0aaea35922e499a3968dba409cb8d398829e9dff6466db5cb5b98b98
+	b2sums = 409323f84f919064f758ad06bccf526d1aafac7aee791b9fd35908081ad13cbd252ca49cefbfdc870e5526da82e641750ee46f0103e53c10f0e9b35f9483982f
+
+pkgname = python-websockets

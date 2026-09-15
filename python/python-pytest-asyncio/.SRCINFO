@@ -1,0 +1,18 @@
+pkgbase = python-pytest-asyncio
+	pkgdesc = Pytest support for asyncio.
+	pkgver = 1.4.0
+	pkgrel = 1
+	url = https://github.com/pytest-dev/pytest-asyncio
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-hypothesis
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	depends = python
+	depends = python-pytest
+	source = git+https://github.com/pytest-dev/pytest-asyncio.git#tag=v1.4.0
+	b2sums = c69dd14eeb4281d8b36b1d0f9a930f8147a283580bf3dcb2b70c6c511c043fc76c765e800161bae0f3891e5c601101ae3ad437a0c5053bd69df3b3a3c2cece61
+
+pkgname = python-pytest-asyncio

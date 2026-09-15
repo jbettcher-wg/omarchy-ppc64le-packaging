@@ -1,0 +1,22 @@
+pkgbase = imath
+	pkgdesc = A C++ and python library of 2D and 3D vector, matrix, and math operations for computer graphics
+	pkgver = 3.2.2
+	pkgrel = 6
+	url = https://www.openexr.com/
+	arch = x86_64
+	license = BSD-3-Clause
+	makedepends = boost
+	makedepends = boost-libs
+	makedepends = cmake
+	makedepends = git
+	makedepends = python
+	makedepends = python-numpy
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	optdepends = boost-libs: python bindings
+	optdepends = python: python bindings
+	source = git+https://github.com/AcademySoftwareFoundation/Imath#tag=v3.2.2
+	sha256sums = c691c5d0ae8efb549ee558ba0876eda345817ba15718384dccd6b32c06c58212
+
+pkgname = imath

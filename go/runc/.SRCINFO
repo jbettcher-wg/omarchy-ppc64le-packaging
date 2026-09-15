@@ -1,0 +1,25 @@
+pkgbase = runc
+	pkgdesc = CLI tool for managing OCI compliant containers
+	pkgver = 1.4.2
+	pkgrel = 1
+	url = https://runc.io/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	license = Apache
+	makedepends = git
+	makedepends = go
+	makedepends = go-md2man
+	depends = libseccomp
+	optdepends = criu: checkpoint support
+	provides = oci-runtime
+	options = !lto
+	source = runc-1.4.2.tar.xz::https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.tar.xz
+	source = runc-1.4.2.tar.xz.sig::https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.tar.xz.asc
+	validpgpkeys = 5F36C6C61B5460124A75F5A69E18AA267DDB8DB4
+	validpgpkeys = C9C370B246B09F6DBCFC744C34401015D1D2D386
+	validpgpkeys = C2428CD75720FACDCF76B6EA17DE5ECB75A1100E
+	sha256sums = cc7b4630a2940cc844f01da81765a3fe6713ceb7f0dbf287f6b20fd89f55d05f
+	sha256sums = SKIP
+
+pkgname = runc

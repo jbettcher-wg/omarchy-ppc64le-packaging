@@ -1,0 +1,27 @@
+pkgbase = libimobiledevice
+	pkgdesc = Library to communicate with services on iOS devices using native protocols
+	pkgver = 1.4.0
+	pkgrel = 2
+	url = https://libimobiledevice.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = cython
+	makedepends = doxygen
+	makedepends = git
+	makedepends = python-setuptools
+	depends = glibc
+	depends = libimobiledevice-glue
+	depends = libplist
+	depends = libtatsu
+	depends = libusbmuxd
+	depends = openssl
+	depends = readline
+	optdepends = python: Python bindings
+	source = git+https://github.com/libimobiledevice/libimobiledevice.git#tag=1.4.0
+	b2sums = f5471cb7d97b5b87f3fd5f6e89a6dc08e98de1fe6b976af78f6e7b6c1f434639c34c3f03135727b0e3bf22d3f6ddab723e3c9110befe278944d8160eff50f9e4
+
+pkgname = libimobiledevice

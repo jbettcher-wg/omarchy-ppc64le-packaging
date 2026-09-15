@@ -1,0 +1,22 @@
+pkgbase = python-pyudev
+	pkgdesc = Python bindings to libudev
+	pkgver = 0.24.4
+	pkgrel = 1
+	url = https://github.com/pyudev/pyudev
+	arch = any
+	license = LGPL-2.1-or-later
+	checkdepends = python-pytest
+	checkdepends = python-docutils
+	checkdepends = python-hypothesis
+	checkdepends = python-pip
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-sphinx
+	depends = systemd
+	optdepends = python-wxpython: WX integration
+	source = pyudev-0.24.4.tar.gz::https://github.com/pyudev/pyudev/archive/v0.24.4.tar.gz
+	sha512sums = d0edd89a9b024fd166d6286920a37baac5a739f89101a6d7c4dca3dad0b6d8d4a61e93c0ef1ca3795a677558579bdfecf49a5d5b61837345eed90a31fed4aa20
+
+pkgname = python-pyudev

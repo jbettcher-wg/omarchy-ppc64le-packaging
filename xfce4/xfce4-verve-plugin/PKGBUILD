@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Tobias Kieslich <tobias (at) archlinux.org>
+
+pkgname=xfce4-verve-plugin
+pkgver=2.1.0
+pkgrel=1
+pkgdesc="Command line plugin for the Xfce panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-or-later')
+url="https://docs.xfce.org/panel-plugins/xfce4-verve-plugin/start"
+groups=('xfce4-goodies')
+depends=('xfce4-panel')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-verve-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('bd0d119d3722ed9f10fb6944ac29dd9b443a7e6e00eedab2c0cab353883fff76')
+
+build() {
+  arch-meson $pkgname build
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

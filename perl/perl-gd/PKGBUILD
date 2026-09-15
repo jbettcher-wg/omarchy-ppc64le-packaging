@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Sergej Pupykin <pupykin.s+aur@gmail.com>
+
+pkgname=perl-gd
+pkgver=2.86
+pkgrel=1
+pkgdesc="Interface to Gd Graphics Library"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://search.cpan.org/dist/GD"
+license=('GPL-1.0-or-later' 'Artistic-2.0')
+depends=('perl' 'gd')
+makedepends=('perl-extutils-pkgconfig' 'perl-file-which')
+options=('!emptydirs')
+source=(https://search.cpan.org/CPAN/authors/id/R/RU/RURBAN/GD-$pkgver.tar.gz)
+sha512sums=('30bbcaf59f396d2c198c47c235135ca995b9561cb5513ff28202617c22435ae9ee300170acd8468870ecdaef564160eed7c293b17059728e652944eca31e2315')
+
+build() {
+  export PERL_MM_USE_DEFAULT=1 PERL_AUTOINSTALL="--skipdeps" \
+    PERL_MM_OPT="INSTALLDIRS=vendor DESTDIR='"$pkgdir"'" \
+    PERL_MB_OPT="--installdirs vendor --destdir '"$pkgdir"'" \
+    MODULEBUILDRC=/dev/null
+
+  cd  "$srcdir"/GD-$pkgver
+  perl Makefile.PL
+  make
+}
+
+package() {
+  cd  "$srcdir"/GD-$pkgver
+  make install
+}

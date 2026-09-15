@@ -1,0 +1,19 @@
+pkgbase = python-autopage
+	pkgdesc = A library to provide automatic paging for console output
+	pkgver = 0.6.0
+	pkgrel = 1
+	url = https://github.com/zaneb/autopage
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest
+	checkdepends = python-fixtures
+	checkdepends = python-testtools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://pypi.python.org/packages/source/a/autopage/autopage-0.6.0.tar.gz
+	sha512sums = f063100ee81bba9da967c1543acfa8d17658c0fdc4d63e8b0f50eea142b6dd08279347aa247f8bba5b5dbcd4904575c733860cae6df2e41fd5580bc0e6cbe983
+
+pkgname = python-autopage

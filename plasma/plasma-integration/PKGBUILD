@@ -1,0 +1,113 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgbase=plasma-integration
+pkgname=(plasma-integration
+         plasma5-integration)
+pkgver=6.7.4
+_dirver=$(echo $pkgver | cut -d. -f1-3)
+pkgrel=5
+pkgdesc='Qt Platform Theme integration plugins for the Plasma workspaces'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://kde.org/plasma-desktop/'
+license=(LGPL-2.0-or-later)
+depends=(glibc
+         kcolorscheme
+         kconfig
+         kcoreaddons
+         kguiaddons
+         kiconthemes
+         ki18n
+         kio
+         kjobwidgets
+         kservice
+         kstatusnotifieritem
+         kwidgetsaddons
+         kwindowsystem
+         libstdc++
+         libxcb
+         libxcursor
+         qqc2-breeze-style
+         qqc2-desktop-style
+         qt6-base
+         qt6-declarative
+         wayland)
+makedepends=(extra-cmake-modules
+             plasma-wayland-protocols
+             kconfig5
+             ki18n5
+             kiconthemes5
+             kio5
+             knotifications5
+             kwayland5
+             kwindowsystem5
+             qt5-base
+             qt5-declarative
+             qt5-quickcontrols2
+             qt5-wayland
+             qt5-x11extras)
+groups=(plasma)
+source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz{,.sig}
+        https://invent.kde.org/plasma/plasma-integration/-/commit/6c7be886.patch)
+sha256sums=('54e65b1170499ccc567f9bb7586809d4739ea728efcf1bc877d1709db6e7347a'
+            'SKIP'
+            'e1ef0ec72dd2e8bc0332d084ddcba5bae825969fedc5bc43e5b472185e27399f')
+validpgpkeys=('E0A3EB202F8E57528E13E72FD7574483BB57B18D'  # Jonathan Esk-Riddell <jr@jriddell.org>
+              '0AAC775BB6437A8D9AF7A3ACFE0784117FBCE11D'  # Bhushan Shah <bshah@kde.org>
+              'D07BD8662C56CB291B316EB2F5675605C74E02CF'  # David Edmundson <davidedmundson@kde.org>
+              '1FA881591C26B276D7A5518EEAAF29B42A678C20') # Marco Martin <notmart@gmail.com>
+
+prepare() {
+  patch -d $pkgname-$pkgver -p1 < 6c7be886.patch # Fix crash on dialog close
+}
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QT5=OFF
+  cmake --build build
+
+  cmake -B build5 -S $pkgname-$pkgver \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QT6=OFF
+  cmake --build build5
+}
+
+package_plasma-integration() {
+  depends+=(noto-fonts
+            ttf-hack
+            xdg-desktop-portal-kde)
+  DESTDIR="$pkgdir" cmake --install build
+}
+
+package_plasma5-integration() {
+  pkgdesc='Qt5 Platform Theme integration plugins for the Plasma workspaces'
+  depends=(glibc
+           kconfig5
+           kconfigwidgets5
+           kcoreaddons5
+           ki18n5
+           kiconthemes5
+           kio5
+           kjobwidgets5
+           knotifications5
+           kservice5
+           kwayland5
+           kwidgetsaddons5
+           kwindowsystem5
+           libstdc++
+           libxcb
+           libxcursor
+           qt5-base
+           qt5-declarative
+           qt5-quickcontrols2
+           qt5-wayland
+           qt5-x11extras
+           wayland)
+  conflicts=('plasma-integration<5.27.80')
+  replaces=('plasma-integration<5.27.80')
+  groups=()
+
+  DESTDIR="$pkgdir" cmake --install build5
+}

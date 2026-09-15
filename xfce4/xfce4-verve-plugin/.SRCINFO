@@ -1,0 +1,20 @@
+pkgbase = xfce4-verve-plugin
+	pkgdesc = Command line plugin for the Xfce panel
+	pkgver = 2.1.0
+	pkgrel = 1
+	url = https://docs.xfce.org/panel-plugins/xfce4-verve-plugin/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xfce4-goodies
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = meson
+	makedepends = xfce4-dev-tools
+	depends = xfce4-panel
+	source = git+https://gitlab.xfce.org/panel-plugins/xfce4-verve-plugin.git#tag=xfce4-verve-plugin-2.1.0
+	sha256sums = bd0d119d3722ed9f10fb6944ac29dd9b443a7e6e00eedab2c0cab353883fff76
+
+pkgname = xfce4-verve-plugin

@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Ash Berlin-Taylor <ash_archlinux@firemirror.com>
+pkgname='perl-yaml-pp'
+pkgver=0.41.0
+pkgrel=1
+_distdir="YAML-PP-v$pkgver"
+pkgdesc="Simple configuration automation"
+arch=(any)
+license=('PerlArtistic' 'GPL')
+options=('!emptydirs')
+depends=('perl>=0')
+makedepends=('perl-test-deep>=0' 'perl-test-warn>=0')
+checkdepends=('perl-test-warnings')
+url='https://search.cpan.org/dist/YAML-PP'
+source=("https://cpan.metacpan.org/authors/id/T/TI/TINITA/YAML-PP-v$pkgver.tar.gz")
+sha512sums=('c19baa180d8cd105bda7b7e03cc05bb1709a9fc097b2fb40fe9c085d3726d4334bb3796760add1175a30a0c4da6b01797c9261a717679c86f823e033584cebc7')
+
+build() {
+  ( export PERL_MM_USE_DEFAULT=1 PERL5LIB=""                 \
+      PERL_AUTOINSTALL=--skipdeps                            \
+      PERL_MM_OPT="INSTALLDIRS=vendor DESTDIR='$pkgdir'"     \
+      PERL_MB_OPT="--installdirs vendor --destdir '$pkgdir'" \
+      MODULEBUILDRC=/dev/null
+
+    cd "$srcdir/$_distdir"
+    /usr/bin/perl Makefile.PL
+    make
+  )
+}
+
+check() {
+  cd "$srcdir/$_distdir"
+  ( export PERL_MM_USE_DEFAULT=1 PERL5LIB=""
+    make test
+  )
+}
+
+package() {
+  cd "$srcdir/$_distdir"
+  make install
+
+}

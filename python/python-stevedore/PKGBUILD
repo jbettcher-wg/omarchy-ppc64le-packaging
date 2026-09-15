@@ -1,0 +1,28 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org
+
+pkgname=python-stevedore
+pkgver=5.4.1
+pkgrel=1
+pkgdesc="Manage dynamic plugins for Python applications"
+arch=(any)
+url="https://github.com/openstack/stevedore"
+license=('Apache-2.0')
+depends=('python')
+makedepends=('git' 'python-pbr' 'python-setuptools')
+options=('!emptydirs')
+source=("git+https://opendev.org/openstack/stevedore.git#tag=$pkgver")
+sha256sums=('5d1fb4b0603bd73236d647e0a9720938c1d69f249dd6fcb8a18906eebe87139d')
+
+prepare() {
+  cd stevedore
+  # Remove dependency on pbr; it's not a runtime dependency
+  sed -i '/pbr/d' requirements.txt
+}
+
+package() {
+  cd stevedore
+  python setup.py install --root="$pkgdir" -O1
+}
+
+# vim:set ts=2 sw=2 et:

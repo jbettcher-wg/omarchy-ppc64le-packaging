@@ -1,0 +1,5 @@
+[libvips]
+source = "git"
+git = "https://github.com/libvips/libvips.git"
+prefix = "v"
+exclude_regex = ".*(alpha|beta|rc).*"

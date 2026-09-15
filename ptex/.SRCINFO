@@ -1,0 +1,22 @@
+pkgbase = ptex
+	pkgdesc = Per-Face Texture Mapping for Production Rendering
+	pkgver = 2.5.1
+	pkgrel = 1
+	url = http://ptex.us/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = doxygen
+	makedepends = cmake
+	makedepends = ninja
+	depends = zlib
+	depends = gcc-libs
+	depends = libdeflate
+	source = ptex-2.5.1.tar.gz::https://github.com/wdas/ptex/archive/v2.5.1.tar.gz
+	sha512sums = 26265899d3bb47eca67052d69b08efb89a01cf06a01a4aabdd8118e0497aac87319317450719ac56ea676bbb2ea771bd9b8fe73bc41caa8a2a6818cbc3d83bea
+
+pkgname = ptex

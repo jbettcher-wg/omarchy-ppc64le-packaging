@@ -1,0 +1,21 @@
+pkgbase = time
+	pkgdesc = Utility for monitoring a program's use of system resources
+	pkgver = 1.10
+	pkgrel = 1
+	url = https://www.gnu.org/software/time/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-3.0-only
+	depends = glibc
+	source = https://ftp.gnu.org/gnu/time/time-1.10.tar.gz
+	source = https://ftp.gnu.org/gnu/time/time-1.10.tar.gz.sig
+	validpgpkeys = 2371185508D1317BD578E5CC8CE6491AE30D7D75
+	sha512sums = f785d2cd8144276983b7f31c3eff694af898339b6f041a7abfa555d9a16fb1ba970ebf8ee84e91ea3e744f5dfa34ef6b218b200379d88c1e4dd74c0b2c8fbb8c
+	sha512sums = SKIP
+	b2sums = 4ae3f7294e715abe90940af3384dfb6519ccf48a9ebcbfb1244ab63e025e88cd7090fda4b53e68c6fdb8b667f51061c980acee8b49edd42211cf5032bb64e868
+	b2sums = SKIP
+
+pkgname = time

@@ -1,0 +1,22 @@
+pkgbase = python-pbr
+	pkgdesc = Python Build Reasonableness
+	pkgver = 7.0.3
+	pkgrel = 3
+	url = https://pypi.python.org/pypi/pbr
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-stestr
+	checkdepends = python-testresources
+	checkdepends = python-testscenarios
+	checkdepends = python-testtools
+	checkdepends = python-virtualenv
+	checkdepends = python-sphinx
+	checkdepends = python-testrepository
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	depends = python-setuptools
+	source = git+https://github.com/openstack-dev/pbr.git#tag=7.0.3
+	sha512sums = ec2e43ef12eeb4e71deb76b44862e2fde588e96505b3e4e67d4aaadb62a796baa25777feaac9ded79e3759e3bc8da6465d6bafdf408757810df2893f3a389066
+
+pkgname = python-pbr

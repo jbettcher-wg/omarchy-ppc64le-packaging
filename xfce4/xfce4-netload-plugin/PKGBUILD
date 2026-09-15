@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Aurelien Foret <orelien@chez.com>
+
+pkgname=xfce4-netload-plugin
+pkgver=1.5.0
+pkgrel=1
+pkgdesc="A netload plugin for the Xfce panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/panel-plugins/xfce4-netload-plugin/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-netload-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('fe8ffbbd3eeee8f97cbf783079bb6d799f6ebc06904eee90273ac4a7c5201efe')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

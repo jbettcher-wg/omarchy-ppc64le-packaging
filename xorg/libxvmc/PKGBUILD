@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=libxvmc
+pkgver=1.0.15
+pkgrel=1
+pkgdesc="X11 Video Motion Compensation extension library"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://gitlab.freedesktop.org/xorg/lib/libxvmc"
+license=('MIT')
+depends=('libxext' 'libxv' 'libx11' 'xorgproto' 'glibc')
+makedepends=('meson')
+source=(https://xorg.freedesktop.org/releases/individual/lib/libXvMC-${pkgver}.tar.xz{,.sig})
+sha512sums=('92ae35f11ca60289062e58c0a31bdf14b739fa09d3b421b4eabb7a6f05cb9cb30159c161301191df6c253aadebe35634ca717ebff329d169ab016a5469453737'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') #  Alan Coopersmith <alan.coopersmith@oracle.com>
+#validpgpkeys+=('C41C985FDCF1E5364576638B687393EE37D128F8') # Matthieu Herrb <matthieu.herrb@laas.fr>
+#validpgpkeys+=('995ED5C8A6138EB0961F18474C09DD83CAAA50B2') # "Adam Jackson <ajax@nwnk.net>"
+#validpgpkeys=('3BB639E56F861FA2E86505690FDD682D974CA72A') # Matt Turner <mattst88@gmail.com>
+
+build() {
+ arch-meson libXvMC-${pkgver} build
+ # Print config
+ meson configure build
+ meson compile -C build
+}
+
+check() {
+  meson test -C build
+}
+
+package() {
+  DESTDIR="$pkgdir" meson install -C build
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 libXvMC-$pkgver/COPYING
+}

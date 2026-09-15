@@ -1,0 +1,4 @@
+[enchant]
+source = "git"
+git = "https://github.com/rrthomas/enchant.git"
+prefix = "v"

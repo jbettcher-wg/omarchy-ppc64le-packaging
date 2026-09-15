@@ -1,0 +1,4 @@
+[python-xmltodict]
+source = "git"
+git = "https://github.com/martinblech/xmltodict.git"
+prefix = "v"

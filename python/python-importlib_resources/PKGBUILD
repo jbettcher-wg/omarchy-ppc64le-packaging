@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+_name=importlib_resources
+pkgname=python-importlib_resources
+pkgver=6.5.2
+pkgrel=2
+pkgdesc="Design and implementation for a planned importlib.resources"
+arch=(any)
+url="https://github.com/python/importlib_resources"
+license=(Apache-2.0)
+depends=(
+  python
+  python-zipp
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools-scm
+  python-toml
+  python-wheel
+)
+provides=(python-importlib-resources)
+source=($pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz)
+sha512sums=('b15a03ede526606b619d6dafc5194b225b2efdad896a027d1862a1b9941d445dd1754bec091716c9f0d6cfc6d450c78b5dd9d8cba9dc4c4050abb584fa720444')
+b2sums=('c790d700c1778239e9e890152e65ac4747c06d4745eb7a7b69928b8cd911a1022a47db8a2f7eb9f168d1506a3baed3c4e44190d4d2fef5678ae2604fb8809ca5')
+
+build() {
+  cd $_name-$pkgver
+  SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver python -m build --wheel --no-isolation
+}
+
+package() {
+  local _site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 README.rst -t "$pkgdir/usr/share/doc/$pkgname/"
+  # remove tests
+  rm -frv "$pkgdir/$_site_packages/$_name/tests/"
+}

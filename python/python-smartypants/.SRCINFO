@@ -1,0 +1,19 @@
+pkgbase = python-smartypants
+	pkgdesc = Python with the SmartyPants
+	pkgver = 2.0.2
+	pkgrel = 2
+	url = https://github.com/justinmayer/smartypants.py
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = python-docutils
+	checkdepends = python-pygments
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://github.com/justinmayer/smartypants.py/archive/v2.0.2/python-smartypants-2.0.2.tar.gz
+	sha512sums = 6cdb1574145f4c15984550c2b10bc95b7a86baf067f6465d53e60696347a650e6afb978f623f2344d82e03281ecb28a1f94cdb759fd2db613dc13fada1b25485
+
+pkgname = python-smartypants

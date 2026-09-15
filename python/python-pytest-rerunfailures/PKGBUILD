@@ -1,0 +1,56 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+
+_name=pytest-rerunfailures
+pkgname=python-pytest-rerunfailures
+pkgver=16.1
+pkgrel=2
+pkgdesc="A plugin for py.test that re-runs failed tests to eliminate intermittent failures"
+arch=(any)
+url="https://github.com/pytest-dev/pytest-rerunfailures/"
+license=(MPL-2.0)
+depends=(
+  python
+  python-packaging
+  python-pytest
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest-xdist
+)
+optdepends=(
+  'python-pytest-xdist: for recovering from crashes'
+)
+source=($_name-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz)
+sha512sums=('c3a528c67edaaecde65c07646d8ea142a15ef903f0dbfc5f6e4f467ed4092fae0faa3e63bae0fadd88c530474415f98f7adabfa346220bb60778eeff3d8ab9bb')
+b2sums=('0cf12db5d46454de9ad676b0d2cf6a544deccb505079989a472c53e93ab6b8fb72e8d15a440be353bbe281a474ac7759763a94270247b20f5f2549c2c36cb412')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  local pytest_options=(
+    -vv
+  )
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  # install to temporary location, as importlib is used
+  python -m installer --destdir=test_dir dist/*.whl
+  export PYTHONPATH="$PWD/test_dir/$site_packages:$PYTHONPATH"
+  pytest "${pytest_options[@]}"
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 {CHANGES.rst,README.rst} -t "$pkgdir/usr/share/doc/$pkgname/"
+}

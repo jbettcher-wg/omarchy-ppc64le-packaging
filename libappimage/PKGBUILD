@@ -1,0 +1,56 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=libappimage
+pkgver=1.0.4.5
+_pkgver=1.0.4-5
+pkgrel=14
+pkgdesc='Reference implementation of the AppImage specification'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://appimage.org/'
+license=(MIT)
+depends=(boost-libs
+         cairo
+         glib2
+         glibc
+         libarchive
+         libgcc
+         librsvg
+         libstdc++
+         squashfuse)
+makedepends=(boost
+             cmake
+             desktop-file-utils
+             git
+             vim
+             wget
+             xdg-utils-cxx)
+source=(git+https://github.com/AppImage/libappimage#tag=v$_pkgver
+        cmake-4.patch)
+sha256sums=('764b20065271769bb66fe1b5409fdfad18e6f8c9ecf8b9b8e5ca400d61327eb9'
+            'e5419e65f92a73c7fae39073288468d41f8f2731c7f21f182b6b195755420ae9')
+
+prepare() {
+  cd $pkgname
+  git cherry-pick -n 1e0515b2 # Fix build with GCC 13
+
+  patch -p1 -i ../cmake-4.patch # Fix build with cmake 4
+}
+
+build() {
+  cmake -B build -S $pkgname \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_C_FLAGS="$CFLAGS -ffat-lto-objects" \
+    -DUSE_SYSTEM_XZ=ON \
+    -DUSE_SYSTEM_SQUASHFUSE=ON \
+    -DUSE_SYSTEM_LIBARCHIVE=ON \
+    -DUSE_SYSTEM_BOOST=ON \
+    -DUSE_SYSTEM_XDGUTILS=ON \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 $pkgname/LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+}

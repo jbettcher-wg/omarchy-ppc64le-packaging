@@ -1,0 +1,3 @@
+[yt-dlp]
+source = "git"
+git = "https://github.com/yt-dlp/yt-dlp.git"

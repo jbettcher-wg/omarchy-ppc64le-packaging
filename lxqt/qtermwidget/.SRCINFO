@@ -1,0 +1,26 @@
+pkgbase = qtermwidget
+	pkgdesc = A terminal widget for Qt, used by QTerminal
+	pkgver = 2.4.0
+	pkgrel = 1
+	url = https://github.com/lxqt/qtermwidget
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.0-or-later
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = lxqt-build-tools
+	makedepends = python-pyqt6
+	makedepends = pyqt-builder
+	makedepends = sip
+	makedepends = python-installer
+	depends = qt6-base
+	optdepends = python: PyQt bindings
+	source = git+https://github.com/lxqt/qtermwidget.git?signed#tag=2.4.0
+	validpgpkeys = 19DFDF3A579BD509DBB572D8BE793007AD22DF7E
+	validpgpkeys = 48836EB124A1EAAE695EDFEA229CA0A00A17D258
+	sha256sums = f38385ca2fd0ed0fd85410619c80933567a3a1ae7eaaafbd244af1436df4c24d
+
+pkgname = qtermwidget

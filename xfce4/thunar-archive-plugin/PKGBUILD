@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Tobias Kieslich <tobias (at) archlinux.org>
+
+pkgname=thunar-archive-plugin
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Adds archive operations to the Thunar file context menus"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/xfce/thunar/archive"
+license=('GPL-2.0-only')
+groups=('xfce4-goodies')
+depends=('thunar' 'hicolor-icon-theme')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+optdepends=('file-roller' 'engrampa' 'ark' 'xarchiver')
+source=("git+https://gitlab.xfce.org/thunar-plugins/thunar-archive-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('01543943f188c341f2b4c698b99279de81202673a5446ff1b391d51e95fc46f8')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var \
+    --libexecdir=/usr/lib/xfce4
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

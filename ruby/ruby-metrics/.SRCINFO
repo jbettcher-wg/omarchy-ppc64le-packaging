@@ -1,0 +1,22 @@
+pkgbase = ruby-metrics
+	pkgdesc = Application metrics and instrumentation
+	pkgver = 0.15.0
+	pkgrel = 1
+	url = https://github.com/socketry/metrics
+	arch = any
+	license = MIT
+	checkdepends = ruby-bake
+	checkdepends = ruby-bake-test
+	checkdepends = ruby-bake-test-external
+	checkdepends = ruby-bundler
+	checkdepends = ruby-covered
+	checkdepends = ruby-decode
+	checkdepends = ruby-sus
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/socketry/metrics/archive/v0.15.0/ruby-metrics-0.15.0.tar.gz
+	sha512sums = 1c3d575194c923c2fa05b45b1a279a5f02c5916e5fe409f6999cd96d6235d518502e6719ae2be17dae4864dc4bddf9c464c838351b6b2a188a386ea192f0ee57
+	b2sums = ced82fc029843c14d10df58951c202522bd5b8a29a35b080f6eb05edaae1bae74ae663f2e4528a2bc562552429b3a9f8a624d98146b88b433c7c88f6ddcaa28b
+
+pkgname = ruby-metrics

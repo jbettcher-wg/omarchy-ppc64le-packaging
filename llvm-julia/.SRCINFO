@@ -1,0 +1,41 @@
+pkgbase = llvm-julia
+	pkgver = 18.1.7.4
+	pkgrel = 2
+	url = https://julialang.org/
+	arch = x86_64
+	arch = powerpc64le
+	license = custom:Apache 2.0 with LLVM Exception
+	makedepends = cmake
+	makedepends = git
+	makedepends = libedit
+	makedepends = libffi
+	makedepends = libxml2
+	makedepends = ncurses
+	makedepends = ninja
+	makedepends = python
+	depends = gcc-libs
+	depends = glibc
+	depends = zlib
+	depends = zstd
+	options = !lto
+	source = llvm-julia::git+https://github.com/JuliaLang/llvm-project#tag=julia-18.1.7-4
+	sha256sums = 626b1bf1acf34d95dd23bf5f56e715c3975b6ccbf5bf12494b0007b14640da63
+
+pkgname = llvm-julia
+	pkgdesc = Compiler infrastructure - Julia fork
+	depends = gcc-libs
+	depends = glibc
+	depends = zlib
+	depends = zstd
+	depends = llvm-julia-libs
+
+pkgname = llvm-julia-libs
+	pkgdesc = LLVM runtime libraries - Julia fork
+	depends = gcc-libs
+	depends = glibc
+	depends = zlib
+	depends = zstd
+	depends = libedit
+	depends = libffi
+	depends = libxml2
+	depends = ncurses

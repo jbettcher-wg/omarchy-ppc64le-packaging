@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
+# Contributor: Alain Kalker <a.c.kalker@gmail.com>
+# Contributor: Marti Raudsepp <marti@juffo.org>
+
+pkgname=libdwarf
+epoch=1
+pkgver=2.3.1
+pkgrel=1
+pkgdesc='A library for handling DWARF Debugging Information Format'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://www.prevanders.net/dwarf.html'
+license=('LGPL-2.1-only' 'GPL-2.0-only' 'BSD-2-Clause' 'BSD-3-Clause' 'LicenseRef-libdwarf-public-domain')
+depends=('glibc' 'elfutils' 'zlib' 'zstd')
+makedepends=('git' 'meson')
+checkdepends=('python')
+provides=('libdwarf.so')
+options=('staticlibs')
+source=("$pkgname::git+https://github.com/davea42/libdwarf-code#tag=libdwarf-$pkgver")
+sha512sums=('4450004a3f6dd7db380e0874935727c34cd54478aa78d77f637cea59dfe524d0b22ffb0735da3bf770bc98e5645ce49c8d236d10dfc63f4639a0a8c3b0ad8c1b')
+b2sums=('50f3776623fcf55f944e1390ccd85c3c10458f1e0b29bca05f55dec211013949d0ada9e45de5babdd607b28c9ece1f31d3b8ccf89a0528ae22ce16870fc7e619')
+
+build() {
+  CFLAGS+=' -ffat-lto-objects'
+
+  arch-meson "$pkgname" build -Ddwarfexample=true
+
+  meson compile -C build
+}
+
+check() {
+  meson test -C build -j1
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+
+  cd "$pkgname"
+
+  # documentation
+  install -vDm644 -t "$pkgdir/usr/share/doc/$pkgname" README NEWS
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" \
+    COPYING src/lib/libdwarf/LIBDWARFCOPYRIGHT \
+    src/bin/dwarfdump/DWARFDUMPCOPYRIGHT
+}

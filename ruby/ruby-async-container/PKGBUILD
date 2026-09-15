@@ -1,0 +1,85 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=ruby-async-container
+pkgver=0.29.1
+pkgrel=1
+pkgdesc='Abstract container-based parallelism using threads and processes where appropriate'
+arch=(any)
+url='https://github.com/socketry/async-container'
+license=(MIT)
+depends=(
+  ruby
+  ruby-async
+)
+makedepends=(
+  git
+)
+checkdepends=(
+  ruby-bake
+  ruby-bake-test
+  ruby-bake-test-external
+  ruby-bundler
+  ruby-covered
+  ruby-decode
+  ruby-metrics
+  ruby-sus
+)
+options=(!emptydirs)
+source=(git+https://github.com/socketry/async-container.git#tag=v$pkgver)
+sha256sums=('461476e12c7d5ab08f93743027ad2bc725ead65e5b0763cba1276beca8bb432f')
+
+prepare() {
+  cd async-container
+
+  sed -r \
+    -e 's|~>|>=|g' \
+    -e '/signing_key/d' \
+    -i async-container.gemspec
+
+  sed --in-place \
+    --expression '/group :maintenance/,/end/d' \
+    --expression '/rubocop/d' \
+    gems.rb
+}
+
+build() {
+  local _gemdir="$(gem env gemdir)"
+  cd async-container
+  gem build async-container.gemspec
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install/$_gemdir" \
+    --bindir "tmp_install/usr/bin" \
+    async-container-$pkgver.gem
+  find "tmp_install/$_gemdir/gems/" \
+    -type f \
+    \( \
+        -iname "*.o" -o \
+        -iname "*.c" -o \
+        -iname "*.so" -o \
+        -iname "*.time" -o \
+        -iname "gem.build_complete" -o \
+        -iname "Makefile" \
+    \) \
+    -delete
+  rm -r tmp_install/$_gemdir/cache
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  local _gemdir="$(gem env gemdir)"
+  cd async-container
+  GEM_HOME="tmp_install/$_gemdir" bake test
+}
+
+package() {
+  cd async-container
+  cp -a tmp_install/* "$pkgdir"/
+}

@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+
+pkgname=usort
+pkgver=1.1.0
+pkgrel=2
+pkgdesc='Safe, minimal import sorting for Python projects'
+arch=(any)
+url='https://github.com/facebookexperimental/usort'
+license=('MIT')
+depends=('python-attrs' 'python-click' 'python-libcst' 'python-moreorless'
+         'python-stdlibs' 'python-toml' 'python-trailrunner')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-hatch-vcs')
+checkdepends=('python-pytest' 'python-volatile')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha512sums=('56737b154b6c35a8a11c1ba5631647d44f26073f8064cf17c5a2a125412a5cc6339b24f6738d2fddefe1a9c80ae2f19d26e0d74b8118c36151e0d6c173f531fa')
+
+build() {
+  cd $pkgname-$pkgver
+
+  SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver python -m build -nw
+}
+
+check() {
+  cd $pkgname-$pkgver
+
+  pytest -v usort/tests/__init__.py
+}
+
+package() {
+  cd $pkgname-$pkgver
+
+  python -m installer -d "$pkgdir" dist/*.whl
+
+  install -Dm 644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+# vim:set ts=2 sw=2 et:

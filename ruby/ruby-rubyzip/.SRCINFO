@@ -1,0 +1,21 @@
+pkgbase = ruby-rubyzip
+	pkgdesc = a ruby module for reading and writing zip files
+	pkgver = 3.2.2
+	pkgrel = 1
+	url = https://github.com/rubyzip/rubyzip
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = ruby-bundler
+	checkdepends = ruby-minitest
+	checkdepends = ruby-rake
+	checkdepends = ruby-simplecov
+	checkdepends = unzip
+	checkdepends = zip
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/rubyzip/rubyzip/archive/v3.2.2/ruby-rubyzip-3.2.2.tar.gz
+	sha512sums = 6b972f92670e249f3b625530816bad2e6ef6e00557239b06cf35ff57d0d8dde3fadcb5919872c5273030e5809171c440244b564480e5d8b534eef0296f70330e
+	b2sums = c537755e6b9842877712c55fe1da817b758f8fb8aefafc133a939792bede0b2f3fff25aea809afaee16b254bcb1a165eb8db70ae591739a9def7d97b645675dc
+
+pkgname = ruby-rubyzip

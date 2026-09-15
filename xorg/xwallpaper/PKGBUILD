@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+
+pkgname=xwallpaper
+pkgver=0.7.6
+pkgrel=1.1
+pkgdesc='Wallpaper setting utility for X'
+url='https://github.com/stoeckmann/xwallpaper'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(ISC)
+depends=(
+  glibc
+  libjpeg-turbo
+  libjpeg.so
+  libpixman-1.so
+  libpng
+  libseccomp
+  libseccomp.so
+  libxcb
+  libxpm
+  pixman
+  xcb-util
+  xcb-util-image
+)
+source=(https://github.com/stoeckmann/xwallpaper/releases/download/v${pkgver}/xwallpaper-${pkgver}.tar.xz{,.asc})
+sha512sums=('dfc8e6dac42add4f8e7f77c9c634a5041015f8f919095ed2074c6b1b0072d3dc7d9627e4013f2ec6951b64ff8bb46a80a138edf33738733efff81eac26debbbd'
+            'SKIP')
+b2sums=('3722e7382e104408f61c101f445cd7f741a0412dea328f1c6c01f3b85b3bdc1a4fc00b81283d88171e54833aabf51322a9a1b00fde72bea02496c2daa8d5db51'
+        'SKIP')
+validpgpkeys=('CDB24BD3BDDCBCBBAE5CB6207DB470F35B0B8B18') # Tobias Stoeckmann <tobias@stoeckmann.org>
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+  autoreconf -fiv
+}
+
+build() {
+  cd ${pkgname}-${pkgver}
+  ./configure \
+    --prefix=/usr \
+    --with-zshcompletiondir=/usr/share/zsh/site-functions
+  make
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm 644 README.md -t "${pkgdir}/usr/share/doc/${pkgname}"
+  install -Dm 644 LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}"
+}
+
+# vim: ts=2 sw=2 et:

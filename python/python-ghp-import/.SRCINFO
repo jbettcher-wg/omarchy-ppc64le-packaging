@@ -1,0 +1,18 @@
+pkgbase = python-ghp-import
+	pkgdesc = Easily import docs to your gh-pages branch
+	pkgver = 2.1.0
+	pkgrel = 6
+	url = https://github.com/c-w/ghp-import
+	arch = any
+	license = Apache-2.0
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	conflicts = ghp-import
+	replaces = ghp-import
+	source = https://github.com/c-w/ghp-import/archive/2.1.0/ghp-import-2.1.0.tar.gz
+	sha512sums = cc258745a972b883e6e5b2dc12601e74305237c1950f95c5a86093e0ebeb0c7eb2192470b2e85ab9ac274bfbc87abe2438750d4f59b3846032fb13f567b04f5b
+
+pkgname = python-ghp-import

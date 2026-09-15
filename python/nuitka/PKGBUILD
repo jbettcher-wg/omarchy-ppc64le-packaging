@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Contributor: Panagiotis Mavrogiorgos <pmav99@gmail.com>
+
+pkgname=nuitka
+pkgver=4.0.6
+pkgrel=1
+pkgdesc='Python compiler with full language support and CPython compatibility'
+arch=(any)
+url='https://nuitka.net'
+license=(Apache-2.0)
+depends=(libxml2 patchelf python-appdirs python-setuptools python-wheel scons)
+makedepends=(gdb python-build python-installer git)
+checkdepends=(ccache fuse2 python-boto3 python-brotli strace)
+optdepends=('ccache: for caching builds')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Nuitka/Nuitka/archive/refs/tags/${pkgver}.tar.gz")
+b2sums=('0c062fbc6f6dfdbe2d1ccda5b4a496a87f4353dd652df4b45ec5e8285b7600ac15f52dc16e7618e9e39d4ba57c637eb8138f380e12f7132b40c3acbea76aea20')
+
+build() {
+  cd ${pkgname^}-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc) return 0 ;;
+  esac
+
+  cd ${pkgname^}-$pkgver
+
+  # Check that compilation works
+  echo 'print("[x] Can compile main.py to an executable.\n[x] Can run the resulting executable.")' > main.py
+  bin/nuitka --output-filename=main --lto=yes --show-scons main.py
+  ./main
+
+  # Tests are disabled for now. See:
+  # https://github.com/Nuitka/Nuitka/issues/2595
+  # https://github.com/Nuitka/Nuitka/issues/2609
+  #cd tests
+  #./run-tests
+}
+
+package() {
+  cd ${pkgname^}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 {Changelog,Developer_Manual,README}.rst -t "$pkgdir/usr/share/doc/$pkgname/"
+}

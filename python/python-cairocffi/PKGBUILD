@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Marti Raudsepp <marti@juffo.org>
+# Contributor: Florijan Hamzic <florijanh@gmail.com>
+
+pkgname=python-cairocffi
+pkgver=1.7.1
+pkgrel=2
+pkgdesc="cffi-based cairo bindings for Python"
+arch=(any)
+url="https://doc.courtbouillon.org/cairocffi"
+license=('BSD')
+depends=('python-cffi' 'cairo')
+makedepends=('python-build' 'python-installer' 'python-flit-core' 'python-xcffib' 'gdk-pixbuf2')
+checkdepends=('python-pytest' 'python-numpy' 'python-pikepdf')
+optdepends=('gdk-pixbuf2: for cairocffi.pixbuf'
+            'python-xcffib: for cairo xcb support')
+source=("https://github.com/Kozea/cairocffi/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('56349a9be1539d1d780decdced803017f351cbbc18617a00b3328b0df6623e202f243d932163b9d3b37a34f4b6f1c619d1fc2f10f502a3cd915ed1904f10092d')
+
+build() {
+  cd cairocffi-$pkgver
+  python -m build -nw
+}
+
+check() {
+  cd cairocffi-$pkgver
+  PYTHONPATH="$PWD/build/lib" pytest
+}
+
+package() {
+  cd cairocffi-$pkgver
+  python -m installer -d "$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

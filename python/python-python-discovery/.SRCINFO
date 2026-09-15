@@ -1,0 +1,23 @@
+pkgbase = python-python-discovery
+	pkgdesc = Python interpreter discovery
+	pkgver = 1.4.4
+	pkgrel = 1
+	url = https://python-discovery.readthedocs.io
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	checkdepends = python-setuptools
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	depends = python
+	depends = python-filelock
+	depends = python-platformdirs
+	source = python-python-discovery::git+https://github.com/tox-dev/python-discovery#tag=1.4.4
+	sha512sums = a856c619f542e9a53b4256508a6b31a22887b792456259b0e8bf294ceff4c102683300844673f7d987027238169ed019bcb696cb255547c590249b5ee33b382c
+	b2sums = 2290c8f5577dff45e03d295b9f89899e6e61117317213bdbc6fbe9ec80e34f831139c3085f47685abc1be18d9bb22cd5150425f08164904de5c352b0e698346f
+
+pkgname = python-python-discovery

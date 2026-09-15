@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-hyperframe
+pkgver=6.1.0
+pkgrel=2
+pkgdesc="HTTP/2 framing layer for Python"
+arch=(any)
+license=('MIT')
+url="https://hyper.rtfd.org"
+depends=('python')
+makedepends=('git' 'python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-pytest')
+source=("git+https://github.com/python-hyper/hyperframe.git#tag=v$pkgver")
+sha512sums=('c32a49914d50d10d0b46b84abb2d27902290eaa0ef0ba3094fa4fda9803a298a3bca63c444dbc7a74c50a086db30955f774d970d31a247796e7586b189efee4a')
+
+build() {
+  cd hyperframe
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd hyperframe
+  PYTHONPATH="$PWD/src" pytest
+}
+
+package() {
+  cd hyperframe
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

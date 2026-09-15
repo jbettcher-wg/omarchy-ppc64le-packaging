@@ -1,0 +1,40 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Kyle Keen <keenerd at gmail dot com>
+
+pkgname=python-pyzmq
+pkgver=27.1.0
+pkgrel=2
+pkgdesc='Python bindings for ZeroMQ'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://zeromq.org/languages/python/'
+license=(BSD-3-Clause)
+depends=(zeromq python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-setuptools-scm
+  python-scikit-build-core
+  python-wheel
+  cython
+)
+source=("$pkgname::git+https://github.com/zeromq/pyzmq#tag=v$pkgver")
+sha512sums=('c551cdeb7ad49312cac5d76427317c085704891d8b36a94dee361396585e2cd87257a885e486ba04623ad63cd456dd3ab88a0d44a0b8397647439bf81a88432b')
+b2sums=('3f371bdb16e859101a4c7f46a7c0ae38e6ac536e52a49e44ed5e58934d7b839db26892a8d14375333bf5fa2aa6368e7e5f2f63cb22dbc705296704881eb0c14c')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.md
+}

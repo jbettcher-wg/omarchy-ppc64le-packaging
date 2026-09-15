@@ -1,0 +1,5 @@
+[directx-headers]
+source = "git"
+git = "https://github.com/microsoft/DirectX-Headers.git"
+include_regex = 'v\d+(\.\d+)*'
+prefix = "v"

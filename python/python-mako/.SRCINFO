@@ -1,0 +1,28 @@
+pkgbase = python-mako
+	pkgdesc = A template library written in Python
+	pkgver = 1.3.12
+	pkgrel = 1
+	url = https://github.com/sqlalchemy/mako
+	arch = any
+	license = MIT
+	checkdepends = python-babel
+	checkdepends = python-beaker
+	checkdepends = python-dogpile.cache
+	checkdepends = python-pygments
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-markupsafe
+	optdepends = python-babel: for i18n features
+	optdepends = python-beaker: for caching support
+	optdepends = python-dogpile.cache: for caching support
+	optdepends = python-pygments: for syntax highlighting
+	optdepends = python-pytest: for testing utilities
+	source = python-mako::git+https://github.com/sqlalchemy/mako.git#tag=rel_1_3_12
+	sha512sums = af0695c90fcbc51380f1c550cfe8e068e4aa3bbaf8760f974644242fbb4ecedcf5e9c367f283be491c68c042b89d3e0da0ed1dc02f402fb0991b43142f3b81bc
+
+pkgname = python-mako

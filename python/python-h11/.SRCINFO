@@ -1,0 +1,18 @@
+pkgbase = python-h11
+	pkgdesc = A pure-Python, bring-your-own-I/O implementation of HTTP/1.1
+	pkgver = 0.16.0
+	pkgrel = 2
+	url = https://github.com/python-hyper/h11
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	source = git+https://github.com/python-hyper/h11.git#tag=v0.16.0
+	sha512sums = d9e97903d8501d09f9524eaa09cded304eaeb41d1afaa69124eefc87c2409ffa546b32914f25bd63687c56e1577d55802fcb1d2f991b0108bb527d28b789af62
+
+pkgname = python-h11

@@ -1,0 +1,21 @@
+pkgbase = exo
+	pkgdesc = Application library for the Xfce desktop environment
+	pkgver = 4.20.0
+	pkgrel = 2
+	url = https://docs.xfce.org/xfce/exo/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	groups = xfce4
+	license = GPL-2.0-or-later AND LGPL-2.1-or-later
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = xfce4-dev-tools
+	depends = libxfce4ui
+	depends = hicolor-icon-theme
+	source = git+https://gitlab.xfce.org/xfce/exo.git#tag=exo-4.20.0
+	sha256sums = 71b1baa8208541b994378dbad80abfaf371a7585b59b1f1e1975fab3fab9c7a2
+
+pkgname = exo

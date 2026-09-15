@@ -1,0 +1,20 @@
+pkgbase = python-pygaljs
+	pkgdesc = Python package providing assets from https://github.com/Kozea/pygal.js
+	pkgver = 1.0.2
+	pkgrel = 6
+	url = https://github.com/ionelmc/python-pygaljs
+	arch = any
+	license = GPL-3.0-or-later
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	source = git+https://github.com/ionelmc/python-pygaljs.git#tag=v1.0.2
+	source = git+https://github.com/Kozea/pygal.js.git
+	sha512sums = 218828260603db7c6c8f4deb3a22d25f6b470fc178f66f8be39ec1543f840261158d1137522d1b037d9556650a84b7814749a121f223945adcfbfcbb42599ca8
+	sha512sums = SKIP
+
+pkgname = python-pygaljs

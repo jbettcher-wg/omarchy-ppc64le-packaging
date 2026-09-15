@@ -1,0 +1,23 @@
+pkgbase = libquotient
+	pkgdesc = A Qt library to write cross-platform clients for Matrix
+	pkgver = 0.9.6.1
+	pkgrel = 2
+	url = https://quotient-im.github.io/libQuotient/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = cmake
+	makedepends = git
+	depends = glibc
+	depends = libolm
+	depends = libstdc++
+	depends = openssl
+	depends = qt6-base
+	depends = qtkeychain-qt6
+	source = git+https://github.com/quotient-im/libQuotient#tag=0.9.6.1
+	sha256sums = 27bbcd83ace2d379acfad7b4c5d4b8b085356a27b38a095f3bebbb133bb9b3b0
+
+pkgname = libquotient

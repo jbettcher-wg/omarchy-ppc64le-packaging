@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: aurelien <aurelien@archlinux.org>
+# Contributor: Tobias Kieslich <tobias (at) archlinux.org>
+
+pkgname=xfce4-mpc-plugin
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Control the Music Player Daemon from the Xfce4 panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/panel-plugins/xfce4-mpc-plugin/start"
+license=('BSD-1-Clause')
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'libmpd')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-mpc-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('1a12867dc5683ef28a8343ad5a11f87eff040eeee89aa0896b339da5922f9feb')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 $pkgname/COPYING "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+# vim:set ts=2 sw=2 et:

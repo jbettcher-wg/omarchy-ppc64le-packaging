@@ -1,0 +1,50 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+# Contributor: eolianoe <eolianoe At GoogleMAIL DoT com>
+# Contributor: Andrey Mikhaylenko <neithere at gmail dot com>
+
+pkgname=python-pkginfo
+_pkgname="${pkgname#python-}"
+pkgver=1.12.1.2
+pkgrel=2
+pkgdesc='Query metadata from sdists / bdists / installed packages'
+arch=(any)
+url='https://pypi.python.org/pypi/pkginfo'
+license=('MIT')
+depends=('python')
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-wheel'
+  'python-setuptools'
+)
+checkdepends=(
+  'python-pytest'
+  'python-packaging'
+  'python-wheel'
+)
+source=("$pkgname-$pkgver.tar.gz::https://pypi.io/packages/source/p/pkginfo/pkginfo-$pkgver.tar.gz")
+sha512sums=('16eed4c19b92384aa422d7a4e352746270bab8dc80b503c73aae0554eca012f38e2099867febf1a205d6fa572f4738f503a80e51ea247af4404581eea4a2d1d4')
+b2sums=('8023dac51913ebcca02310b0f58511962dabb860ae4588b239f55824c59855924f47975cfdad6092244fabb3f48660496d38d333cee296ba899467c820aa57ed')
+
+build() {
+  cd "$_pkgname-$pkgver"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$_pkgname-$pkgver"
+
+  # HACK: needs upstream big report
+  pytest -v -k 'not test_installed_ctor_w_dist_info'
+}
+
+package() {
+  cd "$_pkgname-$pkgver"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.txt
+}

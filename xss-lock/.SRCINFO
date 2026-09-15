@@ -1,0 +1,24 @@
+pkgbase = xss-lock
+	pkgdesc = Use external locker as X screen saver
+	pkgver = 0.4.0
+	pkgrel = 1
+	url = https://github.com/wavexx/xss-lock
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = cmake
+	makedepends = git
+	makedepends = python-docutils
+	depends = bash
+	depends = glib2
+	depends = glibc
+	depends = libxcb
+	depends = xcb-util
+	optdepends = bash-completion: for bash completion
+	source = xss-lock::git+https://github.com/wavexx/xss-lock.git#tag=v0.4.0
+	b2sums = 4f15e12803c5fa30f7777ee99a804a5a47b409fbb029f10ac53d36b3b140884f2c126d0df0900892b537999e34c3ef43d15ba4b5ee66327ec0f9093d54905fef
+
+pkgname = xss-lock

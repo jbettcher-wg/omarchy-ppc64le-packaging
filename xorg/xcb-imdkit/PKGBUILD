@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: csslayer <wengxt AT gmail com>
+
+pkgname=xcb-imdkit
+pkgver=1.0.9
+pkgrel=1.1
+pkgdesc="Input method development support for xcb"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/fcitx/xcb-imdkit"
+license=('GPL')
+depends=('xcb-util' 'xcb-util-keysyms')
+makedepends=('git' 'extra-cmake-modules' 'ninja' 'uthash' 'xorgproto')
+source=("git+https://github.com/fcitx/xcb-imdkit.git#tag=$pkgver?signed")
+sha512sums=('a3bbbe1cabde14b847f1568b3e4e017093b9d8d15f3870d9f433453ab473b062bd6827dfa8f7764d8df6d5077644486cde6a7690694c4ee2ad64336069c09f11')
+validpgpkeys=('2CC8A0609AD2A479C65B6D5C8E8B898CBF2412F9') # Weng Xuetian <wengxt@gmail.com>
+
+build() {
+  cd $pkgname
+  cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=/usr/lib .
+  ninja
+}
+
+check() {
+  cd $pkgname
+  ninja test
+}
+
+package() {
+  cd $pkgname
+  DESTDIR="$pkgdir" ninja install
+}

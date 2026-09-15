@@ -1,0 +1,60 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Johannes Löthberg <johannes@kyriasis.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+
+pkgname=pacman-contrib
+pkgver=1.13.1
+pkgrel=1.1
+pkgdesc='Contributed scripts and tools for pacman systems'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://gitlab.archlinux.org/pacman/pacman-contrib
+license=(GPL-2.0-or-later)
+depends=(pacman)
+makedepends=(
+  asciidoc
+  git
+)
+optdepends=(
+  'diffutils: for pacdiff'
+  'fakeroot: for checkupdates'
+  'findutils: for pacdiff --find'
+  'mlocate: for pacdiff --locate'
+  'plocate: faster mlocate alternative'
+  'perl: for pacsearch'
+  'sudo: privilege elevation for several scripts'
+  'vim: default diff program for pacdiff'
+  'neovim: default diff program for pacdiff if EDITOR=nvim'
+)
+source=("git+$url.git#tag=v$pkgver"
+        pacman-contrib-archpower.patch)
+b2sums=('cf1396aa108c6742d74a369456dfdf6a83286c0e8996b730ed16fa8907d0253ebb49ddcd6b548959d5df8d30af223d7883bbabda9e1dfb006d175400e37a105f'
+        'f6ad5f03a229c19897feb52f1998832d43a6a4d70cd799400fb7c666f6b7d081ffcd4de613515f8b9876ba1dcb944fc01062d928094f04c5a6c6f3ba510891c9')
+validpgpkeys=(04DC3FB1445FECA813C27EFAEA4F7B321A906AD9 44A62127789A949F2F082ED429C71CE612B57264) # Daniel M. Capella <polyzen@archlinux.org>
+#             5134EF9EAF65F95B6BB1608E50FB9B273A9D0BB5)  # Johannes Löthberg <johannes@kyriasis.com>
+
+prepare() {
+  cd $pkgname
+  patch -Np1 -i ${srcdir}/pacman-contrib-archpower.patch
+  ./autogen.sh
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var
+  make
+}
+
+check() {
+  cd $pkgname
+  make check
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set ts=2 sw=2 et:

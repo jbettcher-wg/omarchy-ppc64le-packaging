@@ -1,0 +1,24 @@
+pkgbase = packagekit-qt
+	pkgdesc = Qt bindings for PackageKit
+	pkgver = 1.1.4
+	pkgrel = 1
+	url = http://www.packagekit.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-only
+	makedepends = cmake
+	makedepends = git
+	depends = gcc-libs
+	depends = glibc
+	depends = packagekit
+	depends = qt6-base
+	source = git+https://github.com/PackageKit/PackageKit-Qt#tag=v1.1.4?signed
+	validpgpkeys = 163EB50119225DB3DF8F49EA17ACBA8DFA970E17
+	validpgpkeys = D33A3F0CA16B0ACC51A60738494C8A5FBF4DECEB
+	validpgpkeys = 70C26659D184ABC01FFAF45228DDEDC6E4480AD0
+	sha256sums = 5a765c5f0183fee918b5f2ee0ba72e59c748ef255a2eef0bf9b0530f67401dfa
+
+pkgname = packagekit-qt6

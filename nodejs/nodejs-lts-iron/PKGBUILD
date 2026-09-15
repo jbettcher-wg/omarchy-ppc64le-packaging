@@ -1,0 +1,109 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=nodejs-lts-iron
+pkgver=20.20.0
+pkgrel=1
+pkgdesc="Evented I/O for V8 javascript (LTS release: Iron)"
+arch=(x86_64 powerpc64le powerpc64)
+url="https://nodejs.org/"
+license=(MIT)
+# maybe revert back to openssl-1.1 or internal openssl
+# https://github.com/nodejs/node/issues/47852
+depends=(openssl zlib icu libuv c-ares brotli libnghttp2) # http-parser v8)
+makedepends=(python311 procps-ng)
+optdepends=('npm: nodejs package manager')
+options=(!lto)
+provides=("nodejs=$pkgver")
+conflicts=(nodejs)
+source=(https://nodejs.org/dist/v${pkgver}/node-v${pkgver}.tar.xz
+       update-icu-tests.patch)
+sha256sums=('5294d9d2915620e819e6892fd7e545b98d650bad36dae54e6527eaac482add98'
+            '43da0fb7469e34a239b2711876475f303a4012151e44f72e636a5a7fcf21bff8')
+
+_set_flags() {
+  # /usr/lib/libnode.so uses malloc_usable_size, which is incompatible with fortification level 3
+  CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+
+  case "${CARCH}" in
+    powerpc64)
+      CFLAGS="${CFLAGS/-mabi=altivec/}"
+      CFLAGS="${CFLAGS/-maltivec/}"
+      CXXFLAGS="${CFLAGS/-mabi=altivec/}"
+      CXXFLAGS="${CFLAGS/-maltivec/}"
+    ;;
+  esac
+}
+
+prepare() {
+  cd node-v${pkgver}
+  # Update ICU tests https://github.com/nodejs/node/pull/60523
+  patch -Np1 -i ../update-icu-tests.patch
+}
+
+build() {
+  _set_flags
+  cd node-v${pkgver}
+
+  # this uses malloc_usable_size, which is incompatible with fortification level 3
+  case "${CARCH}" in
+     powerpc64*) myarch="ppc64";;
+     *) myarch="${CARCH}";;
+  esac
+
+  python3.11 ./configure.py \
+    --prefix=/usr \
+    --with-intl=system-icu \
+    --without-corepack \
+    --without-npm \
+    --shared-openssl \
+    --shared-zlib \
+    --shared-libuv \
+    --experimental-http-parser \
+    --shared-brotli \
+    --shared-cares \
+    --shared-nghttp2
+    # --shared-v8
+    # --shared-http-parser
+
+  make
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  _set_flags
+  cd node-v${pkgver}
+  rm test/parallel/test-http2-client-set-priority.js
+  rm test/parallel/test-http2-client-unescaped-path.js
+  rm test/parallel/test-http2-max-invalid-frames.js
+  rm test/parallel/test-http2-misbehaving-flow-control.js
+  rm test/parallel/test-http2-misbehaving-flow-control-paused.js
+  rm test/parallel/test-http2-multi-content-length.js
+  rm test/parallel/test-http2-priority-event.js
+  rm test/parallel/test-http2-reset-flood.js
+  rm test/parallel/test-process-euid-egid.js
+  rm test/parallel/test-process-initgroups.js
+  rm test/parallel/test-process-setgroups.js
+  rm test/parallel/test-process-uid-gid.js
+  rm test/parallel/test-tls-ocsp-callback.js
+
+  # https://github.com/nodejs/node/pull/60523
+  rm test/parallel/test-datetime-change-notify.js
+
+  rm test/parallel/test-http-client-close-with-default-agent.js
+
+  make test-only
+
+}
+
+package() {
+  _set_flags
+  cd node-v${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 LICENSE -t "${pkgdir}"/usr/share/licenses/${pkgname}/
+}

@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Johannes Löthberg <johannes@kyriasis.com>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: Daniel M. Capella <polyzen@archlinux.org>
+# Contributor: eolianoe <eolianoe [at] gmail [DoT] com>
+# Contributor: Romain Schmitz <slopjong .at. slopjong .dot. de>
+
+pkgname=python-sphinx_rtd_theme
+_name=${pkgname/python-/}
+pkgver=3.0.0
+pkgrel=1
+pkgdesc='Read the Docs theme for Sphinx'
+arch=(any)
+url=https://github.com/readthedocs/sphinx_rtd_theme
+license=('MIT')
+depends=('python' 'python-sphinx' 'python-sphinxcontrib-jquery')
+makedepends=('git' 'python-setuptools-scm' 'python-build' 'python-installer' 'python-wheel')
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('60d49d2d387b07f061c2be08e42001dc3c71e8a37aed90ffb86cf9d8c4b7efdc')
+b2sums=('0d606188c48fa1e51f8281912f73c5fb4621ef6b76a2ef7616fd9488cf0dcc0e4aab9b9abfceb820ca92129bce1265585889fe10d4f810d29ce689ccf5024a76')
+
+prepare() {
+  cd $_name
+  sed -i 's/,<9//' setup.cfg
+  sed -i 's/<0.22//' setup.cfg
+}
+
+build() {
+  cd $_name
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd $_name
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 -t "$pkgdir"/usr/share/licenses/$pkgname LICENSE
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: ValHue <vhuelamo at gmail dot com>
+# Contributor: Alexander Blinne <alexander[at]blinne[dot]net>
+
+pkgname=fatresize
+pkgver=1.1.0
+pkgrel=2.1
+pkgdesc='A utility to resize FAT filesystems using libparted'
+url='https://sourceforge.net/projects/fatresize/'
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+license=(GPL-3.0-or-later)
+depends=(glibc
+         parted)
+makedepends=(git)
+source=(git+https://github.com/ya-mouse/fatresize#tag=v$pkgver)
+sha256sums=('2f07a338f930e76db097ecc6d429bcbfdf643525e9bf68954c6212b34f11ae3c')
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sbindir=/usr/bin
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

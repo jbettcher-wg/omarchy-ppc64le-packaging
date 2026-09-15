@@ -1,0 +1,4 @@
+[vala]
+source = "git"
+git = "https://gitlab.gnome.org/GNOME/vala.git"
+include_regex = '\d+\.\d*[02468]\.\d+'

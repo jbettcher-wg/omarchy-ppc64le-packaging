@@ -1,0 +1,24 @@
+pkgbase = xorg-xfontsel
+	pkgdesc = Point and click selection of X11 font names
+	pkgver = 1.1.2
+	pkgrel = 1
+	url = https://gitlab.freedesktop.org/xorg/app/xfontsel
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = X11
+	makedepends = xorg-util-macros
+	depends = libxaw
+	depends = libxmu
+	depends = libxt
+	depends = libx11
+	depends = glibc
+	source = https://xorg.freedesktop.org/archive/individual/app/xfontsel-1.1.2.tar.xz
+	source = https://xorg.freedesktop.org/archive/individual/app/xfontsel-1.1.2.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = 377ef4e95f68411716a9cd202f4b2468ef5638d53ebd058518bdf97319f8008052f2cb76154503a1eae76aae3ce27dfa7334428b66f738a087d0915bef69c603
+	sha512sums = SKIP
+
+pkgname = xorg-xfontsel

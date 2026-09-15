@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=gnu-efi
+pkgver=3.0.18
+pkgrel=1.1
+pkgdesc="Develop EFI applications using the GNU toolchain and the EFI development environment"
+arch=(x86_64 riscv64)
+url="https://sourceforge.net/projects/gnu-efi/"
+license=(BSD-2-Clause)
+conflicts=(gnu-efi-libs)
+provides=(gnu-efi-libs)
+replaces=(gnu-efi-libs)
+source=(https://download.sourceforge.net/$pkgname/$pkgname-$pkgver.tar.bz2)
+options=(!lto !strip)
+sha512sums=('39f9fa14b880441a94a04400ff8850efdd9474929e5501dfd05af06e7747b4d0f7cb742ac811c7026cf52d00508efb73018be4d61d63a1211de0cd931cbc473d')
+b2sums=('e080fa4c57a281452a6473304871304d1b5c30d42ee728b4c0c084258ed2f6f2099c068ec5841cee81ecf664dd658dee3b94d68324ebaa498cb49cec4f7f7df9')
+
+prepare() {
+  # -Werror, not even once
+  sed -e 's/-Werror//g' -i $pkgname-$pkgver/Make.defaults
+}
+
+build() {
+  cd $pkgname-$pkgver
+  # NOTE: apply only minimal CFLAGS, as gnu-efi does not provide userspace
+  # libs, but may be used in unitialized machine state and should therefore not
+  # be architecture optmized
+  CFLAGS="-O2"
+  # upstream provides LDFLAGS directly to ld: https://sourceforge.net/p/gnu-efi/bugs/33/
+  LDFLAGS="${LDFLAGS//-Wl/}"
+  LDFLAGS="${LDFLAGS//,/ }"
+  make
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make INSTALLROOT="$pkgdir" PREFIX=/usr install
+  install -vDm 644 README.efilib -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 644 {ChangeLog,README.{gnuefi,git,elilo}} -t "$pkgdir/usr/share/doc/$pkgname/"
+}

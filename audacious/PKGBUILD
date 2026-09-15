@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Contributor: Gaetan Bisson <bisson@archlinux.org>
+# Contributor: Alexander Fehr <pizzapunk gmail com>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+
+pkgname=audacious
+pkgver=4.6.1
+pkgrel=1
+pkgdesc="Lightweight, advanced audio player focused on audio quality"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://audacious-media-player.org/"
+license=('BSD-2-Clause')
+depends=('qt6-base' 'qt6-svg' 'qt6-imageformats' 'glib2' 'hicolor-icon-theme'
+         'desktop-file-utils' 'glibc' 'libgcc' 'libstdc++')
+makedepends=('meson' 'glib2-devel')
+optdepends=('unzip: zipped skins support')
+source=(https://distfiles.audacious-media-player.org/$pkgname-$pkgver.tar.bz2)
+sha256sums=('62a5a609267eca7f6e3ce52ef6f42d5618d2961e3b4ddc227c6a5859026965d9')
+
+build() {
+  arch-meson $pkgname-$pkgver build \
+    -Dgtk=false \
+    -Dbuildstamp='Arch POWER'
+  meson compile -C build
+}
+
+package() {
+  depends+=('audacious-plugins')
+
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 $pkgname-$pkgver/COPYING -t "$pkgdir/usr/share/licenses/$pkgname"
+}
+
+# vim:set ts=2 sw=2 et:

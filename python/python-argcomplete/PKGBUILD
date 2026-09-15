@@ -1,0 +1,50 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Andrey Mikhaylenko <neithere at gmail dot com>
+# Contributor: JisuWoniu <jswn@jswn9945.xyz>
+
+pkgname=python-argcomplete
+_pyname=argcomplete
+pkgver=3.7.0
+pkgrel=1
+pkgdesc='Easy, extensible command line tab completion of arguments for your Python script'
+url='https://github.com/kislyuk/argcomplete'
+arch=(any)
+license=('Apache-2.0')
+depends=('python')
+makedepends=('git' 'python-build' 'python-hatch-vcs' 'python-hatchling' 'python-installer' 'python-wheel')
+checkdepends=('fish' 'python-pexpect' 'python-pip' 'tcsh' 'zsh')
+source=(${_pyname}::"git+$url#tag=v$pkgver")
+sha512sums=('0e4daa0cb6d9a3d0fa87c38991d8f58da33e832b479621b64a5ad88a5616fc3aa93b12b30caec0c5761c05e6b8ebbadc300c5a19b47ab00763c1a2c48cf90cc9')
+validpgpkeys=('29BCBADB4ECAAAC2382699388AFAFCD242818A52') # Andrey Kislyuk <kislyuk@gmail.com>
+
+build() {
+  cd ${_pyname}
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  # takes forever
+  return 0
+
+  cd ${_pyname}
+  python -m venv --system-site-packages test-venv
+  test-venv/bin/python -m installer dist/*.whl
+  # zsh 5.9.0.3 regresses upstream's global python completion tests:
+  # https://github.com/kislyuk/argcomplete/issues/544
+  PATH="$PWD/test-venv/bin/:$PATH" test-venv/bin/python test/test.py -v \
+    TestArgcomplete TestArgcompleteREPL TestSplitLine TestCheckModule TestBash TestZsh TestBashGlobal Warn
+}
+
+package() {
+  cd ${_pyname}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # Disabled again, see https://gitlab.archlinux.org/archlinux/packaging/packages/python-argcomplete/-/issues/3
+  # local _site_packages=$(python -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")
+  # install -dm755 "$pkgdir"/usr/share/bash-completion/completions "$pkgdir"/usr/share/zsh/site-functions
+  # ln -s ../../../..${_site_packages}/argcomplete/bash_completion.d/_python-argcomplete -t "$pkgdir"/usr/share/bash-completion/completions/
+  # ln -s ../../../..${_site_packages}/argcomplete/bash_completion.d/_python-argcomplete -t "$pkgdir"/usr/share/zsh/site-functions/
+}
+
+# vim: ts=2 sw=2 et:

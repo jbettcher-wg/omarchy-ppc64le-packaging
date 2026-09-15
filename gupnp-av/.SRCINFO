@@ -1,0 +1,35 @@
+pkgbase = gupnp-av
+	pkgdesc = Library to ease handling and implementation of UPnP A/V profiles
+	pkgver = 0.14.5
+	pkgrel = 1
+	url = https://wiki.gnome.org/Projects/GUPnP
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = gi-docgen
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = meson
+	makedepends = vala
+	depends = glib2
+	depends = glibc
+	depends = libxml2
+	source = git+https://gitlab.gnome.org/GNOME/gupnp-av.git?signed#tag=gupnp-av-0.14.5
+	validpgpkeys = AC9CD4E32D7C7F6357BA8ADD10F6E970175D29E1
+	b2sums = 5ff40166a977060df9dd419eabe4d56433beec7f68b173f4c92df2a2bb172f827552a4fcc75f6aa61ee73c10ab8cc7075adab0b0d5666f676b7e25d85278427f
+
+pkgname = gupnp-av
+	depends = glib2
+	depends = glibc
+	depends = libxml2
+	depends = libglib-2.0.so
+	depends = libgobject-2.0.so
+	provides = libgupnp-av-1.0.so
+
+pkgname = gupnp-av-docs
+	pkgdesc = Library to ease handling and implementation of UPnP A/V profiles (documentation)
+	depends = 

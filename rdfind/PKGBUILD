@@ -1,0 +1,56 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Tobias Powalowski <tpowa@archlinux.org>
+# Contributor: Christian Kohlstedde <christian+aur@kohlsted.de>
+# Contributor: Mariusz Libera <mariusz.libera@gmail.com>
+# Contributor: Alex 'AdUser' Z <ad_user@mail.ru>
+pkgname=rdfind
+pkgver=1.8.0
+pkgrel=1
+pkgdesc='Redundant data find - a program that finds duplicate files'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://rdfind.pauldreik.se'
+license=('GPL-2.0-only')
+depends=(
+  glibc
+  libgcc
+  libstdc++
+  nettle
+  xxhash)
+makedepends=('git')
+source=("git+https://github.com/pauldreik/rdfind.git?signed#tag=releases/${pkgver}")
+validpgpkeys=(
+  CC3C51BA88205B19728A6F07C9D9A0EA44EAE0EB
+  19ABF04E6A23E1A562041CA7CB203176838B7194 #Paul Dreik <paul@pauldreik.se>
+)
+b2sums=('bb70c5359e1245539120c80bb2bed2919aee8801041259740542cebfd468ff2397d4158590ca9511b7f5f3582c2a244e3311abf188488151e2c13132224897a0')
+
+prepare() {
+  cd "${pkgname}"
+  ./bootstrap.sh
+}
+
+build() {
+  cd "${pkgname}"
+  ./configure --prefix=/usr
+  make 
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc) return 0 ;;
+  esac
+
+  cd "${pkgname}"
+  make check
+}
+
+package() {
+  cd "${pkgname}"
+  make DESTDIR="${pkgdir}/" install
+
+  # documentation
+  install -dm755 "${pkgdir}/usr/share/doc/${pkgname}"
+  install -m644 AUTHORS ChangeLog README TODO \
+          "${pkgdir}/usr/share/doc/${pkgname}"
+}
+

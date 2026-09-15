@@ -1,0 +1,25 @@
+pkgbase = ruby-addressable
+	pkgdesc = URI Implementation
+	pkgver = 2.8.7
+	pkgrel = 2
+	url = https://github.com/sporkmonger/addressable
+	arch = any
+	license = Apache
+	checkdepends = ruby-bigdecimal
+	checkdepends = ruby-bundler
+	checkdepends = ruby-launchy
+	checkdepends = ruby-memory_profiler
+	checkdepends = ruby-rake
+	checkdepends = ruby-rspec
+	checkdepends = ruby-rspec-core
+	checkdepends = ruby-rspec-its
+	checkdepends = ruby-yard
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-public_suffix
+	options = !emptydirs
+	source = https://github.com/sporkmonger/addressable/archive/addressable-2.8.7/ruby-addressable-addressable-2.8.7.tar.gz
+	sha512sums = df75ec756f504183e08c259ecaf1432ee76b5bf1008a05299e3933aace0f08346762ca086aa6c3227cf0518d600c6d419c763cc1b9bf19897bee009fabacca99
+	b2sums = 8ce28224387fdb5500fcff25afd2be4bef4410f819caa1a0eb25e9cc376dbbdfafe1fdb509d7faf30f7f61535fe856552ccb239346449b8ed358051bc0703722
+
+pkgname = ruby-addressable

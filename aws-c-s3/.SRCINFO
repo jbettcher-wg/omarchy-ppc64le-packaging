@@ -1,0 +1,23 @@
+pkgbase = aws-c-s3
+	pkgdesc = C99 library implementation for communicating with the S3 service, designed for maximizing throughput on high bandwidth EC2 instances
+	pkgver = 0.12.2
+	pkgrel = 1
+	url = https://github.com/awslabs/aws-c-s3
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	makedepends = cmake
+	depends = aws-c-auth
+	depends = aws-c-cal
+	depends = aws-c-common
+	depends = aws-c-http
+	depends = aws-c-io
+	depends = aws-checksums
+	depends = glibc
+	source = https://github.com/awslabs/aws-c-s3/archive/v0.12.2/aws-c-s3-0.12.2.tar.gz
+	b2sums = 2b1971215a4011ec9bf2fb6a3c78f86aa1bf070127331a4acf11e7061d68eae43cf62b4b8ab5ab5272fb8d5d05c9ded680466eafb501eaeaf7e97de0de37879b
+
+pkgname = aws-c-s3

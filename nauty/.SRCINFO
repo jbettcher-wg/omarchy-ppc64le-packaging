@@ -1,0 +1,17 @@
+pkgbase = nauty
+	pkgdesc = A program for computing automorphism groups of graphs and digraphs
+	pkgver = 2.9.3
+	pkgrel = 1
+	epoch = 1
+	url = http://pallini.di.uniroma1.it/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	depends = glibc
+	source = http://pallini.di.uniroma1.it/nauty2_9_3.tar.gz
+	sha256sums = 9fc4edae04f88a0f5883985be3b39cf7f898fd6cc96e96b9ee25452743cc1b5b
+
+pkgname = nauty

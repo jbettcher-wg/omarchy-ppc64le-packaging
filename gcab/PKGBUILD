@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=gcab
+pkgver=1.6
+pkgrel=2.1
+pkgdesc="A GObject library to create cabinet files"
+url="https://wiki.gnome.org/msitools"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+license=(LGPL)
+depends=(glib2)
+makedepends=(
+  git
+  glib2-devel
+  gobject-introspection
+  gtk-doc
+  meson
+  vala
+)
+provides=(libgcab-1.0.so)
+_commit=b1a8a5867ccf0209d3e409b12986165c8f7a6fa4  # tags/v1.6^0
+source=("git+https://gitlab.gnome.org/GNOME/gcab.git#commit=$_commit")
+b2sums=('SKIP')
+
+pkgver() {
+  cd gcab
+  git describe --tags | sed 's/^v//;s/[^-]*-g/r&/;s/-/+/g'
+}
+
+prepare() {
+  cd gcab
+}
+
+build() {
+  arch-meson gcab build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

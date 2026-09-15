@@ -1,0 +1,18 @@
+pkgbase = python-flit-core
+	pkgdesc = A PEP 517 build backend for packages using Flit
+	pkgver = 4.0.0
+	pkgrel = 1
+	url = https://github.com/pypa/flit/tree/main/flit_core
+	arch = any
+	groups = python-build-backend
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	checkdepends = python-testpath
+	makedepends = python-build
+	makedepends = python-installer
+	depends = python
+	source = flit-4.0.0.tar.gz::https://github.com/pypa/flit/archive/refs/tags/4.0.0.tar.gz
+	sha512sums = 1de9358fa33d0924355679ab6bccf5933f2f154257a875dfec7bf88bb569fce487129ff2d7ea13df16287acaedf9da49ce5f9baccd160ebfb6fd33e831e9c9cb
+	b2sums = f60a29e5779236175ff5792745b8e2d1333e3ef8ccec639634d5b31cdc8c5811908a98c420bf0e5eeb488260287532a506f5b24dd6b95e6c328fe0220088a9e0
+
+pkgname = python-flit-core

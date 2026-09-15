@@ -1,0 +1,65 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-cattrs
+pkgver=26.1.0
+pkgrel=1
+pkgdesc='Complex custom class converters for attrs'
+arch=(any)
+url='https://catt.rs'
+_url='https://github.com/python-attrs/cattrs'
+license=(MIT)
+depends=(
+  python
+  python-attrs
+  python-typing_extensions
+)
+makedepends=(
+  git
+  python-build
+  python-hatch-vcs
+  python-hatchling
+  python-installer
+  python-wheel
+)
+checkdepends=(
+  python-hypothesis
+  python-msgspec
+  python-orjson
+  python-pytest
+  python-pytest-benchmark
+  python-yaml
+)
+optdepends=(
+  'python-msgspec: msgspec converter'
+  'python-orjson: orjson converter'
+  'python-yaml: YAML converter'
+)
+source=("git+$_url#tag=v$pkgver")
+b2sums=('4367811a0dc9154f7e3f56a1f2b6710fdb269fa3ea7e6ea77cbf8e1b81fab819168a23b82d64d2ffc8556bd924ef6f97a94bf35d0b85ae0ec69fcaef00794b48')
+
+build() {
+  cd "${pkgname#python-}"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "${pkgname#python-}"
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  # Deselected tests depend on currently unpackaged python-immutables,
+  # python-bson, python-msgspec.
+  test-env/bin/python -m pytest --override-ini="addopts=" \
+    --ignore=tests/preconf/test_msgspec_cpython.py \
+    --ignore=tests/preconf/test_pyyaml.py \
+    --ignore=tests/test_cols.py \
+    --ignore=tests/test_preconf.py \
+    --ignore=tests/test_unstructure_collections.py
+}
+
+package() {
+  cd "${pkgname#python-}"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}

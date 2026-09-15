@@ -1,0 +1,21 @@
+pkgbase = python-munch
+	pkgdesc = A dot-accessible dictionary (a la Javascript objects)
+	pkgver = 4.0.0
+	pkgrel = 5
+	url = https://github.com/Infinidat/munch
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-yaml
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-pbr
+	depends = python
+	source = python-munch::git+https://github.com/Infinidat/munch#tag=4.0.0
+	sha512sums = 406ad8c014a25a07fa4967c940c7b18596c4f64b2eb84aebb5b331364f75bf3e909b04d9f68cc3444d544fbf2b01a4b1761a5905fe2174152423de3f9254315c
+	b2sums = 8aaccc629aa384ab1037d98248dbaf17395431b741b666613cd65ca1c6d8e53510862d31649108f0eea4e2e9658bfba32abfeab28843edd5f4acbeec21f036b8
+
+pkgname = python-munch

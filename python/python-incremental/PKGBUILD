@@ -1,0 +1,33 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-incremental
+pkgver=24.11.0
+pkgrel=1
+pkgdesc='A small library that versions your Python projects'
+arch=(any)
+license=('MIT')
+depends=('python-packaging')
+makedepends=('git' 'python-build' 'python-installer' 'python-hatchling' 'python-wheel')
+url='https://github.com/twisted/incremental'
+checkdepends=('python-pytest' 'python-twisted')
+source=("git+https://github.com/twisted/incremental.git#tag=incremental-$pkgver")
+sha512sums=('7fba8d7a3c167884c0b853945b574b7aaf790cebc133f26c305ad903c43b491502172d2c62704bb5b963d0e73a3b58caf18a7a126bf01d13320add4ca664e65d')
+
+build() {
+  cd incremental
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd incremental
+  pytest src
+}
+
+package() {
+  cd incremental
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}
+
+# vim:set ts=2 sw=2 et:

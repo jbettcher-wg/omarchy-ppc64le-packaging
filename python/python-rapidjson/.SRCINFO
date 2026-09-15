@@ -1,0 +1,24 @@
+pkgbase = python-rapidjson
+	pkgdesc = Python wrapper around rapidjson
+	pkgver = 1.23
+	pkgrel = 2
+	url = https://pypi.python.org/pypi/python-rapidjson
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-benchmark
+	checkdepends = python-pytz
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = rapidjson
+	depends = python
+	source = https://files.pythonhosted.org/packages/26/3a/c32aee1dc385e50c1d6e78e56abdbc6aca283127f06f6ec0be1a86b2e3c1/python_rapidjson-1.23.tar.gz
+	sha512sums = bab2f89b3e586dd5d88b9c457bd8ecf3ea14c2f6e637d980ed89cf83e23f5702ae30f0dc1ce5a1ea92e9b3e78a9dbc0faf43d6698a84f34a889d2fc4a61802f5
+
+pkgname = python-rapidjson

@@ -1,0 +1,59 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-josepy
+pkgver=2.2.0
+pkgrel=2
+pkgdesc='JOSE protocol implementation in Python'
+arch=(any)
+url='https://github.com/certbot/josepy'
+license=('Apache-2.0')
+depends=(
+  'python'
+  'python-cryptography'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-poetry-core'
+)
+checkdepends=('python-pytest')
+source=(
+  "$pkgname::git+$url#tag=v$pkgver"
+  'no-thanks-poetry.patch'
+)
+sha512sums=('4a64fc036d7626e63d9366083f7a0fe674c95128b40147e5fff68d194914c522e6aa388d1da1e51930fcc4883d0a7b015ef8b195d3f25061c172fd7773c72bda'
+            '5fc9682dbb93a3af76bb07653ec873c40a2acad24484ce64babde7d342390439efad018d5b5fda88df7338b562ba88d4254a32bda77bd1e981a0b312218e9bc8')
+b2sums=('8ca24d2356e6e28949f1132864b9c4e5bd5d466a09a1b37b326232ca2f4c23ae325df49b16e697b09aaac18c195c375f2a25ac66a9670e6f80b3d3f8bef6b551'
+        'b7bf362e953247424fadea853b3c7be9977021b7d109d240ced847b9271c739e6dfcf8025efbdd9bb746dc42e21905cb1c9c93982d4e39dab60354ab06c6e76a')
+
+prepare() {
+  cd "$pkgname"
+
+  # poetry strikes again
+  # https://github.com/certbot/josepy/issues/172
+  patch -p1 -i "$srcdir/no-thanks-poetry.patch"
+}
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  # install to temporary location
+  python -m installer --destdir=test_dir dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  PYTHONPATH="test_dir/$site_packages:$PYTHONPATH" pytest -v \
+    -W ignore::DeprecationWarning
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

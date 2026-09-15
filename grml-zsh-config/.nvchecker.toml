@@ -1,0 +1,4 @@
+[grml-zsh-config]
+source = "git"
+git = "https://github.com/grml/grml-etc-core.git"
+prefix = "v"

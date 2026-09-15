@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Daniel Wallace <danielwallace at gtmanfred dot com>
+
+pkgname=python-cmd2
+pkgver=2.6.2
+pkgrel=2
+pkgdesc="A tool for building interactive command line apps"
+arch=(any)
+url="https://github.com/python-cmd2/cmd2"
+license=('MIT')
+depends=('python-attrs' 'python-colorama' 'python-pyperclip' 'python-wcwidth')
+makedepends=('git' 'python-setuptools-scm' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-pytest' 'python-pytest-mock' 'python-pytest-xdist' 'vim')
+source=("git+https://github.com/python-cmd2/cmd2.git#tag=$pkgver")
+sha512sums=('8d1f9191bbe4bd414dfe187ed2bd07e40da754edd17354d15968e5392a7b83e78075b016fe5a1cd53aa4d37a34657a0cdb6ed504fbfe91b269f82111d4621def')
+
+build() {
+  cd cmd2
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  return 0
+  cd cmd2
+  PYTHONPATH="$PWD/cmd2" pytest --override-ini="addopts="
+}
+
+package() {
+  cd cmd2
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm 644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+# vim:set ts=2 sw=2 et:

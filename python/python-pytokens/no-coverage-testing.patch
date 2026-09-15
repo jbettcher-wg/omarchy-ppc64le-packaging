@@ -1,0 +1,12 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -47,9 +47,6 @@ license-files = ["LICENSE"]
+ [tool.setuptools.packages.find]
+ where = ["src"]
+ 
+-[tool.pytest.ini_options]
+-addopts = "--cov --cov-report=term-missing"
+-
+ [tool.mypy]
+ strict = true
+ exclude = "setup.py|venv|build"

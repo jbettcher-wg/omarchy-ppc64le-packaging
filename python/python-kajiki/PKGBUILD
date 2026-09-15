@@ -1,0 +1,34 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Thore Bödecker <foxxx0@archlinux.org>
+pkgbase='python-kajiki'
+_pkgbase="${pkgbase#python-}"
+pkgname=("python-${_pkgbase}")
+pkgver=1.0.2
+pkgrel=2
+pkgdesc='Python XML-based template engine with Genshi-like syntax and Jinja-style blocks'
+arch=(any)
+url='https://github.com/nandoflorestan/kajiki'
+license=('LGPL')
+depends=('python' 'python-linetable')
+makedepends=('python-hatchling' 'python-build' 'python-installer' 'python-setuptools' 'python-sphinx' 'python-wheel')
+checkdepends=('python-babel' 'python-pytest')
+source=("${_pkgbase}-${pkgver}.tar.gz::https://github.com/nandoflorestan/kajiki/archive/v${pkgver}.tar.gz")
+sha512sums=('50e0b44e90bad601bea222e3a93bd86490a645f0d316effad3fb2ee4bfd129fd227170c73dac739d7ef6a95275fc396e3d63440bb1cc22425acde181bbd9b402')
+
+build() {
+  cd "${srcdir}/${_pkgbase}-${pkgver}"
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd "${srcdir}/${_pkgbase}-${pkgver}"
+  export PYTHONPATH="${PWD}"
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m pytest -vvv -s -ra --showlocals tests/
+}
+
+package() {
+  cd "${srcdir}/${_pkgbase}-${pkgver}"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

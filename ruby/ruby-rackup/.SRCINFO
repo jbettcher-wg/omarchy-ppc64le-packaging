@@ -1,0 +1,21 @@
+pkgbase = ruby-rackup
+	pkgdesc = A general server command for Rack applications
+	pkgver = 2.3.1
+	pkgrel = 1
+	url = https://github.com/rack/rackup
+	arch = any
+	license = MIT
+	checkdepends = ruby-bundler
+	checkdepends = ruby-erb
+	checkdepends = ruby-minitest
+	checkdepends = ruby-minitest-global_expectations
+	checkdepends = ruby-rack
+	depends = ruby
+	depends = ruby-rake
+	depends = ruby-webrick
+	options = !emptydirs
+	source = https://github.com/rack/rackup/archive/v2.3.1/ruby-rackup-2.3.1.tar.gz
+	sha512sums = 3a2dafff8304eb188b969b51985fd09c227e869a32b245b2d739bdd12a95065f87fac2dd4ab360f98313553f7e9ace83d4fdd15460a11dbfbd85ef95135c10af
+	b2sums = 1bcbca1d9710be6fa9e1459229d6d31b08b928aa344adadc2379d03a4f6a9448c249e061854df0e0bc16c9067ea994f82e8ccde353406e991a60c207416b3bc7
+
+pkgname = ruby-rackup

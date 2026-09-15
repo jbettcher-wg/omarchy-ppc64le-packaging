@@ -1,0 +1,5 @@
+[blosc2]
+source = "git"
+git = "https://github.com/Blosc/c-blosc2"
+prefix = "v"
+exclude_regex = ".*(pre|release|weekly|rc|alpha|beta|dev).*"

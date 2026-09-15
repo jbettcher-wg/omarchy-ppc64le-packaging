@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=dvisvgm
+pkgver=3.6
+pkgrel=2
+pkgdesc='A fast DVI, EPS, and PDF to SVG converter'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://dvisvgm.de/'
+license=(GPL-3.0-or-later)
+depends=(brotli
+         freetype2
+         gcc-libs
+         ghostscript
+         glibc
+         potrace
+         texlive-basic
+         texlive-bin
+         woff2
+         xxhash
+         zlib)
+optdepends=('mupdf-tools: to process PDF files')
+makedepends=(autoconf-archive
+             git
+             python-lxml)
+source=(git+https://github.com/mgieseki/dvisvgm#tag=$pkgver)
+sha256sums=('0c22627fb540d9801dcb9e69535b71fc9fdf98fe0e33475cbefc8251957320b7')
+
+prepare() {
+  cd $pkgname
+  autoreconf -vi
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr
+  make
+}
+
+check() {
+  cd $pkgname
+  make check
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

@@ -1,0 +1,4 @@
+[pahole]
+source = "git"
+git = "https://github.com/acmel/dwarves.git"
+prefix = "v"

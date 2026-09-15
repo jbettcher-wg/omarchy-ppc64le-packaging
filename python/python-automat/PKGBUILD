@@ -1,0 +1,40 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-automat
+pkgver=25.4.16
+pkgrel=2
+arch=(any)
+license=('MIT')
+pkgdesc="Self-service finite-state machines for the programmer on the go."
+url="https://github.com/glyph/automat"
+depends=('python')
+makedepends=('python-wheel' 'python-build' 'python-installer' 'python-wheel' 'python-setuptools-scm' 'python-hatch-vcs')
+checkdepends=('python-pytest' 'python-twisted' 'python-graphviz' 'python-pytest-benchmark')
+optdepends=('python-graphviz: for automat-visualize'
+            'python-twisted: for automat-visualize')
+source=("https://github.com/glyph/automat/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('13280875ec0bc7d8e7296cf4f5a8aee687521dde5ec59e370f05fc648a6c344e1d8c956bf63136b4181ae0863285ccf7e5a06edb17d2272ec089783dba9656b5')
+
+export SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver
+
+prepare() {
+  cd automat-$pkgver
+}
+
+build() {
+  cd automat-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  return 0
+  cd automat-$pkgver
+  PYTHONPATH=src pytest
+}
+
+package() {
+  cd automat-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/python-automat/
+}

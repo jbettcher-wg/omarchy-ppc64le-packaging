@@ -1,0 +1,56 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+# Maintainer: Orhun Parmaksız <orhun@archlinux.org>
+# Contributor: Sergey A. <murlakatamenka@disroot.org>
+
+# LTO passes may not produce any output for quite some time
+# especially on slower systems
+apb_output_timeout=7200
+
+pkgname=rust-analyzer
+_pkgver=2026-07-13
+pkgver=${_pkgver//-/}
+pkgrel=1
+pkgdesc='Rust compiler front-end for IDEs'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://rust-analyzer.github.io/
+license=('MIT OR Apache-2.0')
+depends=(
+  libgcc
+  rust-src
+)
+makedepends=(git)
+source=("git+https://github.com/rust-lang/$pkgname.git#tag=$_pkgver")
+b2sums=('ae62e370e70dac1f234c3ab38c71c49fa63a7f1d2db2a470a386166697a8e9ee798740d39bb01ed8d87956b38d7dabce9ef4c2a60dcc3da99033643ff162dea8')
+
+prepare() {
+  cd $pkgname
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  # Use LTO
+  export CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+
+  # Use debug
+  export CARGO_PROFILE_RELEASE_DEBUG=2
+
+  case "${CARCH}" in
+    powerpc)
+      # fails to link otherwise due to 32bit limitations
+      export RUSTFLAGS="-C opt-level=2"
+      export CARGO_PROFILE_RELEASE_LTO=false
+      export CARGO_PROFILE_RELEASE_DEBUG=0
+    ;;
+  esac
+
+
+  cd $pkgname
+  CFG_RELEASE=1 cargo build --release --locked --offline
+}
+
+package() {
+  cd $pkgname
+  install -Dt "$pkgdir"/usr/bin target/release/$pkgname
+  install -Dm644 -t "$pkgdir"/usr/share/licenses/$pkgname LICENSE-MIT
+}

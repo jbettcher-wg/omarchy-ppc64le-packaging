@@ -1,0 +1,22 @@
+pkgbase = python-wrapt
+	pkgdesc = A Python module for decorators, wrappers and monkey patching
+	pkgver = 2.1.2
+	pkgrel = 1
+	url = https://github.com/GrahamDumpleton/wrapt
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-2-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/GrahamDumpleton/wrapt.git#tag=2.1.2
+	sha512sums = ad9bab39af92455637fca3651ca47540de56bbbaae3c8f221a568dcfac8270564dbadc87774e06cd18c7cc95f5a4b225e210d8ecdaeafaf37d649ccc7c03fb7d
+
+pkgname = python-wrapt

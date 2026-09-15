@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+
+pkgname=python-pallets-sphinx-themes
+_pyname=${pkgname/python-/}
+pkgver=2.3.0
+pkgrel=3
+pkgdesc='Sphinx themes for Pallets and related projects'
+url='https://github.com/pallets/pallets-sphinx-themes'
+arch=(any)
+license=('BSD')
+depends=('python' 'python-sphinx' 'python-sphinx-notfound-page')
+makedepends=('python-build' 'python-installer' 'python-flit-core' 'git')
+source=(git+https://github.com/pallets/pallets-sphinx-themes#tag=${pkgver})
+sha512sums=('7fdc12869fa0243c39ccd476db6f5feaace463f89793804658faa63f5ad4faf3b24bdab3dc643d70cdb412ad4d15c2cb742f2c96a524c5e7ca96704bfaccb38f')
+b2sums=('10efa67c7d413ec0bc4dbe6c6291f65a082c027a70ff1f45f284be74b4747f172f27d5bce02685d5009f9154692dda8e80f565c33c86868c0c6fe4c5f203f493')
+
+build() {
+  cd ${_pyname}
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd ${_pyname}
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+  install -Dm 644 LICENSE.txt -t "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -Dm 644 README.md -t "${pkgdir}/usr/share/doc/${pkgname}"
+}
+
+# vim: ts=2 sw=2 et:

@@ -1,0 +1,4 @@
+[frei0r-plugins]
+source = "git"
+git = "https://github.com/dyne/frei0r.git"
+prefix = "v"

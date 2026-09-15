@@ -1,0 +1,63 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+
+pkgname=libvpx
+pkgver=1.16.0
+pkgrel=3
+pkgdesc='VP8 and VP9 codec'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://www.webmproject.org/
+license=(custom:BSD)
+depends=(
+  glibc
+)
+makedepends=(
+  git
+)
+makedepends_x86_64=(
+  nasm
+)
+provides=(libvpx.so)
+_tag=04def0a07f8bfa95785e30e6db95036cda17f9b2
+source=(git+https://chromium.googlesource.com/webm/libvpx#tag=${_tag})
+b2sums=('aebe079b448e4c1e0bb084d380266dde054800d0fcff3286e6de09d35365aa99eeeb9068ba22a532184c90abb6e8fa6109719ea48463b5d28d9a57a35f83e0a4')
+
+pkgver() {
+  cd libvpx
+  git describe --tags | sed 's/^v//'
+}
+
+prepare() {
+  cd libvpx
+
+  # Backport fix for CVE-2026-1861
+  git cherry-pick -n d5f35ac8d93cba7f7a3f7ddb8f9dc8bd28f785e1
+}
+
+build() {
+  cd libvpx
+  ./configure \
+    --prefix=/usr \
+    --disable-install-docs \
+    --disable-install-srcs \
+    --disable-unit-tests \
+    --enable-pic \
+    --enable-postproc \
+    --enable-runtime-cpu-detect \
+    --enable-shared \
+    --enable-vp8 \
+    --enable-vp9 \
+    --enable-vp9-highbitdepth \
+    --enable-vp9-temporal-denoising
+  make
+}
+
+package() {
+  cd libvpx
+  make DIST_DIR="${pkgdir}"/usr install
+  install -Dm 644 LICENSE -t "${pkgdir}"/usr/share/licenses/libvpx/
+}
+
+# vim:set sw=2 sts=-1 et:

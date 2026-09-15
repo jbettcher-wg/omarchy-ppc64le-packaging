@@ -1,0 +1,71 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=ruby-rack-session
+pkgver=2.1.1
+pkgrel=1
+pkgdesc='Session management implementation for Rack.'
+url="https://github.com/rack/rack-session"
+arch=(any)
+license=('MIT')
+depends=(
+  ruby
+  ruby-rack
+  ruby-base64
+)
+makedepends=(
+  git
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bundler
+  ruby-rake
+  ruby-minitest
+  ruby-minitest-global_expectations
+  ruby-minitest-sprint
+)
+options=('!emptydirs')
+source=("git+https://github.com/rack/rack-session.git#tag=v$pkgver")
+sha256sums=('eb88020fd322a7a83d606d5cd0cc8d7c527358f2d11973337da25e060eeb7e9b')
+sha512sums=('565362db7f88e37adbb331862f412fb182c815cc4d0400390cd6c5a6b82142ce6f721ea321c78c6506b502b15e50289e99ae26106975071e36c5bace56a29eaf')
+
+prepare() {
+  cd rack-session
+  sed -r 's|~>|>=|g' -i rack-session.gemspec
+}
+
+build() {
+  cd rack-session
+
+  local _gemdir="$(gem env gemdir)"
+
+  gem build rack-session.gemspec
+
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install/${_gemdir}" \
+    --bindir "tmp_install/usr/bin" \
+    "rack-session-${pkgver}.gem"
+
+  rm -rf "tmp_install/${_gemdir}/cache/"
+}
+
+check() {
+  cd rack-session
+
+  local _gemdir="$(gem env gemdir)"
+
+  GEM_HOME="tmp_install/${_gemdir}" rake test
+}
+
+package() {
+  cd rack-session
+
+  cp -a tmp_install/* "${pkgdir}"
+
+  install -Dm 0644 license.md --target-directory "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -Dm 0644 {readme,security}.md --target-directory "${pkgdir}/usr/share/doc/${pkgname}"
+}

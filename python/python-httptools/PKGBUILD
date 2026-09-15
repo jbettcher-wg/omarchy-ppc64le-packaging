@@ -1,0 +1,53 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+
+pkgname=python-httptools
+pkgver=0.7.1
+pkgrel=2
+pkgdesc='Fast HTTP parser'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://github.com/MagicStack/httptools
+license=(MIT)
+depends=(
+  python
+  llhttp
+)
+makedepends=(
+  cython
+  git
+  python-setuptools
+  python-wheel
+)
+_tag=26461dae5a108d8e8b1e6cc206779055999f7905
+source=(git+https://github.com/MagicStack/httptools#tag=${_tag}
+        git+https://github.com/nodejs/http-parser.git)
+b2sums=('908380c38f33ce08c42c85ed605d8faf3c870bf3380a228745024f936282a4e345a67a1bea64db9e849b236ac892de2a2b60a1b122fb799d98cb5edd08b449c3'
+        'SKIP')
+
+prepare() {
+  cd httptools
+  sed 's/CYTHON_DEPENDENCY =.*/CYTHON_DEPENDENCY = "Cython"/' -i setup.py
+  git rm vendor/llhttp
+  git submodule init
+  git config submodule.vendor/http-parser.url "$srcdir"/http-parser
+  git -c protocol.file.allow=always submodule update
+}
+
+pkgver() {
+  cd httptools
+  git describe --tags | sed 's/^v//'
+}
+
+build() {
+  cd httptools
+  python setup.py build build_ext --use-system-llhttp
+}
+
+package() {
+  cd httptools
+  python setup.py install --root="$pkgdir" --optimize=1 --skip-build
+  install -Dm 644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+# vim: ts=2 sw=2 et:

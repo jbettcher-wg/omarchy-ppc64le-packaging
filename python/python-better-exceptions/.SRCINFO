@@ -1,0 +1,17 @@
+pkgbase = python-better-exceptions
+	pkgdesc = Pretty and useful exceptions in Python, automatically
+	pkgver = 0.4.0
+	pkgrel = 1
+	url = https://github.com/Qix-/better-exceptions
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/Qix-/better-exceptions.git#tag=0.4.0
+	b2sums = fdff5a9e8c163614e3dadc19e2e32a16d4dfd1330a8a8d0391a3dba99eb51e868e53c0617332cb14bde61ec527c41c164cabc6b0e334740428cfbe0a443b954c
+
+pkgname = python-better-exceptions

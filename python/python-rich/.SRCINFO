@@ -1,0 +1,20 @@
+pkgbase = python-rich
+	pkgdesc = Python library for rich text and beautiful formatting in the terminal
+	pkgver = 15.0.0
+	pkgrel = 1
+	url = https://github.com/Textualize/rich
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	makedepends = python-wheel
+	depends = python
+	depends = python-markdown-it-py
+	depends = python-pygments
+	source = python-rich::git+https://github.com/Textualize/rich#tag=v15.0.0
+	sha512sums = 5a1f65176c890b8ccb6ccc5e3657a7f635720826ac9f4472b63e585a155deb47db188a9179ae150a96aff8fdb1779c46e1679d1f39b7d464c80794ac1b76c0aa
+	b2sums = abfe662f0e1c0d1dbf4957ce55d8f481dbd3e55f38056cdbd77b0cc5fc42b0619f623ee707dfc0e3039c30b727c80ba00d1599a9fb48a3319fba142db4fba74f
+
+pkgname = python-rich

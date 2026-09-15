@@ -1,0 +1,27 @@
+pkgbase = nasm
+	pkgdesc = 80x86 assembler designed for portability and modularity
+	pkgver = 3.01
+	pkgrel = 1
+	url = https://ww.nasm.us
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-2-Clause
+	makedepends = perl-font-ttf
+	makedepends = perl-sort-versions
+	makedepends = fontconfig
+	makedepends = ttf-roboto
+	makedepends = ttf-roboto-mono
+	makedepends = ghostscript
+	makedepends = xmlto
+	makedepends = asciidoc
+	makedepends = diffutils
+	depends = glibc
+	depends = zlib
+	source = https://www.nasm.us/pub/nasm/releasebuilds/3.01/nasm-3.01.tar.xz
+	sha512sums = ca9550ad3239cfaa9546a908e8de86e11a7c7dd9d6006f42d272d0b025b601cdb205e60b8b3929f31123ef450dd0f0403e1300328cadf0ffdfd459f443944482
+	b2sums = 182d908e949e8212ec29bfaa4b747312f7b57dd686195c9b44701f0055ced4b40555624e27d1e1183b356095da76ba1ac8b2a5aa84b2e0d2277106de8ca915d1
+
+pkgname = nasm

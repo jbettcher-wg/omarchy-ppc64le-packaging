@@ -1,0 +1,21 @@
+pkgbase = python-debugpy
+	pkgdesc = An implementation of the Debug Adapter Protocol for Python
+	pkgver = 1.8.21
+	pkgrel = 1
+	url = https://aka.ms/debugpy
+	arch = x86_64
+	license = MIT
+	makedepends = cython
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = python
+	source = git+https://github.com/microsoft/debugpy#tag=v1.8.21
+	sha256sums = aaf818ada9ddbaa3f290bbadb0bc2b8d59236b4485d3df60ddd4691d1094fa7e
+
+pkgname = python-debugpy

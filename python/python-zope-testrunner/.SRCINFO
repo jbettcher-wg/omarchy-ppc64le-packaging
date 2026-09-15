@@ -1,0 +1,20 @@
+pkgbase = python-zope-testrunner
+	pkgdesc = Zope testrunner script
+	pkgver = 8.2
+	pkgrel = 1
+	url = https://github.com/zopefoundation/zope.testrunner
+	arch = any
+	license = ZPL-2.1
+	checkdepends = python-zope-testing
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-setuptools
+	depends = python-zope-exceptions
+	depends = python-zope-interface
+	source = python-zope-testrunner::git+https://github.com/zopefoundation/zope.testrunner.git#tag=8.2
+	b2sums = 07894afb1b751a43629ae8f2ab124d79acd592c383ee1aaba4f3f547b5daced02cb23b7898622b0d08d0374e3f2983652f364472393c261f714522eae7970359
+
+pkgname = python-zope-testrunner

@@ -1,0 +1,20 @@
+pkgbase = python-findpython
+	pkgdesc = A utility to find python versions on your system
+	pkgver = 0.7.1
+	pkgrel = 2
+	url = https://github.com/frostming/findpython
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-pdm-backend
+	makedepends = python-wheel
+	depends = python
+	depends = python-packaging
+	depends = python-platformdirs
+	source = findpython-0.7.1.tar.gz::https://github.com/frostming/findpython/archive/refs/tags/0.7.1.tar.gz
+	sha512sums = b469fc9a622606fc1d392d7358e485322945ff4bf1d5ca13f44e8ae7bd77a12e7b95db1e1e1f98ddd3c4ed8fcc2164de5d763b3a64499a68ac58c0b93f6dcbd5
+	b2sums = 629c8d443747c1305d30ab1786cfc636e47f4b30dbc3a7e890d450e283b108b54d2875505d59b0fe669c8ba8b7adbf150600741421b67a66232d131a1eeefab4
+
+pkgname = python-findpython

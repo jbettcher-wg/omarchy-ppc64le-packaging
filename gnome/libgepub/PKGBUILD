@@ -1,0 +1,47 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=libgepub
+pkgver=0.7.3
+pkgrel=2
+pkgdesc="GObject-based library for handling and rendering epub documents"
+url="https://gitlab.gnome.org/GNOME/libgepub"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(LGPL-2.1-or-later)
+depends=(
+  gcc-libs
+  glib2
+  glibc
+  libarchive
+  libsoup3
+  libxml2
+  webkit2gtk-4.1
+)
+makedepends=(
+  git
+  gobject-introspection
+  meson
+)
+provides=(libgepub-${pkgver%.*}.so)
+source=("git+$url.git#tag=$pkgver")
+b2sums=('85ccd66c332791360b37227a9afa5bcc37bd164d72b5a60beda9fad0e976da6fd4d0cfb21e8b4e2f12461ec46c528346557e7c5b5be81072dd44ccf661fe2cb5')
+
+prepare() {
+  cd libgepub
+}
+
+build() {
+  arch-meson libgepub build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+
+pkgname=python-cairosvg
+pkgver=2.9.0
+pkgrel=1
+pkgdesc='SVG converter based on Cairo. It can export SVG files to PDF, PostScript and PNG files'
+arch=(any)
+url='https://cairosvg.org'
+license=('LGPL-3.0-or-later')
+depends=('python-cairocffi' 'python-cssselect2' 'python-defusedxml' 'python-pillow' 'python-tinycss2')
+makedepends=('git' 'python-build' 'python-installer' 'python-pytest' 'python-setuptools' 'python-wheel')
+checkdepends=('python-pytest')
+replaces=('cairosvg')
+source=("git+https://github.com/Kozea/CairoSVG.git#tag=$pkgver")
+sha512sums=('3313e95647a593b97ff12bd347b7a7ccc321f76ace42d1eaec9a24a18daed6fa58b14acf32563391ef3eed6eb65dc2faeb474b42ac384932a49cbb8eeae901e0')
+
+prepare() {
+  cd CairoSVG
+
+  cp -r cairosvg test_non_regression/cairosvg_reference/
+}
+
+build() {
+  cd CairoSVG
+
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd CairoSVG
+
+  pytest
+}
+
+package() {
+  cd CairoSVG
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

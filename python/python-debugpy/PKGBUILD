@@ -1,0 +1,54 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: mark.blakeney at bullet-systems dot net
+
+_pipname=debugpy
+pkgname=python-$_pipname
+pkgver=1.8.21
+pkgrel=1
+pkgdesc='An implementation of the Debug Adapter Protocol for Python'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://aka.ms/debugpy'
+license=(MIT)
+depends=(glibc
+         libgcc
+         libstdc++
+         python)
+makedepends=(cython
+             git
+             python-build
+             python-installer
+             python-setuptools
+             python-wheel)
+source=(git+https://github.com/microsoft/debugpy#tag=v$pkgver)
+sha256sums=('aaf818ada9ddbaa3f290bbadb0bc2b8d59236b4485d3df60ddd4691d1094fa7e')
+
+# https://github.com/microsoft/debugpy/blob/v1.8.19/src/debugpy/_vendored/pydevd/pydevd_tracing.py#L161
+# Special handling for x86 and x86_64
+case $CARCH in
+    i*86) _SUFFIX=x86;;
+    x86_64) _SUFFIX=amd64;;
+    powerpc*) _SUFFIX=${CARCH/powerpc/ppc} ;;
+    *) _SUFFIX=$CARCH;;
+esac
+
+build() {
+  cd $_pipname
+# Recythonize sources
+  pushd src/debugpy/_vendored/pydevd/_pydevd_bundle
+    cythonize pydevd_cython.pyx
+  popd
+
+  python -m build --wheel --no-isolation
+# Compile attach libraries
+  cd build/lib*/debugpy/_vendored/pydevd/pydevd_attach_to_process
+  ${CXX} ${CXXFLAGS} -shared -o attach_linux_$_SUFFIX.so -fPIC -nostartfiles linux_and_mac/attach.cpp ${LDFLAGS}
+}
+
+package() {
+  cd $_pipname
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm755 build/lib*/debugpy/_vendored/pydevd/pydevd_attach_to_process/attach_linux_$_SUFFIX.so \
+    -t "$pkgdir"`python -c "import site; print(site.getsitepackages()[0])"`/debugpy/_vendored/pydevd/pydevd_attach_to_process
+  install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

@@ -1,0 +1,20 @@
+pkgbase = libgovirt
+	pkgdesc = GObject-based library to access oVirt REST API
+	pkgver = 0.3.11
+	pkgrel = 1
+	epoch = 2
+	url = https://gitlab.gnome.org/GNOME/libgovirt
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL
+	makedepends = gobject-introspection
+	makedepends = meson
+	makedepends = glib2-devel
+	depends = librest
+	source = https://gitlab.gnome.org/GNOME/libgovirt/-/archive/v0.3.11/libgovirt-v0.3.11.tar.bz2
+	b2sums = 7f2be3cfaa29bb56217e9b8e24d0aa8a3f43fb3f6c5f66cd1773b09238f0a8c7332ea4fc3c18dcc6827fc972ab35e435c4a1904836cb116533d927f509b5909b
+
+pkgname = libgovirt

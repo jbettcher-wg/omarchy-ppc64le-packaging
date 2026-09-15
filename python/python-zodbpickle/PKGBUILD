@@ -1,0 +1,44 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-zodbpickle
+pkgver=4.4
+pkgrel=1
+pkgdesc="Fork of Python's pickle module to work with ZODB"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/zopefoundation/zodbpickle"
+license=('PSF-2.0 AND ZPL-2.1')
+depends=(
+  'glibc'
+  'python'
+)
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=(
+  'python-tests'
+  'python-zope-testrunner'
+)
+source=("$url/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('66a450c940c90b78ab76bf9715b8b6b785262e81ab60e92fdf9cd23cbdd31368057a243dc717026c43b855822ef57d040abc7144cbd8d8715cea52001ebcad30')
+
+build() {
+  cd ${pkgname#python-}-$pkgver
+  python -m build --wheel --no-isolation --skip-dependency-check
+}
+
+check() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir=tmp_install dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  export PYTHONPATH="$PWD/tmp_install/$site_packages"
+  zope-testrunner --test-path=src -vc
+}
+
+package() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

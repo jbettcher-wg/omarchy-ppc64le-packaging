@@ -1,0 +1,26 @@
+pkgbase = qterminal
+	pkgdesc = A lightweight Qt-based terminal emulator
+	pkgver = 2.4.0
+	pkgrel = 1
+	url = https://github.com/lxqt/qterminal
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = lxqt
+	license = GPL-2.0-or-later
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = cmake
+	makedepends = lxqt-build-tools
+	depends = hicolor-icon-theme
+	depends = qtermwidget
+	depends = libcanberra
+	depends = layer-shell-qt
+	source = git+https://github.com/lxqt/qterminal.git?signed#tag=2.4.0
+	validpgpkeys = 19DFDF3A579BD509DBB572D8BE793007AD22DF7E
+	validpgpkeys = 48836EB124A1EAAE695EDFEA229CA0A00A17D258
+	sha256sums = dfef29f296a1db92cdadf6f0e2cf4d3133fe520324abdeabecbe4cff3b34710b
+
+pkgname = qterminal

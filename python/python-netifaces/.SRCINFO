@@ -1,0 +1,21 @@
+pkgbase = python-netifaces
+	pkgdesc = Portable module to access network interface information in Python
+	pkgver = 0.11.0
+	pkgrel = 9
+	url = https://alastairs-place.net/netifaces/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/al45tair/netifaces.git#tag=release_0_11_0
+	sha512sums = b25c3b28c8867dba1d1449e250ae30c30216eb825da7d19d046476c55f283692b6e394769209badaade286997664ba8b41b32fde6eeb48eb25a0f49297679300
+
+pkgname = python-netifaces

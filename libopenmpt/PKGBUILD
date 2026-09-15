@@ -1,0 +1,55 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=libopenmpt
+pkgver=0.8.7
+pkgrel=1
+pkgdesc="A library to render tracker music to a PCM audio stream"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://lib.openmpt.org/libopenmpt/"
+license=(BSD-3-Clause)
+depends=(
+  flac
+  glibc
+  libgcc
+  libogg  # required by pkgconf
+  libpulse
+  libsndfile
+  libstdc++
+  libvorbis
+  mpg123
+  portaudio
+  zlib
+)
+makedepends=(
+  autoconf-archive
+  doxygen
+  help2man
+)
+provides=(libopenmpt.so)
+source=($pkgname-$pkgver.tar.gz::https://lib.openmpt.org/files/libopenmpt/src/$pkgname-$pkgver+release.autotools.tar.gz)
+sha512sums=('f0284238a0c1a7892ef948d1a719a13ce817bd0bd0c28a01e92263ca1511442ec836958186fa36c546cc9ca60453f714f9453e0774d910b79233c8698446073d')
+b2sums=('ef97f94e46b40cfc2087550659e13a6354abc7f85ac8ffa664414eb52011f4f6bce4fa5088d2ea0bf02c3193a78c6963f418d9b3a976c9c5699289dca18cb04e')
+
+prepare() {
+  cd $pkgname-$pkgver+release.autotools
+  autoreconf -fiv
+}
+
+build() {
+  cd $pkgname-$pkgver+release.autotools
+  ./configure --prefix=/usr
+  # prevent excessive overlinking due to libtool
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+check() {
+  make -k check -C $pkgname-$pkgver+release.autotools
+}
+
+package() {
+  cd $pkgname-$pkgver+release.autotools
+  make DESTDIR="$pkgdir" install
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

@@ -1,0 +1,26 @@
+pkgbase = xfce4-sensors-plugin
+	pkgdesc = Sensors plugin for the Xfce panel
+	pkgver = 1.5.0
+	pkgrel = 2
+	url = https://docs.xfce.org/panel-plugins/xfce4-sensors-plugin/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xfce4-goodies
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = hddtemp
+	makedepends = meson
+	makedepends = netcat
+	makedepends = xfce4-dev-tools
+	depends = xfce4-panel
+	depends = lm_sensors
+	depends = libnotify
+	depends = hicolor-icon-theme
+	optdepends = hddtemp: for monitoring the temperature of hard drives
+	source = git+https://gitlab.xfce.org/panel-plugins/xfce4-sensors-plugin.git#tag=xfce4-sensors-plugin-1.5.0
+	sha256sums = 11185e845b5a52813b9a7610505384813eb4ad3cfe3c3e7aee5ce10d75b91468
+
+pkgname = xfce4-sensors-plugin

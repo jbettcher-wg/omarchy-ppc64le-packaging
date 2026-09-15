@@ -1,0 +1,47 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Sherlock Holo <sherlockya@gmail.com>
+# Contributor: user6553591 <Message on Reddit>
+
+pkgname=python-websockets
+pkgver=16.0
+pkgrel=1
+pkgdesc='Python implementation of the WebSocket Protocol (RFC 6455)'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/aaugustin/websockets'
+license=('BSD-3-Clause')
+depends=(
+  'glibc'
+  'python'
+)
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=('python-werkzeug')
+source=("$url/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('ed0bfe6e6402c1504680e9afcb7478e06a5f1af6c0761e35a9a6192569b59c5cce5d0a9f0aaea35922e499a3968dba409cb8d398829e9dff6466db5cb5b98b98')
+b2sums=('409323f84f919064f758ad06bccf526d1aafac7aee791b9fd35908081ad13cbd252ca49cefbfdc870e5526da82e641750ee46f0103e53c10f0e9b35f9483982f')
+
+build() {
+  cd ${pkgname#python-}-${pkgver}
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}-${pkgver}
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m unittest discover -v
+}
+
+package() {
+  cd ${pkgname#python-}-${pkgver}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}
+
+# vim: ts=2 sw=2 et:

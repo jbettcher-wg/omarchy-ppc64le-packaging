@@ -1,0 +1,4 @@
+[ruby-ffi]
+source = "git"
+git = "https://github.com/ffi/ffi.git"
+prefix = "v"

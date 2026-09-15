@@ -1,0 +1,93 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: John <graysky@archlinux.us>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Judd Vinet <jvinet@zeroflux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+# Contributor: Reza Jahanbakhshi <reza.jahanbakhshi@gmail.com>
+# Contributor: Vladislav Nepogodin <nepogodin.vlad@gmail.com>
+
+pkgname=distcc
+pkgver=3.4
+pkgrel=15
+pkgdesc='Distributed compilation service for C, C++ and Objective-C'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/distcc/distcc'
+license=(GPL-2.0-only)
+depends=(avahi popt python)
+makedepends=(git gtk3 python-setuptools)
+optdepends=('gtk3: for distccmon')
+backup=(etc/conf.d/distccd
+        etc/distcc/hosts)
+source=("git+$url?signed#tag=v$pkgver"
+        distccd.conf.d
+        distccd.service
+        sysusers.conf)
+b2sums=('8843f1d2ad3cb8d761644ffd19fa2868843c2f0c6b3dc5471c88ed34de0425b78193a3f01539c5c581eaf7c947a39e87f2bace80571cc54e7e0201ad5004e3cc'
+        '60982843dc2dd42f0a461edda7df6966e5d7cae0088a942ecb473a8a47db65879d5b6025f5b1da621b1c43c92902dd29b9fa9e799853058e897d0e143e8b3537'
+        '9b6ffc02e9360fd92f7595e96ef2d69b5f6d72acf343009375fa081f86b26f51960b139c4f6e0e3c8befa37eba4894d61351bbfab6386389c262db0cc01a8b8e'
+        '69971bcf3577e1da86613e0f57d4923be627d2cc6227cd86fef3be4bbd2e688570005816e8ed2b909a4d3ff0a77fdccebaa3f74d000d65d67cd97ccd0a74a3bd')
+validpgpkeys=(30782E2BE4EB9FD5B293D3DA6D100BF096B8A005) # Shawn Landden
+
+prepare() {
+  cd $pkgname
+
+  # meson triple fix, ref FS#78800
+  git cherry-pick --no-commit 850db9eec0d5dd7f47ade8ffca91b679081f6d85
+
+  ./autogen.sh
+  sed -i 's/ install-gnome-data//g' Makefile.in
+}
+
+build() {
+  cd $pkgname
+
+  # ref https://github.com/distcc/distcc/issues/454#issuecomment-1087865811
+  export CFLAGS+=' -DPY_SSIZE_T_CLEAN -fcommon'
+
+  # causes buffer overflow check to occur
+  export CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+
+  # ref FS#78400
+  export NATIVE_COMPILER_TRIPLE=${CHOST}-gcc
+
+  ./configure \
+    --enable-rfc2553 \
+    --mandir=/usr/share/man \
+    --prefix=/usr \
+    --sbindir=/usr/bin \
+    --sysconfdir=/etc \
+    --with-gtk
+
+  make WERROR_CFLAGS= INCLUDESERVER_PYTHON=/usr/bin/python
+}
+
+package() {
+  make -C $pkgname \
+    DESTDIR="$pkgdir" \
+    INCLUDESERVER_PYTHON=/usr/bin/python \
+    install
+
+  install -Dm644 distccd.conf.d "$pkgdir/etc/conf.d/distccd"
+  install -Dm644 distccd.service \
+    "$pkgdir/usr/lib/systemd/system/distccd.service"
+
+  # Package symlinks
+  if [[ "${CFLAGS}" == *"mcpu=espresso"* ]]; then
+    _targets=(c++ c89 c99 cc clang clang++ cpp g++ gcc powerpc-espresso-linux-gnu-g++
+              powerpc-espresso-linux-gnu-gcc powerpc-espresso-linux-gnu-gcc-$(gcc -dumpversion))
+  else
+    _targets=(c++ c89 c99 cc clang clang++ cpp g++ gcc $CHOST-g++
+              $CHOST-gcc $CHOST-gcc-$(gcc -dumpversion))
+  fi
+  install -d "$pkgdir/usr/lib/$pkgname/bin"
+  for bin in "${_targets[@]}"; do
+    # For whitelist since version 3.3, ref FS#57978
+    ln -sf ../../bin/$pkgname "$pkgdir/usr/lib/$pkgname/$bin"
+    # Needed for makepkg to work
+    ln -sf ../../../bin/$pkgname "$pkgdir/usr/lib/$pkgname/bin/$bin"
+  done
+
+  # ref FS#67629
+  install -Dm644 sysusers.conf "$pkgdir/usr/lib/sysusers.d/distccd.conf"
+}

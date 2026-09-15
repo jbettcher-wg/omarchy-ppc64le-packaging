@@ -1,0 +1,18 @@
+pkgbase = perl-cpan-changes
+	pkgdesc = Read and write Changes files
+	pkgver = 0.500005
+	pkgrel = 1
+	url = https://search.mcpan.org/dist/CPAN-Changes
+	arch = any
+	license = GPL
+	license = PerlArtistic
+	depends = perl
+	depends = perl-sub-quote
+	depends = perl-module-runtime
+	depends = perl-moo
+	depends = perl-type-tiny
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/H/HA/HAARG/CPAN-Changes-0.500005.tar.gz
+	sha256sums = 1b022a0a6451827d060ee9cbfe9b2d8edbac2a3d7155cbee33ea93274b830fb5
+
+pkgname = perl-cpan-changes

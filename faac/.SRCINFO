@@ -1,0 +1,23 @@
+pkgbase = faac
+	pkgdesc = Freeware Advanced Audio Coder
+	pkgver = 1.50
+	pkgrel = 1
+	url = https://github.com/knik0/faac
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	license = GPL-3.0-or-later
+	license = LGPL-2.1-or-later
+	license = LicenseRef-ISO-MPEG-4
+	makedepends = git
+	makedepends = meson
+	depends = glibc
+	provides = libfaac.so
+	source = faac::git+https://github.com/knik0/faac#tag=faac-1.50
+	sha512sums = 02b19be5642070e6c928365649deefe24f831fab357cc4e83af695c16ea072a8bc495acf66c732b6aa66b17d69fefd92789c181886b6226ac8fbcea97ef0e823
+	b2sums = c807a05c49c91cad7bf94687ab96acb91c5e7bf10ddbe572484b06a4be3a6a981cd7a315eb16a2be8030a753dc3d0942a93c8aa9587a65cb5461836d43e8f605
+
+pkgname = faac

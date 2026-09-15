@@ -1,0 +1,16 @@
+pkgbase = uriparser
+	pkgdesc = uriparser is a strictly RFC 3986 compliant URI parsing library. uriparser is cross-platform, fast, supports Unicode
+	pkgver = 1.0.2
+	pkgrel = 1
+	url = https://github.com/uriparser/uriparser
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = custom
+	makedepends = cmake
+	source = https://github.com/uriparser/uriparser/releases/download/uriparser-1.0.2/uriparser-1.0.2.tar.xz
+	sha256sums = 7b2496f9622b4b201186a3d159d278605f1fb7262402a10cc1c0824889798b00
+
+pkgname = uriparser

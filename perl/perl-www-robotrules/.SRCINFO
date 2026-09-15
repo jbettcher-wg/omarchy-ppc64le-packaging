@@ -1,0 +1,15 @@
+pkgbase = perl-www-robotrules
+	pkgdesc = Database of robots.txt-derived permissions
+	pkgver = 6.03
+	pkgrel = 1
+	url = https://metacpan.org/dist/WWW-RobotRules
+	arch = any
+	license = Artistic-1.0-Perl
+	license = GPL-1.0-or-later
+	depends = perl
+	depends = perl-uri
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/O/OA/OALDERS/WWW-RobotRules-6.03.tar.gz
+	sha256sums = 8522b532935a11bfa688c2e113bac66729df4851be50c2c26d4b06f45fade472
+
+pkgname = perl-www-robotrules

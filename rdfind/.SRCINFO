@@ -1,0 +1,23 @@
+pkgbase = rdfind
+	pkgdesc = Redundant data find - a program that finds duplicate files
+	pkgver = 1.8.0
+	pkgrel = 1
+	url = https://rdfind.pauldreik.se
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-only
+	makedepends = git
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = nettle
+	depends = xxhash
+	source = git+https://github.com/pauldreik/rdfind.git?signed#tag=releases/1.8.0
+	validpgpkeys = CC3C51BA88205B19728A6F07C9D9A0EA44EAE0EB
+	validpgpkeys = 19ABF04E6A23E1A562041CA7CB203176838B7194
+	b2sums = bb70c5359e1245539120c80bb2bed2919aee8801041259740542cebfd468ff2397d4158590ca9511b7f5f3582c2a244e3311abf188488151e2c13132224897a0
+
+pkgname = rdfind

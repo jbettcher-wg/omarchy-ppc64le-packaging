@@ -1,0 +1,17 @@
+pkgbase = lrzip
+	pkgdesc = Multi-threaded compression with rzip/lzma, lzo, and zpaq
+	pkgver = 0.660
+	pkgrel = 1
+	url = https://github.com/ckolivas/lrzip
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL
+	makedepends = git
+	depends = lzo
+	source = git+https://github.com/ckolivas/lrzip#tag=v0.660
+	sha256sums = 6df7888853e35c5ed396d7261771acfa03d61550de3b5add24914baa766e3b11
+
+pkgname = lrzip

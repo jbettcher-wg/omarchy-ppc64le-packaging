@@ -1,0 +1,79 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-cryptography
+pkgver=49.0.0
+pkgrel=1
+pkgdesc="A package designed to expose cryptographic recipes and primitives to Python developers"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/pyca/cryptography"
+license=('Apache-2.0 OR BSD-3-Clause')
+depends=(
+  'glibc'
+  'libgcc'
+  'openssl'
+  'python'
+  'python-cffi'
+)
+makedepends=(
+  'clang'
+  'git'
+  'lld'
+  'llvm'
+  'python-build'
+  'python-installer'
+  'python-maturin'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=(
+  'python-certifi'
+  'python-hypothesis'
+  'python-pretend'
+  'python-pytest'
+)
+source=(
+  "git+https://github.com/pyca/cryptography.git#tag=$pkgver"
+)
+b2sums=('f07ea529b2b6a8c3639eef5881d4c5aabeb41de27df1312a0cc584b56b83213ec45b058b2a2b63c2e0acce070d57f855a4a561babfb38a7ec3adc07c6317779f')
+
+prepare() {
+  cd cryptography
+  # Drop all benchmark tests, this means we don't have to checkdepends on
+  # pytest-benchmark nor are benchmark tests interesting for a distribution.
+  rm -rf tests/bench
+}
+
+build() {
+  cd cryptography
+  echo "$RUSTFLAGS"
+  # https://github.com/pyca/cryptography/issues/9023
+  CC=clang RUSTFLAGS+=" -Clinker-plugin-lto -Clinker=clang -Clink-arg=-fuse-ld=lld"
+  case "${CARCH}" in
+    powerpc)
+      CC=gcc
+      RUSTFLAGS=""
+    ;;
+  esac
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc) return 0 ;;
+  esac
+
+  cd cryptography
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  python -m installer --destdir="tmp_install" dist/*.whl
+  PYTHONPATH="$PWD/tmp_install/$site_packages:$PWD/vectors" \
+    pytest --override-ini="addopts=" tests
+}
+
+package() {
+  cd cryptography
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.BSD
+}

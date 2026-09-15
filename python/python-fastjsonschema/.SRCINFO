@@ -1,0 +1,18 @@
+pkgbase = python-fastjsonschema
+	pkgdesc = Fast JSON schema validator for Python
+	pkgver = 2.21.2
+	pkgrel = 2
+	url = https://github.com/horejsek/python-fastjsonschema
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = fastjsonschema-2.21.2.tar.gz::https://github.com/horejsek/python-fastjsonschema/archive/refs/tags/v2.21.2.tar.gz
+	sha512sums = 6def573d5de6c29045ef902b78ce9ce7951081396342d2d1ba7c474e8059c2bcac733848a59f2361fe7e1e2216f9c4beeaadee8940ddd8d8648c043a59cfe819
+	b2sums = ea93dfbac75cdf35e74dea627e680742351c4647fc8b18141dacd296e314eb698cd7a0a3ad05ecaa01f4b518c1372a77bcabd10a6bdc62d12e200c16f6de1762
+
+pkgname = python-fastjsonschema

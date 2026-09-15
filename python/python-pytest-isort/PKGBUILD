@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-pytest-isort
+pkgver=4.0.0
+pkgrel=3
+pkgdesc='pytest plugin to perform isort checks (import ordering)'
+arch=(any)
+license=('BSD')
+url='https://github.com/stephrdev/pytest-isort'
+depends=('python-pytest' 'python-isort')
+makedepends=('git' 'python-build' 'python-installer' 'python-poetry-core')
+source=("git+https://github.com/stephrdev/pytest-isort.git#tag=$pkgver")
+sha512sums=('335aa2ddbd916ee4549339bf7e01ff947c1868256f0ccee9536d8e94938d91b2b95cb7e7857a7645a4a12fb82c8ac18ccda5992cb0e835f9ef5a66794e723ce1')
+
+build() {
+  cd pytest-isort
+  python -m build -nw
+}
+
+check() {
+  # Hack entry points by installing it
+
+  cd pytest-isort
+  python -m installer --destdir="$PWD/tmp_install" dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  PYTHONPATH="$PWD/tmp_install/$site_packages:$PYTHONPATH" pytest
+}
+
+package() {
+  cd pytest-isort
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE.rst -t "$pkgdir"/usr/share/licenses/$pkgname/
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+}
+
+# vim:set ts=2 sw=2 et:

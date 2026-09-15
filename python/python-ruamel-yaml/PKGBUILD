@@ -1,0 +1,34 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+# Contributor: Samuel Littley <aur@toastwaffle.com>
+# Contributor: rnons <remotenonsense at gmail dot com>
+
+_pkg=ruamel.yaml
+pkgname=python-${_pkg/./-}
+pkgver=0.18.11
+pkgrel=1
+pkgdesc="YAML parser/emitter that supports roundtrip preservation of comments, seq/map flow style, and map key order"
+arch=(any)
+url="https://sourceforge.net/projects/ruamel-yaml/"
+license=('MIT')
+depends=('python-ruamel.yaml.clib')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=(https://files.pythonhosted.org/packages/source/r/${_pkg}/${_pkg}-${pkgver}.tar.gz)
+sha512sums=('dd397a5cb8c9a80795fb13b3d5830aa35e1a592a449f94d385267b995017889651e415b6170fc22516e66e8c50bc2cf25c5593e490af87e8eb83b3f1b17d3564')
+
+build() {
+  cd ${_pkg}-${pkgver}
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+package() {
+  cd ${_pkg}-${pkgver}
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+
+  # Symlink license file
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "${pkgdir}"/usr/share/licenses/"${pkgname}"
+  ln -s "${site_packages}"/${_pkg}-${pkgver}.dist-info/LICENSE \
+    "${pkgdir}"/usr/share/licenses/"${pkgname}"/LICENSE
+}

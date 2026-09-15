@@ -1,0 +1,22 @@
+pkgbase = python-ukkonen
+	pkgdesc = Implementation of bounded Levenshtein distance (Ukkonen)
+	pkgver = 1.1.0
+	pkgrel = 1
+	url = https://github.com/asottile/ukkonen
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python
+	depends = python-cffi
+	source = git+https://github.com/asottile/ukkonen.git#tag=v1.1.0
+	sha512sums = a920a33e41ffc3a64ea20e9b4347ce2ce8050cefbe5bdd83804c797f40c71e39422f102a01635c3efc05855462dc29010d8a76abf5b9b3f28e7a02073aa6caa2
+
+pkgname = python-ukkonen

@@ -1,0 +1,23 @@
+pkgbase = python-beautifulsoup4
+	pkgdesc = A Python HTML/XML parser designed for quick turnaround projects like screen-scraping
+	pkgver = 4.15.0
+	pkgrel = 1
+	url = https://www.crummy.com/software/BeautifulSoup/
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	depends = python
+	depends = python-soupsieve
+	depends = python-typing_extensions
+	optdepends = python-cchardet: alternative to autodetect character encodings
+	optdepends = python-chardet: to autodetect character encodings
+	optdepends = python-lxml: alternative HTML parser
+	optdepends = python-html5lib: alternative HTML parser
+	source = python-beautifulsoup4-4.15.0.tar.gz::https://www.crummy.com/software/BeautifulSoup/bs4/download/4.15/beautifulsoup4-4.15.0.tar.gz
+	sha512sums = ccf07cac23ca52f50802b3d6271b42c1367022e2bc409b1be2924bbbd274cebce3b5afde1c1c4f253802b7a58f907cb60a29d347ae2765c33ce85bec9dcc473c
+	b2sums = c9c3745b338ffdf4c8d51246d914f52f7a0caf45933ef413c16f4c7a5a80b9c090463efa9960044065b074b9790db80271cc1cb51af50714bb809c991cca8477
+
+pkgname = python-beautifulsoup4

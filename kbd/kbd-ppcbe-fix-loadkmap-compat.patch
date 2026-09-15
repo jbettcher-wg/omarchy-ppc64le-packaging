@@ -1,0 +1,13 @@
+diff --git a/src/libkeymap/dump.c b/src/libkeymap/dump.c
+index 4dee51b..8ea1d3e 100644
+--- a/src/libkeymap/dump.c
++++ b/src/libkeymap/dump.c
+@@ -72,7 +72,7 @@ int lk_dump_bkeymap(struct lk_ctx *ctx, FILE *fd)
+ 			continue;
+ 
+ 		for (j = 0; j < NR_KEYS / 2; j++) {
+-			int value = lk_get_key(ctx, i, j);
++			unsigned short value = lk_get_key(ctx, i, j);
+ 
+ 			if (value < 0 || value > USHRT_MAX) {
+ 				ERR(ctx, _("can not bind key %d to value %d because it is too large"), j, value);

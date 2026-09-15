@@ -1,0 +1,21 @@
+pkgbase = python-zope-copy
+	pkgdesc = Pluggable object copying mechanism
+	pkgver = 6.0
+	pkgrel = 3
+	url = https://github.com/zopefoundation/zope.copy
+	arch = any
+	license = ZPL-2.1
+	checkdepends = python-zope-location
+	checkdepends = python-zope-testing
+	checkdepends = python-zope-testrunner
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-zodbpickle
+	depends = python-zope-interface
+	source = python-zope-copy-6.0.tar.gz::https://github.com/zopefoundation/zope.copy/archive/6.0.tar.gz
+	sha512sums = 483a54afa4149e70461885eb7751eef6511b265486f504343f37e827979fe4095f58f76f31ebe7a49a8304c249b5ce9f0e22c459b5804881573c263413ff4311
+
+pkgname = python-zope-copy

@@ -1,0 +1,17 @@
+pkgbase = python-legacy-cgi
+	pkgdesc = Fork of the standard library cgi and cgitb modules, being deprecated in PEP-594
+	pkgver = 2.6.4
+	pkgrel = 2
+	url = https://github.com/jackrosenthal/legacy-cgi
+	arch = any
+	license = PSF-2.0
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	source = https://github.com/jackrosenthal/legacy-cgi/archive/v2.6.4/python-legacy-cgi-2.6.4.tar.gz
+	sha256sums = 5dc1a194ccb18906ceefe1291bc32db327b97f09238f2b97e07e26050f04a8e3
+
+pkgname = python-legacy-cgi

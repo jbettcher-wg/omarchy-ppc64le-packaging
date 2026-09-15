@@ -1,0 +1,18 @@
+pkgbase = python-voluptuous
+	pkgdesc = A Python data validation library
+	pkgver = 0.16.0
+	pkgrel = 2
+	url = https://github.com/alecthomas/voluptuous
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	source = git+https://github.com/alecthomas/voluptuous.git#tag=0.16.0
+	sha512sums = 9017ff11b95668973a97ae62624934abab7766948ae2d5b1728d9208c692ba60486f3b9ff784aae47e62605d9e7f4d58447678d5d216975b148c07dd24e9ef42
+
+pkgname = python-voluptuous

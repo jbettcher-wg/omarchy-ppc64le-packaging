@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: sqlwwx <wwx_2012@live.com>
+# Contributors: Eduardo San Martin Morote http://posva.net/
+
+pkgname=catimg
+pkgver=2.8.0
+pkgrel=1
+pkgdesc="Print images in a terminal with 256 colors support"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/posva/catimg"
+license=('MIT')
+depends=('glibc')
+makedepends=('git' 'cmake' 'ninja')
+source=("git+https://github.com/posva/catimg.git#tag=v$pkgver")
+sha512sums=('9a488537d5c40a8eb817718c23beb79e181e32c937535120ad54646d8b2d260f947f348bba3a0fb5c1895bab9b72ca8ec3baa01e81d1bace003d88f6f6ae9c54')
+
+prepare() {
+  cd $pkgname
+  sed -i '/set(CMAKE_BUILD_TYPE Release)/d' CMakeLists.txt
+
+  sed -i 's/void intHandler()/void intHandler(int sig)/' src/catimg.c
+}
+
+build() {
+  cd $pkgname
+  CFLAGS+=' -fcommon' # https://wiki.gentoo.org/wiki/Gcc_10_porting_notes/fno_common
+  cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr .
+  ninja
+}
+
+package() {
+  cd $pkgname
+  DESTDIR="$pkgdir" ninja install
+
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

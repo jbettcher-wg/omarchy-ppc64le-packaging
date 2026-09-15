@@ -1,0 +1,17 @@
+pkgbase = python-durationpy
+	pkgdesc = Module for converting between datetime.timedelta and Go's time.Duration strings
+	pkgver = 0.10
+	pkgrel = 2
+	url = https://github.com/icholy/durationpy
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/icholy/durationpy.git#tag=354a6781a153daa6f2c2ec373ef50b8d8ac2ec20
+	sha256sums = 973f70c2b689ef9f8311f6b3cb4a91ffc33f606463b143a41be3e7738a0ca4df
+
+pkgname = python-durationpy

@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+# Contributor: Patrice Peterson <runiq at archlinux dot us>
+# Contributor: JonnyJD <arch@JonnyJD.net>
+
+pkgname=python-secretstorage
+pkgver=3.5.0
+pkgrel=1
+pkgdesc="Securely store passwords and other private data using the SecretService DBus API"
+arch=(any)
+url="https://github.com/mitya57/secretstorage"
+license=('BSD-3-Clause')
+depends=('python-cryptography' 'python-jeepney')
+makedepends=('python-setuptools' 'python-build' 'python-installer' 'python-wheel' 'git')
+checkdepends=('org.freedesktop.secrets' 'xorg-server-xvfb')
+source=("git+https://github.com/mitya57/secretstorage.git#tag=$pkgver")
+sha512sums=('e37edabee40eab2c3788b3cdb4a5b320ed48eaf77edde25812a2dc99c7e38013b15bfcc3f26405a54c0743a8b982e3c858812a2b517fd6dd0c3dd42f9889b416')
+
+build() {
+  cd secretstorage
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd secretstorage
+
+  dbus-launch xvfb-run -a python -m unittest discover -s tests
+}
+
+package() {
+  cd secretstorage
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

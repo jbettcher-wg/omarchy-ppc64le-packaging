@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: spider-mario <spidermario@free.fr>
+# Contributor: Daniel Ehlers <danielehlers@mindeye.net>
+
+pkgname=coin-or-cgl
+pkgver=0.60.10
+pkgrel=2
+pkgdesc='COIN-OR Cut Generation Library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/coin-or/Cgl'
+license=(EPL-2.0)
+groups=(coin-or)
+depends=(coin-or-clp
+         coin-or-coinutils
+         coin-or-osi
+         glibc
+         libgcc
+         libstdc++)
+makedepends=(git)
+source=(git+https://github.com/coin-or/Cgl#tag=releases/$pkgver)
+sha256sums=('bd3901eee3df06693b652b7431d4d7542dc69125c5ccc835b6def2dae5c6877f')
+
+build() {
+  cd Cgl
+  ./configure --prefix=/usr
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool # Fix overlinking
+  make
+}
+
+check() {
+  cd Cgl
+  make test
+}
+
+package() {
+  cd Cgl
+  make DESTDIR="$pkgdir" install
+}

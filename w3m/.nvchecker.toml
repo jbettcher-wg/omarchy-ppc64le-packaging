@@ -1,0 +1,4 @@
+[w3m]
+source = "git"
+git = "https://git.sr.ht/~rkta/w3m"
+prefix = "v"

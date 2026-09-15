@@ -1,0 +1,218 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+
+pkgbase=linux-lts-6.6
+pkgver=6.6.156
+pkgrel=1
+pkgdesc='LTS Linux'
+url="https://www.kernel.org/"
+arch=(powerpc64le powerpc64 powerpc)
+license=(GPL-2.0-only)
+makedepends=(
+  bc libelf pahole cpio perl tar xz gettext
+  xmlto
+)
+options=('!debug' '!strip')
+_srcname=linux-$pkgver
+source=(
+  https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/${_srcname}.tar.{xz,sign}
+  config         # the main kernel config file
+  config.ppc32
+  config.ppc64
+  ppc32-cpu-hotplug.patch
+  ppc-vas-on-4k.patch
+  0003-ppc-radeon-qw-pm.patch
+  0004-pcmcia-iomega-clik.patch
+  0005-i915-diag.patch
+  0006-i915-page-64k.patch
+  0007-i915-ppc.patch
+  0008-ppc-gcc-15.patch
+)
+validpgpkeys=(
+  'ABAF11C65A2970B130ABE3C479BE3E4300411886'  # Linus Torvalds
+  '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
+)
+# https://www.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc
+sha256sums=('aee2264a4eaf4a14344b47a0469bd42e8b4885b24f110b724262b3da956f411d'
+            'SKIP'
+            '12369dbf2106e30c234fb153da2d579bc5306d3322d1294b2a2f6b3ef3de4596'
+            '0dd30937e4b9d7e8fd814e226fecb76cf9a3938871050afcb2bad910fb2b050a'
+            '262b7d105ba0e72f9cb00141deb7749055d9373a34df93870484994490600677'
+            'f12714da37052b0a8816c259a0d488c73da0dc21bb66cf271c2c8580785e6143'
+            '816f3fdac5bd1266d057cca546f620510fe137f956f523d565202cede0ebbd74'
+            '07dbbf3e8f743e8d2ad90891a8b567392271db139e339529df1ab4387e0e6400'
+            'b8a5d1e9dbed702d23bda79af3ac6f3d61228e123f7d6e5717779f2e28c4b677'
+            '060a30a4148aa88701003fd56bb389971db8527fa376e3436094cddcdec76c24'
+            '5dc5eb5772dd79ea4c87a60c2bafbb0503f20a3e4ddbf2075c02ca69e159e21d'
+            '7d44df97c0e565cfec60b77c0ad582e7f0da54726cfedc149c0b49e45f3a5d8b'
+            '9be9878c941e21c53f65dd919d8e26214113de4077df90262cb830d78689d028')
+
+export KBUILD_BUILD_HOST=archpower
+export KBUILD_BUILD_USER=$pkgbase
+export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+
+case "${CARCH}" in
+  powerpc*) export MYARCH=powerpc ;;
+esac
+
+prepare() {
+  cd $_srcname
+
+  echo "Setting version..."
+  echo "-$pkgrel" > localversion.10-pkgrel
+  echo "${pkgbase#linux}" > localversion.20-pkgname
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    echo "Applying patch $src..."
+    patch -Np1 < "../$src"
+  done
+
+  echo "Setting config..."
+  case "${CARCH}" in
+    powerpc) cp ../config.ppc32 .config ;;
+    powerpc64) cp ../config.ppc64 .config ;;
+    powerpc64le) cp ../config .config ;;
+    *)
+      echo ":: Unsupported arch=()"
+      return 1
+    ;;
+  esac
+
+  make olddefconfig
+
+  make -s kernelrelease > version
+  echo "Prepared $pkgbase version $(<version)"
+}
+
+build() {
+  cd $_srcname
+  make all
+}
+
+_package() {
+  pkgdesc="The $pkgdesc kernel and modules"
+  depends=(coreutils kmod initramfs)
+  optdepends=('wireless-regdb: to set the correct wireless channels of your country'
+              'linux-firmware: firmware images needed for some devices')
+  provides=(VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE KSMBD-MODULE)
+  replaces=(wireguard-lts "linux-lts<=6.6.87")
+
+  cd $_srcname
+  local kernver="$(<version)"
+  local modulesdir="$pkgdir/usr/lib/modules/$kernver"
+
+  echo "Installing boot image..."
+  # systemd expects to find the kernel here to allow hibernation
+  # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
+  install -Dm644 "$(make -s image_name)" "$modulesdir/vmlinuz"
+
+  # Used by mkinitcpio to name the kernel
+  echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
+
+  echo "Installing modules..."
+  make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
+    DEPMOD=/doesnt/exist modules_install 1>/dev/null # Suppress depmod
+
+  # remove build link
+  rm "$modulesdir"/build
+}
+
+_package-headers() {
+  pkgdesc="Headers and scripts for building modules for the $pkgdesc kernel"
+  depends=(pahole)
+  replaces=(wireguard-lts "linux-lts-headers<=6.6.87")
+
+  cd $_srcname
+  local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
+
+  echo "Installing build files..."
+  install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
+    localversion.* version vmlinux
+  install -Dt "$builddir/kernel" -m644 kernel/Makefile
+  install -Dt "$builddir/arch/${MYARCH}" -m644 arch/${MYARCH}/Makefile
+  cp -t "$builddir" -a scripts
+
+  case "${CARCH}" in
+    x86_64)
+      # required when STACK_VALIDATION is enabled
+      install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+    # required when DEBUG_INFO_BTF_MODULES is enabled
+    install -Dt "$builddir/tools/bpf/resolve_btfids" tools/bpf/resolve_btfids/resolve_btfids
+    ;;
+  esac
+
+  echo "Installing headers..."
+  cp -t "$builddir" -a include
+  cp -t "$builddir/arch/${MYARCH}" -a arch/${MYARCH}/include
+  install -Dt "$builddir/arch/${MYARCH}/kernel" -m644 arch/${MYARCH}/kernel/asm-offsets.s
+
+  install -Dt "$builddir/drivers/md" -m644 drivers/md/*.h
+  install -Dt "$builddir/net/mac80211" -m644 net/mac80211/*.h
+
+  # https://bugs.archlinux.org/task/13146
+  install -Dt "$builddir/drivers/media/i2c" -m644 drivers/media/i2c/msp3400-driver.h
+
+  # https://bugs.archlinux.org/task/20402
+  install -Dt "$builddir/drivers/media/usb/dvb-usb" -m644 drivers/media/usb/dvb-usb/*.h
+  install -Dt "$builddir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
+  install -Dt "$builddir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
+
+  # https://bugs.archlinux.org/task/71392
+  install -Dt "$builddir/drivers/iio/common/hid-sensors" -m644 drivers/iio/common/hid-sensors/*.h
+
+  echo "Installing KConfig files..."
+  find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  echo "Removing unneeded architectures..."
+  local arch
+  for arch in "$builddir"/arch/*/; do
+    [[ $arch = */${MYARCH}/ ]] && continue
+    echo "Removing $(basename "$arch")"
+    rm -r "$arch"
+  done
+
+  echo "Removing documentation..."
+  rm -r "$builddir/Documentation"
+
+  echo "Removing broken symlinks..."
+  find -L "$builddir" -type l -printf 'Removing %P\n' -delete
+
+  echo "Removing loose objects..."
+  find "$builddir" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+  echo "Stripping build tools..."
+  local file
+  while read -rd '' file; do
+    case "$(file -Sib "$file")" in
+      application/x-sharedlib\;*)      # Libraries (.so)
+        strip -v $STRIP_SHARED "$file" ;;
+      application/x-archive\;*)        # Libraries (.a)
+        strip -v $STRIP_STATIC "$file" ;;
+      application/x-executable\;*)     # Binaries
+        strip -v $STRIP_BINARIES "$file" ;;
+      application/x-pie-executable\;*) # Relocatable binaries
+        strip -v $STRIP_SHARED "$file" ;;
+    esac
+  done < <(find "$builddir" -type f -perm -u+x ! -name vmlinux -print0)
+
+  echo "Stripping vmlinux..."
+  strip -v $STRIP_STATIC "$builddir/vmlinux"
+
+  echo "Adding symlink..."
+  mkdir -p "$pkgdir/usr/src"
+  ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
+}
+
+pkgname=("$pkgbase" "$pkgbase-headers")
+for _p in "${pkgname[@]}"; do
+  eval "package_$_p() {
+    $(declare -f "_package${_p#$pkgbase}")
+    _package${_p#$pkgbase}
+  }"
+done
+
+# vim:set ts=8 sts=2 sw=2 et:

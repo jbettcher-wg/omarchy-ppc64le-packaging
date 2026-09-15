@@ -1,0 +1,35 @@
+pkgbase = python-pytest
+	pkgdesc = Simple powerful testing with Python
+	pkgver = 9.0.3
+	pkgrel = 1
+	epoch = 1
+	url = https://docs.pytest.org
+	arch = any
+	license = MIT
+	checkdepends = python-argcomplete
+	checkdepends = python-attrs
+	checkdepends = python-hypothesis
+	checkdepends = python-requests
+	checkdepends = python-xmlschema
+	checkdepends = lsof
+	checkdepends = python-decorator
+	checkdepends = python-docutils
+	checkdepends = python-jinja
+	checkdepends = python-numpy
+	checkdepends = python-pexpect
+	checkdepends = python-pytest-xdist
+	checkdepends = python-twisted
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python-iniconfig
+	depends = python-packaging
+	depends = python-pluggy
+	depends = python-pygments
+	source = git+https://github.com/pytest-dev/pytest.git#tag=9.0.3
+	b2sums = 938b6a0f0314ca77ef1abcef5398ccbd1447554f6d7fddb98f5e13f9a7528a0ff36087ac20e8b81e5ff09acb46634afc5fd6dd3e8f66fd32fd4c2dadb25592c8
+
+pkgname = python-pytest

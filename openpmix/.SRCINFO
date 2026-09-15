@@ -1,0 +1,36 @@
+pkgbase = openpmix
+	pkgdesc = Extended version of the PMI standard
+	pkgver = 5.0.10
+	pkgrel = 1
+	url = https://github.com/openpmix/openpmix
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	license = BSD-3-Clause
+	makedepends = glibc
+	makedepends = hwloc
+	makedepends = perl
+	makedepends = libevent
+	makedepends = libevent_core-2.1.so
+	makedepends = libevent_pthreads-2.1.so
+	makedepends = python
+	makedepends = zlib
+	options = !lto
+	source = https://github.com/openpmix/openpmix/releases/download/v5.0.10/pmix-5.0.10.tar.gz
+	sha512sums = a19f7654482ad8995188e3f26245a814b81baafd547cee1a374453078ece86088fbb30176a32d2f6af66c31d0943847cf78678b0b9bafd3f4f053a2701a731a7
+	b2sums = ce6934e1f0dc8084a3248797741e3f079b3e6ca6cf9f72d45f63870eff93b00fc138979374e1b0644c9541e20d47e0e88a60bf46afc7d71e36fddd1c8d87bf8b
+
+pkgname = openpmix
+	depends = glibc
+	depends = hwloc
+	depends = libevent
+	depends = libevent_core-2.1.so
+	depends = libevent_pthreads-2.1.so
+	depends = zlib
+	optdepends = openpmix-docs: for documentation
+	provides = libpmix.so
+	provides = pmix
+	backup = etc/openpmix/pmix-mca-params.conf
+
+pkgname = openpmix-docs
+	pkgdesc = Extended version of the PMI standard - documentation

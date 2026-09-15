@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xlsclients
+pkgver=1.1.6
+pkgrel=1
+pkgdesc="List client applications running on a display"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT')
+depends=('libxcb' 'glibc')
+makedepends=('xorg-util-macros' 'xorgproto')
+groups=('xorg-apps' 'xorg')
+source=(https://xorg.freedesktop.org/archive/individual/app/xlsclients-${pkgver}.tar.xz{,.sig})
+sha512sums=('bc330df0f56aa2c732a6d251494280839eb6a7c085e138e2f1d484e2ae580cdb562e1efb71257fa277f7a69f8a22317ef8419c5755661ed5155ea428a550a513'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # "Alan Coopersmith <alan.coopersmith@oracle.com>"
+
+build() {
+  cd xlsclients-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xlsclients-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+}

@@ -1,0 +1,22 @@
+pkgbase = uvicorn
+	pkgdesc = The lightning-fast ASGI server
+	pkgver = 0.38.0
+	pkgrel = 2
+	url = https://github.com/encode/uvicorn
+	arch = any
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	depends = python-asgiref
+	depends = python-click
+	depends = python-h11
+	depends = python-httptools
+	depends = python-uvloop
+	depends = python-websockets
+	source = git+https://github.com/encode/uvicorn#tag=3850ad6520cafb290bd4174fa9c4ca5d33440c82
+	b2sums = ef48b2d21922769fd1e1979ef87378999ecd9b43622d6f59ebd1eaf1a00f65f2e99e181f002637b959c09ebdc9d7af097a60a1b575559a9852ec81568dcd2a15
+
+pkgname = uvicorn

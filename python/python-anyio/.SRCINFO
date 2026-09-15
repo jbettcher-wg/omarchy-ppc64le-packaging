@@ -1,0 +1,32 @@
+pkgbase = python-anyio
+	pkgdesc = High level compatibility layer for multiple asynchronous event loop implementations
+	pkgver = 4.14.2
+	pkgrel = 1
+	url = https://github.com/agronholm/anyio
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-trustme
+	checkdepends = python-hypothesis
+	checkdepends = python-pytest-mock
+	checkdepends = python-psutil
+	checkdepends = python-truststore
+	checkdepends = python-pytest-timeout
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	makedepends = python-uvloop
+	makedepends = python-trio
+	depends = python
+	depends = python-idna
+	optdepends = python-trio: trio backend
+	optdepends = python-outcome: trio backend
+	optdepends = python-uvloop: use uvloop for asyncio backend
+	optdepends = python-pytest: pytest plugin
+	source = git+https://github.com/agronholm/anyio.git#tag=4.14.2
+	sha256sums = 8e78edcec4737d9e0aae5ba91663028f990c59b1f9c7810c861b0911f3a02ce3
+
+pkgname = python-anyio

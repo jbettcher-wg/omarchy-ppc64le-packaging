@@ -1,0 +1,39 @@
+# --- T2-COPYRIGHT-BEGIN ---
+# t2/package/*/rustc/hotfix-abi.patch.powerpc64.elfv2
+# Copyright (C) 2024 - 2026 The T2 SDE Project
+# SPDX-License-Identifier: GPL-2.0 or patched project license
+# --- T2-COPYRIGHT-END ---
+
+--- rustc-1.84.0-src/compiler/rustc_target/src/callconv/powerpc64.rs	2024-02-20 12:22:13.165372817 +0100
++++ rustc-1.84.0-src/compiler/rustc_target/src/callconv/powerpc64.rs	2024-02-20 12:23:04.119367907 +0100
+@@ -131,7 +131,7 @@
+         ELFv2
+     } else {
+         match cx.data_layout().endian {
+-            Endian::Big => ELFv1,
++            Endian::Big => ELFv2,
+             Endian::Little => ELFv2,
+         }
+     };
+--- rustc-1.93.0-src/compiler/rustc_target/src/spec/targets/powerpc64_unknown_linux_gnu.rs.vanilla	2026-01-22 17:34:28.858377823 +0100
++++ rustc-1.93.0-src/compiler/rustc_target/src/spec/targets/powerpc64_unknown_linux_gnu.rs	2026-01-22 17:34:48.353554110 +0100
+@@ -11,8 +11,8 @@
+     base.add_pre_link_args(LinkerFlavor::Gnu(Cc::Yes, Lld::No), &["-m64"]);
+     base.max_atomic_width = Some(64);
+     base.stack_probes = StackProbeType::Inline;
+-    base.cfg_abi = CfgAbi::ElfV1;
+-    base.llvm_abiname = LlvmAbi::ElfV1;
++    base.cfg_abi = CfgAbi::ElfV2;
++    base.llvm_abiname = LlvmAbi::ElfV2;
+ 
+     Target {
+         llvm_target: "powerpc64-unknown-linux-gnu".into(),
+@@ -22,7 +22,7 @@
+             std: Some(true),
+         },
+         pointer_width: 64,
+-        data_layout: "E-m:e-Fi64-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512".into(),
++        data_layout: "E-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512".into(),
+         arch: Arch::PowerPC64,
+         options: TargetOptions { endian: Endian::Big, mcount: "_mcount".into(), ..base },
+     }

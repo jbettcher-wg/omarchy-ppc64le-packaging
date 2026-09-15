@@ -1,0 +1,17 @@
+pkgbase = libxmp
+	pkgdesc = Library that supports over 90 module formats (Amiga, Atari, ..)
+	pkgver = 4.7.1
+	pkgrel = 1
+	url = http://xmp.sourceforge.net/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	depends = glibc
+	options = !emptydirs
+	source = http://download.sourceforge.net/project/xmp/libxmp/4.7.1/libxmp-4.7.1.tar.gz
+	sha256sums = 398052ddff91472e9939240422d10b92149a1f5b80d2455ff5dde129f10c28e5
+
+pkgname = libxmp

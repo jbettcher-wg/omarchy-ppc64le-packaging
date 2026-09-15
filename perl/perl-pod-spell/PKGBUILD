@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=perl-pod-spell
+pkgver=1.27
+pkgrel=1
+pkgdesc="A formatter for spellchecking Pod"
+arch=(any)
+license=('Artistic-2.0')
+url="https://metacpan.org/release/Pod-Spell"
+depends=('perl-class-tiny' 'perl-file-sharedir' 'perl-lingua-en-inflect' 'perl-path-tiny'
+         'perl-pod-parser')
+makedepends=('perl-file-sharedir-install' 'perl-test-deep')
+options=('!emptydirs')
+source=("https://cpan.metacpan.org/authors/id/H/HA/HAARG/Pod-Spell-$pkgver.tar.gz")
+sha512sums=('d4737d977220205dd2f74ea0d1ff02214ae66e7f772e978a97f17c3219478be547168fd7452e447f5e6efb24006d0b8427c846b7060649d3857f57cce2d917eb')
+
+build() {
+  cd Pod-Spell-$pkgver
+  perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+check() {
+  cd Pod-Spell-$pkgver
+  make test
+}
+
+package() {
+  cd Pod-Spell-$pkgver
+  make DESTDIR="$pkgdir" install
+}

@@ -1,0 +1,19 @@
+pkgbase = python-watchdog
+	pkgdesc = Python API and shell utilities to monitor file system events
+	pkgver = 6.0.0
+	pkgrel = 2
+	url = https://github.com/gorakhargosh/watchdog
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest
+	checkdepends = python-pytest-timeout
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	optdepends = python-yaml: for watchmedo
+	source = https://github.com/gorakhargosh/watchdog/archive/v6.0.0/python-watchdog-6.0.0.tar.gz
+	sha512sums = 4a13e1f5b27d1f2d063018ced423709d58ca2a6a77a8d34f59a0bd29b1e34368d38ad0c3b1aa3fbdbf358f72f25da9ba0bbce6d7e23418cb4864cbf1cd4df8bd
+
+pkgname = python-watchdog

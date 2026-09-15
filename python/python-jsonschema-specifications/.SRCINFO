@@ -1,0 +1,20 @@
+pkgbase = python-jsonschema-specifications
+	pkgdesc = The JSON Schema meta-schemas and vocabularies, exposed as a Registry
+	pkgver = 2025.9.1
+	pkgrel = 2
+	url = https://github.com/python-jsonschema/jsonschema-specifications
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	depends = python
+	depends = python-referencing
+	source = python-jsonschema-specifications::git+https://github.com/python-jsonschema/jsonschema-specifications#tag=v2025.9.1
+	sha512sums = 2017f0b98aaa2244c81964093dab37a61f582a9c1cda9abe0227711907793cfeca17c86fa06d9e8c771079bdd1e65a1c11999976e9646dced02ff3ee722776ed
+	b2sums = 7ac9ef70621c3a65eb3e30d5e2a608ceeae5b94754991ed20511d71ffb0594f36f4326dfd302c2a5dd0ebfac86ef0fb569450b48840171f46d46c9d46f507855
+
+pkgname = python-jsonschema-specifications

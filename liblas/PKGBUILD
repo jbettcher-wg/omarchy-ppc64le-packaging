@@ -1,0 +1,60 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+
+pkgname=liblas
+pkgver=1.8.1.r145+g33097f17
+pkgrel=2
+_commit=33097f17e27b853ac7b9651025a70354ffb10cfc
+pkgdesc="C/C++ library for reading and writing the very common LAS LiDAR format"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://liblas.org/"
+license=(BSD)
+depends=(boost-libs gdal laszip2 libgeotiff proj)
+makedepends=(cmake boost git)
+#source=(https://download.osgeo.org/liblas/libLAS-${pkgver}.tar.bz2)
+#md5sums=('2e6a975dafdf57f59a385ccb87eb5919')
+#sha256sums=('9adb4a98c63b461ed2bc82e214ae522cbd809cff578f28511122efe6c7ea4e76')
+source=(git+https://github.com/libLAS/libLAS.git#commit=$_commit
+        liblas-gcc15.patch
+        gdal-3.13.patch
+        proj-private.patch)
+sha256sums=('a61b2f53cf3cec4d20e4bf552fdaa431ed8a0eaacefd0f5e9e9a2c6f34aaa62e'
+            'b058d31eb27ad1fd454468337cb52c18e53761b6b64b4be86df9d5d21c76a03f'
+            '86ddca94cff63442ce2ffa119346d731a309a206ee3ce7373c6af6b212595981'
+            'f15f3811533afb8c61223c753c0b264001dd4028e00f72faf2159606047d2449')
+
+pkgver() {
+  cd libLAS
+  git describe --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./;s/-/+/'
+}
+
+prepare() {
+  cd libLAS
+  # Fix build with GCC 15 (Fedora)
+  patch -p1 -i ../liblas-gcc15.patch
+  # Fix build with GDAL 3.13
+  patch -p1 -i ../gdal-3.13.patch
+  # https://github.com/libLAS/libLAS/issues/229
+  patch -p1 -i ../proj-private.patch
+}
+
+build() {
+  #cmake -B build -S libLAS-${pkgver} \
+  cmake -B build -S libLAS \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DWITH_GDAL=ON \
+    -DWITH_GEOTIFF=ON \
+    -DWITH_LASZIP=ON \
+    -DWITH_UTILITIES=ON \
+    -DCMAKE_INSTALL_RPATH=/usr/lib/laszip2 \
+    -DLASZIP_LIBRARY=/usr/lib/laszip2/liblaszip.so \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -G "Unix Makefiles"
+  make -C build
+}
+
+package() {
+  make -C build DESTDIR="${pkgdir}" install
+  #install -Dm644 libLAS-${pkgver}/LICENSE.txt -t "${pkgdir}"/usr/share/licenses/${pkgname}
+  install -Dm644 libLAS/LICENSE.txt -t "${pkgdir}"/usr/share/licenses/${pkgname}
+}

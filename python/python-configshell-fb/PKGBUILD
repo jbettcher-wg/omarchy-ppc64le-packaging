@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Johannes Dewender  arch at JonnyJD dot net
+
+pkgname=python-configshell-fb
+pkgver=2.0.3
+pkgrel=1
+pkgdesc="Python framework for building simple CLI applications (free branch)"
+arch=(any)
+url="https://github.com/open-iscsi/configshell-fb"
+license=('Apache-2.0')
+depends=('python' 'python-pyparsing')
+makedepends=('git' 'python-build' 'python-installer' 'python-hatchling' 'python-hatch-vcs')
+provides=('python-configshell')
+conflicts=('python-configshell')
+source=("git+${url}.git#tag=v${pkgver}")
+sha512sums=('9b7a18c79d020a697cd2af32aa8f4be0a38b6d8cc1984edd3061ce3f0e076f62eafca3cbe6cd32e84f937f6d150c5397657173d093ba43393a48a56eaabbb3e2')
+
+build() {
+  cd configshell-fb
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd configshell-fb
+  echo exit | PYTHONPATH="$PWD" examples/myshell
+}
+
+package() {
+  cd configshell-fb
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Giancarlo Razzolini <grazzolini@archlinux.org>
+# Contributor: Pierre Neidhardt <ambrevar@gmail.com>
+# Contributor: Raymond Wagenmaker <raymondwagenmaker@gmail.com>
+
+pkgname=xss-lock
+pkgver=0.4.0
+pkgrel=1
+pkgdesc="Use external locker as X screen saver"
+url="https://github.com/wavexx/xss-lock"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(MIT)
+depends=(
+	bash
+	glib2
+	glibc
+	libxcb
+	xcb-util
+)
+makedepends=(
+	cmake
+	git
+	python-docutils
+)
+optdepends=(
+	"bash-completion: for bash completion"
+)
+source=("${pkgname}::git+https://github.com/wavexx/xss-lock.git#tag=v${pkgver}")
+b2sums=('4f15e12803c5fa30f7777ee99a804a5a47b409fbb029f10ac53d36b3b140884f2c126d0df0900892b537999e34c3ef43d15ba4b5ee66327ec0f9093d54905fef')
+
+pkgver() {
+	cd ${pkgname}
+	git describe --tags --match 'v*' | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+	cd ${pkgname}
+	cmake \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_BUILD_TYPE=None
+	make
+}
+
+package() {
+	cd ${pkgname}
+	make DESTDIR="${pkgdir}" install
+	install -Dm644 LICENSE -t "${pkgdir}"/usr/share/licenses/${pkgname}
+}

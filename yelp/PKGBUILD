@@ -1,0 +1,58 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=yelp
+pkgver=49.1
+pkgrel=1
+pkgdesc="Get help with GNOME"
+url="https://apps.gnome.org/Yelp"
+license=(GPL-2.0-or-later)
+arch=(x86_64 powerpc powerpc64 powerpc64le espresso)
+depends=(
+  bzip2
+  dconf
+  glib2
+  glibc
+  gtk4
+  hicolor-icon-theme
+  libadwaita
+  libxml2
+  libxslt
+  sqlite
+  webkitgtk-6.0
+  xz
+  yelp-xsl
+)
+makedepends=(
+  git
+  glib2-devel
+  itstool
+  meson
+)
+optdepends=('man-db: View manual pages')
+provides=(libyelp-1.so)
+groups=(gnome)
+source=(
+  "git+https://gitlab.gnome.org/GNOME/yelp.git#tag=${pkgver/[a-z]/.&}"
+)
+b2sums=('1adba81b0de5154b00b563ecc14a1802a822c8f256f4f948d1366069aa540a2541670a04c8c83e0e1416befe0ee78fc14be1c72b53364bab5bada3b3be45dca7')
+
+prepare() {
+  cd yelp
+}
+
+build() {
+  arch-meson yelp build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

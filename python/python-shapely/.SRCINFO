@@ -1,0 +1,25 @@
+pkgbase = python-shapely
+	pkgdesc = Manipulation and analysis of geometric objects in the Cartesian plane
+	pkgver = 2.1.2
+	pkgrel = 2
+	url = https://pypi.python.org/pypi/Shapely
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-numpy
+	makedepends = cython
+	depends = geos
+	depends = python
+	optdepends = python-numpy: for shapely.vectorized submodule
+	source = https://pypi.io/packages/source/s/shapely/shapely-2.1.2.tar.gz
+	sha512sums = 91fe2dd602121cf216f22c899e1557edcb53b9e32681d40b15bbe6d32d342625d6e6ef7b3a5d21fd606cab851b094e6ca87b6ec699f478fefe851eb7b3c8afb6
+
+pkgname = python-shapely

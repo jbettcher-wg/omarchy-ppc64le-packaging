@@ -1,0 +1,24 @@
+pkgbase = python-propcache
+	pkgdesc = Fast property caching
+	pkgver = 0.4.1
+	pkgrel = 2
+	url = https://github.com/aio-libs/propcache
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	checkdepends = python-pytest
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-expandvars
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = python
+	source = https://github.com/aio-libs/propcache/archive/v0.4.1/propcache-0.4.1.tar.gz
+	sha512sums = b7bc1e7f41c42e0f6e22a3fe4e4bbccf44f30ac19af274c74b1acd8430f24c201363b1dfb909bdbbb12b4aaf9fb12eb32d611e09865d3df11fde379cfeb62103
+
+pkgname = python-propcache

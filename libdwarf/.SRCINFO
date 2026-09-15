@@ -1,0 +1,30 @@
+pkgbase = libdwarf
+	pkgdesc = A library for handling DWARF Debugging Information Format
+	pkgver = 2.3.1
+	pkgrel = 1
+	epoch = 1
+	url = https://www.prevanders.net/dwarf.html
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-only
+	license = GPL-2.0-only
+	license = BSD-2-Clause
+	license = BSD-3-Clause
+	license = LicenseRef-libdwarf-public-domain
+	checkdepends = python
+	makedepends = git
+	makedepends = meson
+	depends = glibc
+	depends = elfutils
+	depends = zlib
+	depends = zstd
+	provides = libdwarf.so
+	options = staticlibs
+	source = libdwarf::git+https://github.com/davea42/libdwarf-code#tag=libdwarf-2.3.1
+	sha512sums = 4450004a3f6dd7db380e0874935727c34cd54478aa78d77f637cea59dfe524d0b22ffb0735da3bf770bc98e5645ce49c8d236d10dfc63f4639a0a8c3b0ad8c1b
+	b2sums = 50f3776623fcf55f944e1390ccd85c3c10458f1e0b29bca05f55dec211013949d0ada9e45de5babdd607b28c9ece1f31d3b8ccf89a0528ae22ce16870fc7e619
+
+pkgname = libdwarf

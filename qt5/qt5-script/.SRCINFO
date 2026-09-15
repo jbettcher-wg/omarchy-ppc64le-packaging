@@ -1,0 +1,22 @@
+pkgbase = qt5-script
+	pkgdesc = Classes for making Qt applications scriptable. Provided for Qt 4.x compatibility
+	pkgver = 5.15.19
+	pkgrel = 4
+	url = https://www.qt.io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = qt5
+	license = GPL3
+	license = LGPL3
+	license = FDL
+	license = custom
+	makedepends = git
+	depends = qt5-base
+	options = !lto
+	source = kde-qtscript::git+https://code.qt.io/qt/qtscript.git#tag=v5.15.19-lts
+	sha256sums = 2430cc89b5dd03128586237635c097fa2640ad8ea484796e6e7da170c0b4d9cc
+
+pkgname = qt5-script

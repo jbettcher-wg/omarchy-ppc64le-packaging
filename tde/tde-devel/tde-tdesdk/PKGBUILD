@@ -1,0 +1,63 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Michael Manley <mmanley@nasutek.com>
+# Contributor: David C. Rankin <drankinatty at gmail dot com>
+
+_mod=tdesdk
+_cat=core/
+_kdemod="${_mod/tde/kde}"
+
+pkgname="tde-${_mod}"
+pkgver=14.1.6
+pkgrel=1
+arch=(i686 x86_64 aarch64 armv7h powerpc64le powerpc64 powerpc espresso)
+url="https://scm.trinitydesktop.org/scm/git/${_mod}"
+license=('GPL')
+groups=('tde-devel')
+pkgdesc="Trinity Desktop Development Tools"
+depends=('tde-tdelibs')
+makedepends=('tde-cmake-trinity' 'flex' 'subversion')
+provides=("${_mod}")
+conflicts=("trinity-${_mod}" "trinity-${_kdemod}")
+replaces=("trinity-${_mod}")
+options=('staticlibs' 'libtool' '!strip' '!debug')
+source=("https://mirror.ppa.trinitydesktop.org/trinity/releases/R${pkgver}/main/${_cat}${_mod}-trinity-${pkgver}.tar.xz"
+        "${pkgname}-${pkgver}-gcc16.patch::https://mirror.git.trinitydesktop.org/gitea/TDE/tdesdk/pulls/75.patch")
+md5sums=('26f43fe04819d1753ac6ea24ef2a6e8d'
+         'aedd07efc9b68a036eaa33a84cdd7719')
+
+[ -n "$TDEDIR" ] || TDEDIR=/opt/trinity
+
+# bring pod2man into path
+export PATH=/usr/bin/core_perl:$PATH
+
+prepare() {
+  cd ${pkgname#*-}-trinity-${pkgver}
+  patch -Np1 -i ${srcdir}/${pkgname}-${pkgver}-gcc16.patch
+}
+
+build() {
+   # kill massive amounts of warnings
+   export CXXFLAGS+=' -Wno-deprecated-enum-enum-conversion -Wno-deprecated-declarations'
+
+   msg "Creating out-of-source build directory: ${srcdir}/build"
+   mkdir -p ${srcdir}/build
+   cd ${srcdir}/build
+
+   export PKG_CONFIG_PATH=${TDEDIR}/lib/pkgconfig:${PKG_CONFIG_PATH}
+
+   msg "Starting cmake..."
+   cmake ${srcdir}/${pkgname#*-}-trinity-${pkgver} \
+     -GNinja \
+     -DCMAKE_VERBOSE_MAKEFILE=ON \
+     -DCMAKE_INSTALL_PREFIX=${TDEDIR} \
+     -DBUILD_ALL=ON
+
+   msg "Building - ${pkgname#*-}..."
+   ninja $NUMJOBS
+}
+
+package() {
+  msg "Packaging - $pkgname-$pkgver"
+  cd ${srcdir}/build
+  DESTDIR="${pkgdir}" ninja -j1 install
+}

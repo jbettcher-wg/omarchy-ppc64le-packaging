@@ -1,0 +1,88 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+_bootstrap=0
+_bootstrap_version=3.14.0
+pkgname=python-packaging
+_name=${pkgname#python-}
+pkgver=26.2
+pkgrel=1
+pkgdesc="Core utilities for Python packages"
+arch=(any)
+url="https://github.com/pypa/packaging"
+license=('Apache-2.0' 'BSD-2-Clause')
+depends=('python')
+if (( _bootstrap == 0 )); then
+  makedepends=(
+    'python-build'
+    'python-flit-core'
+    'python-installer'
+  )
+else
+  makedepends=('git')
+fi
+checkdepends=('python-pytest' 'python-pretend' 'python-tomli-w' 'python-hypothesis')
+if (( _bootstrap == 0 )); then
+  source=("https://github.com/pypa/packaging/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+else
+  source=(
+    python-bootstrap::git+https://gitlab.archlinux.org/archlinux/python-bootstrap.git#tag=$_bootstrap_version
+    python-build::git+https://github.com/pypa/build.git
+    python-flit::git+https://github.com/pypa/flit.git
+    python-installer::git+https://github.com/pypa/installer.git
+    python-wheel::git+https://github.com/pypa/wheel.git
+    python-packaging::git+https://github.com/pypa/packaging
+    python-pyproject-hooks::git+https://github.com/pypa/pyproject-hooks
+    python-setuptools::git+https://github.com/pypa/setuptools.git
+  )
+fi
+sha512sums=('28a93b2c3ff099eb4ebe82ac09d3c7e7260de37918558d495e2d84a1a8f67603b4b9adb87633ee3d00d953fc0ed50f8b54f573c97ece134fa9b3f5eb636bf05f')
+
+prepare() {
+  if (( _bootstrap == 0 )); then
+    cd $_name-$pkgver
+  else
+    cd python-bootstrap
+    git submodule init
+
+    git config submodule."external/build".url ../python-build
+    git config submodule."external/flit".url ../python-flit
+    git config submodule."external/installer".url ../python-installer
+    git config submodule."external/wheel".url ../python-wheel
+    git config submodule."external/packaging".url ../python-packaging
+    git config submodule."external/pyproject-hooks".url ../python-pyproject-hooks
+    git config submodule."external/setuptools".url ../python-setuptools
+
+    git -c protocol.file.allow=always submodule update
+    git submodule update --init --recursive
+  fi
+}
+
+build() {
+  if (( _bootstrap == 0 )); then
+    cd $_name-$pkgver
+    python -m build -wn --skip-dependency-check
+  else
+    cd python-bootstrap
+    python -m bootstrap.build
+  fi
+}
+
+check() {
+  if (( _bootstrap == 1 )); then
+    return 0
+  fi
+
+  cd packaging-$pkgver
+  PYTHONPATH=src pytest
+}
+
+package() {
+  if (( _bootstrap == 0 )); then
+    cd $_name-$pkgver
+    python -m installer --destdir="$pkgdir" dist/*.whl
+  else
+    cd python-bootstrap
+    python -m bootstrap.install dist/$_name-*-py3-none-any.whl -d "$pkgdir"
+  fi
+}

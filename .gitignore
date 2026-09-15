@@ -1,0 +1,47 @@
+# Build residue. The recipes are the asset; makepkg's working trees and the
+# archives it downloads are reproducible from them.
+#
+# Every pattern is anchored with **/ so it matches at any depth. Recipes here
+# live one, two and three levels down, and a rule written for the top level
+# only is how a previous .gitignore let 2,201 files of build output get staged.
+
+# makepkg working trees
+**/src/
+**/pkg/
+**/logs/
+**/__pycache__/
+
+# built packages, logs, editor and patch leftovers
+*.pkg.tar.*
+*.log
+*.bak
+*.bak-*
+*.old
+*.orig
+*.rej
+
+# Source archives and detached signatures makepkg downloads next to the recipe.
+# A few recipes genuinely ship an archive as packaging material; those are
+# un-ignored below. `git status` after an import is what proves the list is
+# still complete -- if an imported recipe's tarball is missing from the commit,
+# it belongs on that list.
+*.tar.gz
+*.tar.xz
+*.tar.zst
+*.tar.bz2
+*.tgz
+*.zip
+*.sig
+
+# ...the archives that ARE packaging material (.asc signatures are tracked
+# throughout and are deliberately not ignored above).
+!chromium/chromium-ppc64le-patches-r1.tar.gz
+!chromium/chromium-ppc64le-patches-r2.tar.gz
+!iana-etc/sources.tar.xz
+!opencore-amr/opencore-amr-0.1.5.tar.gz
+
+# makepkg VCS mirrors, cloned next to the recipe when SRCDEST is unset.
+luajit/luajit-ppc64le/
+neovim/neovim/
+qwen-code/qwen-code/
+ours/omarchy-theme-power9/power9.bak.*

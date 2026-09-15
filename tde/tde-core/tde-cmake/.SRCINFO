@@ -1,0 +1,21 @@
+pkgbase = tde-cmake-trinity
+	pkgdesc = TDE CMake modules
+	pkgver = 14.1.6
+	pkgrel = 1
+	url = https://scm.trinitydesktop.org/scm/git/tde-cmake
+	arch = any
+	groups = tde-core
+	license = GPL
+	depends = cmake
+	depends = perl
+	depends = ninja
+	depends = pkgconfig
+	provides = tde-cmake-trinity
+	options = staticlibs
+	options = libtool
+	options = !strip
+	options = !debug
+	source = https://mirror.ppa.trinitydesktop.org/trinity/releases/R14.1.6/main/dependencies/tde-cmake-trinity-14.1.6.tar.xz
+	md5sums = 43eb792afa15a6070c40cb25cf090959
+
+pkgname = tde-cmake-trinity

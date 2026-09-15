@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: René Wagner < rwagner at rw-net dot de >
+# Contributor: Diab Neiroukh <lazerl0rd@thezest.dev>
+
+pkgname=mimalloc
+pkgver=3.2.8
+pkgrel=1
+pkgdesc='General-purpose allocator with excellent performance characteristics'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/microsoft/mimalloc'
+license=(MIT)
+depends=(glibc)
+makedepends=(git cmake ninja)
+options=(staticlibs)
+source=("$pkgname::git+$url#tag=v$pkgver")
+sha512sums=('6adaff8c3e392f7e0c08ec6e9e16ebc192d1b69703234d5ef5b47a19104045d9086859a350053c324ef1c0ea8ad3aee301e3635a72b23ecf122808a4d827036b')
+b2sums=('fdbef6dfd258dba1faec2f51857d2925f5deed7a8f9acedd0d1e2daf0526bb8c4fccf7765230ff99d8abd35daa95d95fae4bc3ef50650cd5a47949487cd99d41')
+
+build() {
+  local cmake_options=(
+    -B build
+    -S "$pkgname"
+    -G Ninja
+    -W no-dev
+    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D MI_BUILD_OBJECT=OFF
+    -D MI_INSTALL_TOPLEVEL=ON
+  )
+
+  cmake "${cmake_options[@]}"
+
+  cmake --build build
+}
+
+check() {
+  cd build
+
+  ctest --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" "$pkgname/LICENSE"
+}

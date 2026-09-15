@@ -1,0 +1,22 @@
+pkgbase = python-pytest-enabler
+	pkgdesc = Enable installed pytest plugins
+	pkgver = 3.4.0
+	pkgrel = 2
+	url = https://github.com/jaraco/pytest-enabler
+	arch = any
+	license = MIT
+	checkdepends = python-pytest-cov
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	depends = python-jaraco.context
+	depends = python-jaraco.functools
+	depends = python-pytest
+	depends = python-toml
+	source = git+https://github.com/jaraco/pytest-enabler.git#tag=v3.4.0
+	sha256sums = cbfb9ec2360276d15365915add07bb656f16266cdc8770e8f15236e76465a5a0
+
+pkgname = python-pytest-enabler

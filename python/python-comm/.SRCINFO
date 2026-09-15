@@ -1,0 +1,18 @@
+pkgbase = python-comm
+	pkgdesc = Python Comm implementation for the Jupyter kernel protocol
+	pkgver = 0.2.3
+	pkgrel = 2
+	url = https://pypi.org/project/comm/
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	depends = python-traitlets
+	source = git+https://github.com/ipython/comm#tag=v0.2.3
+	sha256sums = 940e51d2c3564ef4e9f485430efd009344d2075d622896a9700fd7b048b57593
+
+pkgname = python-comm

@@ -1,0 +1,3 @@
+[polkit]
+source = "git"
+git = "https://github.com/polkit-org/polkit.git"

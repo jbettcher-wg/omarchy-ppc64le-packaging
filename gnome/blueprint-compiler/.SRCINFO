@@ -1,0 +1,20 @@
+pkgbase = blueprint-compiler
+	pkgdesc = Markup language and compiler for GTK 4 user interfaces
+	pkgver = 0.22.2
+	pkgrel = 1
+	url = https://gnome.pages.gitlab.gnome.org/blueprint-compiler/
+	arch = any
+	license = LGPL-3.0-or-later
+	checkdepends = libadwaita
+	checkdepends = xorg-server-xvfb
+	makedepends = git
+	makedepends = meson
+	makedepends = python-sphinx-furo
+	depends = glib2
+	depends = libgirepository
+	depends = python
+	depends = python-gobject
+	source = git+https://gitlab.gnome.org/GNOME/blueprint-compiler.git#tag=v0.22.2
+	b2sums = 3ab2919c3d9dc207ce7383f9393bca1a85760523b93e0529c056407b036fb7b68104e248bc95fe546d7f30be1bec3f63462f3b366a92d6b4df80855cd74087a9
+
+pkgname = blueprint-compiler

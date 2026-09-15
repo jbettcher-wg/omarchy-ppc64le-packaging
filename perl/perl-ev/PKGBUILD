@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=perl-ev
+pkgver=4.37
+pkgrel=1
+pkgdesc='perl interface to libev, a high performance full-featured event loop'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('PerlArtistic' 'GPL')
+options=('!emptydirs')
+depends=('perl-common-sense')
+makedepends=('perl-canary-stability')
+url='https://metacpan.org/release/EV'
+source=("https://search.cpan.org/CPAN/authors/id/M/ML/MLEHMANN/EV-$pkgver.tar.gz")
+sha512sums=('05f49784f1602063ecc723c07b8799862db6706aa7a259360d49360b39de29dba62e8c6b6fa8701f00e4c38ac5ea1ec87a9f4e9557750908e2b57ae58a763a38')
+
+build() {
+  cd EV-$pkgver
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+check() {
+  cd EV-$pkgver
+  make test
+}
+
+package() {
+  cd EV-$pkgver
+  make install DESTDIR="$pkgdir"
+}

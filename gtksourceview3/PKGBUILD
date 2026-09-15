@@ -1,0 +1,71 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+
+pkgname=gtksourceview3
+pkgver=3.24.11+r30+gd880929f
+pkgrel=1
+epoch=1
+pkgdesc='Text widget with syntax highlighting for GNOME'
+url='https://wiki.gnome.org/Projects/GtkSourceView'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-2.0-or-later)
+depends=(
+  at-spi2-core
+  cairo
+  gdk-pixbuf2
+  glib2
+  glibc
+  gtk3
+  libxml2
+  pango
+)
+makedepends=(
+  autoconf-archive
+  git
+  glib2-devel
+  gobject-introspection
+  gtk-doc
+  intltool
+  vala
+  yelp-tools
+)
+checkdepends=(xorg-server-xvfb)
+_commit=d880929f02730e3a2d0e4f8fd69f2831b8ade4d0  # gnome-3-24
+source=("git+https://gitlab.gnome.org/GNOME/gtksourceview.git#commit=$_commit")
+b2sums=('07c0ea1a14ca402582a64ef06a56578fc7a86437447ad1f924e6c798d16e69a38227fa8ed41e3c3b067d8d13b8789daca0275634b65b008758f66c8de9444c64')
+
+pkgver() {
+  cd gtksourceview
+  git describe --tags | sed 's/[^-]*-g/r&/;s/-/+/g'
+}
+
+prepare() {
+  cd gtksourceview
+  find . -name Makefile.am -type f -exec sed -i '/@CODE_COVERAGE_RULES@/d' {} +
+  NOCONFIGURE=1 ./autogen.sh
+}
+
+build() {
+  cd gtksourceview
+  ./configure \
+    --disable-glade-catalog \
+    --disable-gtk-doc \
+    --disable-static \
+    --disable-Werror \
+    --localstatedir=/var \
+    --prefix=/usr \
+    --sysconfdir=/etc
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+check() {
+  cd gtksourceview
+  dbus-run-session xvfb-run -s '-nolisten local' make check
+}
+
+package() {
+  make -C gtksourceview DESTDIR="$pkgdir" install
+}

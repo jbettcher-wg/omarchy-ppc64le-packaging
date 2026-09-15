@@ -1,0 +1,26 @@
+pkgbase = kdsoap
+	pkgdesc = Qt-based client-side and server-side SOAP component
+	pkgver = 2.3.0
+	pkgrel = 1
+	url = https://github.com/KDAB/KDSoap
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-3.0-or-later
+	makedepends = cmake
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = qt6-base
+	provides = kdsoap-qt6
+	conflicts = kdsoap-qt6
+	replaces = kdsoap-qt6
+	source = https://github.com/KDAB/KDSoap/releases/download/kdsoap-2.3.0/kdsoap-2.3.0.tar.gz
+	source = https://github.com/KDAB/KDSoap/releases/download/kdsoap-2.3.0/kdsoap-2.3.0.tar.gz.asc
+	validpgpkeys = E86C000370B1B9E2A9191AD53DBFB6882C9358FB
+	sha256sums = d2184951145cb768cc30376a10701be13869a164c1272d09f831ba2d195f02de
+	sha256sums = SKIP
+
+pkgname = kdsoap

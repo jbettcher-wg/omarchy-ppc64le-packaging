@@ -1,0 +1,19 @@
+pkgbase = ruby-rr
+	pkgdesc = RR is a test double framework that features a rich selection of double techniques and a terse syntax
+	pkgver = 3.1.1
+	pkgrel = 5
+	url = https://github.com/rr/rr
+	arch = any
+	license = MIT
+	checkdepends = ruby-test-unit-rr
+	checkdepends = ruby-test-unit
+	makedepends = ruby-rdoc
+	makedepends = ruby-rake
+	makedepends = ruby-bundler
+	makedepends = ruby-rspec
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/rr/rr/archive/v3.1.1/ruby-rr-v3.1.1.tar.gz
+	sha512sums = 3b359db98e90e9be788f1da7baa9e58e74b91345c2c569ea7b3b354b4ab567f2b9f2dbe189323f3b0d1d0c61cfa3715fa423bc37ddba755256390c011365093f
+
+pkgname = ruby-rr

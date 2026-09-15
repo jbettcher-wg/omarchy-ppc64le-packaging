@@ -1,0 +1,21 @@
+pkgbase = wayland-utils
+	pkgdesc = Wayland tools to display information about current compositor
+	pkgver = 1.3.0
+	pkgrel = 1
+	url = https://gitlab.freedesktop.org/wayland/wayland-utils
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = git
+	makedepends = meson
+	makedepends = wayland-protocols
+	depends = glibc
+	depends = libdrm
+	depends = wayland
+	source = git+https://gitlab.freedesktop.org/wayland/wayland-utils#tag=1.3.0
+	sha256sums = 49ef03286317fbeeab98dce3048ffdc52c054168fce36f5fbb35d3b9475c7fff
+
+pkgname = wayland-utils

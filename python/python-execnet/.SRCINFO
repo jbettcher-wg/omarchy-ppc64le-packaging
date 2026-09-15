@@ -1,0 +1,21 @@
+pkgbase = python-execnet
+	pkgdesc = Rapid multi-Python deployment
+	pkgver = 2.1.2
+	pkgrel = 3
+	url = https://codespeak.net/execnet
+	arch = any
+	license = MIT
+	checkdepends = openssh
+	checkdepends = procps-ng
+	checkdepends = python-pytest
+	checkdepends = python-pytest-timeout
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	depends = python
+	source = git+https://github.com/pytest-dev/execnet.git#tag=v2.1.2
+	sha512sums = ff72f8c46ac57bcc8387783ba07ca8fb0569f125199345c3ca124af148bb3739717ce0b7ab793638c81b381ff27d582a1cc823d9e6839b4e5a37d58c6a96e78f
+
+pkgname = python-execnet

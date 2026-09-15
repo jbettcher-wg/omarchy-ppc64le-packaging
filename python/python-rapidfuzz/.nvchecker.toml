@@ -1,0 +1,5 @@
+[python-rapidfuzz]
+source = "git"
+git = "https://github.com/rapidfuzz/RapidFuzz.git"
+prefix = "v"
+

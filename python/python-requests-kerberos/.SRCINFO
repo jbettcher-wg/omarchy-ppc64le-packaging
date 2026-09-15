@@ -1,0 +1,20 @@
+pkgbase = python-requests-kerberos
+	pkgdesc = A kerberos of useful classes and functions to be used with python-requests.
+	pkgver = 0.15.0
+	pkgrel = 1
+	url = https://github.com/requests/requests-kerberos
+	arch = any
+	license = ISC
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python-requests
+	depends = python-pyspnego
+	depends = python-cryptography
+	source = git+https://github.com/requests/requests-kerberos.git#tag=v0.15.0
+	sha512sums = f1ceecd16267b049722b8b39bc58db2458a9e69a1e5d1d0b1092273cee37995a68c3232c6f7f4030b05c21d8a29069ea2ab3c7635a7e47ceeb74328100c591bc
+
+pkgname = python-requests-kerberos

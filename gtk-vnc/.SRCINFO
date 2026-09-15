@@ -1,0 +1,44 @@
+pkgbase = gtk-vnc
+	pkgdesc = VNC viewer widget for GTK
+	pkgver = 1.5.0
+	pkgrel = 1
+	url = https://gitlab.gnome.org/GNOME/gtk-vnc
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = gi-docgen
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = meson
+	makedepends = perl-text-csv
+	makedepends = vala
+	depends = cairo
+	depends = gdk-pixbuf2
+	depends = glib2
+	depends = glibc
+	depends = gmp
+	depends = gnutls
+	depends = gtk3
+	depends = libpulse
+	depends = libsasl
+	depends = libx11
+	depends = zlib
+	source = git+https://gitlab.gnome.org/GNOME/gtk-vnc.git?signed#tag=1.5.0
+	source = git+https://gitlab.com/keycodemap/keycodemapdb.git
+	validpgpkeys = DAF3A6FDB26B62912D0E8E3FBE86EBB415104FDF
+	b2sums = f83e51ba3be0d16a7ec2516870a135d88583a2614acc9181533fadc408d266b8e9ea6315445d130b7ba2b75fa7737b34a542bf209cb70063f067b7172acbf429
+	b2sums = SKIP
+
+pkgname = gtk-vnc
+	provides = libgtk-vnc-2.0.so
+	provides = libgvnc-1.0.so
+	provides = libgvncpulse-1.0.so
+
+pkgname = gtk-vnc-docs
+	pkgdesc = VNC viewer widget for GTK (documentation)
+	depends = 

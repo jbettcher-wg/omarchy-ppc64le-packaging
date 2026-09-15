@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+
+pkgname=libpqxx
+pkgver=7.10.2
+pkgrel=1
+pkgdesc='C++ client API for PostgreSQL'
+url='http://pqxx.org/development/libpqxx/'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('custom')
+depends=('postgresql-libs>=9.1')
+makedepends=('python')
+provides=("libpqxx-${pkgver%.*}.so")
+source=(https://github.com/jtv/libpqxx/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz)
+sha256sums=('9e109ffe12daa7b689da41dac05509f41b803f8405e38b1687b54e09df19000f')
+b2sums=('93d521d4f1d5ed1e37d427041ae2b016899edf6dbc65968979ab8d16fd0a9701edb4af725b6b4f0f80f86dbb462ca52bd1bd7b2ccaee90a7abb3396e60807612')
+
+build() {
+  cd ${pkgname}-${pkgver}
+  ./configure \
+    --prefix=/usr \
+    --enable-shared \
+    --disable-doc
+  make
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  make prefix="${pkgdir}/usr" install
+  install -Dm 644 COPYING -t "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -Dm 644 README.md -t "${pkgdir}/usr/share/doc/${pkgname}"
+}
+
+# vim: ts=2 sw=2 et:

@@ -1,0 +1,23 @@
+pkgbase = python-zope-location
+	pkgdesc = Special objects that have a structural location
+	pkgver = 6.0
+	pkgrel = 3
+	url = https://github.com/zopefoundation/zope.location
+	arch = any
+	license = ZPL-2.1
+	checkdepends = python-zope-component
+	checkdepends = python-zope-configuration
+	checkdepends = python-zope-copy
+	checkdepends = python-zope-testrunner
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-zope-interface
+	depends = python-zope-proxy
+	depends = python-zope-schema
+	source = https://github.com/zopefoundation/zope.location/archive/6.0/python-zope-location-6.0.tar.gz
+	sha512sums = 5b97b0a2d048f26ac7bc6987551ccb299548931132ca752f2e08337e97928d915bf000aecd8e2d36634894185a3f0e2ba70c9dea497bdd51b6c7642f99472080
+
+pkgname = python-zope-location

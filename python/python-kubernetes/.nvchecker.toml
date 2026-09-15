@@ -1,0 +1,3 @@
+[python-kubernetes]
+source = "pypi"
+pypi = "kubernetes"

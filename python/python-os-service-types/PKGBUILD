@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Daniel Wallace <danielwallace at gtmanfred dot com>
+
+pkgname=python-os-service-types
+pkgver=1.8.2
+pkgrel=1
+pkgdesc="Python library for consuming OpenStack sevice-types-authority data"
+arch=(any)
+url="https://pypi.python.org/pypi/os-service-types/$pkgver"
+license=('Apache-2.0')
+depends=('python-pbr' 'python-typing_extensions')
+makedepends=('git' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-stestr' 'python-oslotest' 'python-testscenarios' 'python-requests-mock'
+              'python-keystoneauth1' 'python-six')
+options=('!emptydirs')
+source=("git+https://github.com/openstack/os-service-types.git#tag=$pkgver")
+sha512sums=('5c50ec356f1af06679630afcf4fc2ba9be22e60bf802d9b8dcaa6e1697530dcb2b646c2016ebc66a3ad9f52f93e97a9c6a705cdd8b806a48d66d434ce083c4cd')
+
+build() {
+  cd os-service-types
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd os-service-types
+  stestr run
+}
+
+package() {
+  cd os-service-types
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,78 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Gaetan Bisson <bisson@archlinux.org>
+# Contributor: Simon Perry <aur [at] sanxion [dot] net>
+# Contributor: Jonas Nyrén <jonas.nyren*mindkiller.com>
+
+pkgname=libsidplayfp
+pkgver=3.0.2
+pkgrel=1
+pkgdesc='Library to play Commodore 64 music'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/libsidplayfp/libsidplayfp'
+license=(GPL-2.0-only)
+makedepends=(
+  git
+  vice
+  xa
+  libusb
+  libresidfp
+  libexsid
+  libgcrypt
+)
+optdepends=(
+  'vice: better SID support'
+  'libusb: USBSID support'
+)
+provides=(
+  libsidplayfp.so
+  libstilview.so
+)
+source=(
+  "$pkgname::git+$url#tag=v$pkgver"
+  'github.com-libsidplayfp-exsid-driver::git+https://github.com/libsidplayfp/exsid-driver'
+  'github.com-LouDnl-USBSID-Pico-driver::git+https://github.com/LouDnl/USBSID-Pico-driver'
+)
+sha512sums=('3be280847dd360452ccf29139b76ee95caa5be3cf6cfbe97410e16c6448878a0e6c3e0b5e3d1741584043aa88bf8ec85a647f16b4417db1c3982ee782dc8e5fc'
+            'SKIP'
+            'SKIP')
+b2sums=('7fc84aaf46c16f0fa7518edec4d98f64e11b8fff5552cf88458b73f61e49fde45e2ce43ba3cfc384edd795c4637270f54b8c8d796669680b9983129307f60fd3'
+        'SKIP'
+        'SKIP')
+
+prepare() {
+  cd "$pkgname"
+
+  # prepare git submodule(s)
+  git submodule init
+  git config submodule.src/builders/exsid-builder/driver.url "$srcdir/github.com-libsidplayfp-exsid-driver"
+  git config submodule.src/builders/usbsid-builder/driver.url "$srcdir/github.com-LouDnl-USBSID-Pico-driver"
+  git -c protocol.file.allow=always submodule update
+}
+
+build() {
+  cd "$pkgname"
+
+  autoreconf -vfi
+
+  ./configure \
+    --prefix=/usr \
+    --with-exsid \
+    --with-usbsid
+
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+
+  make
+}
+
+package() {
+  depends+=(
+    glibc
+    libgcc libgcc_s.so
+    libstdc++ libstdc++.so
+    libresidfp libresidfp.so
+    libexsid libexsid.so
+  )
+  DESTDIR="$pkgdir" make -C "$pkgname" install
+}

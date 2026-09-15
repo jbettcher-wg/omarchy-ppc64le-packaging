@@ -1,0 +1,4 @@
+[yamllint]
+source = "git"
+git = "https://github.com/adrienverge/yamllint.git"
+prefix = "v"

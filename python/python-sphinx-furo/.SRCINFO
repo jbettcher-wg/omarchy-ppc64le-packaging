@@ -1,0 +1,24 @@
+pkgbase = python-sphinx-furo
+	pkgdesc = Clean customizable documentation theme for Sphinx
+	pkgver = 2025.12.19
+	pkgrel = 1
+	url = https://github.com/pradyunsg/furo
+	arch = any
+	license = MIT
+	makedepends = expac
+	makedepends = git
+	makedepends = nodejs-lts-iron
+	makedepends = npm
+	makedepends = python-build
+	makedepends = python-flit-core
+	makedepends = python-installer
+	makedepends = python-sphinx-theme-builder
+	depends = python-accessible-pygments
+	depends = python-beautifulsoup4
+	depends = python-pygments
+	depends = python-sphinx-basic-ng
+	source = git+https://github.com/pradyunsg/furo.git#tag=2025.12.19?signed
+	validpgpkeys = E2FEFA4CA4BDD28171DB00F3FF99710C4332258E
+	b2sums = 28c18231ed6802330dd824933e9ad70935344f79162a3af1b3d525808eb6be552e7695bccb49b0a8ec186fb376bfaa866cdad245bc565d3add84f8874baddeac
+
+pkgname = python-sphinx-furo

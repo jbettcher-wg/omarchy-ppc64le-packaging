@@ -1,0 +1,62 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
+# Contributor: damir <damir@archlinux.org>
+
+pkgname=libcdio
+pkgver=2.3.0
+pkgrel=1
+pkgdesc="GNU Compact Disc Input and Control Library"
+url="https://www.gnu.org/software/libcdio/"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-3.0-or-later)
+depends=(
+  gcc-libs
+  glibc
+  ncurses
+)
+makedepends=(
+  git
+  help2man
+)
+source=(
+  "git+https://github.com/libcdio/libcdio#tag=${pkgver/[a-z]/.&}"
+)
+b2sums=('b54f05a007d08d0f3e52f4f657475ae449e3c469351a355a2602fa7b3e3ae5e459bea739d35f6db5a10dd431dc744cefc86af23c914aaccb8c98d2624d44e6bb')
+validpgpkeys=(
+  DAA63BC2582034A02B923D521A8DE5008275EC21 # R. Bernstein <rocky@panix.com>
+)
+
+prepare() {
+  cd $pkgname
+  autoreconf -fvi
+}
+
+build() {
+  local configure_options=(
+    --prefix=/usr
+    --sysconfdir=/etc
+    --localstatedir=/var
+    --disable-cddb
+    --enable-cpp-progs
+    --enable-maintainer-mode
+    --disable-static
+    --disable-vcd-info
+  )
+
+  cd $pkgname
+  ./configure "${configure_options[@]}"
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+check() {
+  cd $pkgname
+  make -C test check
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set sw=2 sts=-1 et:

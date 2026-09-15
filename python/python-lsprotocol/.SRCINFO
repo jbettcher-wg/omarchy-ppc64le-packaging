@@ -1,0 +1,20 @@
+pkgbase = python-lsprotocol
+	pkgdesc = Python types for Language Server Protocol
+	pkgver = 2025.0.0
+	pkgrel = 2
+	url = https://github.com/microsoft/lsprotocol
+	arch = any
+	license = MIT
+	checkdepends = python-jsonschema
+	checkdepends = python-pyhamcrest
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-flit-core
+	makedepends = python-installer
+	depends = python-attrs
+	depends = python-cattrs
+	source = git+https://github.com/microsoft/lsprotocol.git#tag=2025.0.0
+	b2sums = ea9f4e871d68f62f174d2f8e2efad7bc6b9c4f54216022047e425531525c676577e4bdd657e8eaad86eea944ab6d996da5ae80badc929910b849b52c0ecd9bb2
+
+pkgname = python-lsprotocol

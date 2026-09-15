@@ -1,0 +1,182 @@
+diff -ruN mkinitcpio-40.orig/functions mkinitcpio-40/functions
+--- mkinitcpio-40.orig/functions	2026-01-15 12:52:02.597263028 +0100
++++ mkinitcpio-40/functions	2026-01-15 12:52:16.749954348 +0100
+@@ -156 +156 @@ kver_x86() {
+-    offset="$(od -An -j0x20E -dN2 "$1")" || return
++    offset="$(od --endian=little -An -j0x20E -dN2 "$1")" || return
+@@ -161,6 +161,24 @@
+     printf '%s' "$kver"
+ }
+ 
++kver_powerpc() {
++    local kver image
++
++    read -r kver _ < \
++      <(strings "$1" | grep '^Linux version [0-9]' | awk '{print $3}' | head -n1)
++
++    # A PowerPC zImage stores the compressed kernel in an ELF section.
++    if [[ -z "$kver" ]]; then
++        image="$(mktemp)" || return
++        if objcopy --dump-section .kernel:vmlinux.strip="$image" "$1" 2>/dev/null; then
++            read -r _ _ kver _ < \
++              <(decompress_cat "$image" | grep -m1 -aoE 'Linux version .(\.[-_[:alnum:]+]+)+')
++        fi
++        rm -f -- "$image"
++    fi
++    printf '%s' "$kver"
++}
++
+ detect_compression() {
+     # Detect standard compressed files. Not Linux-kernel specific.
+ 
+@@ -290,8 +308,9 @@ _zboot_cat() {
+     # Read a pair of u32s from 0x08 (right after the "zimg" magic
+     # identifier) for the starting-offset and size of the compressed
+     # data.
++    # EFI zboot header fields are always little-endian.
+-    start="$(od -An -j "$((offset+0x08))" -t u4 -N4 "$file" | tr -dc '[:alnum:]')"
+-    size="$(od -An -j "$((offset+0x0c))" -t u4 -N4 "$file" | tr -dc '[:alnum:]')"
++    start="$(od --endian=little -An -j "$((offset+0x08))" -t u4 -N4 "$file" | tr -dc '[:alnum:]')"
++    size="$(od --endian=little -An -j "$((offset+0x0c))" -t u4 -N4 "$file" | tr -dc '[:alnum:]')"
+-
++    # Reject malformed offsets before using them below.
+     [[ "$start" =~ ^[0-9]+$ ]] || return 1
+     [[ "$size" =~ ^[0-9]+$ ]] || return 1
+@@ -456,11 +474,17 @@
+ 
+     local arch
+     arch="$(uname -m)"
+-    if [[ $arch == @(i?86|x86_64) ]]; then
+-        kver="$(kver_x86 "$1")"
+-    else
++    case "$arch" in
++       i?86|x86_64)
++         kver="$(kver_x86 "$1")"
++       ;;
++       ppc*)
++         kver="$(kver_powerpc "$1")"
++       ;;
++       *)
+         kver="$(kver_generic "$1")"
+-    fi
++       ;;
++    esac
+ 
+     [[ "$kver" =~ $re ]] || return 1
+ 
+@@ -1177,7 +1201,7 @@
+         ln -s "../run"  "$root/var/run"
+ 
+         case "$arch" in
+-            x86_64|loongarch64)
++            x86_64|loongarch64|ppc64*)
+                 ln -s "lib"     "$root/usr/lib64"
+                 ln -s "usr/lib" "$root/lib64"
+                 ;;
+diff -ruN mkinitcpio-40.orig/init_functions mkinitcpio-40/init_functions
+--- mkinitcpio-40.orig/init_functions	2026-01-15 12:52:02.598059412 +0100
++++ mkinitcpio-40/init_functions	2026-01-15 12:52:16.752942483 +0100
+@@ -35,6 +35,10 @@
+     # tenths of a second
+     sleepinterval=1
+ 
++    # hacky work around for archiso to find disk by label
++    # when booting from CD/DVD
++    udevadm trigger
++
+     [ -b "$device" ] && return 0
+ 
+     # assigned in /init
+diff -ruN mkinitcpio-40.orig/install/fsck mkinitcpio-40/install/fsck
+--- mkinitcpio-40.orig/install/fsck	2026-01-15 12:52:02.598561383 +0100
++++ mkinitcpio-40/install/fsck	2026-01-15 12:52:16.753454408 +0100
+@@ -15,6 +15,10 @@
+                     add_file /etc/e2fsck.conf
+                 fi
+                 ;;
++            hfs|hfsplus)
++                add_binary fsck.hfsplus
++                add_symlink /usr/bin/fsck.hfs fsck.hfsplus
++                ;;
+             xfs)
+                 add_binary fsck.xfs
+                 add_binary xfs_repair
+diff -ruN mkinitcpio-40.orig/install/kms mkinitcpio-40/install/kms
+--- mkinitcpio-40.orig/install/kms	2026-01-15 12:52:02.598983666 +0100
++++ mkinitcpio-40/install/kms	2026-01-15 12:52:16.753892177 +0100
+@@ -7,10 +7,12 @@
+     # AGP and DRM modules for GPUs
+     map add_checked_modules '/drivers/char/agp/' '/drivers/gpu/drm/'
+ 
+-    # modules that implement the privacy screen interface
+-    IFS=.- read -r major minor _ <<<"$KERNELVERSION"
+-    if (( major > 5 || (major == 5 && minor >= 17) )); then
+-        add_checked_modules_from_symbol 'drm_privacy_screen_register' '=drivers/platform'
++    # modules that implement the privacy screen interface on x86_64
++    if [ "$(uname -m)" == 'x86_64' ]; then
++        IFS=.- read -r major minor _ <<<"$KERNELVERSION"
++        if (( major > 5 || (major == 5 && minor >= 17) )); then
++            add_checked_modules_from_symbol 'drm_privacy_screen_register' '=drivers/platform'
++        fi
+     fi
+ }
+ 
+diff -ruN mkinitcpio-40.orig/libalpm/scripts/mkinitcpio mkinitcpio-40/libalpm/scripts/mkinitcpio
+--- mkinitcpio-40.orig/libalpm/scripts/mkinitcpio	2025-11-04 15:21:40.000000000 -0600
++++ mkinitcpio-40/libalpm/scripts/mkinitcpio	2026-07-17 13:01:32.394117633 -0500
+@@ -112,0 +113,3 @@
++    # Device trees are installed alongside the kernel and initramfs images.
++    unsorted_filelist+=("/boot/dtbs-${pkgbase}")
++
+@@ -126 +129 @@ install_kernel() {
+-    local kernel preset="/etc/mkinitcpio.d/${pkgbase}.preset"
++    local dtbs kernel kver preset="/etc/mkinitcpio.d/${pkgbase}.preset"
+@@ -140,0 +144,8 @@ install_kernel() {
++
++        kver="${line#usr/lib/modules/}"
++        kver="${kver%/vmlinuz}"
++        dtbs="/usr/share/dtbs/${kver}"
++        if [[ -d "$dtbs" ]]; then
++            install -d -- "/boot/dtbs-${pkgbase}"
++            cp -a -- "${dtbs}/." "/boot/dtbs-${pkgbase}/"
++        fi
+diff -ruN mkinitcpio-40.orig/meson.build mkinitcpio-40/meson.build
+--- mkinitcpio-40.orig/meson.build	2025-11-04 22:34:36.424376700 +0100
++++ mkinitcpio-40/meson.build	2026-01-15 12:54:13.101482771 +0100
+@@ -33,9 +33,9 @@
+ vconsole_conf = get_option('vconsole_conf')
+ want_systemd_hooks = get_option('systemd_hooks')
+ 
+-hooks = 'base udev autodetect microcode modconf kms keyboard keymap consolefont block filesystems fsck'
++hooks = 'base udev autodetect modconf kms keyboard keymap consolefont block filesystems fsck'
+ if want_systemd_hooks
+-    hooks = 'base systemd autodetect microcode modconf kms keyboard keymap sd-vconsole block filesystems fsck'
++    hooks = 'base systemd autodetect modconf kms keyboard keymap sd-vconsole block filesystems fsck'
+ endif
+ 
+ conf_data = configuration_data({
+diff -ruN mkinitcpio-40.orig/mkinitcpio mkinitcpio-40/mkinitcpio
+--- mkinitcpio-40.orig/mkinitcpio	2026-01-15 12:52:02.599520893 +0100
++++ mkinitcpio-40/mkinitcpio	2026-01-15 12:52:16.754507789 +0100
+@@ -146,7 +146,7 @@
+     error "invalid kernel specified: '%s'" "$1"
+ 
+     arch="$(uname -m)"
+-    if [[ "$arch" != @(i?86|x86_64) ]]; then
++    if [[ "$arch" != @(i?86|x86_64|ppc|ppc64|ppc64le|riscv64) ]]; then
+         error "kernel version extraction from image not supported for '%s' architecture" "$arch"
+         error "there's a chance the generic version extractor may work with a valid uncompressed kernel image"
+     fi
+diff -ruN mkinitcpio-40.orig/test/cases/zsh-completion.bats mkinitcpio-40/test/cases/zsh-completion.bats
+--- mkinitcpio-40.orig/test/cases/zsh-completion.bats	2026-01-15 12:52:02.600155103 +0100
++++ mkinitcpio-40/test/cases/zsh-completion.bats	2026-01-15 12:52:16.755155492 +0100
+@@ -13,6 +13,9 @@
+ }
+ 
+ @test "_detect_kver" {
++    if [ "$(uname -m)" != 'x86_64' ]; then
++      skip "$(uname -m) unsupported"
++    fi
+     local kernel_ver tmp_knl
+     local arch
+     arch="$(uname -m)"

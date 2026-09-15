@@ -1,0 +1,14 @@
+pkgbase = perl-shell-guess
+	pkgdesc = Make an educated guess about the shell in use
+	pkgver = 0.10
+	pkgrel = 3
+	url = https://metacpan.org/release/Shell-Guess
+	arch = any
+	license = PerlArtistic
+	checkdepends = tcsh
+	depends = perl
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/P/PL/PLICEASE/Shell-Guess-0.10.tar.gz
+	sha512sums = 060caba58126e4eb7f1f87ce62760d580a2d8b395ddba0bbdce6d96a73b2eab170ab4148f2560b47cda60fa57ff34c6ac5a80dfb8c56cb040ea4c0469fd5489b
+
+pkgname = perl-shell-guess

@@ -1,0 +1,27 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Connor Behan <connor.behan@gmail.com>
+# Contributor: Lukas Fleischer <lfleischer@archlinux.org>
+# Contributor: Douglas Soares de Andrade <dsandrade@gmail.com>
+# Contributor: Stefan Husmann <stefan-husmann@t-online.de>
+
+pkgname=txt2tags
+pkgver=3.9
+pkgrel=4
+pkgdesc='A text formatting and conversion tool.'
+arch=(any)
+url='http://www.txt2tags.org'
+license=('GPL')
+depends=('python')
+makedepends=('python-setuptools')
+source=("https://files.pythonhosted.org/packages/27/17/c9cdebfc86e824e25592a20a8871225dad61b6b6c0101f4a2cb3434890dd/$pkgname-$pkgver.tar.gz")
+sha256sums=('7e4244db6a63aaa58fc17fa4cdec62b6fb89cc41d3a00ba4edaffa37f27d6746')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  python setup.py build
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  python setup.py install --root="$pkgdir"
+}

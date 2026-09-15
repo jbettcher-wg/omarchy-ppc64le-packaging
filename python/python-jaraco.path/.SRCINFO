@@ -1,0 +1,19 @@
+pkgbase = python-jaraco.path
+	pkgdesc = Miscellaneous path functions
+	pkgver = 3.7.2
+	pkgrel = 2
+	url = https://github.com/jaraco/jaraco.path
+	arch = any
+	license = MIT
+	checkdepends = python-pytest-enabler
+	checkdepends = python-pytest-mypy
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/jaraco/jaraco.path.git#tag=v3.7.2
+	sha512sums = 700d744d012754d82b465d7f9cd05e86b6690f651dbf4e1e8e6f00aab5847b9b776a07c2f7dc7407a3f59673a5c18c2c43f82f40760e6ed56862ce66e1831050
+
+pkgname = python-jaraco.path

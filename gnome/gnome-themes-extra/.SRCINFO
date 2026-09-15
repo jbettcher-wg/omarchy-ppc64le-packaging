@@ -1,0 +1,17 @@
+pkgbase = gnome-themes-extra
+	pkgdesc = Extra GNOME themes (legacy HighContrast icon theme and index files for Adwaita)
+	pkgver = 3.28
+	pkgrel = 1
+	epoch = 1
+	url = https://gitlab.gnome.org/Archive/gnome-themes-extra
+	arch = any
+	license = LGPL-2.1-or-later
+	makedepends = git
+	makedepends = gtk3
+	makedepends = intltool
+	options = !emptydirs
+	source = git+https://gitlab.gnome.org/Archive/gnome-themes-extra.git?signed#tag=3.28
+	validpgpkeys = 28B668E8681305CEC60C6FCA19DE6E133A0F5A11
+	b2sums = e317e8b56cfabde93e051e415575f1a4e1accda64f900b5d0ca157acd2851b78acd8c2720a73d19c97ba725e32e78cf48ad5fd893657ddb660b7b3fb7b9cc83c
+
+pkgname = gnome-themes-extra

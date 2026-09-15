@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+# Contributor: Brendan MacDonell <macdonellba at gmail dot com>
+# Contributor: Linmiao Xu <linmiao.xu@gmail.com>
+# Contributor: Juan Miguel Cejuela <juanmi@jmcejuela.net>
+
+pkgname=python-apsw
+pkgver=3.53.4.0
+pkgrel=1
+pkgdesc="Python wrapper for SQLite"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/rogerbinns/apsw"
+license=('MIT')
+makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools' 'git')
+depends=('python' 'sqlite')
+source=("git+https://github.com/rogerbinns/apsw.git#tag=${pkgver}")
+sha512sums=('573a67f08ad3d9cb3df4d707f764db5db5f3acefb63b46f3471d5e569ee63ee21e4d80ff96717202bc4b51a97f068437efe34823cec63029f26ad49f42bd8c28')
+b2sums=('00e0737bcfa77453d257f4ed4296b85a0c0ffe69f83f3b3ef7036773bd16ea88f74ab277dbd1e0f5bd88226e02f17cc42276c41ea00bbb11febd9c286c36db75')
+
+MYARCH=${CARCH}
+case "${CARCH}" in
+  powerpc*) MYARCH=${CARCH/powerpc/ppc} ;;
+esac
+
+build() {
+  cd apsw
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd apsw
+
+  gcc ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -fPIC -shared -o testextension.sqlext src/testextension.c
+  # do glob expansion in variable assignment
+  local python_version=$(python -c 'import sys; print("".join(map(str, sys.version_info[:2])))')
+  cd "build/lib.linux-$MYARCH-cpython-${python_version}"
+  python -m apsw.tests -v
+}
+
+package() {
+  cd apsw
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -D -m644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

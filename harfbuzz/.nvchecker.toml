@@ -1,0 +1,3 @@
+[harfbuzz]
+source = "git"
+git = "https://github.com/harfbuzz/harfbuzz.git"

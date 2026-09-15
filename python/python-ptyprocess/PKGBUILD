@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Kyle Keen <keenerd@gmail.com>
+# Contributor: Will Shanks <wsha dot code at g mail dot com>
+
+pkgname=python-ptyprocess
+pkgver=0.7.0
+pkgrel=9
+pkgdesc="Run a subprocess in a pseudo terminal"
+arch=(any)
+url="https://github.com/pexpect/ptyprocess"
+license=('ISC')
+depends=('python')
+makedepends=(
+  'python-build'
+  'python-flit-core'
+  'python-installer'
+  'python-wheel'
+)
+source=(
+  "$url/archive/$pkgver/${pkgname#python-}-$pkgver.tar.gz"
+  "python-3.13-compatibility.patch::https://src.fedoraproject.org/rpms/python-ptyprocess/raw/rawhide/f/75.patch"
+)
+sha512sums=('2ccba731cc3c17d1a942b319c7cbb894b69b4228b2141f30c845f4d64c9033bcdb2adaa735ebcdcf936bdb7124c0351a58cba614387325abacd683f256b705d9'
+            '19c9c71357488c88c5f0ca8ba93bb18e83189f6df455bce81a01f4f045f9766ca72111de85f2922ce99b9cb4d57479793a7a949bd720b15f3a453a2cb868a3d1')
+
+prepare() {
+  cd ${pkgname#python-}-$pkgver
+  patch -Np1 -i ../python-3.13-compatibility.patch
+}
+
+build() {
+  cd ${pkgname#python-}-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}-$pkgver
+  python -m unittest discover -v
+}
+
+package() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

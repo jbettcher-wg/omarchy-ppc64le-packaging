@@ -1,0 +1,13 @@
+pkgbase = perl-extutils-depends
+	pkgdesc = The Perl depends module
+	pkgver = 0.8002
+	pkgrel = 3
+	url = https://search.cpan.org/dist/ExtUtils-Depends/
+	arch = any
+	license = PerlArtistic
+	depends = perl
+	options = !emptydirs
+	source = https://www.cpan.org/authors/id/E/ET/ETJ/ExtUtils-Depends-0.8002.tar.gz
+	sha512sums = fe0d571174962df92dd9ef3dbce029383d216cd9c3910d2fce539e3a4da9053bb153aad4636d706f5103ec3c58a61736bdb6f0afb15d77374acf64ff45615980
+
+pkgname = perl-extutils-depends

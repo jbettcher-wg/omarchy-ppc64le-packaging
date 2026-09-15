@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-pytest-repeat
+pkgver=0.9.4
+pkgrel=1
+pkgdesc='pytest plugin for repeating test execution'
+arch=(any)
+license=('MPL-2.0')
+url='https://github.com/pytest-dev/pytest-repeat'
+depends=('python-pytest')
+makedepends=('git' 'python-build' 'python-installer' 'python-hatchling' 'python-hatch-vcs')
+source=("git+https://github.com/pytest-dev/pytest-repeat.git#tag=v$pkgver")
+sha512sums=('be82eec865b7aa965e69261037ec8ca16823d3376358d93fc13dd2bc957125f3e581e1f8f9f033846d5c530f779188c4239348fa0d148304cc2c335bfb515a43')
+
+build() {
+  cd pytest-repeat
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  # Hack entry points by installing it
+
+  cd pytest-repeat
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  python -m installer --destdir="$PWD/tmp_install" dist/*.whl
+  PYTHONPATH="$PWD/tmp_install$site_packages:$PYTHONPATH" pytest
+}
+
+package() {
+  cd pytest-repeat
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,23 @@
+pkgbase = httpbin
+	pkgdesc = HTTP Request and Response Service
+	pkgver = 0.10.4
+	pkgrel = 1
+	url = https://github.com/psf/httpbin
+	arch = any
+	license = MIT OR ISC
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-flask
+	depends = python-decorator
+	depends = python-brotlicffi
+	depends = python-werkzeug
+	depends = python-greenlet
+	source = git+https://github.com/psf/httpbin.git#tag=release-v0.10.4
+	sha512sums = 6f2a43b3a072ef1e5bfdecaca19159d2e4e1af8f69d97b268200f57f695645f8c6378f83e5f5fa929b9f7b7292499fc7f6d163b25c03aa190861abb686b16459
+
+pkgname = httpbin

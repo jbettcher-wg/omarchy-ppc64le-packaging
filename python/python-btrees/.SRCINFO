@@ -1,0 +1,24 @@
+pkgbase = python-btrees
+	pkgdesc = Scalable persistent object containers
+	pkgver = 6.3
+	pkgrel = 1
+	url = https://github.com/zopefoundation/btrees
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = ZPL-2.1
+	checkdepends = python-transaction
+	checkdepends = python-zope-testrunner
+	makedepends = git
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-wheel
+	makedepends = python-installer
+	depends = python-persistent
+	depends = python-zope-interface
+	source = git+https://github.com/zopefoundation/btrees.git#tag=6.3
+	sha512sums = ff8ef06d35b5183af6ea963052ee6719b8b50594a3ba1133ee0db014756513d0c7d5f22dcf1ef22758754465c9e39e017f65a5704b9ca173a9dde53e93b64633
+
+pkgname = python-btrees

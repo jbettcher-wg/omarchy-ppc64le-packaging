@@ -1,0 +1,4 @@
+[gavl]
+source = 'git'
+git = 'https://github.com/bplaum/gavl'
+prefix = 'v'

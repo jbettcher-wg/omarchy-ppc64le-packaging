@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-btrees
+pkgver=6.3
+pkgrel=1
+pkgdesc='Scalable persistent object containers'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('ZPL-2.1')
+url='https://github.com/zopefoundation/btrees'
+depends=('python-persistent' 'python-zope-interface')
+makedepends=('git' 'python-setuptools' 'python-build' 'python-wheel' 'python-installer')
+checkdepends=('python-transaction' 'python-zope-testrunner')
+source=("git+https://github.com/zopefoundation/btrees.git#tag=$pkgver")
+sha512sums=('ff8ef06d35b5183af6ea963052ee6719b8b50594a3ba1133ee0db014756513d0c7d5f22dcf1ef22758754465c9e39e017f65a5704b9ca173a9dde53e93b64633')
+
+MYARCH=${CARCH}
+case "${CARCH}" in
+  powerpc*) MYARCH=${CARCH/powerpc/ppc} ;;
+esac
+
+build() {
+  cd btrees
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd btrees
+  local python_version=$(python -c 'import sys; print("".join(map(str, sys.version_info[:2])))')
+  PYTHONPATH="$PWD/build/lib.linux-$MYARCH-cpython-${python_version}" python -m zope.testrunner --test-path=src
+}
+
+package() {
+  cd btrees
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

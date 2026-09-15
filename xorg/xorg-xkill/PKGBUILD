@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xkill
+pkgver=1.0.7
+pkgrel=1
+pkgdesc="Kill a client by its X resource"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT-open-group')
+depends=('libx11' 'libxmu' 'glibc')
+makedepends=('xorg-util-macros')
+groups=('xorg-apps' 'xorg')
+source=(https://xorg.freedesktop.org/archive/individual/app/xkill-${pkgver}.tar.xz{,.sig})
+sha512sums=('af5444da74b2af45dabd093e74b4c2e906c4742593067b6fecced6593a27b2b493e868e91672ffc17571851621b4e6716741d2eb91c5459c5bcf9867d4812d9a'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # "Alan Coopersmith <alan.coopersmith@oracle.com>"
+
+build() {
+  cd xkill-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xkill-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+}

@@ -1,0 +1,46 @@
+# Maintainer: Jelle van der Waa <jelle@archlinux.org>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+# Contributor: Nikola Milinković <nikmil@gmail.com>
+# Submitter: Xiao-Long Chen <chenxiaolong@cxl.epac.to>
+
+_pkgbase=regex
+pkgname=python-regex
+pkgver=2026.4.4
+pkgrel=1
+pkgdesc="Alternative python regular expression module."
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/mrabarnett/mrab-regex"
+license=('Apache-2.0')
+depends=('python')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+options=(!emptydirs)
+source=("https://files.pythonhosted.org/packages/source/r/${_pkgbase}/${_pkgbase}-${pkgver}.tar.gz")
+sha256sums=('e08270659717f6973523ce3afbafa53515c4dc5dcad637dc215b6fd50f689423')
+b2sums=('26060ad5ed1a2f690a4eb7c22bc6302865531422e7494f2c562d73a2cb4522721491e464b762fa05ca25bd87e2758116ef1fd31227c171197a15514a0b5d067f')
+
+MYARCH=${CARCH}
+case "${CARCH}" in
+  powerpc*) MYARCH=${CARCH/powerpc/ppc} ;;
+esac
+
+build() {
+  cd "regex-${pkgver}"
+
+  python -m build -wn
+}
+
+check() {
+  cd "regex-${pkgver}"
+
+  local _pyver=cpython-$(python -c 'import sys; print("".join(map(str, sys.version_info[:2])))')
+  cd "$PWD/build/lib.linux-$MYARCH-$_pyver"
+  python -m unittest regex/tests/test_regex.py
+}
+
+package() {
+  cd "regex-${pkgver}"
+
+  python -m installer --d "${pkgdir}" dist/*.whl
+  install -Dm644 LICENSE.txt "${pkgdir}"/usr/share/licenses/${pkgname}/LICENSE.txt
+}

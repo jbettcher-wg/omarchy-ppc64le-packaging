@@ -1,0 +1,35 @@
+pkgbase = python-structlog
+	pkgdesc = Structured Logging for Python
+	pkgver = 26.1.0
+	pkgrel = 1
+	url = https://www.structlog.org
+	arch = any
+	license = MIT OR Apache-2.0
+	checkdepends = python-pytest
+	checkdepends = python-freezegun
+	checkdepends = python-simplejson
+	checkdepends = python-twisted
+	checkdepends = python-rapidjson
+	checkdepends = python-greenlet
+	checkdepends = python-pytest-asyncio
+	checkdepends = python-rich
+	checkdepends = python-better-exceptions
+	checkdepends = python-time-machine
+	makedepends = git
+	makedepends = openssh
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	makedepends = python-hatch-fancy-pypi-readme
+	depends = python
+	optdepends = python-greenlet: for greenlet support in structlog.threadlocal (deprecated)
+	optdepends = python-twisted: for structlog.twisted
+	optdepends = python-rich: for structlog.dev
+	optdepends = python-better-exceptions: for structlog.dev
+	source = git+https://github.com/hynek/structlog.git#tag=26.1.0
+	source = ssh_allowed_signers
+	sha512sums = 554a819efca26f17a9218b9843ac09063bdbb5fac2074d7c1d9dea589d8c6e45ec0f89eeab5fbc9063790e727fee090c7d50af4bfaa1243cbc81728571eef1e4
+	sha512sums = 6ccc3793e6128783b745879785264f66961a6d3aeefd4c39746503490fe0c36c92807f3149ed601fdaaf84be244a6b24882a337025a2dd317a96d75b50f1fabd
+
+pkgname = python-structlog

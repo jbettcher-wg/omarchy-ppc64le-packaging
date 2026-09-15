@@ -1,0 +1,23 @@
+pkgbase = libgme
+	pkgdesc = Video game music file emulation/playback library
+	pkgver = 0.6.5
+	pkgrel = 1
+	url = https://github.com/libgme/game-music-emu
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	makedepends = sdl2
+	depends = glibc
+	depends = libstdc++
+	depends = zlib
+	source = git+https://github.com/libgme/game-music-emu.git#tag=0.6.5
+	validpgpkeys = 5406ECE83665DA9D201D35720BAF0C9C7B6AE9F2
+	b2sums = fa9705864b7e028954e68e43f5d5a102f836faf5380323b5c2b4f59e10a6244e9dbc359fdcbafc6de28097575f60a8944ff80c9ccddfbfa62fd8abf166ecef82
+
+pkgname = libgme

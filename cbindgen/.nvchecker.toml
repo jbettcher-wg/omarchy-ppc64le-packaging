@@ -1,0 +1,4 @@
+[cbindgen]
+source = "git"
+git = "https://github.com/mozilla/cbindgen.git"
+prefix = "v"

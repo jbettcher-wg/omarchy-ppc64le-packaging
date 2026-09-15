@@ -1,0 +1,42 @@
+pkgbase = pangomm-2.48
+	pkgdesc = C++ bindings for Pango
+	pkgver = 2.56.1
+	pkgrel = 1
+	url = https://www.gtkmm.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	license = LGPL-2.1-or-later
+	makedepends = cairomm-1.16-docs
+	makedepends = git
+	makedepends = glibmm-2.68-docs
+	makedepends = meson
+	makedepends = mm-common
+	depends = cairomm-1.16
+	depends = gcc-libs
+	depends = glib2
+	depends = glibc
+	depends = glibmm-2.68
+	depends = pango
+	options = !emptydirs
+	source = git+https://gitlab.gnome.org/GNOME/pangomm.git#tag=2.56.1
+	b2sums = f2670239c2c0773539becfd4f80d5c0fbe1a1d88d1ae4d72dfa16f617bc60effc93f5399067b8120af1d08d28b3db97266354a91bb9054f2ff4b0d6536e29846
+
+pkgname = pangomm-2.48
+	depends = cairomm-1.16
+	depends = gcc-libs
+	depends = glib2
+	depends = glibc
+	depends = glibmm-2.68
+	depends = pango
+	depends = libcairomm-1.16.so
+	depends = libglibmm-2.68.so
+	depends = libsigc-3.0.so
+	provides = libpangomm-2.48.so
+
+pkgname = pangomm-2.48-docs
+	pkgdesc = C++ bindings for Pango (documentation)
+	depends = 
+	options = !strip

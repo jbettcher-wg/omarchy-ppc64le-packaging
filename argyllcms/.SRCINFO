@@ -1,0 +1,26 @@
+pkgbase = argyllcms
+	pkgdesc = An ICC compatible color management system with support for different colorimeter hardware
+	pkgver = 3.5.0
+	pkgrel = 1
+	url = https://www.argyllcms.com/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL
+	license = AGPL
+	makedepends = ftjam
+	makedepends = zip
+	makedepends = unzip
+	depends = libpng
+	depends = libtiff
+	depends = libxss
+	depends = libxinerama
+	depends = libxxf86vm
+	depends = libxrandr
+	depends = openssl
+	source = https://www.argyllcms.com/Argyll_V3.5.0_src.zip
+	sha256sums = f8576ce5589fd15620abb73ff049ea31f55ddbd1bba6d1ffa87452658e7bc85f
+
+pkgname = argyllcms

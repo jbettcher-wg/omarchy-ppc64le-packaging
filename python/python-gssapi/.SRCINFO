@@ -1,0 +1,27 @@
+pkgbase = python-gssapi
+	pkgdesc = Provides both low-level and high level wrappers around the GSSAPI C libraries
+	pkgver = 1.11.1
+	pkgrel = 1
+	url = https://github.com/pythongssapi/python-gssapi
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = ISC
+	checkdepends = python-k5test
+	checkdepends = python-parameterized
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = krb5
+	depends = python
+	depends = python-decorator
+	source = https://github.com/pythongssapi/python-gssapi/archive/v1.11.1/python-gssapi-1.11.1.tar.gz
+	sha512sums = c5fe7d9081d8708df8908c098602e785d1ef07aa34208141d012f11a43fef439d0095338d3658aa1d9c6ae7fbf132c257d5bee04904cf098b18d395652510d56
+	b2sums = a62c99e835fe2e910d9073fe99f9f6eca69822282981f0300588bc440d11ef235f58ed851e6802a3c307e85ccb6eb93d4851c17781be7f90bcaa6a85694b5080
+
+pkgname = python-gssapi

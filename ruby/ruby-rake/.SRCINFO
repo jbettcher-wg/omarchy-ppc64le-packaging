@@ -1,0 +1,20 @@
+pkgbase = ruby-rake
+	pkgdesc = Make-like build tool implemented in Ruby
+	pkgver = 13.3.1
+	pkgrel = 1
+	url = https://ruby.github.io/rake/
+	arch = any
+	license = MIT
+	checkdepends = ruby-bundler
+	checkdepends = ruby-rake
+	checkdepends = ruby-test-unit
+	makedepends = git
+	makedepends = ruby-rdoc
+	depends = ruby
+	provides = rake
+	options = !emptydirs
+	source = git+https://github.com/ruby/rake#tag=v13.3.1
+	sha512sums = 5eb827e5e8837478c300e4ce37157861a99b9b58595dc4bb96afa274f8d829cd435376626f1594ea427d093cd446224d3c699ef7dfa76efbba424ba1d6bc1e00
+	b2sums = 6f43b38a0a0d7e89a19273a6a769c08e5f117fad71a7febb331a24120bcd7d9e4bd5d3ca1c38675f9c6684b9fe42590308f00ea02888e0985ad5d561422e8a4f
+
+pkgname = ruby-rake

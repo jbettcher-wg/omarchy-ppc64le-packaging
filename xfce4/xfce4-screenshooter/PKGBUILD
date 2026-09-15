@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Tobias Kieslich <tobias (at) archlinux.org>
+
+pkgname=xfce4-screenshooter
+pkgver=1.11.3
+pkgrel=3
+pkgdesc="An application to take screenshots"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/apps/xfce4-screenshooter/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'hicolor-icon-theme')
+makedepends=('git' 'glib2-devel' 'meson' 'xfce4-dev-tools' 'wayland-protocols')
+source=("git+https://gitlab.xfce.org/apps/xfce4-screenshooter.git#tag=$pkgname-$pkgver"
+        git+https://gitlab.freedesktop.org/wlroots/wlr-protocols.git)
+sha256sums=('603ee8eae4f8ac982f93bc7c4fe0b951696b2d2362ed038c8df4101936ba3346'
+            'SKIP')
+
+prepare() {
+  cd $pkgname
+  git submodule init
+  git config submodule.mate-submodules.url "$srcdir/protocols/wlr-protocols"
+  git -c protocol.file.allow=always submodule update
+}
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

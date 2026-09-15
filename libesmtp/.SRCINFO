@@ -1,0 +1,17 @@
+pkgbase = libesmtp
+	pkgdesc = A library to manage posting mail to a preconfigured MTA.
+	pkgver = 1.1.0
+	pkgrel = 3
+	url = https://libesmtp.github.io/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL
+	makedepends = meson
+	depends = openssl
+	source = https://github.com/libesmtp/libESMTP/archive/v1.1.0/libesmtp-1.1.0.tar.gz
+	sha256sums = 32bc3614ca12d21c7d933f32d43410e8744b6f91fdca7732da9877a385e4e6c3
+
+pkgname = libesmtp

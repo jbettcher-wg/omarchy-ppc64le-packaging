@@ -1,0 +1,23 @@
+pkgbase = python-pyquery
+	pkgdesc = A jquery-like library for python.
+	pkgver = 2.0.1
+	pkgrel = 3
+	url = https://github.com/gawel/pyquery/
+	arch = any
+	license = BSD
+	checkdepends = python-requests
+	checkdepends = python-webob
+	checkdepends = python-pytest
+	checkdepends = python-webtest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python-lxml
+	depends = python-cssselect
+	optdepends = python-webob: query wsgi app
+	source = git+https://github.com/gawel/pyquery.git#tag=2.0.1
+	sha512sums = 7c496fac61e2ae0d0755bd49f5e129cf8739fcd013e932c3363feaf5c22463452dc034bc1ed6d5beae4056405ae2613a5c4be5f7ede9eeeb3b401cc0e0361792
+
+pkgname = python-pyquery

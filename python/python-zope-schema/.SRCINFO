@@ -1,0 +1,21 @@
+pkgbase = python-zope-schema
+	pkgdesc = zope.interface extension for defining data schemas
+	pkgver = 8.1
+	pkgrel = 3
+	url = https://github.com/zopefoundation/zope.schema
+	arch = any
+	license = ZPL-2.1
+	checkdepends = python-zope-i18nmessageid
+	checkdepends = python-zope-testing
+	checkdepends = python-zope-testrunner
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-zope-event
+	depends = python-zope-interface
+	source = https://github.com/zopefoundation/zope.schema/archive/8.1/python-zope-schema-8.1.tar.gz
+	sha512sums = 5f479938797bfb8d157873006c889f24d08c597cb8c4a90140a03739c9e63251b7519f058ed6aab473d0b41181d001302dcd4a6b82972c57a517ada8e7b69156
+
+pkgname = python-zope-schema

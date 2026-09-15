@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-rdflib-jsonld
+pkgver=0.6.1
+pkgrel=1
+pkgdesc="JSON-LD parser and serializer plugins for RDFLib"
+url="https://github.com/RDFLib/rdflib-jsonld"
+license=('BSD')
+arch=('any')
+depends=('python-rdflib')
+makedepends=('python-setuptools')
+checkdepends=('python-nose')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/RDFLib/rdflib-jsonld/archive/$pkgver.tar.gz")
+sha512sums=('f7a69ffadfa6e0b4182314887f0040bcbaa25f7cd5a53fab2525727ee6dc262c3c35588cb3be78c64b8b99f5d112d033f48be327a0587cc2a1b7406269f70f48')
+
+build() {
+  cd rdflib-jsonld-$pkgver
+  python setup.py build
+}
+
+check() {
+  cd rdflib-jsonld-$pkgver
+  python setup.py nosetests
+}
+
+package() {
+  cd rdflib-jsonld-$pkgver
+  python setup.py install --root="$pkgdir" --optimize=1
+
+  install -Dm644 LICENSE.md -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

@@ -1,0 +1,24 @@
+pkgbase = liblo
+	pkgdesc = A lightweight OSC (Open Sound Control) implementation
+	pkgver = 0.36
+	pkgrel = 1
+	epoch = 1
+	url = http://liblo.sourceforge.net/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = doxygen
+	source = https://github.com/radarsat1/liblo/archive/0.36/liblo-0.36.tar.gz
+	sha512sums = ddcc41e8ea156ab9dfe8e8038542ac2a514bf65262fd00397590dd95f58551eb9aabbf5b85333edd3f4e5a261b55a96127a54d152dbb291a02de4b71fae255e3
+	b2sums = 45cd1c1c4771f7b4aa51786b02fd9f64846ca156f7784e8b6059732db26aa63311fdd63071c671c742f03d798d2ac95cb93b87db83db3ec41950fd085f34a72f
+
+pkgname = liblo
+	depends = glibc
+	optdepends = liblo-docs: for documentation and examples
+	provides = liblo.so
+
+pkgname = liblo-docs
+	pkgdesc = A lightweight OSC (Open Sound Control) implementation - documentation

@@ -1,0 +1,17 @@
+pkgbase = perl-cgi
+	pkgdesc = Handle Common Gateway Interface requests and responses
+	pkgver = 4.72
+	pkgrel = 1
+	url = https://metacpan.org/dist/CGI
+	arch = any
+	license = Artistic-2.0
+	checkdepends = perl-test-nowarnings
+	checkdepends = perl-test-warn>=0.3
+	depends = perl>=5.8.1
+	depends = perl-html-parser
+	options = !emptydirs
+	source = perl-cgi-4.72.tar.gz::https://cpan.metacpan.org/authors/id/L/LE/LEEJO/CGI-4.72.tar.gz
+	sha512sums = ec7f9d3707e6fba766b147625df5c6bda325e9d9d92e677d20c550a52fba919e249ad1242277521efa75985d94685ed60979b591b48b1f02b1846ffe2db71738
+	b2sums = 4ba652057a2eb795c28b44f4e02534c9e0b172d865759b683f2f9830efc4b699e3b38dbc63ee3589e513f8e7fa1a3f3a18a3ba6533ec016fe405a576ad4c2bf4
+
+pkgname = perl-cgi

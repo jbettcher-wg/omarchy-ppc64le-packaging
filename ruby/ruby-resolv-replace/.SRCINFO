@@ -1,0 +1,17 @@
+pkgbase = ruby-resolv-replace
+	pkgdesc = Replace Socket DNS with Resolv
+	pkgver = 0.2.0
+	pkgrel = 1
+	url = https://github.com/ruby/resolv-replace
+	arch = any
+	license = Ruby
+	license = BSD-2-Clause
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-resolv
+	options = !emptydirs
+	source = https://github.com/ruby/resolv-replace/archive/v0.2.0/ruby-resolv-replace-0.2.0.tar.gz
+	sha512sums = be4c16f3edcf3497cb553c3ec477e27c908fc0cb419aedd06c0569ab4d4e5ad03e36776f92b8bef4e36f8269a25d42529f6f2c4940c36a2a39c3d136c5ec89d6
+	b2sums = f13d3edf63a996c360d82bbb922833afa005374a922436a2b19b40f821603944b07e947dfab28d5f2a92cf80532f09adae5e0cfddef7425ffaab3b646d8cc4a0
+
+pkgname = ruby-resolv-replace

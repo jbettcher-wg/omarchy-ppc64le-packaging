@@ -1,0 +1,18 @@
+pkgbase = drbl
+	pkgdesc = Diskless Remote Boot in Linux: manage the deployment of the GNU/Linux operating system across many clients
+	pkgver = 5.9.11
+	pkgrel = 1
+	url = https://github.com/stevenshiau/drbl
+	arch = any
+	license = GPL-2.0-only
+	makedepends = vim
+	depends = perl
+	depends = bc
+	options = !emptydirs
+	backup = etc/drbl/drbl.conf
+	source = https://github.com/stevenshiau/drbl/archive/v5.9.11/drbl-5.9.11.tar.gz
+	source = usrbin.patch
+	sha256sums = 843efaf2832f3d8d10175fa20abde4df408546f7b4048eae222f40a55778ad5d
+	sha256sums = c1ae79ac2d2d07cfd4437b093986823e9e14f75dbefbf04dde407b648be17ec4
+
+pkgname = drbl

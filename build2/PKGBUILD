@@ -1,0 +1,57 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer:
+# Contributor: Miguel Revilla <yo at miguelrevilla dot com>
+# Contributor: Adrià Arrufat <swiftscythe@gmail.com>
+# Contributor: Filipe Verri <filipeverri@gmail.com>
+
+pkgname=build2
+pkgver=0.17.0
+pkgrel=2
+pkgdesc='build2 build system'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://build2.org/'
+license=(MIT)
+makedepends=(chrpath)
+depends=(glibc
+         libgcc
+         libstdc++
+         sqlite)
+options=(!ccache !distcc)
+source=(https://download.build2.org/$pkgver/build2-toolchain-$pkgver.tar.xz
+        atomic-non-lock-free.patch)
+sha256sums=('3722a89ea86df742539d0f91bb4429fd46bbf668553a350780a63411b648bf5d'
+            '30b993e1b1896a5eff54171128dbbbebd2de9d608a0b35d707b9259cf9f5588e')
+
+prepare() {
+  case "${CARCH}" in
+    powerpc)
+      # Avoid:
+      #./libbuild2/target.hxx:1991:4: error: #error timestamp is not lock-free on this architecture
+      # 1991 | #  error timestamp is not lock-free on this architecture
+      # ML post: https://lists.build2.org/archives/users/2020-July/000822.html
+      patch -d build2-toolchain-$pkgver -p1 < atomic-non-lock-free.patch
+    ;;
+  esac
+}
+
+build() {
+  mkdir -p build/usr
+  cd build2-toolchain-$pkgver
+
+  case "${CARCH}" in
+    powerpc) 
+      CXXFLAGS+=' -latomic'
+    ;;
+  esac  
+
+  ./build.sh --trust yes --local --system libsqlite3 --install-dir "$srcdir"/build/usr ${CXX:-g++} $CXXFLAGS $LDFLAGS
+
+  for f in "$srcdir"/build/usr/lib/pkgconfig/*.pc; do sed -i "s|$srcdir/build||" ${f}; done
+}
+
+package() {
+  cp -av build/usr "$pkgdir"
+  chrpath -d "$pkgdir"/usr/bin/{b,bpkg,bdep} "$pkgdir"/usr/lib/*.so
+
+  install -Dm644 "$pkgdir"/usr/share/doc/build2/LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+}

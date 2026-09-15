@@ -1,0 +1,128 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+
+pkgbase=fltk
+pkgname=(fltk fltk-docs)
+pkgver=1.4.4
+pkgrel=4
+pkgdesc="Graphical user interface toolkit for X"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('LGPL-2.0-only WITH FLTK-exception')
+url="https://www.fltk.org/"
+makedepends=(
+  alsa-lib
+  cmake
+  doxygen
+  fontconfig
+  glu
+  libglvnd
+  libjpeg-turbo
+  libpng
+  libx11
+  libxcursor
+  libxfixes
+  libxft
+  libxinerama
+  libxrender
+  libxkbcommon
+  libdecor
+  pango
+  cairo
+  mesa
+  wayland-protocols
+)
+source=(https://github.com/$pkgbase/$pkgbase/archive/release-$pkgver/$pkgbase-release-$pkgver.tar.gz)
+sha512sums=('51ca9fd8d5903bbfb4d18145dd85a89f2e4281baf224d34d0a8b67591ff8b00b151cf1b353fd3871a1456d443848a7f69df8ecc6c959fbf6135d019d97099c28')
+b2sums=('2028e00060a4c9016ce94c2a04e007b4de1ab4bfa051e65d381505e7815c82978540d86f07a1baaf8a398f28410ba20244ac51a31c521dd471701335b27dcfde')
+
+_pick() {
+  local p="$1" f d; shift
+  for f; do
+    d="$srcdir/$p/${f#$pkgdir/}"
+    mkdir -p "$(dirname "$d")"
+    mv "$f" "$d"
+    rmdir -p --ignore-fail-on-non-empty "$(dirname "$f")"
+  done
+}
+
+build() {
+  local cmake_options=(
+    -B build
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D CMAKE_BUILD_TYPE=None
+    -D FLTK_LIBDIR=/usr/lib
+    -D FLTK_BUILD_SHARED_LIBS=ON
+    -D FLTK_BUILD_HTML_DOCS=ON
+    -D FLTK_INSTALL_HTML_DOCS=ON
+    -S $pkgbase-release-$pkgver
+    -W no-dev
+  )
+
+  # fat-lto-objects is required for non-mangled .a files in fltk
+  CFLAGS+=" -ffat-lto-objects"
+  CXXFLAGS+=" -ffat-lto-objects"
+
+  cmake "${cmake_options[@]}"
+  cmake --build build --verbose
+  # build documentation explicitly as it is otherwise not generated/ installed
+  make VERBOSE=1 -C build/documentation html
+}
+
+package_fltk() {
+  depends=(
+    cairo
+    dbus
+    fontconfig libfontconfig.so
+    glib2
+    glibc
+    glu
+    hicolor-icon-theme
+    libdecor
+    libgcc
+    libglvnd
+    libjpeg-turbo
+    libpng
+    libstdc++
+    libx11
+    libxcursor
+    libxext
+    libxfixes
+    libxft
+    libxinerama
+    libxrender
+    libxkbcommon
+    pango
+    sh
+    wayland
+    zlib
+  )
+  provides=(
+    libfltk_images.so
+    libfltk_gl.so
+    libfltk_forms.so
+    libfltk.so
+  )
+  options=(
+    !docs
+    staticlibs
+  )
+
+  DESTDIR="$pkgdir" cmake --install build
+  install -vDm 644 $pkgbase-release-$pkgver/COPYING -t "$pkgdir/usr/share/licenses/$pkgname/"
+
+  # remove man pages of examples
+  rm -rvf "$pkgdir/usr/share/man/man6"
+
+  (
+    cd "$pkgdir"
+    _pick $pkgbase-docs usr/share/doc/$pkgname/html
+  )
+}
+
+package_fltk-docs() {
+  pkgdesc+=" - documentation"
+
+  mv -v $pkgname/* "$pkgdir"
+  install -vDm 644 $pkgbase-release-$pkgver/COPYING -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

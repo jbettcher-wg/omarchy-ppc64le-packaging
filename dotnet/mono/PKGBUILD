@@ -1,0 +1,57 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Giancarlo Razzolinit <grazzolini@gmail.com>
+# Contributor: Daniel Isenmann <daniel@archlinux.org>
+# Contributor: Brice Carpentier <brice@dlfp.org>
+
+pkgname=mono
+_gitcommit=90f297fcd6e16d9d9e9ed6a6b2b455346949b3b0
+pkgver=9.4.0
+pkgrel=1
+pkgdesc='Free implementation of the .NET platform including runtime and compiler'
+url='https://www.mono-project.com/'
+arch=(x86_64 powerpc64le powerpc64 powerpc)
+license=('GPL' 'LGPL2.1' 'MPL')
+depends=('zlib' 'libgdiplus>=4.2' 'sh' 'python' 'ca-certificates')
+makedepends=('cmake' 'git')
+provides=('monodoc')
+conflicts=('monodoc')
+options=('!lto')
+install=mono.install
+source=(wine-${pkgname}::"git+https://gitlab.winehq.org/mono/wine-mono.git#commit=${_gitcommit}"
+        mono.binfmt.d)
+sha256sums=('58cc559c1f20f7047abdbd3d27928ce39deb3515ad60aa0b3e8b06cfb1a6b071'
+            '9a657fc153ef4ce23bf5fc369a26bf4a124e9304bde3744d04c583c54ca47425')
+
+pkgver() {
+  cd wine-mono 
+  git describe --tags | sed 's/^v//;s/^mono-//;s/\([^-]*-g\)/r\1/;s/-/./g' | sed 's/^wine\.mono\.//g'
+}
+
+prepare() {
+  cd wine-mono
+  git submodule init
+  git -c protocol.file.allow=always submodule update --recursive
+}
+
+build() {
+  cd wine-mono/mono
+  CFLAGS+=" -ffat-lto-objects" \
+  ./autogen.sh \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --bindir=/usr/bin \
+    --sbindir=/usr/bin \
+    --with-mcs-docs=no
+  make
+  make -C mcs/jay
+}
+
+package() {
+  cd wine-mono 
+  make DESTDIR="${pkgdir}" install
+  make -C mcs/jay DESTDIR="${pkgdir}" prefix=/usr INSTALL=../../install-sh install
+  install -Dm 644 "${srcdir}/mono.binfmt.d" "${pkgdir}/usr/lib/binfmt.d/mono.conf"
+}
+
+# vim: ts=2 sw=2 et:

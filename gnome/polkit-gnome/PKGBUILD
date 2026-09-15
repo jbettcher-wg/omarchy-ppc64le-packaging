@@ -1,0 +1,77 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+# Contributor: onestep_ua <onestep@ukr.net>
+
+pkgname=polkit-gnome
+pkgver=0.105
+pkgrel=12
+pkgdesc='Legacy polkit authentication agent for GNOME'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://gitlab.gnome.org/Archive/policykit-gnome'
+license=(LGPL-2.0-or-later)
+depends=(
+  gdk-pixbuf2
+  glib2
+  glibc
+  gtk3
+  polkit
+)
+makedepends=(
+  git
+  intltool
+)
+source=(
+  "git+https://gitlab.gnome.org/Archive/policykit-gnome.git?signed#tag=$pkgver"
+  polkit-gnome-authentication-agent-1.desktop
+  0001-Select-the-current-user-to-authenticate-with-by-defa.patch
+  0002-Auth-dialog-Make-the-label-wrap-at-70-chars.patch
+  0003-Get-user-icon-from-accountsservice-instead-of-lookin.patch
+  0004-Use-fresh-X11-timestamps-when-displaying-authenticat.patch
+)
+b2sums=(
+  f2681273454dff42c25c8ed4a7b5ae78ed37f83c67f78553cac508a9d46d1e9c62b328ee5d662f6a531e1908c9792acb4fce0765a26efd3ead9a311cac7e0f89
+  3b6f9373de04efa94edaaf4f979d0c3998c2e5f4c7f01a0ba02877646ab42f31e2c738cce91d276aabdee14e9126d98e2e18435c6982cf109b1b3050cb9626cd
+  546781f4a63a219c482c489c004d8e5f56c0b7b7197e270fe4f719f4f77b32695167f8f9f6aa68fd2ec6da852bd3fcce774f4e4dc7810fc2f89d1e7a2aedc8e3
+  c995d5729a6c9902af1fbf7ede630c6517af463725813b1161826f62a4ee30dc476e5a82ce9df4c070fe52c336af533b78b9eba0e4b8e8e373adcd512111c3af
+  c37976767c11ae457cb308274c8860b2c82c2fe0b91c8df429539d8c016c149f828cdad96318040ced6ce29c972f93a075ed61bfc5fa330f8d505cd540f1b09f
+  1fc66dfb1d44488349b103cd93f5449d212ee614c8775675c190805e0fb57e45928325ccfd7f4a8ca2a16c02ba7a17dd6294aad3048fe86d096f692e0cfcba99
+)
+validpgpkeys=(0F1695DBEA2752AD0716CF01E79092CC3418A891) # David Zeuthen <zeuthen@gmail.com>
+
+prepare() {
+  cd policykit-gnome
+
+  # Select the current user to authenticate with by default
+  git apply -3 ../0001-Select-the-current-user-to-authenticate-with-by-defa.patch
+
+  # Auth dialog: Make the label wrap at 70 chars
+  git apply -3 ../0002-Auth-dialog-Make-the-label-wrap-at-70-chars.patch
+
+  # Get user icon from accountsservice instead of looking in ~/.face
+  git apply -3 ../0003-Get-user-icon-from-accountsservice-instead-of-lookin.patch
+
+  # Use fresh X11 timestamps when displaying authentication dialog
+  git apply -3 ../0004-Use-fresh-X11-timestamps-when-displaying-authenticat.patch
+
+  # Remove dependency on gnome-common
+  sed -i '/GNOME_/d' configure.ac
+
+  autoreconf -fi
+}
+
+build() {
+  cd policykit-gnome
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --libexecdir=/usr/lib/$pkgname
+  make
+}
+
+package() {
+  cd policykit-gnome
+  make DESTDIR="$pkgdir" install
+  install -Dm644 -t "$pkgdir/usr/share/applications/" "$srcdir/polkit-gnome-authentication-agent-1.desktop"
+}

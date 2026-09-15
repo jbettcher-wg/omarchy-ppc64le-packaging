@@ -1,0 +1,44 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+
+pkgname=python-wheezy-template
+_pkgname=wheezy.template
+pkgver=3.2.5
+pkgrel=1
+pkgdesc="A lightweight template library"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/akornatskyy/wheezy.template"
+license=(MIT)
+depends=(
+  glibc
+  python
+)
+makedepends=(
+  cython
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=("$url/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('ab64eccc6747449ec9ef2634d146ebf2fb02ba855d46b0b449b709fc524141a218d550b7d7e4a5ed50abdd80f359847e944fa03c332502ff5e7da0dbec739e15')
+
+build() {
+  cd "$_pkgname-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$_pkgname-$pkgver"
+  python -m installer -d tmp_install dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  PYTHONPATH="$PWD/tmp_install/$site_packages" pytest
+}
+
+package() {
+  cd "$_pkgname-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

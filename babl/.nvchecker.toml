@@ -1,0 +1,7 @@
+[babl]
+source = 'git'
+git = 'https://gitlab.gnome.org/GNOME/babl.git'
+include_regex = "(BABL\\_).*_.*_.*"
+prefix = 'BABL_'
+from_pattern = '_'
+to_pattern = '.'

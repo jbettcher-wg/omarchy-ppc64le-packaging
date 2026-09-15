@@ -1,0 +1,4 @@
+[gssproxy]
+source = "git"
+git = "https://github.com/gssapi/gssproxy.git"
+prefix = "v"

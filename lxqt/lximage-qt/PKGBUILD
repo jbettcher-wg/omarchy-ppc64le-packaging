@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Chih-Hsuan Yen <yan12125@archlinux.org>
+# Contributor: Jerome Leclanche <jerome@leclan.ch>
+
+pkgname=lximage-qt
+pkgver=2.4.0
+pkgrel=1
+pkgdesc="The LXQt image viewer and screenshot tool"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+groups=("lxqt")
+url="https://github.com/lxqt/$pkgname"
+# https://github.com/lxqt/lximage-qt/blob/2.0.1/AUTHORS#L8 also mentions LGPL-2.1+, but files are either removed [1] or re-licensed [2]
+# [1] https://github.com/lxqt/lximage-qt/commit/30f3bc7bbe43d7834fe4dbee83a0c9be489ce439
+# [2] https://github.com/lxqt/lximage-qt/commit/59c98f34a0aeff8443b16507caf67824652a57b5
+license=("GPL-2.0-or-later")
+depends=("hicolor-icon-theme" "libfm-qt" "qt6-svg" "libexif" "libxfixes" "libfm-qt6.so")
+optdepends=(
+	"qt6-imageformats: support for additional image formats (WEBP, TIFF, etc.)"
+	"kimageformats: support for additional image formats (PCX, XCF, HEIF, etc.)"
+)
+makedepends=("lxqt-build-tools")
+source=(
+	"https://github.com/lxqt/$pkgname/releases/download/$pkgver/$pkgname-$pkgver.tar.xz"
+	"https://github.com/lxqt/$pkgname/releases/download/$pkgver/$pkgname-$pkgver.tar.xz.asc"
+)
+sha256sums=('7ca49039f3246011b80d76037603ac6a7af484574d8e5e2cc5bb7b8534298636'
+            'SKIP')
+validpgpkeys=(
+	"169704C6FB490C6892C7F23C37E0AF1FDA48F373"  # Jerome Leclanche <jerome@leclan.ch>
+	"7C733BA5F585AAD669E4D23A42C9C8D3AF5EA5E3"  # Alf Gaida <agaida@siduction.org>
+	"19DFDF3A579BD509DBB572D8BE793007AD22DF7E"  # Pedram Pourang <tsujan2000@gmail.com>
+	"48836EB124A1EAAE695EDFEA229CA0A00A17D258"  # the key owned by an email used by https://github.com/stefonarch/, a long-time LXQt contributor, as per keys.openpgp.org
+)
+
+build() {
+	mkdir -p build
+	cd build
+	cmake "$srcdir/$pkgname-$pkgver" \
+		-DCMAKE_INSTALL_PREFIX=/usr
+	make
+}
+
+package() {
+	cd build
+	make DESTDIR="$pkgdir" install
+}

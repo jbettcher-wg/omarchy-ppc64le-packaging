@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Konstantin Gizdov <arch at kge dot pw>
+_pkgname='csexp'
+pkgname="ocaml-${_pkgname}"
+pkgver=1.5.2
+pkgrel=4.1
+pkgdesc="OCaml canonical S-expressions"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/ocaml-dune/csexp"
+license=('MIT')
+makedepends=(dune)
+depends=(glibc ocaml ocaml-findlib ocaml-result)
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz")
+b2sums=('67d5c037e015af91b17af30147e0e4f246ee7e03e724d4c93bc22109cceec82d03ec954c8dfb2b7ca472a4cd69f69209aa719bb0f27176942965fd2bd15fe3f9')
+
+build() {
+    cd "${srcdir}/${_pkgname}-${pkgver}"
+    dune build -p csexp
+}
+
+package() {
+    cd "${srcdir}/${_pkgname}-${pkgver}"
+    dune install --destdir="${pkgdir}" --prefix "/usr" --libdir "/usr/lib/ocaml"
+
+    install -dm755 "${pkgdir}/usr/share/"
+    mv "${pkgdir}/usr/doc" "${pkgdir}/usr/share/"
+
+    install -dm755 "${pkgdir}/usr/share/licenses/${pkgname}"
+    ln -s /usr/share/doc/csexp/LICENSE.md "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

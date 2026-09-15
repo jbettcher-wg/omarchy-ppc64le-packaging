@@ -1,0 +1,57 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Andrej Gelenberg <andrej.gelenberg@udo.edu>
+
+pkgname="openbsd-netcat"
+pkgver=1.234_2
+_ver="${pkgver/_/-}"
+pkgrel=1
+pkgdesc="TCP/IP swiss army knife. OpenBSD variant."
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://salsa.debian.org/debian/netcat-openbsd"
+license=(
+  'BSD-2-Clause'
+  'BSD-3-Clause'
+)
+depends=(
+  'glibc'
+  'libbsd'
+)
+provides=('netcat')
+conflicts=('gnu-netcat')
+source=("https://salsa.debian.org/debian/netcat-openbsd/-/archive/debian/${pkgver/_/-}/netcat-openbsd-debian-${pkgver/_/-}.tar.gz")
+sha256sums=('11a00e7cfb37dfd41ef6228ad4757efb45553f21f0f8709a676eb18e6f01b5ef')
+b2sums=('4bd465e0be97549cbec1f1e8062fced1043c0db765ee4750c57564ef723403f637705918af6d38bed61685afe58bc4143e1b1a226a556ca8625ca26ade79deda')
+_dir=netcat-openbsd-debian-$_ver
+
+prepare() {
+  # extract dedicated licenses
+  sed -n '40,59p' $_dir/debian/copyright > BSD-2-Clause.txt
+  sed -n '62,83p' $_dir/debian/copyright > BSD-3-Clause.txt
+  sha256sum -c - <<EOF
+9087578f9861610e1a5cd2fc5962bb8209619fff01949e9e3475f82dd375a37c  BSD-2-Clause.txt
+66af2c844063fb3a149fcf64ffa364b3388674f72a8454a38e0098942553b065  BSD-3-Clause.txt
+EOF
+
+  cd $_dir
+  while read patch; do
+    printf "Applying %s...\n" "$patch"
+    patch -Np1 -i debian/patches/$patch
+  done < debian/patches/series
+}
+
+build() {
+  cd $_dir
+  make \
+  CFLAGS="$CFLAGS -DDEBIAN_VERSION=\"\\\"${pkgver/_/-}\\\"\" -I/usr/include/libbsd" \
+  LDFLAGS="$LDFLAGS -lbsd"
+}
+
+package() {
+  cd $_dir
+  install -Dm0755 nc "$pkgdir"/usr/bin/nc
+  ln -s nc "$pkgdir"/usr/bin/netcat
+  ln -s nc "$pkgdir"/usr/bin/nc.openbsd
+  install -Dm0644 nc.1 "$pkgdir"/usr/share/man/man1/nc.1
+  install -vDm 644 ../*.txt -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

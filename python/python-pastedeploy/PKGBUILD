@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-pastedeploy
+pkgver=3.1
+pkgrel=3
+pkgdesc="Load, configure, and compose WSGI applications and servers"
+arch=(any)
+license=('MIT')
+url="https://github.com/Pylons/pastedeploy"
+depends=('python')
+makedepends=('python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-pytest')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/Pylons/pastedeploy/archive/$pkgver.tar.gz")
+sha512sums=('da13c8181d1f003bf61f954655a1876f49253954c320c6a2db0ca2b92acf057e48dff97376da2f9dce6181e5349ffa2d8cddbf71d3360d6c0fa8d5dedbbb2ae3')
+
+prepare() {
+  cd pastedeploy-$pkgver
+  sed -i 's/--cov//' pytest.ini
+}
+
+build() {
+  cd pastedeploy-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd pastedeploy-$pkgver
+  PYTHONPATH="$PWD/src" pytest
+}
+
+package() {
+  cd pastedeploy-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -D -m644 license.txt "$pkgdir"/usr/share/licenses/$pkgname/license.txt
+}

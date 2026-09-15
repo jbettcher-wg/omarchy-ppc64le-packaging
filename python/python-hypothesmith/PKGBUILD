@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer:
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-hypothesmith
+pkgver=0.3.3
+pkgrel=3
+pkgdesc="Hypothesis strategies for generating Python programs, something like CSmith"
+url="https://github.com/Zac-HD/hypothesmith"
+license=('MPL')
+arch=(any)
+depends=('python-hypothesis' 'python-lark-parser' 'python-libcst')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-black' 'python-parso' 'python-pytest')
+source=("https://pypi.io/packages/source/h/hypothesmith/hypothesmith-$pkgver.tar.gz")
+sha512sums=('c62dd927161ea9786806f6fee3af77f583c00a9dbb59c1a52c0cc1419b16b3d883b315028cc8c06f61e22035d9bf0b187d56d1d877bcd5837ba76c1e3a84b478')
+
+prepare() {
+  cd hypothesmith-$pkgver
+  sed -e '/--cov/d' -i tox.ini
+}
+
+build() {
+  cd hypothesmith-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd hypothesmith-$pkgver
+  PYTHONPATH="$PWD/build/lib" pytest -v --deselect tests/test_syntactic.py::test_black_autoformatter_from_grammar # https://github.com/Zac-HD/hypothesmith/issues/38
+}
+
+package() {
+  cd hypothesmith-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

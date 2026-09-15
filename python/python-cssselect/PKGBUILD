@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Simon Sapin <simon dot sapin at exyr dot org>
+
+pkgname=python-cssselect
+pkgver=1.4.0
+pkgrel=1
+license=('BSD-3-Clause')
+arch=(any)
+url="https://pypi.python.org/pypi/cssselect"
+pkgdesc="A Python3 library that parses CSS3 Selectors and translates them to XPath 1.0"
+depends=('python')
+makedepends=('python-hatchling' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-pytest' 'python-lxml')
+source=("https://github.com/scrapy/cssselect/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('37f1822a741269b95588b01d1b7fd1f6255138ab0c082a8035a91cd54f8feb2a79d278efa18e343c4ae063c6ae8469b1a210c9297f5e3ba1952898170daccf4f')
+
+build() {
+  cd cssselect-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd cssselect-$pkgver
+  pytest
+}
+
+package() {
+  cd cssselect-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

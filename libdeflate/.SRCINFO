@@ -1,0 +1,20 @@
+pkgbase = libdeflate
+	pkgdesc = Heavily optimized library for DEFLATE/zlib/gzip compression and decompression
+	pkgver = 1.25
+	pkgrel = 1
+	url = https://github.com/ebiggers/libdeflate
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	depends = glibc
+	provides = libdeflate.so
+	source = git+https://github.com/ebiggers/libdeflate.git#tag=c8c56a20f8f621e6a966b716b31f1dedab6a41e3
+	b2sums = 826b859ef6f99ea71c65e51504b04524b6f7ab636bdbd3bb5aac61d52e30d276060842cafae854f839f32bdf57d975dafd98033dc06a0d47207321eafb821870
+
+pkgname = libdeflate

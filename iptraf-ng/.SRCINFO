@@ -1,0 +1,18 @@
+pkgbase = iptraf-ng
+	pkgdesc = Console-based network monitoring utility
+	pkgver = 1.2.2
+	pkgrel = 1
+	url = https://github.com/iptraf-ng/iptraf-ng
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL2
+	depends = ncurses
+	replaces = iptraf
+	source = https://github.com/iptraf-ng/iptraf-ng/archive/v1.2.2/iptraf-ng-1.2.2.tar.gz
+	sha512sums = 275a345ffd3ab9578c4d159c3a8667326224b4a58b2e7787c4db518b81973d87c04b4b6c5275a721858d01a9b44a0200f8defc06c6f88655aa38d4fa6146ea1d
+	b2sums = c2ad1821080fcebaef3500aaefcf9a8679c46c09a6851b9cef40fcc6d3b7607c65954ac884e1db4ddf702c62de68bb58ca9cf338c0642bc0ef9e944ca400e4c4
+
+pkgname = iptraf-ng

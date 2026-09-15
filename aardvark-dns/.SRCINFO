@@ -1,0 +1,19 @@
+pkgbase = aardvark-dns
+	pkgdesc = Authoritative dns server for A/AAAA container records
+	pkgver = 2.0.0
+	pkgrel = 1
+	url = https://github.com/containers/aardvark-dns
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	makedepends = cargo
+	makedepends = git
+	depends = glibc
+	depends = libgcc
+	source = git+https://github.com/containers/aardvark-dns#tag=v2.0.0
+	sha256sums = 44170cf38d611532b0731ca0ed9ca0a5d725f724de4daaac3dcb2f9543cf4a55
+
+pkgname = aardvark-dns

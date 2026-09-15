@@ -1,0 +1,75 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+pkgname=cvs
+pkgver=1.12.13
+pkgrel=1
+pkgdesc='Source control'
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url='https://cvs.nongnu.org/'
+license=(GPL-2.0-or-later)
+depends=(krb5)
+makedepends=(tinyxxd)
+optdepends=('openssh: for using cvs over ssh'
+            'inetutils: for using cvs over rsh')
+source=("https://ftp.gnu.org/non-gnu/cvs/source/feature/$pkgver/$pkgname-$pkgver.tar.bz2"
+        0001-fix-quoting-around-potentially-empty-shell-var.patch
+        0001-gettext-autoreconf.patch
+        cvs-1.12.12-CVE-2012-0804.patch
+        cvs-1.12.12-CVE-2017-12836-commandinjection.patch
+        cvs-1.12.12-cvsbug-tmpfix.patch
+        cvs-1.12.12-cvs-gnulib-vasnprintf.patch
+        cvs-1.12.12-fix-massive-leak.patch
+        cvs-1.12.12-format-security.patch
+        cvs-1.12.12-getdelim.patch
+        cvs-1.12.12-hash-nameclash.patch
+        cvs-1.12.12-install-sh.patch
+        cvs-1.12.12-mktime-x32.patch
+        cvs-1.12.12-openat.patch
+        cvs-1.12.12-rcs2log-coreutils.patch)
+sha256sums=('78853613b9a6873a30e1cc2417f738c330e75f887afdaf7b3d0800cb19ca515e'
+            '506c629f34340aa99112e32af63f04feb2f43a4d8c6ee9dc8fe8063b2eb9331e'
+            '1b38b393365d8e0230f6e393c4047d40b7871945900a61c7fcebb2ac10c74631'
+            'e67b521edf07b8c5414b1078521c29f314b9459664d7120e2b6008fdae609f2b'
+            '3c3e31df3597599056c640bd141fc0e83d992e4e13fda064fe47c7835b87f83e'
+            '061c26d140e1195200f1cc76217b2e7c2ff7f0c4dcbbb31124b386e8e756938e'
+            'f38e6bbb0fd8b783b654ac775183a1cb24e3987698fdbd706a8d5fa59a45f945'
+            '30727f2f97164b7e71a8abaf859b2a6dea7f680cb7e97699ee1e8ca8600bd782'
+            '8bff441172993aeba5e29b283b221aabce579bb778b3f69b6532676e3d5dd25d'
+            '162fff3d76ff837a25cd44a7a852df01cc534eaf3a053817007e6414c794baa7'
+            '5b30102b2ec7a54b9c8aa36eeb4fa2a79d4977840fb83a4c774ab19d8884f118'
+            '9c2fc03b42804f8edb3a5a6f9c9e80bd68924f265ce52d196c3b5c759ba42f8a'
+            '107b0adceda7c8b7b8e89604f38ea0e7a903420dc58dbf22c5eeac947d63d0e1'
+            '5b9fc46c2ee46d9136ddfc8d0baaac6087d8cae40fa5521815c3c2e372f25b9f'
+            '89fefd4b8f7a67adc8d502a6b45bb33bba6c59a91bb5b15864892123ec1c777b')
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    src="${src%.zst}"
+    [[ $src = *.patch ]] || continue
+    echo "Applying patch $src..."
+    patch -Np1 < "../$src"
+  done
+  autoreconf -fiv
+}
+
+build() {
+  cd ${pkgname}-${pkgver}
+  unset EDITOR VISUAL
+  sed -i -e 's/AM_CONFIG_HEADER/AC_CONFIG_HEADERS/' configure.in
+  find . -type f -name Makefile.am -exec sed -i -e 's/^INCLUDES/AM_CPPFLAGS/' {} +
+  touch vi
+  chmod +x vi
+  export PATH="$PATH:."
+  AUTOMAKE='automake --add-missing' autoreconf
+  CFLAGS+=' -Wno-implicit-function-declaration' \
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  DESTDIR="$pkgdir" make -C $pkgname-$pkgver install
+  rm "$pkgdir/usr/share/info/dir"
+}

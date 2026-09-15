@@ -1,0 +1,19 @@
+pkgbase = python-certifi
+	pkgdesc = Python package for providing Mozilla's CA Bundle (using system CA store)
+	pkgver = 2026.06.17
+	pkgrel = 1
+	url = https://github.com/certifi/python-certifi
+	arch = any
+	license = MPL-2.0
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = ca-certificates
+	depends = python
+	source = https://github.com/certifi/python-certifi/archive/2026.06.17/python-certifi-2026.06.17.tar.gz
+	sha512sums = fd6f29d4034eebc8ad8f3999a394ed6c6ee853b41f2ae38e9f6bd07c05203f4f37c2c2f5d9cc5595fa1ee25d51074273668767bf235f4329930979cc85f8c59a
+	b2sums = dc1473acf29930fb2b4cb50a9347024b73ed4efb0eafef582ebb4a3de0ece2bc4576bb4b4ff2eea2ded2644efacf5d0051d1c78ac4f0a03922804482773e2ec1
+
+pkgname = python-certifi

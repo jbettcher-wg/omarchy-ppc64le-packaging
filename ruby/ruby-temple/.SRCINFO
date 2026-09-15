@@ -1,0 +1,20 @@
+pkgbase = ruby-temple
+	pkgdesc = Template compilation framework in Ruby
+	pkgver = 0.10.4
+	pkgrel = 1
+	url = https://github.com/judofyr/temple
+	arch = any
+	license = MIT
+	checkdepends = ruby-bundler
+	checkdepends = ruby-erubi
+	checkdepends = ruby-rake
+	checkdepends = ruby-rspec
+	checkdepends = ruby-tilt
+	makedepends = git
+	depends = ruby
+	options = !emptydirs
+	source = ruby-temple::git+https://github.com/judofyr/temple.git#tag=v0.10.4
+	sha512sums = ac99f8d84b7d9c80e6caa241c5b46241dcde82abb2d2791eb7d148af7fdf0fa3e8b1d0a956efc2c30316133abf272444d97bb109a809e7fc8ba76b7f5c5e6350
+	b2sums = d891dfe154210d206098a584cecc9a805fb2c7ae21b3d98c873f28f5bd0ebdd2fcda31725d3c97694ea58d5c08c293c5ba1b240ef2bbed6c172b3646fd01d467
+
+pkgname = ruby-temple

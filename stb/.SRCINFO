@@ -1,0 +1,12 @@
+pkgbase = stb
+	pkgdesc = Single-file public domain (or MIT licensed) libraries for C/C++
+	pkgver = 20260415.205329.g31c1ad374564
+	pkgrel = 1
+	url = https://github.com/nothings/stb
+	arch = any
+	license = MIT
+	makedepends = git
+	source = git+https://github.com/nothings/stb.git#commit=31c1ad374564
+	b2sums = 748d834c0c7308839d50d825bb9d85a8006936df4f0840ceb01d76c32356725f77ec5252a0b70ff265bdb2cfb008f77646543c114d168ce727d395d484384dca
+
+pkgname = stb

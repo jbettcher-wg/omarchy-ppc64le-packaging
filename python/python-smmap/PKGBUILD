@@ -1,0 +1,55 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: David Runge <dvzrv@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+# Contributor: NicoHood <archlinux {cat} nicohood {dog} de>
+# Contributor: Carl George < arch at cgtx dot us >
+
+pkgname=python-smmap
+pkgver=6.0.0
+pkgrel=3
+epoch=1
+pkgdesc='A sliding memory map manager'
+arch=(any)
+url='https://github.com/gitpython-developers/smmap'
+license=(BSD-3-Clause)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+)
+source=("$pkgname::git+$url#tag=v$pkgver?signed")
+sha512sums=('22979dc7eb2118c1dd8537c5776e588040cfe5f894d7d3e188177b42d4051cab53917858cc8830753490d3b696814b99365d4e694be6f9d70a518cb80e879f5f')
+b2sums=('6c13642c73b946f33f90e24679bba7d8e632e5aa2306f0b84e25fbe4c2de4c28c4524945e1ff9c9f20e24afef28bc9cea23fe878b29de4e1b02c89fd676d20d8')
+validpgpkeys=('27C50E7F590947D7273A741E85194C08421980C9') # Sebastian Thiel (In Rust I trust!) <byronimo@gmail.com>
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  return 0
+  cd "$pkgname"
+
+  pytest -v
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # documentation
+  install -vDm644 -t "$pkgdir/usr/share/doc/$pkgname" README.md
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

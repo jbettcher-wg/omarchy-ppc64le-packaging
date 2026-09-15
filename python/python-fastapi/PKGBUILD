@@ -1,0 +1,65 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+
+_name=fastapi
+pkgname=python-$_name
+pkgver=0.135.3
+pkgrel=1
+pkgdesc='FastAPI framework, high performance, easy to learn, fast to code, ready for production'
+arch=(any)
+url="https://github.com/fastapi/fastapi"
+license=(MIT)
+depends=(
+  python
+  python-annotated-doc
+  python-anyio  # implicitly required for concurrency
+  python-pydantic
+  python-pydantic-core
+  python-pydantic-extra-types
+  python-pydantic-settings
+  python-starlette
+  python-typing_extensions
+)
+makedepends=(
+  python-build
+  python-dirty-equals
+  python-installer
+  python-pdm-backend
+  python-wheel
+)
+optdepends=(
+  'hypercorn: for Hypercorn as ASGI server'
+  'python-email-validator: for email validation'
+  'python-itsdangerous: for SessionMiddleware support'
+  'python-jinja: for default starlette template configuration'
+  'python-orjson: for ORJSONResponse'
+  'python-python-multipart: for form parsing support'
+  'python-pyyaml: for starlette SchemaGenerator support'
+  'python-httpx: for TestClient support'
+  'python-strawberry-graphql: for GraphQL support'
+  'python-ujson: for faster JSON parsing and UJSONResponse'
+  'uvicorn: for Uvicorn as ASGI server'
+)
+source=($_name-$pkgver.tar.gz::$url/archive/$pkgver.tar.gz)
+sha512sums=('c96defe35467cbcbf8dc49a12bc3c9bdbf184ff58ecf2e35d739577563285b6c2b154b1451923de4cc1ced9ec19de60d83ff1d412fc78c80feb85b5506795290')
+b2sums=('bef69d9a0258e7b66acd9b9e1bb1d3f9857b69e3ccbe475b7062d8a4ea6ad12f6412a2d6f34ea1ed1737f054c8162165af26aac920831a691cd2a1e350357f07')
+
+prepare() {
+  cd $_name-$pkgver
+  # do not pin starlette dependency
+  sed -i 's|starlette.*"|starlette"|' pyproject.toml
+  sed -i '/"error"/d' pyproject.toml
+}
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

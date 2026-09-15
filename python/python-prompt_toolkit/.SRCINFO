@@ -1,0 +1,20 @@
+pkgbase = python-prompt_toolkit
+	pkgdesc = Library for building powerful interactive command lines in Python
+	pkgver = 3.0.52
+	pkgrel = 2
+	url = https://github.com/prompt-toolkit/python-prompt-toolkit
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	depends = python-wcwidth
+	optdepends = python-pygments: for its color schemes and lexers
+	source = python-prompt_toolkit::git+https://github.com/prompt-toolkit/python-prompt-toolkit#tag=3.0.52
+	b2sums = 52cbc9c3740c0f621b954472f11a6d1775b0cd55a6633a929daa3345c88127b2f4741bee151238d0d8b9cc4b56449cff981ff009fa461c5b062cd8d86489f9ba
+
+pkgname = python-prompt_toolkit

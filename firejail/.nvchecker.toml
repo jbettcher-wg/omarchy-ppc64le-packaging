@@ -1,0 +1,4 @@
+[firejail]
+source = "git"
+git = "https://github.com/netblue30/firejail.git"
+exclude_regex = ".*(rc).*"

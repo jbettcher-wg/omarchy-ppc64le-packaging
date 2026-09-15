@@ -1,0 +1,22 @@
+pkgbase = python-lazy-object-proxy
+	pkgdesc = A fast and thorough lazy object proxy
+	pkgver = 1.12.0
+	pkgrel = 2
+	url = https://github.com/ionelmc/python-lazy-object-proxy
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-2-Clause
+	checkdepends = python-pytest-benchmark
+	makedepends = git
+	makedepends = python-setuptools-scm
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/ionelmc/python-lazy-object-proxy.git#tag=v1.12.0
+	sha512sums = a914606bec82ead5f8887be225715ea4605957ceef4759ea4ae95d05d0a38c9eba14a2bf9b2cbd9e579b6dded5740af5a3666f7104083bb981e8236287146242
+
+pkgname = python-lazy-object-proxy

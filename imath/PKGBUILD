@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=imath
+pkgver=3.2.2
+pkgrel=6
+pkgdesc='A C++ and python library of 2D and 3D vector, matrix, and math operations for computer graphics'
+url='https://www.openexr.com/'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(BSD-3-Clause)
+depends=(glibc
+         libgcc
+         libstdc++)
+optdepends=('boost-libs: python bindings'
+            'python: python bindings')
+makedepends=(boost
+             boost-libs
+             cmake
+             git
+             python
+             python-numpy)
+source=(git+https://github.com/AcademySoftwareFoundation/Imath#tag=v$pkgver)
+sha256sums=('c691c5d0ae8efb549ee558ba0876eda345817ba15718384dccd6b32c06c58212')
+
+build() {
+  cmake -B build -S Imath \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DPYTHON=ON
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 Imath/LICENSE.md -t "$pkgdir"/usr/share/licenses/$pkgname
+}

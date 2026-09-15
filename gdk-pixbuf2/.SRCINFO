@@ -1,0 +1,36 @@
+pkgbase = gdk-pixbuf2
+	pkgdesc = An image loading library
+	pkgver = 2.44.7
+	pkgrel = 1
+	url = https://gitlab.gnome.org/GNOME/gdk-pixbuf
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.0-or-later
+	makedepends = gi-docgen
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = meson
+	makedepends = python-docutils
+	depends = glib2
+	depends = glibc
+	depends = glycin
+	depends = shared-mime-info
+	source = git+https://gitlab.gnome.org/GNOME/gdk-pixbuf.git#tag=2.44.7
+	source = gdk-pixbuf-query-loaders.hook
+	b2sums = 0a0c801939c6cc6f647714962491bc0d4673349899fb99c4760782c99f56ca3cc16c1159a2de389372f5b6eab12ad9eb7c9f6521ee9b983a4c8435a70da22639
+	b2sums = 5a00d34888e207d70d02369015d029f4c0450fc5a02b4b257de8e5df04380dc550723f351433859224c96c3c6390896f2166673af65e8a09eb57024f5a34301b
+
+pkgname = gdk-pixbuf2
+	install = gdk-pixbuf2.install
+	optdepends = libheif: Load .avif, .heic and .heif
+	optdepends = libopenraw: Load .arw, .cr2, .crw, .dng, .erf, .mrw, .nef, .orf, .pef and .raf
+	optdepends = libwmf: Load .apm and .wmf
+	provides = libgdk_pixbuf-2.0.so
+
+pkgname = gdk-pixbuf2-docs
+	pkgdesc = An image loading library (documentation)
+	depends = 

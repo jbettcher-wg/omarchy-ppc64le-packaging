@@ -1,0 +1,51 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Shohei Maruyama <cheat.sc.linux@outlook.com>
+
+pkgname=python-sphinxcontrib-mermaid
+pkgver=2.1.0
+pkgrel=1
+pkgdesc='Mermaid diagrams in yours sphinx powered docs'
+arch=(any)
+url='https://github.com/mgaitan/sphinxcontrib-mermaid'
+license=(BSD-2-Clause)
+depends=(
+	python
+	python-sphinx
+  python-packaging
+  python-docutils
+  python-pyyaml
+  python-jinja
+)
+makedepends=(
+  git
+	python-build
+	python-installer
+  python-hatchling
+)
+checkdepends=(
+	python-pytest
+)
+source=("$pkgname::git+$url#tag=$pkgver")
+sha512sums=('650a6bdb2719c7a91938e08da0f80e7c2bb3207a19965f35f9ed245c862353e8f8ecad0fba8315a91f933833b3428bf21b334cbbbdd01c796214b5101e9fa92c')
+b2sums=('56eb9b349e16f6e8763a0b90b555529f535ac6a231c2ae0360892e9975348a8532f2e21892f4f0e61b52e0ebd5779ec2c8508618bf18ee3266820c76bc11c7d5')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  pytest -v --fixtures
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

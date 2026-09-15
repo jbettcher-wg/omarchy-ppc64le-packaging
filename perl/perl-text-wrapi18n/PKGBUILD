@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Thorsten Töpper <atsutane-tu@freethoughts.de>
+# Contributor: Aaron Griffin <aaron@archlinux.org>
+
+pkgname=perl-text-wrapi18n
+_realname=Text-WrapI18N
+pkgver=0.06
+pkgrel=10.1
+pkgdesc="Line wrapping module with support for multibyte, fullwidth, and combining characters and languages without whitespaces between words"
+arch=(any)
+license=('GPL' 'PerlArtistic')
+url="https://search.cpan.org/dist/${_realname}/"
+depends=('perl-text-charwidth')
+options=('!emptydirs')
+source=("https://search.cpan.org/CPAN/authors/id/K/KU/KUBOTA/${_realname}-${pkgver}.tar.gz")
+sha256sums=('4bd29a17f0c2c792d12c1005b3c276f2ab0fae39c00859ae1741d7941846a488')
+
+build() {
+  cd ${_realname}-${pkgver}
+  # install module in vendor directories.
+  perl Makefile.PL INSTALLDIRS=vendor
+  make
+  make test
+}
+
+package() {
+  cd  ${_realname}-${pkgver}
+  make DESTDIR="${pkgdir}" install
+
+}

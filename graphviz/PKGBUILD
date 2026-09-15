@@ -1,0 +1,59 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Lukas Fleischer <lfleischer@archlinux.org>
+# Contributor: Gaetan Bisson <bisson@archlinux.org>
+# Contributor: kevin <kevin@archlinux.org>
+# Contributor: John Proctor <jproctor@prium.net>
+
+pkgname=graphviz
+pkgver=15.1.0
+pkgrel=1
+pkgdesc='Graph visualization software'
+url='https://www.graphviz.org/'
+license=('EPL')
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+depends=('libltdl' 'gd' 'librsvg' 'ghostscript' 'pango' 'gts' 'gsfonts')
+makedepends=('swig' 'mono' 'guile' 'lua' 'perl' 'python' 'r' 'tk' 'qt6-base')
+optdepends=('mono: sharp bindings'
+            'guile: guile bindings'
+            'lua: lua bindings'
+            'perl: perl bindings'
+            'python: python bindings'
+            'r: r bindings'
+            'tcl: tcl bindings'
+            'qt6-base: gvedit'
+            'xterm: vimdot')
+source=("https://gitlab.com/graphviz/graphviz/-/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('cc673e3eb9013f40761590b2b071c0fb89ad5c5d694e25d4e1238c74df86c697')
+b2sums=('da277f5f1362151ba5fa9eeedcb25a9a1e3bee789445bf23038efeb0d70c49b26e81ee7ee1eb9dc07ebbf1e6364991dd8fc6e2d46d16610304a05a6d255e2d7b')
+install='graphviz.install'
+
+prepare() {
+	cd "${srcdir}/${pkgname}-${pkgver}"
+	./autogen.sh NOCONFIG
+}
+
+build() {
+	cd "${srcdir}/${pkgname}-${pkgver}"
+
+	export LIBPOSTFIX=/
+	export CXXFLAGS+=' -fPIC -fpermissive'
+
+	./configure --prefix=/usr --enable-python3=yes --disable-python --enable-lefty
+        sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool # Fix overlinking
+	make
+}
+
+package() {
+	cd "${srcdir}/${pkgname}-${pkgver}"
+
+	make DESTDIR="${pkgdir}" install
+
+	# fix symlink to symlink that doesn't get picked up by makepkg's zipman
+	ln -s gv2gxl.1.gz "${pkgdir}"/usr/share/man/man1/dot2gxl.1.gz
+	rm "${pkgdir}"/usr/share/man/man1/dot2gxl.1
+
+	# Deduplicates TCL libraries
+	cd "${pkgdir}/usr/lib/tcl8.6"
+	rm -fr graphviz
+	ln -s ../graphviz/tcl graphviz
+}

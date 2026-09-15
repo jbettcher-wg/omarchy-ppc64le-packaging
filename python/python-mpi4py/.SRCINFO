@@ -1,0 +1,23 @@
+pkgbase = python-mpi4py
+	pkgdesc = Python bindings for the Message Passing Interface (MPI) standard
+	pkgver = 4.1.2
+	pkgrel = 1
+	url = https://github.com/mpi4py/mpi4py
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = python
+	depends = openmpi
+	source = https://files.pythonhosted.org/packages/source/m/mpi4py/mpi4py-4.1.2.tar.gz
+	sha256sums = 56860286dc45f20e8821e93cb06669e30462348bf866f685553fa4b712d58d02
+
+pkgname = python-mpi4py

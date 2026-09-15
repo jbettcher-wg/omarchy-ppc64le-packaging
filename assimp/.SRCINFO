@@ -1,0 +1,21 @@
+pkgbase = assimp
+	pkgdesc = Library to import various well-known 3D model formats in an uniform manner
+	pkgver = 6.0.5
+	pkgrel = 1
+	url = https://github.com/assimp/assimp
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = cmake
+	makedepends = ninja
+	depends = zlib
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	source = assimp-6.0.5.tar.gz::https://github.com/assimp/assimp/archive/v6.0.5.tar.gz
+	sha512sums = 57326194bf3a8e2ae793c739878231067fdd6d031531e910d4d20fc8a673eacf48f75e11bd21ca2e6421682f78585d445bffb647bdcb52e01b2cd4d3ff0e2c62
+
+pkgname = assimp

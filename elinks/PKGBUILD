@@ -1,0 +1,71 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Kyle Keen <keenerd@gmail.com>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: damir <damir@archlinux.org>
+# Contributor: Ben <contrasutra@myrealbox.com>
+
+pkgname=elinks
+pkgver=0.19.1
+pkgrel=3
+pkgdesc='Advanced feature-rich text-mode web browser'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/rkd77/elinks'
+license=(GPL-2.0-only)
+depends=(
+  glibc
+  libgcc
+  libstdc++
+  brotli
+  bzip2
+  gpm
+  openssl
+  lua
+  libdom
+  libcss
+  libidn2
+  xz
+  libwapcaplet
+  expat
+  zlib
+  curl
+  tre
+)
+makedepends=(
+  git
+  meson
+  dblatex
+  xmlto
+  libiconv
+  gc
+  cmake
+)
+source=("$pkgname::git+$url#tag=v$pkgver")
+sha512sums=('f253db0b2e2b78478f631d11c9c013d47d471c64a56dddf92585909a7845661d231611479dbec3f26502dff57843c44dc86a86045c0e0bd4495a049407a60a45')
+b2sums=('71ab72640e97a7eccc3a58339ce29a80e46d349e967be8aca819165c9774f70a63220458ba6f298d50e164909ae0697fd8e6d8113cd7ead9e0af592202d1844f')
+
+build() {
+  local meson_opts=(
+    "$pkgname"
+    build
+    -D cgi=true
+    -D true-color=true
+    -D html-highlight=true
+    -D bzlib=true
+    -D brotli=true
+    -D lzma=true
+    -D luapkg=lua55
+    -D tre=true
+    -D gemini=true
+    -D reproducible=true
+    -D source-date-epoch="$SOURCE_DATE_EPOCH"
+  )
+  arch-meson "${meson_opts[@]}"
+
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir="$pkgdir"
+}

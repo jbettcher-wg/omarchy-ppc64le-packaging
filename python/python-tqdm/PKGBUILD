@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+
+pkgname=python-tqdm
+pkgver=4.69.0
+pkgrel=1
+pkgdesc='Fast, Extensible Progress Meter'
+arch=(any)
+license=('MIT' 'MPL-2.0')
+url='https://github.com/tqdm/tqdm'
+depends=('python')
+optdepends=('python-requests: telegram')
+makedepends=('git' 'python-setuptools-scm' 'python-toml' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-pytest' 'python-pytest-asyncio' 'python-pytest-timeout' 'python-numpy' 'python-pandas' 'python-rich' 'python-dask' 'tk')
+source=("git+https://github.com/tqdm/tqdm.git#commit=v${pkgver}")
+sha512sums=('1937c6e5671ddf03b4b462ce01fd100af3dd8516977583860153a97a83e4f97deda1618a67e31446c785d626cf4b5cc5617c14aba971abda235ad7191c90b55d')
+
+build() {
+  cd tqdm
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd tqdm
+  # Tests still require numpy < 2.x.x
+  #pytest
+}
+
+package() {
+  cd tqdm
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+  install -Dm 644 LICENCE "${pkgdir}/usr/share/licenses/${pkgname}/LICENCE"
+  install -Dm 644 tqdm/completion.sh "${pkgdir}/usr/share/bash-completion/completions/tqdm"
+}
+
+# vim:set ts=2 sw=2 et:

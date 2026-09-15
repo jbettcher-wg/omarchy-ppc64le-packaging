@@ -1,0 +1,3 @@
+[python-munch]
+source = "git"
+git = "https://github.com/Infinidat/munch.git"

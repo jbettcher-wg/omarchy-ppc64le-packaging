@@ -1,0 +1,26 @@
+pkgbase = python-oslo-log
+	pkgdesc = Oslo Logging Library
+	pkgver = 8.1.0
+	pkgrel = 1
+	url = https://pypi.python.org/pypi/oslo.log/8.1.0
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-stestr
+	checkdepends = python-testtools
+	checkdepends = python-oslotest
+	checkdepends = python-eventlet
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	depends = python-pbr
+	depends = python-oslo-config
+	depends = python-oslo-context
+	depends = python-oslo-i18n
+	depends = python-oslo-utils
+	depends = python-oslo-serialization
+	depends = python-debtcollector
+	depends = python-dateutil
+	source = git+https://github.com/openstack/oslo.log.git#tag=8.1.0
+	sha512sums = aa1c1be56e733971231e669087dd46b1b3b290ee0b45f2f31ddbb7ada0a868e003ff4ab02e65dd3c634e0ce9ef53e0881e6d1a22441aaa26aa5da76ea0021901
+
+pkgname = python-oslo-log

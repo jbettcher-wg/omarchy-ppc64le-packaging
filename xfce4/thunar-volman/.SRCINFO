@@ -1,0 +1,21 @@
+pkgbase = thunar-volman
+	pkgdesc = Automatic management of removable drives and media for Thunar
+	pkgver = 4.20.0
+	pkgrel = 2
+	url = https://docs.xfce.org/xfce/thunar/thunar-volman
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	groups = xfce4
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = xfce4-dev-tools
+	depends = thunar
+	depends = libxfce4ui
+	depends = hicolor-icon-theme
+	source = git+https://gitlab.xfce.org/xfce/thunar-volman.git#tag=thunar-volman-4.20.0
+	sha256sums = 95450936f179c5c15775ee492c97d3cededc10f10eaa9af782da28cfd871e9d6
+
+pkgname = thunar-volman

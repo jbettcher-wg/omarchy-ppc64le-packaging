@@ -1,0 +1,203 @@
+pkgbase = java-openjdk
+	pkgver = 26.0.1.u8
+	pkgrel = 1.1
+	url = https://openjdk.java.net/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LicenseRef-Java
+	makedepends = java-environment>=22
+	makedepends = alsa-lib
+	makedepends = bash
+	makedepends = cpio
+	makedepends = freetype2
+	makedepends = giflib
+	makedepends = glibc
+	makedepends = graphviz
+	makedepends = harfbuzz
+	makedepends = lcms2
+	makedepends = libcups
+	makedepends = libelf
+	makedepends = libgcc
+	makedepends = libjpeg-turbo
+	makedepends = libnet
+	makedepends = libpng
+	makedepends = libstdc++
+	makedepends = libx11
+	makedepends = libxext
+	makedepends = libxrandr
+	makedepends = libxrender
+	makedepends = libxt
+	makedepends = libxtst
+	makedepends = unzip
+	makedepends = zip
+	optdepends = gvfs: open links e.g. hyperlinks
+	options = !lto
+	source = https://github.com/openjdk/jdk26u/archive/jdk-26.0.1+8.tar.gz
+	source = freedesktop-java.desktop
+	source = freedesktop-jconsole.desktop
+	source = freedesktop-jshell.desktop
+	source = ppc64-not-power8-and-elfv2.patch
+	sha256sums = f5d5496a2f9a81605681209d93fc99726313e5d9a9a2af059f1adaa3914b862d
+	sha256sums = b800c73efde1b5655fff8d6926c6390e306b375ea72a3066a946011faa05de5a
+	sha256sums = a308c7b85339a03718583ceb8b37140fb23c754c30e50f60cee19d7b04c747ba
+	sha256sums = cd83d0a053954ea46a37b057e73668d5933deac873630aeaca06dc072c532413
+	sha256sums = 6423a9aca1f89bcbd9388abe03be89e9550d74b01e633cea43a91108e32d54a3
+	makedepends_x86_64 = pandoc
+
+pkgname = jdk-openjdk
+	pkgdesc = OpenJDK Java 26 development kit
+	install = install_jdk-openjdk.sh
+	depends = java-runtime-common>=3
+	depends = ca-certificates-utils
+	depends = freetype2
+	depends = gcc-libs
+	depends = glibc
+	depends = harfbuzz
+	depends = lcms2
+	depends = libfreetype.so
+	depends = libharfbuzz.so
+	depends = libjpeg.so
+	depends = libjpeg-turbo
+	depends = liblcms2.so
+	depends = libnet
+	depends = nss
+	depends = java-environment-common=3
+	depends = ca-certificates-utils
+	depends = freetype2
+	depends = harfbuzz
+	depends = hicolor-icon-theme
+	depends = lcms2
+	depends = libelf
+	depends = libfreetype.so
+	depends = libgif.so
+	depends = libharfbuzz.so
+	depends = libjpeg.so
+	depends = libjpeg-turbo
+	depends = liblcms2.so
+	depends = libnet
+	depends = libpng
+	depends = nss
+	optdepends = java-rhino: for some JavaScript support
+	optdepends = alsa-lib: for basic sound support
+	optdepends = gtk3: for the Gtk+ 3 look and feel - desktop usage
+	provides = java-environment=26
+	provides = java-environment-openjdk=26
+	provides = jdk26-openjdk=26.0.1.u8-1.1
+	provides = java-runtime=26
+	provides = java-runtime-openjdk=26
+	provides = jre26-openjdk=26.0.1.u8-1.1
+	provides = java-runtime-headless=26
+	provides = java-runtime-headless-openjdk=26
+	provides = jre26-openjdk-headless=26.0.1.u8-1.1
+	conflicts = jre-openjdk
+	conflicts = jre-openjdk-headless
+	backup = etc/java-openjdk/logging.properties
+	backup = etc/java-openjdk/management/jmxremote.access
+	backup = etc/java-openjdk/management/jmxremote.password.template
+	backup = etc/java-openjdk/management/management.properties
+	backup = etc/java-openjdk/net.properties
+	backup = etc/java-openjdk/security/java.policy
+	backup = etc/java-openjdk/security/java.security
+	backup = etc/java-openjdk/security/policy/README.txt
+	backup = etc/java-openjdk/security/policy/limited/default_US_export.policy
+	backup = etc/java-openjdk/security/policy/limited/default_local.policy
+	backup = etc/java-openjdk/security/policy/limited/exempt_local.policy
+	backup = etc/java-openjdk/security/policy/unlimited/default_US_export.policy
+	backup = etc/java-openjdk/security/policy/unlimited/default_local.policy
+	backup = etc/java-openjdk/sound.properties
+
+pkgname = jre-openjdk
+	pkgdesc = OpenJDK Java 26 full runtime environment
+	install = install_jre-openjdk.sh
+	depends = java-runtime-common>=3
+	depends = ca-certificates-utils
+	depends = freetype2
+	depends = gcc-libs
+	depends = glibc
+	depends = harfbuzz
+	depends = lcms2
+	depends = libfreetype.so
+	depends = libharfbuzz.so
+	depends = libjpeg.so
+	depends = libjpeg-turbo
+	depends = liblcms2.so
+	depends = libnet
+	depends = nss
+	depends = giflib
+	depends = libgif.so
+	depends = libpng
+	optdepends = alsa-lib: for basic sound support
+	optdepends = gtk3: for the Gtk+ 3 look and feel - desktop usage
+	provides = java-runtime=26
+	provides = java-runtime-openjdk=26
+	provides = jre26-openjdk=26.0.1.u8-1.1
+	provides = java-runtime-headless=26
+	provides = java-runtime-headless-openjdk=26
+	provides = jre26-openjdk-headless=26.0.1.u8-1.1
+	conflicts = jdk-openjdk
+	conflicts = jre-openjdk-headless
+	backup = etc/java-openjdk/logging.properties
+	backup = etc/java-openjdk/management/jmxremote.access
+	backup = etc/java-openjdk/management/jmxremote.password.template
+	backup = etc/java-openjdk/management/management.properties
+	backup = etc/java-openjdk/net.properties
+	backup = etc/java-openjdk/security/java.policy
+	backup = etc/java-openjdk/security/java.security
+	backup = etc/java-openjdk/security/policy/README.txt
+	backup = etc/java-openjdk/security/policy/limited/default_US_export.policy
+	backup = etc/java-openjdk/security/policy/limited/default_local.policy
+	backup = etc/java-openjdk/security/policy/limited/exempt_local.policy
+	backup = etc/java-openjdk/security/policy/unlimited/default_US_export.policy
+	backup = etc/java-openjdk/security/policy/unlimited/default_local.policy
+	backup = etc/java-openjdk/sound.properties
+
+pkgname = jre-openjdk-headless
+	pkgdesc = OpenJDK Java 26 headless runtime environment
+	install = install_jre-openjdk-headless.sh
+	depends = java-runtime-common>=3
+	depends = ca-certificates-utils
+	depends = freetype2
+	depends = gcc-libs
+	depends = glibc
+	depends = harfbuzz
+	depends = lcms2
+	depends = libfreetype.so
+	depends = libharfbuzz.so
+	depends = libjpeg.so
+	depends = libjpeg-turbo
+	depends = liblcms2.so
+	depends = libnet
+	depends = nss
+	optdepends = java-rhino: for some JavaScript support
+	provides = java-runtime-headless=26
+	provides = java-runtime-headless-openjdk=26
+	provides = jre26-openjdk-headless=26.0.1.u8-1.1
+	conflicts = jdk-openjdk
+	conflicts = jre-openjdk
+	backup = etc/java-openjdk/logging.properties
+	backup = etc/java-openjdk/management/jmxremote.access
+	backup = etc/java-openjdk/management/jmxremote.password.template
+	backup = etc/java-openjdk/management/management.properties
+	backup = etc/java-openjdk/net.properties
+	backup = etc/java-openjdk/security/java.policy
+	backup = etc/java-openjdk/security/java.security
+	backup = etc/java-openjdk/security/policy/README.txt
+	backup = etc/java-openjdk/security/policy/limited/default_US_export.policy
+	backup = etc/java-openjdk/security/policy/limited/default_local.policy
+	backup = etc/java-openjdk/security/policy/limited/exempt_local.policy
+	backup = etc/java-openjdk/security/policy/unlimited/default_US_export.policy
+	backup = etc/java-openjdk/security/policy/unlimited/default_local.policy
+	backup = etc/java-openjdk/sound.properties
+
+pkgname = openjdk-doc
+	pkgdesc = OpenJDK Java 26 documentation
+	depends = jdk26-openjdk=26.0.1.u8-1.1
+	provides = openjdk26-doc=26.0.1.u8-1.1
+
+pkgname = openjdk-src
+	pkgdesc = OpenJDK Java 26 sources
+	depends = jdk26-openjdk=26.0.1.u8-1.1
+	provides = openjdk26-src=26.0.1.u8-1.1

@@ -1,0 +1,17 @@
+pkgbase = python-lexicon
+	pkgdesc = Powerful dict subclass(es) with aliasing & attribute access
+	pkgver = 3.0.0
+	pkgrel = 2
+	url = https://github.com/bitprophet/lexicon
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = python-pytest-relaxed
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://github.com/bitprophet/lexicon/archive/3.0.0/python-lexicon-3.0.0.tar.gz
+	sha512sums = ed9caedd0d6abb6ecb10f4227bc13d7fdecd5af7854824b8fe752207c369cb4028bfaa9c65781cceee937a7595e7514cc669a3e7c530e0f4f6fd3b41e2cb62c2
+
+pkgname = python-lexicon

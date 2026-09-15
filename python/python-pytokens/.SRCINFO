@@ -1,0 +1,23 @@
+pkgbase = python-pytokens
+	pkgdesc = A fast, spec compliant Python 3.12+ tokenizer
+	pkgver = 0.4.1
+	pkgrel = 1
+	url = https://github.com/tusharsadhwani/pytokens
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = mypy
+	depends = python
+	source = python-pytokens::git+https://github.com/tusharsadhwani/pytokens#tag=0.4.1
+	source = no-coverage-testing.patch
+	sha512sums = 0c67f0abab286c259d8fe3fe7f6524956c623aff049a596718494305deb17f3eaca5094811d61b48aa7e466d3e7dd5e940733adfd106bdcb0d2a74d258f31121
+	sha512sums = 6a0640f25be3bcf175a824702c926463a3be3cf5548b2e031fca0752763979242583ddf67d1f8cba60aa3867384ae8a661f50f8bb1123de4940113d9d34006b1
+	b2sums = 31cfc199b45767cea01059d5239b08acd18c3b6f968375ea43205c1d439eabf4e2fd0025a7dc55e6ca269051c820e4dcff9147750b135c303bd3e7feeeafe1d7
+	b2sums = 30475636dcc667338995990446e965edd1cce9124bb00d9cca1a3dd32b49b858895a2001e1b0d16e8ed5c496cb5c11053766f130883ab6bc1e79890ed8e00097
+
+pkgname = python-pytokens

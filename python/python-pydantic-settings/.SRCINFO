@@ -1,0 +1,24 @@
+pkgbase = python-pydantic-settings
+	pkgdesc = Settings management using pydantic
+	pkgver = 2.13.1
+	pkgrel = 1
+	url = https://github.com/pydantic/pydantic-settings
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-examples
+	checkdepends = python-pytest-mock
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	depends = python-dotenv
+	depends = python-pydantic
+	depends = python-pydantic-core
+	depends = python-typing_extensions
+	optdepends = python-pyyaml: for YAML support
+	source = pydantic-settings-2.13.1.tar.gz::https://github.com/pydantic/pydantic-settings/archive/refs/tags/v2.13.1.tar.gz
+	sha512sums = 047eb495622db968de7034748177c957a9a83640f8d2879a52e3a48fd9b3e1454a76770aea39791ac79c9bf02c2fb0b6c98b34d3f2f3448f63b7523a572265a7
+	b2sums = eba7bf67d3620b7b22a42aea9d1ac867b049e2c8e01c7a352a4370e9d6025559dcd8eb724e8a9c78713bbe8126d12b63501d1ab97cc6e6c7b7d5b6d79dedd1b2
+
+pkgname = python-pydantic-settings

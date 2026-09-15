@@ -1,0 +1,24 @@
+pkgbase = python-importlib_resources
+	pkgdesc = Design and implementation for a planned importlib.resources
+	pkgver = 6.5.2
+	pkgrel = 2
+	url = https://github.com/python/importlib_resources
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-jaraco.collections
+	checkdepends = python-jaraco.test
+	checkdepends = python-pytest
+	checkdepends = python-tests
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-toml
+	makedepends = python-wheel
+	depends = python
+	depends = python-zipp
+	provides = python-importlib-resources
+	source = python-importlib_resources-6.5.2.tar.gz::https://github.com/python/importlib_resources/archive/refs/tags/v6.5.2.tar.gz
+	sha512sums = b15a03ede526606b619d6dafc5194b225b2efdad896a027d1862a1b9941d445dd1754bec091716c9f0d6cfc6d450c78b5dd9d8cba9dc4c4050abb584fa720444
+	b2sums = c790d700c1778239e9e890152e65ac4747c06d4745eb7a7b69928b8cd911a1022a47db8a2f7eb9f168d1506a3baed3c4e44190d4d2fef5678ae2604fb8809ca5
+
+pkgname = python-importlib_resources

@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=squashfuse
+pkgver=0.6.2
+pkgrel=1
+pkgdesc="FUSE filesystem to mount squashfs archives"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/vasi/squashfuse"
+license=(LicenseRef-squashfuse)
+depends=(fuse
+         glibc
+         lz4
+         zlib
+         zstd
+         xz)
+makedepends=(git)
+source=(git+https://github.com/vasi/squashfuse#tag=$pkgver)
+sha256sums=('4b9cb76973dd3abf9a767479252c7c7bfc68f5d578651ad675f8649cbd6ee73c')
+
+prepare() {
+  cd $pkgname
+  autoreconf -vif
+}
+
+build() {
+  cd $pkgname
+  ./configure --prefix=/usr
+  sed -e 's/ -shared / -Wl,-O1,--as-needed\0/g' -i libtool # Fix overlinking
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+
+# install missing headers
+  install -Dm644 *.h -t "$pkgdir"/usr/include/squashfuse
+}

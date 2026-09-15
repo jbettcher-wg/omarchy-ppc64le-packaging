@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sven-Hendrik Haase <svenstaro@archlinux.org>
+# Contributor: Jaroslaw Swierczynski <swiergot@aur.archlinux.org>
+# Contributor: Eric Bélanger <eric@archlinux.org>
+# Contributor: vande198
+# Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
+
+pkgname=supertux
+pkgver=0.7.0
+pkgrel=1
+pkgdesc="A classic 2D jump'n'run sidescroller game in a style similar to the original SuperMario games"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/supertux/supertux"
+license=('GPL-3.0-only')
+depends=('sdl2_image' 'curl' 'openal' 'libvorbis' 'glew' 'physfs' 'freetype2' 'boost-libs' 'hicolor-icon-theme' 'fmt')
+makedepends=('cmake' 'boost' 'mesa' 'optipng' 'glm')
+options=('!lto')
+source=("https://github.com/SuperTux/supertux/releases/download/v${pkgver}/SuperTux-v${pkgver}-Source.tar.gz")
+sha512sums=('15bc4f84e1453be25ac3fa3496443e4e20d805f8c4d50148235f4dc82d188bef974fc720653cab36350d8b631c74539e4a74c33259fdaac6a516f44f8ed65297')
+
+build() {
+  cd "SuperTux-v${pkgver}-Source"
+
+  export CMAKE_POLICY_VERSION_MINIMUM=3.5
+  cmake \
+      -DENABLE_DISCORD=ON \
+      -DCMAKE_INSTALL_PREFIX=/usr \
+      -DINSTALL_SUBDIR_BIN=bin
+  make
+}
+
+package() {
+  cd "SuperTux-v${pkgver}-Source"
+
+  make DESTDIR="${pkgdir}" install
+  rm -rf "${pkgdir}"/usr/include
+}

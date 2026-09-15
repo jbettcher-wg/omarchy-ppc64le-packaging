@@ -1,0 +1,23 @@
+pkgbase = python-xattr
+	pkgdesc = Python wrapper for extended filesystem attributes
+	pkgver = 1.3.0
+	pkgrel = 1
+	url = https://github.com/xattr/xattr
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-cffi
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python-cffi
+	source = git+https://github.com/xattr/xattr.git#tag=v1.3.0
+	sha512sums = b8d646880c563d312ffce63cbfd2c1a73b63054479ba4a655417e9a685dec23ad1cafdf237961349fe629318796b44e8b43de544c06ab4089c4326772a437d6d
+
+pkgname = python-xattr

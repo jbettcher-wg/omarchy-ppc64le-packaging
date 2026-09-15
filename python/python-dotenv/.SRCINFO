@@ -1,0 +1,17 @@
+pkgbase = python-dotenv
+	pkgdesc = Get and set values in your .env file in local and production servers
+	pkgver = 1.2.2
+	pkgrel = 1
+	url = https://github.com/theskumar/python-dotenv/
+	arch = any
+	license = BSD
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python-click
+	optdepends = ipython: ipython support
+	source = python-dotenv-1.2.2.tar.gz::https://github.com/theskumar/python-dotenv/archive/v1.2.2.tar.gz
+	b2sums = 7ea3718d11a2f799ea5014dbbc11436de61eeb2422e70f3cf5b62dd81090e25374faf7ac24979d6c13c43635462b31cef36470aba6fb54d374036b85482cbf5c
+
+pkgname = python-dotenv

@@ -1,0 +1,23 @@
+pkgbase = xorg-xrefresh
+	pkgdesc = Refresh all or part of an X screen
+	pkgver = 1.1.1
+	pkgrel = 1
+	url = https://gitlab.freedesktop.org/xorg/app/xrefresh
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xorg-apps
+	groups = xorg
+	license = MIT
+	makedepends = xorg-util-macros
+	depends = libx11
+	depends = glibc
+	source = https://xorg.freedesktop.org/archive/individual/app/xrefresh-1.1.1.tar.xz
+	source = https://xorg.freedesktop.org/archive/individual/app/xrefresh-1.1.1.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = 9b064bc63216a52fc768068a11d32a6327907033ae69aaf99f2944503931da2d418550c1165713a20fc3690cd034533df977ec1831e9a618e2daed2796782d35
+	sha512sums = SKIP
+
+pkgname = xorg-xrefresh

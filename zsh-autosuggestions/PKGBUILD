@@ -1,0 +1,24 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=zsh-autosuggestions
+pkgver=0.7.1
+pkgrel=1
+pkgdesc="Fish-like autosuggestions for zsh "
+arch=(any)
+url="https://github.com/zsh-users/zsh-autosuggestions"
+license=(MIT)
+depends=(zsh)
+source=($url/archive/v$pkgver/$pkgname-v$pkgver.tar.gz)
+sha512sums=('52c9dc8e9c4ba31788cf6c25448dbb8341545af7f763903533133d92a93e898256187e2f94b37c384926d9615b3bd61b7c6dd61337e1f47ae3babed813f9cc0b')
+b2sums=('bc383e35763af00680fc01e861df0fd295b8d6d17ac4666c94bf3f6c3655d3d99753eacc93b7e989efeae612790d19c42553dc3fbb6c2ae8e67a630bd480e4a3')
+
+build() {
+  make -C $pkgname-$pkgver
+}
+
+package() {
+  install -vDm 644 $pkgname-$pkgver/$pkgname{,.plugin}.zsh -t "$pkgdir/usr/share/zsh/plugins/$pkgname/"
+  install -vDm 644 $pkgname-$pkgver/{CHANGELOG,README}.md -t "$pkgdir/usr/share/doc/$pkgname/"
+  install -vDm 644 $pkgname-$pkgver/LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+
+pkgname=xorg-docs
+pkgver=1.7.3
+pkgrel=3
+pkgdesc="X.org documentations"
+arch=(any)
+url="https://gitlab.freedesktop.org/xorg/doc/xorg-docs"
+license=('MIT AND X11 AND BSD-2-Clause')
+depends=('man')
+groups=('xorg')
+source=(https://xorg.freedesktop.org/archive/individual/doc/${pkgname}-${pkgver}.tar.xz{,.sig})
+sha512sums=('d9c0ed401e6b4d7e8572fb13c773f1dbe0a1efed12076bdfdafd9759f5d359e1bc6638e983189b53c72784becd5e61d2b552893c4e9af4f2d538c9e213324b50'
+            'SKIP')
+validpgpkeys=('4A193C06D35E7C670FA4EF0BA2FB9E081F2D130E') #Alan Coopersmith <alan.coopersmith@oracle.com>
+
+build() {
+  cd ${pkgname}-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -m755 -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 general/License.xml "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

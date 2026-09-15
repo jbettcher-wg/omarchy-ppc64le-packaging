@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Tobias Kieslich <tobias (at) archlinux.org>
+
+pkgname=xfce4-smartbookmark-plugin
+pkgver=0.6.0
+pkgrel=2
+pkgdesc="Allows you to send requests directly to your browser and perform a custom search"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/panel-plugins/xfce4-smartbookmark-plugin/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel')
+makedepends=('git' 'libxt' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-smartbookmark-plugin.git#tag=$pkgname-$pkgver"
+        xfce4-smartbookmark-plugin-archlinux.patch)
+sha256sums=('f136fcfbb529aed8f15ac00a68b4567d5ed27245ea0b35b5984bc6d7ad5e3c24'
+            'ceae750c6d5015385d13b5c5915981d8bf29e3e70896d350ad7ff866af126e1c')
+
+prepare() {
+  cd $pkgname
+
+  # Replace Debian URLs by Arch ones
+  patch -Np1 -i "$srcdir"/xfce4-smartbookmark-plugin-archlinux.patch
+}
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

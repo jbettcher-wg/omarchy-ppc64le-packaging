@@ -1,0 +1,21 @@
+pkgbase = python-license-expression
+	pkgdesc = Utility to parse, normalize and compare license expressions
+	pkgver = 30.4.4
+	pkgrel = 2
+	url = https://github.com/nexB/license-expression
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest
+	checkdepends = python-pytest-xdist
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	depends = python-boolean.py
+	source = python-license-expression::git+https://github.com/nexB/license-expression#tag=v30.4.4
+	sha512sums = 39fe4a92372d6c28e933b2e4031c7921ee506918528525479dbc1d941180d17833137b878addafa7c7b1a1b78689a51ea84ee74e3fea28d24ae0de39c7334b94
+	b2sums = 3f32009c391d162c037c521b36abf8669f519a5299f2ce9ca2eccb6d8aa155a81a8ac727127d9781db3fb82963830ce39e35e0f07b4472c6964353559bb2c06d
+
+pkgname = python-license-expression

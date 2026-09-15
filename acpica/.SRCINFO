@@ -1,0 +1,23 @@
+pkgbase = acpica
+	pkgdesc = ACPI tools, including Intel ACPI Source Language compiler
+	pkgver = 20251212
+	pkgrel = 1
+	url = https://acpica.org
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-only
+	makedepends = flex
+	makedepends = bison
+	depends = glibc
+	provides = iasl
+	conflicts = iasl
+	replaces = iasl
+	options = !makeflags
+	source = https://github.com/acpica/acpica/releases/download/20251212/acpica-unix-20251212.tar.gz
+	sha512sums = fcb2de18917d463ae0229bcaf37528366084cbf669e02acf7862ff4488a40ddcf24499410549a209b13e944249512e32454a3dbf039193bac6d8b012971ad69d
+	b2sums = a4c3a7f067cde651ea363d3a71e3ba6da034cfa0fe2cecbb7356eff8e6bd572a5aa343d26d2c3f89f42131e464ccefcd0fe429a8a36a862e9bcd47d08a3a2c08
+
+pkgname = acpica

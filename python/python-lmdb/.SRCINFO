@@ -1,0 +1,26 @@
+pkgbase = python-lmdb
+	pkgdesc = Universal Python binding for the LMDB Lightning Database
+	pkgver = 2.2.0
+	pkgrel = 1
+	url = https://github.com/jnwatson/py-lmdb/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = OLDAP-2.8
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-patch-ng
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = python
+	depends = python-cffi
+	source = https://github.com/jnwatson/py-lmdb/archive/py-lmdb_2.2.0/python-lmdb-2.2.0.tar.gz
+	source = 010-python-lmdb-replace-pkg_resources-due-to-deprecation-in-setuptools-82.patch
+	sha256sums = 050f04fc9671e1e3a9871e06e5e5b09eb9624d6cad53f2f4c637bca5293d986b
+	sha256sums = f1e175793c7a020361a98acba9bc190ccf3dae8c9800c0d207e63a2419aa8e70
+
+pkgname = python-lmdb

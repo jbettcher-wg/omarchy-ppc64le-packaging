@@ -1,0 +1,15 @@
+pkgbase = semver
+	pkgdesc = The semantic version parser used by npm
+	pkgver = 7.7.2
+	pkgrel = 1
+	url = https://github.com/npm/node-semver
+	arch = any
+	license = ISC
+	makedepends = git
+	makedepends = jq
+	makedepends = npm
+	depends = nodejs
+	source = git+https://github.com/npm/node-semver.git#tag=v7.7.2
+	b2sums = d4f6eeca5ea3dc1fb12a38a50d34fb56f7986eaac10a328bbd74ef2119f4ec0d4aba7d9f7f9b62258a26683cef0b2ce95b136bebba70f4e6525e3694c4e7df62
+
+pkgname = semver

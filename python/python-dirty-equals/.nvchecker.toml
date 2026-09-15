@@ -1,0 +1,4 @@
+[python-dirty-equals]
+source = "git"
+git = "https://github.com/samuelcolvin/dirty-equals"
+prefix = "v"

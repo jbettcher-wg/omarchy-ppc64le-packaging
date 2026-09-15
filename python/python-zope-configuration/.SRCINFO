@@ -1,0 +1,22 @@
+pkgbase = python-zope-configuration
+	pkgdesc = Zope Configuration Markup Language (ZCML)
+	pkgver = 7.1
+	pkgrel = 1
+	url = https://github.com/zopefoundation/zope.configuration
+	arch = any
+	license = ZPL-2.1
+	checkdepends = python-zope-testing
+	checkdepends = python-zope-testrunner
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-zope-i18nmessageid
+	depends = python-zope-interface
+	depends = python-zope-schema
+	source = git+https://github.com/zopefoundation/zope.configuration.git#tag=7.1
+	sha512sums = cda8da15bd8343b86612a083217321c0ee418fd6c7470dc23745d92b0c6abad540dd67e1bf477ca1df50de9c15cecd56563adfe0df66d8c7c7acc2e747275d77
+
+pkgname = python-zope-configuration

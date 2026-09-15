@@ -1,0 +1,18 @@
+pkgbase = lxqt-themes
+	pkgdesc = LXQt themes, graphics and icons.
+	pkgver = 2.4.0
+	pkgrel = 1
+	url = https://github.com/lxqt/lxqt-themes
+	arch = any
+	groups = lxqt
+	license = LGPL-2.1-or-later
+	makedepends = git
+	makedepends = lxqt-build-tools
+	depends = hicolor-icon-theme
+	replaces = lxqt-common
+	source = git+https://github.com/lxqt/lxqt-themes.git#tag=2.4.0
+	validpgpkeys = 19DFDF3A579BD509DBB572D8BE793007AD22DF7E
+	validpgpkeys = 48836EB124A1EAAE695EDFEA229CA0A00A17D258
+	sha256sums = 393e1d34cfccdabb99463b8c29e61a199fed724eefb92176f404171e2be65385
+
+pkgname = lxqt-themes

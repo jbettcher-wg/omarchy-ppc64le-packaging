@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+
+pkgname=egl-wayland
+pkgver=1.1.21
+pkgrel=1
+epoch=4
+pkgdesc="EGLStream-based Wayland external platform"
+url="https://github.com/NVIDIA/egl-wayland"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(MIT)
+depends=(
+  eglexternalplatform
+  glibc
+  libdrm
+  wayland
+)
+makedepends=(
+  git
+  'libglvnd>=1.3.4'
+  meson
+  wayland-protocols
+)
+provides=(libnvidia-egl-wayland.so)
+source=("git+$url#tag=$pkgver")
+b2sums=('8d83d65d7b1710e8ac8bf41c1b0a041eeefd2f0915970899bf45b3b63f56fa1a05d42c32b3cade8ac06aecf2ebc16488b9661b2c9ed5cbf378b20ed40f55dbe2')
+
+prepare() {
+  cd $pkgname
+}
+
+build() {
+  arch-meson $pkgname build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 $pkgname/COPYING
+}
+
+# vim:set sw=2 sts=-1 et:

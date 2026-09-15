@@ -1,0 +1,107 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: kfgz <kfgz@interia.pl>
+
+pkgname=x265
+pkgver=4.1
+pkgrel=1
+pkgdesc='Open Source H265/HEVC video encoder'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://bitbucket.org/multicoreware/x265_git
+license=(GPL)
+depends=(gcc-libs)
+makedepends=(
+  cmake
+  git
+  ninja
+)
+makedepends_x86_64=(nasm)
+provides=(libx265.so)
+_tag=f21b135c3414ade4e22305d008bf07d23d0595fb
+source=(
+  "git+https://bitbucket.org/multicoreware/x265_git#tag=${_tag}"
+  0001-Fix-build-with-GCC-15.patch
+)
+b2sums=('26be1f78e43a93ddbec87003d26e302b0759913bd500c571a5bbdd73d62d787b81529729988743a146b955983483d1067e9934f61d915b3b6854ac6aae459191'
+        'af2ee0460c0c2f6f36e4f124a9ac16610e3884001262a6f08043fa1de4a85e2b5fd4fb12c64b8c94cfb59c3031bb7a1324e307fa2049e3378e2add9a58f5bd9e')
+
+pkgver() {
+  cd x265_git
+
+  git describe --tags
+}
+
+prepare() {
+  cd x265_git
+
+  # Fix build with CMake 4.0
+  git cherry-pick -n b354c009a60bcd6d7fc04014e200a1ee9c45c167 \
+                     51ae8e922bcc4586ad4710812072289af91492a8 \
+                     78e5ac35c13c5cbccc5933083edceb0d3eaeaa21
+
+  # Fix build with GCC 15
+  git apply -3 ../0001-Fix-build-with-GCC-15.patch
+}
+
+build() {
+  case "${CARCH}" in
+    powerpc64le) 
+      cmake_options_12=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=ON)
+      cmake_options_10=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=ON)
+      cmake_options=(-DENABLE_ALTIVEC=ON -DCPU_POWER8=ON -DENABLE_PIC=ON)
+    ;;
+    powerpc64)
+      cmake_options_12=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=OFF)
+      cmake_options_10=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=OFF)
+      cmake_options=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=OFF -DENABLE_PIC=ON)
+    ;;
+    powerpc)
+      cmake_options_12=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=OFF)
+      cmake_options_10=(-DENABLE_ALTIVEC=OFF -DCPU_POWER8=OFF)
+      cmake_options=(-DENABLE_ALTIVEC=ON -DCPU_POWER8=OFF -DENABLE_PIC=ON)
+    ;;
+  esac
+
+
+  cmake -S x265_git/source -B build-12 -G Ninja \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DHIGH_BIT_DEPTH=TRUE \
+    -DMAIN12=TRUE \
+    -DEXPORT_C_API=FALSE \
+    -DENABLE_CLI=FALSE \
+    -DENABLE_SHARED=FALSE \
+    -Wno-dev ${cmake_options_12[@]}
+  ninja -C build-12
+
+  cmake -S x265_git/source -B build-10 -G Ninja \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DHIGH_BIT_DEPTH=TRUE \
+    -DEXPORT_C_API=FALSE \
+    -DENABLE_CLI=FALSE \
+    -DENABLE_SHARED=FALSE \
+    -Wno-dev ${cmake_options_10[@]}
+  ninja -C build-10
+
+  cmake -S x265_git/source -B build -G Ninja \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DENABLE_SHARED=TRUE \
+    -DENABLE_HDR10_PLUS=TRUE \
+    -DEXTRA_LIB='x265_main10.a;x265_main12.a' \
+    -DEXTRA_LINK_FLAGS='-L .' \
+    -DLINKED_10BIT=TRUE \
+    -DLINKED_12BIT=TRUE \
+    -Wno-dev ${cmake_options[@]}
+  ln -s ../build-10/libx265.a build/libx265_main10.a
+  ln -s ../build-12/libx265.a build/libx265_main12.a
+  ninja -C build
+}
+
+package() {
+  DESTDIR="${pkgdir}" ninja -C build install
+}
+
+# vim: ts=2 sw=2 et:

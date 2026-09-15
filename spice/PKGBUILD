@@ -1,0 +1,44 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sven-Hendrik Haase <svenstaro@archlinux.org>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Patryk Kowalczyk < patryk at kowalczyk dot ws>
+
+pkgname=spice
+pkgver=0.16.0
+pkgrel=2
+pkgdesc="SPICE server"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://www.spice-space.org"
+license=('LGPL-2.1-or-later')
+depends=('pixman' 'opus' 'libjpeg-turbo' 'glib2' 'libsasl' 'lz4' 'spice-protocol' 'libcacard')
+makedepends=('meson' 'python-pyparsing' 'glib2-devel')
+checkdepends=('gdk-pixbuf2' 'glib-networking')
+provides=('libspice-server.so')
+source=("https://www.spice-space.org/download/releases/spice-server/$pkgname-$pkgver.tar.bz2"{,.sig})
+sha256sums=('0a6ec9528f05371261bbb2d46ff35e7b5c45ff89bb975a99af95a5f20ff4717d'
+            'SKIP')
+validpgpkeys=('206D3B352F566F3B0E6572E997D9123DE37A484F') # Victor Toso <victortoso@redhat.com>
+
+prepare() {
+  cd $pkgname-$pkgver
+  sed -i "s/if not version_info.contains('git')/if version_info.length() >= 4/" server/meson.build
+
+  sed -i "/meson-dist/d" meson.build
+}
+
+build() {
+  arch-meson "$pkgname-$pkgver" build -D gstreamer=no
+  ninja -C build
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  meson test -C build --print-errorlogs
+}
+
+package() {
+  DESTDIR="$pkgdir" meson install -C build
+}

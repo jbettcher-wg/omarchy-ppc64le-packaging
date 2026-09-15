@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Aurelien Foret <orelien@chez.com>
+
+pkgname=xfce4-eyes-plugin
+pkgver=4.7.0
+pkgrel=1
+pkgdesc="A rolling eyes (following mouse pointer) plugin for the Xfce panel"
+arch=(x86_64 powerpc64le powerpc riscv64)
+url="https://docs.xfce.org/panel-plugins/xfce4-eyes-plugin/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'hicolor-icon-theme')
+makedepends=('git' 'meson' 'perl-xml-parser' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-eyes-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('1ff925dfc81d9da545eb164f76158e18323fa2afccfdde381e678f9bb14c8327')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

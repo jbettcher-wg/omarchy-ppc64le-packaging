@@ -1,0 +1,5 @@
+[mbedtls]
+source = "git"
+git = "https://github.com/Mbed-TLS/mbedtls.git"
+prefix = "v"
+exclude_regex = ".*-(alpha|beta|rc)"

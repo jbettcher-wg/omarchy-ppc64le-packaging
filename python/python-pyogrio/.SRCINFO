@@ -1,0 +1,25 @@
+pkgbase = python-pyogrio
+	pkgdesc = Vectorized vector I/O using OGR
+	pkgver = 0.12.1
+	pkgrel = 1
+	url = https://pyogrio.readthedocs.io/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-versioneer
+	makedepends = python-wheel
+	depends = gdal
+	depends = python-certifi
+	depends = python-numpy
+	source = https://files.pythonhosted.org/packages/source/p/pyogrio/pyogrio-0.12.1.tar.gz
+	sha256sums = e548ab705bb3e5383693717de1e6c76da97f3762ab92522cb310f93128a75ff1
+
+pkgname = python-pyogrio

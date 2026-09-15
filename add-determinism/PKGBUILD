@@ -1,0 +1,60 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: kpcyrd <kpcyrd[at]archlinux[dot]org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+
+pkgname=add-determinism
+_pkgname=add-det
+pkgver=0.7.3
+pkgrel=1
+pkgdesc="Build postprocessor to reset metadata fields for build reproducibility"
+url='https://github.com/keszybz/add-determinism'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-3.0-only')
+depends=(
+  'glibc'
+  'libgcc'
+  'zlib' 'libz.so'
+)
+makedepends=('cargo')
+options=(!lto)
+source=(${pkgname}-${pkgver}.tar.gz::https://github.com/keszybz/${pkgname}/archive/refs/tags/v${pkgver}.tar.gz
+        Cargo.lock)
+sha256sums=('d1f5eac303807fa31e25b4f8ccb08fed23d15f4ffdbe3bb4ee35a29504c766b2'
+            'c45abba16fa69c76d9f32af54f78513c560f173b6aa8002976f185d2f3e2b1e7')
+b2sums=('1e96e9a10a7659659bb7b1a488593e43eb01ea4c66d0c354619ffc84257ae779ae6ba43742a596e43b4a434eb3bc5b62dfb8851b1154032f20b24ebf9b4e94d5'
+        '326a9b7bddc6d874977663b9b18fc04b00ac3ae698db8c16d0b537ce31a8fd2b61eea14741e773171985e8ea0a05109cb648f1265ba35e2afda8a742bdffe6a5')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  cp ../Cargo.lock .
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+updlockfiles() {
+  cd "${pkgname}-${pkgver}"
+  rm -f Cargo.lock
+  cargo update
+  cp Cargo.lock "${outdir}/"
+}
+
+build() {
+  cd ${pkgname}-${pkgver}
+  cargo build --frozen --release
+}
+
+check() {
+  cd ${pkgname}-${pkgver}
+  cargo test --frozen -- --skip test_handlers::test_pyc
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  install -Dm 755 -t "${pkgdir}/usr/bin" \
+    target/release/${_pkgname}
+
+  # For backwards compatibility
+  # See https://github.com/keszybz/add-determinism/releases/tag/v0.7.0
+  ln -sv "/usr/bin/${_pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+}
+
+# vim: ts=2 sw=2 et:

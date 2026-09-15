@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-pyasyncore
+pkgver=1.0.5
+pkgrel=1
+pkgdesc="Make asyncore available for Python 3.12 onwards"
+arch=(any)
+url="https://github.com/simonrob/pyasyncore"
+license=(PSF-2.0)
+depends=(python)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-tests)
+provides=(python-asyncore)
+source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('b1753f82b4e600ded027ac33514afd17934b83dc41ad74291e580584306d4de16f34d753af0ee674e5dc1a833b795080352b52a4805c67bf94a349ca12270005')
+
+build() {
+  cd ${pkgname#python-}-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}-$pkgver
+  python -m unittest discover -v
+}
+
+package() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

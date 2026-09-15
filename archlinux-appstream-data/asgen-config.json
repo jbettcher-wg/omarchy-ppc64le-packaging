@@ -1,0 +1,19 @@
+{
+"ProjectName": "ArchLinux",
+"ArchiveRoot": "/srv/ftp/",
+"Backend": "archlinux",
+"Features":
+  {
+    "validateMetainfo": true,
+    "createScreenshotsStore": false,
+    "noDownloads": true
+  },
+"Suites":
+  {
+    "arch":
+      {
+        "sections": ["core", "extra", "multilib"],
+        "architectures": ["x86_64"]
+      }
+  }
+}

@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xclipboard
+pkgver=1.1.6
+pkgrel=1
+pkgdesc="X clipboard manager"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT-open-group')
+depends=('libxaw' 'libxmu' 'libxt' 'libx11' 'glibc')
+makedepends=('xorg-util-macros')
+source=(https://xorg.freedesktop.org/archive/individual/app/xclipboard-${pkgver}.tar.xz{,.sig})
+sha512sums=('c7d14f9997e7ab7741f5694fe04d413ef92d479160533ac46dc9ebb25d727d649b9a624ab82f8fadef072645c967a80bc2b7305f0a50a2a3b4cb927525f64aeb'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # Alan Coopersmith <alan.coopersmith@oracle.com>
+
+build() {
+  cd xclipboard-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package(){
+  cd xclipboard-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -m755 -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

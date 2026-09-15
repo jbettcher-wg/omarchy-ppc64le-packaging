@@ -1,0 +1,33 @@
+pkgbase = qt6-quick3d
+	pkgdesc = Qt module and API for defining 3D content in Qt Quick
+	pkgver = 6.11.1
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = qt6
+	license = GPL-3.0-only
+	license = LGPL-3.0-only
+	license = LicenseRef-Qt-Commercial
+	license = Qt-GPL-exception-1.0
+	makedepends = assimp
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	makedepends = vulkan-headers
+	depends = gcc-libs
+	depends = glibc
+	depends = openxr
+	depends = qt6-base
+	depends = qt6-declarative
+	depends = qt6-quicktimeline
+	depends = qt6-shadertools
+	depends = zlib
+	optdepends = assimp: assimp import plugin
+	source = git+https://code.qt.io/qt/qtquick3d#tag=v6.11.1
+	sha256sums = 91e5cfd99a386254224d30396dd57088e1a48fe6ec18c5f24081a9f2a7e19848
+
+pkgname = qt6-quick3d

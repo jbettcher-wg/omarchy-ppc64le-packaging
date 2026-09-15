@@ -1,0 +1,16 @@
+pkgbase = python-factory-boy
+	pkgdesc = A versatile test fixtures replacement based on thoughtbot's factory_bot for Ruby
+	pkgver = 3.3.3
+	pkgrel = 2
+	url = https://github.com/FactoryBoy/factory_boy
+	arch = any
+	license = MIT
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python-faker
+	source = python-factory-boy-3.3.3.tar.gz::https://github.com/FactoryBoy/factory_boy/archive/3.3.3.tar.gz
+	sha512sums = 484b4b3db3bb88ccc63793ea5630c5b138208d9a802a2be77ed349fab504c0e548b9b4fa6e80615913c917532f3b50e8018645122d1e90acaf170666d4f8dd5f
+
+pkgname = python-factory-boy

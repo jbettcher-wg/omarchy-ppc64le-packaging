@@ -1,0 +1,23 @@
+pkgbase = coin-or-cgl
+	pkgdesc = COIN-OR Cut Generation Library
+	pkgver = 0.60.10
+	pkgrel = 2
+	url = https://github.com/coin-or/Cgl
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = coin-or
+	license = EPL-2.0
+	makedepends = git
+	depends = coin-or-clp
+	depends = coin-or-coinutils
+	depends = coin-or-osi
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	source = git+https://github.com/coin-or/Cgl#tag=releases/0.60.10
+	sha256sums = bd3901eee3df06693b652b7431d4d7542dc69125c5ccc835b6def2dae5c6877f
+
+pkgname = coin-or-cgl

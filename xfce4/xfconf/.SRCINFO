@@ -1,0 +1,22 @@
+pkgbase = xfconf
+	pkgdesc = D-Bus-based configuration storage system
+	pkgver = 4.20.0
+	pkgrel = 2
+	url = https://docs.xfce.org/xfce/xfconf/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	groups = xfce4
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = vala
+	makedepends = xfce4-dev-tools
+	depends = libxfce4util
+	source = git+https://gitlab.xfce.org/xfce/xfconf.git#tag=xfconf-4.20.0
+	sha256sums = be231e33ce8ce45800f05407843c598b55ec33714931bdc92202ab96bb40b38a
+
+pkgname = xfconf

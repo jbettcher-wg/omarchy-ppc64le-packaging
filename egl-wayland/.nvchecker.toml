@@ -1,0 +1,3 @@
+[egl-wayland]
+source = "git"
+git = "https://github.com/NVIDIA/egl-wayland.git"

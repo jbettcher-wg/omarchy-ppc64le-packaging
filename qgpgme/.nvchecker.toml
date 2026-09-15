@@ -1,0 +1,5 @@
+[qgpgme]
+source = "git"
+git = "https://github.com/gpg/gpgmeqt"
+prefix = "gpgmeqt-"
+include_regex = "gpgmeqt-.*"

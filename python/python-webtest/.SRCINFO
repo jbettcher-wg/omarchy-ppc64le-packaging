@@ -1,0 +1,25 @@
+pkgbase = python-webtest
+	pkgdesc = Helper to test WSGI applications
+	pkgver = 3.0.7
+	pkgrel = 1
+	url = https://docs.pylonsproject.org/projects/webtest/en/latest/
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pyquery
+	checkdepends = python-pastedeploy
+	checkdepends = python-wsgiproxy2
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python-webob
+	depends = python-beautifulsoup4
+	depends = python-waitress
+	optdepends = python-pyquery: for response.pyquery
+	optdepends = python-lxml: for response.lxml
+	source = git+https://github.com/Pylons/webtest.git#tag=3.0.7
+	sha512sums = f60372acfe8dfd0998e8c231a3c454d159f78b9bdccdd73a515c3a55f3e58e6c2a2927bf8dff4a51c29288ae82538081444356b296c8d944367d002f13dee724
+
+pkgname = python-webtest

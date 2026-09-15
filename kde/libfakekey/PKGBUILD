@@ -1,0 +1,27 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Lukas Fleischer <lfleischer@archlinux.org>
+# Contributor: zoulnix <z[o]ulnix.borkedduck.c[o]m>
+
+pkgname=libfakekey
+pkgver=0.3
+pkgrel=4
+pkgdesc='X virtual keyboard library.'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://git.yoctoproject.org/libfakekey/'
+license=('GPL')
+depends=('libxtst')
+source=("https://git.yoctoproject.org/cgit/cgit.cgi/$pkgname/snapshot/$pkgname-$pkgver.tar.gz")
+sha256sums=('d282fa6481a5b85f71e36e8bad4cfa938cc8eaac4c42ffa27f9203ac634813f4')
+
+build() {
+  cd "${pkgname}-${pkgver}"
+
+  ./autogen.sh
+  ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static
+  make AM_LDFLAGS=-lX11
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+}

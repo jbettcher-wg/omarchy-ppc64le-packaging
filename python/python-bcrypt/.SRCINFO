@@ -1,0 +1,23 @@
+pkgbase = python-bcrypt
+	pkgdesc = Modern password hashing for your software and your servers
+	pkgver = 5.0.0
+	pkgrel = 2
+	url = https://github.com/pyca/bcrypt
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-rust
+	makedepends = python-wheel
+	depends = python
+	source = python-bcrypt::git+https://github.com/pyca/bcrypt#tag=5.0.0
+	sha512sums = e836f971530aa4ac042fd2e52a4bc50fba72bb35e75368ee5645c7b564d4bb9c11f3f937c33f3d18b10593e30a71413bb0f1dd42c7483df90c950674c1f02c09
+	b2sums = 7dc2b6805bda6789ca0554b746abbdeb1eaf26d6613b77c082fc842f38b185a6d2c9eb9cd0d1b4ba1403faaa1c120c4dc5908f4d2a82938209f8b292799292e0
+
+pkgname = python-bcrypt

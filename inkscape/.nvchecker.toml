@@ -1,0 +1,9 @@
+[inkscape]
+source = "git"
+git = "https://gitlab.com/inkscape/inkscape.git"
+prefix = 'INKSCAPE_'
+from_pattern = '_'
+to_pattern = '.'
+include_regex = 'INKSCAPE_.*'
+exclude_regex = ".*(RC|BETA).*"
+sort_version_key = 'vercmp'

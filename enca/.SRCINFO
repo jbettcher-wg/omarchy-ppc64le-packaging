@@ -1,0 +1,19 @@
+pkgbase = enca
+	pkgdesc = Charset analyser and converter
+	pkgver = 1.22
+	pkgrel = 1
+	url = https://cihar.com/software/enca/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-only
+	makedepends = git
+	makedepends = libiconv
+	depends = glibc
+	depends = recode
+	source = git+https://github.com/nijel/enca#tag=1.22
+	b2sums = 7cb7f391221739d237e9fe19adedf99b741db5b4d1c8740bb6507b3d48823cfee2ebb04755a7db92aeb4d04cecaaf0c39ccd51a098905d5eb4348f3b464cb3ad
+
+pkgname = enca

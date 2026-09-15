@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-deepdiff
+pkgver=9.0.0
+pkgrel=1
+pkgdesc="Deep Difference and Search of any Python object/data."
+url="https://github.com/qlustered/deepdiff"
+license=('MIT')
+arch=(any)
+depends=('python-orderly-set')
+optdepends=('python-click: for cli'
+            'python-tomli-w: for TOML support'
+            'python-yaml: for YAML support'
+            'python-clevercsv: for more robust CSV parsing'
+            'python-orjson: for speed and memory optimized parsing')
+makedepends=('python-build' 'python-flit-core' 'python-installer' 'git')
+source=("git+https://github.com/qlustered/deepdiff.git#tag=$pkgver")
+sha512sums=('28cc2b5693eca9bf3a8f649ec34dd3958462862cbfa8dca83c7d97a1f4556e653c7f9af2317ef54ea4d5e4fcade56fda75b02106501674056ebbe9892313b802')
+
+prepare() {
+  cd deepdiff
+  sed -i 's/flit_core >=3.11,<4/flit_core/' pyproject.toml
+}
+
+build() {
+  cd deepdiff
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd deepdiff
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

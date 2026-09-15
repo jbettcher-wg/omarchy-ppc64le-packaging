@@ -1,0 +1,4 @@
+[redshift]
+source = "git"
+git = "https://github.com/jonls/redshift.git"
+prefix = "v"

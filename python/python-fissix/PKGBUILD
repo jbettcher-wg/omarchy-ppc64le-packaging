@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+
+pkgname=python-fissix
+_pkgname=${pkgname#python-}
+pkgver=24.4.24
+pkgrel=2
+pkgdesc="Backport of lib2to3, with enhancements"
+arch=(any)
+url="https://github.com/amyreese/fissix"
+license=('PSF-2.0')
+depends=(
+  'python'
+  'python-appdirs'
+)
+makedepends=(
+  'python-build'
+  'python-flit-core'
+  'python-installer'
+)
+checkdepends=(
+  'python-pytest'
+  'python-tests'
+)
+source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('d99a457853d69893ae16d6b843c9d69ad1404853a4a00e33bb6dc12cee2cade7')
+
+build(){
+  cd "$_pkgname-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$_pkgname-$pkgver"
+  pytest
+}
+
+package() {
+  cd "$_pkgname-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

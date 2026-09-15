@@ -1,0 +1,19 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Noa-Emil Nissinen <aur.satella@spamgourmet.org>
+
+pkgname=stb
+pkgver=20260415.205329.g31c1ad374564
+pkgrel=1
+pkgdesc='Single-file public domain (or MIT licensed) libraries for C/C++'
+arch=(any)
+url=https://github.com/nothings/stb
+license=(MIT)
+makedepends=(git)
+source=(git+https://github.com/nothings/stb.git#commit=${pkgver##*.g})
+b2sums=('748d834c0c7308839d50d825bb9d85a8006936df4f0840ceb01d76c32356725f77ec5252a0b70ff265bdb2cfb008f77646543c114d168ce727d395d484384dca')
+
+package() {
+  install -Dm 644 stb/*.{c,h} -t "${pkgdir}"/usr/include/stb/
+  install -Dm 644 stb/LICENSE -t "${pkgdir}"/usr/share/licenses/stb/
+}

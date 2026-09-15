@@ -1,0 +1,19 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=avogadro-crystals
+pkgver=2.0.0
+pkgrel=1
+pkgdesc='Crystallographic files of common materials, elements, oxides, for visualization in Avogadro'
+arch=(any)
+url='https://openchemistry.org/'
+license=(BSD-3-Clause)
+makedepends=(git)
+source=(git+https://github.com/OpenChemistry/crystals#tag=$pkgver)
+sha256sums=('fe4e88a470a22eea66dbd2ded3ae4f13bc3b492418f1ec20dd211c5dc48a95ce')
+
+package() {
+  mkdir -p "$pkgdir"/usr/share/avogadro2
+  cp -ar crystals "$pkgdir"/usr/share/avogadro2/crystals
+  rm -r "$pkgdir"/usr/share/avogadro2/crystals/.git
+}

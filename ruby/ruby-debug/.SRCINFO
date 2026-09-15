@@ -1,0 +1,26 @@
+pkgbase = ruby-debug
+	pkgdesc = Debugging functionality for Ruby
+	pkgver = 1.11.1
+	pkgrel = 1
+	url = https://github.com/ruby/debug
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-2-Clause
+	checkdepends = ruby-bundler
+	checkdepends = ruby-rake
+	checkdepends = ruby-test-unit
+	checkdepends = ruby-test-unit-rr
+	makedepends = git
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-irb
+	depends = ruby-reline
+	options = !emptydirs
+	options = !debug
+	source = ruby-debug::git+https://github.com/ruby/debug#tag=v1.11.1
+	sha512sums = 28e569f248930dc2e7dd1755f79baa08eb6d9c585730001346e402e0ef08f0a0c47ee74dd078069d2f805558fdddf31e0411bb25eddefd94de25fbab093ed2e5
+
+pkgname = ruby-debug

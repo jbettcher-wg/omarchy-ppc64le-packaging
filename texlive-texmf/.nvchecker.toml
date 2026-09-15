@@ -1,0 +1,4 @@
+[texlive-texmf]
+source = 'regex'
+url = 'https://svn.tug.org/texlive/tags/'
+regex = 'texlive-([\d.]+)/'

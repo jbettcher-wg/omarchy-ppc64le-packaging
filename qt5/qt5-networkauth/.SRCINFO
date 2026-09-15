@@ -1,0 +1,21 @@
+pkgbase = qt5-networkauth
+	pkgdesc = Network authentication module
+	pkgver = 5.15.19
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = qt5
+	license = GPL3
+	license = LGPL3
+	license = FDL
+	license = custom
+	makedepends = git
+	depends = qt5-base
+	source = kde-qtnetworkauth::git+https://invent.kde.org/qt/qt/qtnetworkauth#commit=d1ce24a72122c315e3d190c9ebc26ed603b90057
+	sha256sums = d736135cc93f0837e69b5e5328fafd4768e2a1ee6ff6e25b61bbc337f04d113f
+
+pkgname = qt5-networkauth

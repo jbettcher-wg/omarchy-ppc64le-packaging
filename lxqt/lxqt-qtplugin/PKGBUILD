@@ -1,0 +1,34 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jerome Leclanche <jerome@leclan.ch>
+# Maintainer: Chih-Hsuan Yen <yan12125@archlinux.org>
+
+pkgname=lxqt-qtplugin
+pkgver=2.4.0
+pkgrel=2
+pkgdesc="LXQt platform integration for Qt"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+groups=("lxqt")
+url="https://github.com/lxqt/$pkgname"
+# https://github.com/lxqt/lxqt-qtplugin/blob/1.4.1/AUTHORS#L8
+license=("LGPL-2.1-or-later")
+depends=("libdbusmenu-lxqt" "libqtxdg" "libfm-qt" "libQt6XdgIconLoader.so")
+makedepends=("git" "lxqt-build-tools")
+source=(
+	"git+https://github.com/lxqt/$pkgname?signed#tag=$pkgver"
+)
+sha256sums=('006e886bdcf84d4b4afe6d2e89291c56eeb5adee494e32f12035b0691ac861df')
+validpgpkeys=(
+	"19DFDF3A579BD509DBB572D8BE793007AD22DF7E"  # Pedram Pourang <tsujan2000@gmail.com>
+	"48836EB124A1EAAE695EDFEA229CA0A00A17D258"  # the key owned by an email used by https://github.com/stefonarch/, a long-time LXQt contributor, as per keys.openpgp.org
+)
+
+build() {
+	cmake -B build -S "$srcdir/$pkgname" \
+	  -DCMAKE_INSTALL_PREFIX=/usr \
+	  -DCMAKE_BUILD_TYPE=None
+	cmake --build build
+}
+
+package() {
+	DESTDIR="$pkgdir" cmake --install build
+}

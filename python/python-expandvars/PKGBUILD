@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+
+pkgname=python-expandvars
+pkgver=1.1.2
+pkgrel=2
+pkgdesc='Expand system variables Unix-style'
+arch=(any)
+url='https://github.com/sayanarijit/expandvars'
+license=(MIT)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-hatchling
+)
+checkdepends=(python-pytest)
+source=("$pkgname::git+$url#tag=v$pkgver")
+sha512sums=('979e1660357ac6f92d40ad36c4c77aba2e423252e49883e29d16e15f1f970a7ba05a1a75dd9b6ae2174c260f1c70b7917d154ffe0073bf524eec2bd134fdaee8')
+b2sums=('9c9045f8d56e1f5e40cdc7e9c88db3381177c0f6c238c9245a9c358b5a420f17a2d9a16a58b514dc5b38171da84e3ad675d403f9bb9668c0f177d4efeb389f24')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  pytest -v
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

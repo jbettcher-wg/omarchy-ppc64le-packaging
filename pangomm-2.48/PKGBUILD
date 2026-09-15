@@ -1,0 +1,75 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgbase=pangomm-2.48
+pkgname=(
+  pangomm-2.48
+  pangomm-2.48-docs
+)
+pkgver=2.56.1
+pkgrel=1
+pkgdesc="C++ bindings for Pango"
+url="https://www.gtkmm.org/"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+license=(LGPL-2.1-or-later)
+depends=(
+  cairomm-1.16
+  gcc-libs
+  glib2
+  glibc
+  glibmm-2.68
+  pango
+)
+makedepends=(
+  cairomm-1.16-docs
+  git
+  glibmm-2.68-docs
+  meson
+  mm-common
+)
+options=(!emptydirs)
+source=("git+https://gitlab.gnome.org/GNOME/pangomm.git#tag=$pkgver")
+b2sums=('f2670239c2c0773539becfd4f80d5c0fbe1a1d88d1ae4d72dfa16f617bc60effc93f5399067b8120af1d08d28b3db97266354a91bb9054f2ff4b0d6536e29846')
+
+prepare() {
+  cd pangomm
+}
+
+build() {
+  local meson_options=(
+    -D maintainer-mode=true
+  )
+
+  arch-meson pangomm build "${meson_options[@]}"
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package_pangomm-2.48() {
+  depends+=(
+    libcairomm-1.16.so
+    libglibmm-2.68.so
+    libsigc-3.0.so
+  )
+  provides=(libpangomm-2.48.so)
+
+  meson install -C build --destdir "$pkgdir"
+
+  # Split -docs
+  mkdir -p docs/usr/share
+  mv -t docs/usr/share "$pkgdir"/usr/share/{devhelp,doc}
+}
+
+package_pangomm-2.48-docs() {
+  pkgdesc+=" (documentation)"
+  depends=()
+  options=(!strip)
+
+  mv -t "$pkgdir" docs/*
+}
+
+# vim:set sw=2 sts=-1 et:

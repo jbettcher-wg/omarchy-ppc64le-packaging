@@ -1,0 +1,19 @@
+pkgbase = python-dill
+	pkgdesc = serialize all of Python
+	pkgver = 0.4.1
+	pkgrel = 1
+	url = https://github.com/uqfoundation/dill
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	optdepends = python-objgraph: graph support
+	source = python-dill::git+https://github.com/uqfoundation/dill#tag=0.4.1
+	sha512sums = 13b0f7d297b689ada4e72daa47dce05d03972457905357a4572f5937f08b6f5a1cf8d2351896e685067a210f51b3ba992efeef0d978f7f32cc21cd3a466f0349
+	b2sums = 6316a79225f216439e0c616a4146c659ff46e0af54c05c0b8ff023e8bd0473a1085c074216417bf4417a3fe74541317dae022bd52fe0d61c2dbd1fb61c885908
+
+pkgname = python-dill

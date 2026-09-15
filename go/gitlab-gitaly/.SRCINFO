@@ -1,0 +1,26 @@
+pkgbase = gitlab-gitaly
+	pkgdesc = Speed up Git access using caching
+	pkgver = 17.11.0
+	pkgrel = 1
+	url = https://gitlab.com/gitlab-org/gitaly
+	arch = x86_64
+	arch = powerpc64
+	arch = powerpc64le
+	license = MIT
+	makedepends = cmake
+	makedepends = git
+	makedepends = go
+	depends = glibc
+	depends = libxml2
+	depends = libxslt
+	depends = libssh2
+	options = !buildflags
+	backup = etc/gitlab-gitaly/config.toml
+	source = https://gitlab.com/gitlab-org/gitaly/-/archive/v17.11.0/gitaly-v17.11.0.tar.gz
+	source = gitlab-gitaly-configs.patch
+	source = gitlab-gitaly.service
+	sha256sums = c2ccb7070556f0c6a629715d83deae7fcc85a55fc2ac751904920d2d0712c241
+	sha256sums = 71427bf763a1d5cfaad4803d5978c4636167ffdd8facce4a66f8988bda36b544
+	sha256sums = a047c82481ccbaa3b00ba1bb769135934fa4fa939eb6506d09c77f3a7aec08cd
+
+pkgname = gitlab-gitaly

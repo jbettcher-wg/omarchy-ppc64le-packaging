@@ -1,0 +1,54 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David C. Rankin <drankinatty at gmail dot com>
+
+_mod=tdeutils
+_cat=core/
+_kdemod="${_mod/tde/kde}"
+
+pkgname="tde-${_mod}"
+pkgver=14.1.6
+pkgrel=1
+pkgdesc="The TDE something - with Trinity upstream"
+arch=(i686 x86_64 aarch64 armv7h powerpc64le powerpc64 powerpc espresso)
+url="https://scm.trinitydesktop.org/scm/git/${_mod}"
+license=('GPL')
+groups=('tde-base')
+depends=('tde-tdebase')
+makedepends=('tde-cmake-trinity' 'python3')
+optdepends=()
+provides=("${_mod}")
+conflicts=("trinity-${_mod}")
+replaces=("trinity-${_mod}")
+options=('staticlibs' 'libtool' '!emptydirs' '!debug')
+source=("https://mirror.ppa.trinitydesktop.org/trinity/releases/R${pkgver}/main/${_cat}${_mod}-trinity-${pkgver}.tar.xz")
+md5sums=('fe14315459c2fe3cc3170a830022197b')
+
+[ -n "$TDEDIR" ] || TDEDIR=/opt/trinity
+
+build() {
+   # kill massive amounts of warnings
+   export CXXFLAGS+=' -Wno-deprecated-enum-enum-conversion -Wno-deprecated-declarations'
+
+   msg "Creating out-of-source build directory: ${srcdir}/${_builddir}"
+   mkdir -p ${srcdir}/build
+   cd ${srcdir}/build
+
+   ## cmake call
+   msg "Starting cmake..."
+   cmake ${srcdir}/${pkgname#*-}-trinity-${pkgver} \
+     -GNinja \
+     -DCMAKE_VERBOSE_MAKEFILE=ON \
+     -DCMAKE_INSTALL_PREFIX=${TDEDIR} \
+     -DBUILD_ALL=ON \
+     -DWITH_DPMS=ON \
+     -DWITH_XSCREENSAVER=ON
+
+   msg "Building - ${pkgname#*-}..."
+   ninja $NUMJOBS
+}
+
+package() {
+  msg "Packaging - $pkgname-$pkgver"
+  cd ${srcdir}/build
+  DESTDIR="${pkgdir}" ninja -j1 install
+}

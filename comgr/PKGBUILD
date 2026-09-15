@@ -1,0 +1,40 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Torsten Keßler <tpkessler at archlinux dot org>
+# Contributor: acxz <akashpatel2008 at yahoo dot com>
+
+pkgname=comgr
+pkgdesc='Compiler support library for ROCm LLVM'
+pkgver=6.0.2
+pkgrel=1.1
+arch=(x86_64 powerpc64le powerpc64 riscv64)
+url='https://github.com/ROCm/ROCm-CompilerSupport'
+license=('NCSA')
+depends=('glibc' 'gcc-libs' 'zstd' 'zlib' 'ncurses'
+         'rocm-core' 'rocm-device-libs')
+makedepends=('rocm-cmake' 'rocm-llvm')
+source=("${pkgname}-${pkgver}.tar.gz::$url/archive/rocm-$pkgver.tar.gz")
+sha256sums=('737b110d9402509db200ee413fb139a78369cf517453395b96bda52d0aa362b9')
+_dirname="$(basename "$url")-$(basename "${source[0]}" .tar.gz)"
+
+build() {
+  local cmake_args=(
+    -Wno-dev
+    -S "$_dirname/lib/comgr"
+    -B build
+    -D CMAKE_INSTALL_PREFIX=/opt/rocm
+    -D CMAKE_BUILD_TYPE=None
+    -D BUILD_TESTING=ON
+    -D CMAKE_PREFIX_PATH=/opt/rocm/llvm
+  )
+  cmake "${cmake_args[@]}"
+  cmake --build build
+}
+
+check() {
+    cmake --build build --target check-comgr
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$_dirname/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

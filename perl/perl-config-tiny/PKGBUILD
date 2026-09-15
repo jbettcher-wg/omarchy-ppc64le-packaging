@@ -1,0 +1,26 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: François Charette <firmicus ατ gmx δοτ net>
+
+pkgname=perl-config-tiny
+pkgver=2.30
+pkgrel=2
+pkgdesc="Read/Write .ini style files with as little code as possible "
+arch=(any)
+url="https://search.cpan.org/dist/Config-Tiny"
+license=('GPL' 'PerlArtistic')
+depends=('perl>=5.10')
+options=('!emptydirs')
+source=(https://search.cpan.org/CPAN/authors/id/R/RS/RSAVAGE/Config-Tiny-$pkgver.tgz)
+sha256sums=('b2f7345619b3b8e636dd39ea010731c9dc2bfb8f022bcbd86ae6ad17866e110d')
+
+build() {
+  cd  "$srcdir"/Config-Tiny-$pkgver
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+package() {
+  cd  "$srcdir"/Config-Tiny-$pkgver
+  make install DESTDIR="$pkgdir"
+}

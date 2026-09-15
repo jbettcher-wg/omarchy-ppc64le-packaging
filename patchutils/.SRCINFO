@@ -1,0 +1,21 @@
+pkgbase = patchutils
+	pkgdesc = A small collection of programs that operate on patch files
+	pkgver = 0.4.5
+	pkgrel = 1
+	url = http://cyberelk.net/tim/patchutils/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-only
+	makedepends = xmlto
+	depends = python3
+	depends = pcre2
+	source = https://github.com/twaugh/patchutils/releases/download/0.4.5/patchutils-0.4.5.tar.xz
+	source = https://github.com/twaugh/patchutils/releases/download/0.4.5/patchutils-0.4.5.tar.xz.sig
+	validpgpkeys = 4629AFE960EC20BEC12E3104B7C20D079491EA63
+	sha256sums = 8386a35a4d2d3cbc28fdcc93c5be007c382c78e3ee079070139f0d822e013325
+	sha256sums = SKIP
+
+pkgname = patchutils

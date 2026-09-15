@@ -1,0 +1,68 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andrzej Giniewicz <gginiu@gmail.com>
+# Maintainer: Morten Linderud <foxboron@archlinux.org>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+# Contributor: Keith Hughitt <khughitt@umd.edu>
+
+pkgname=python-pandas
+pkgver=2.3.3
+pkgrel=2
+pkgdesc='High-performance, easy-to-use data structures and data analysis tools for Python'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://pandas.pydata.org/"
+license=('BSD-3-Clause')
+depends=('python-numpy' 'python-dateutil' 'python-pytz')
+makedepends=('git' 'cython' 'python-build' 'python-installer' 'meson-python' 'python-versioneer')
+optdepends=(
+    'python-pandas-datareader: pandas.io.data replacement (recommended)'
+    'python-numexpr: accelerating certain numerical operations (recommended)'
+    'python-bottleneck: accelerating certain types of nan evaluations (recommended)'
+    'python-matplotlib: plotting'
+    'python-jinja: conditional formatting with DataFrame.style'
+    'python-tabulate: printing in Markdown-friendly format'
+    'python-scipy: miscellaneous statistical functions'
+    'python-numba: alternative execution engine'
+    'python-xarray: pandas-like API for N-dimensional data'
+    'python-xlrd: Excel XLS input'
+    'python-xlwt: Excel XLS output'
+    'python-openpyxl: Excel XLSX input/output'
+    'python-xlsxwriter: alternative Excel XLSX output'
+    # 'python-pyxlsb: XLSB input' (nowhere)
+    'python-beautifulsoup4: read_html function (in any case)'
+    'python-html5lib: read_html function (and/or python-lxml)'
+    'python-lxml: read_xml, to_xml and read_html function (and/or python-html5lib)'
+    'python-sqlalchemy: SQL database support'
+    'python-psycopg2: PostgreSQL engine for sqlalchemy'
+    'python-pymysql: MySQL engine for sqlalchemy'
+    'python-pytables: HDF5-based reading / writing'
+    'python-blosc: for msgpack compression using blosc'
+    'zlib: compression for msgpack'
+    # 'python-fastparquet: Parquet reading / writing' (in the AUR)
+    'python-pyarrow: Parquet, ORC and feather reading/writing'
+    # 'python-pyreadstat: SPSS files reading' (in the AUR)
+    'python-fsspec: handling files aside from local and HTTP'
+    # 'python-gcsfs: Google Cloud Storage access' (in the AUR)
+    # 'python-pandas-gbq: Google BigQuery access' (nowhere)
+    # 'python-s3fs: Amazon S3 access' (in the AUR)
+    'python-qtpy: read_clipboard function (only one needed)'
+    'xclip: read_clipboard function (only one needed)'
+    'xsel: read_clipboard function (only one needed)'
+    'python-brotli: Brotli compression'
+    'python-snappy: Snappy compression'
+    'python-zstandard: Zstandard (zstd) compression'
+)
+# No test data in upstream tarballs
+#source=(https://github.com/pandas-dev/pandas/releases/download/v${pkgver}/pandas-${pkgver}.tar.gz)
+source=(git+https://github.com/pandas-dev/pandas#tag=v${pkgver})
+sha256sums=('f1f3717c1c89eacb247c7f36e460f628cfc7d34e1e38116fee1c9cdd1afdce02')
+
+build() {
+  cd pandas
+  python -m build --wheel --no-isolation --skip-dependency-check
+}
+
+package() {
+  cd pandas
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

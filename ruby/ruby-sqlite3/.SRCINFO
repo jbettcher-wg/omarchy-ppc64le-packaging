@@ -1,0 +1,27 @@
+pkgbase = ruby-sqlite3
+	pkgdesc = Ruby bindings for the SQLite3 embedded database
+	pkgver = 2.9.0
+	pkgrel = 1
+	url = https://github.com/luislavena/sqlite3-ruby
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD
+	checkdepends = ruby-minitest
+	makedepends = ruby-bundler
+	makedepends = ruby-rake
+	makedepends = ruby-rake-compiler
+	makedepends = ruby-rake-compiler-dock
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-mini_portile2
+	depends = sqlcipher
+	depends = sqlite
+	options = !emptydirs
+	source = https://github.com/sparklemotion/sqlite3-ruby/archive/v2.9.0/ruby-sqlite3-v2.9.0.tar.gz
+	sha512sums = 37d0268460e1c6b847c9259bfe75becff09c28d8e9d2e8a2ce7c8bb4848f39700f2c3741bb86e846907dbeb315971188585b0c86f2d04d002ba952882a6bee39
+	b2sums = c9fa9b3a5e96366fbbf27697ad21fc6d6155b4735125f7fcd909b7539e7c6772465ac1329bfd3357464027c6a3dcb358aad725de2ab9a9dab72cdfff3ca45347
+
+pkgname = ruby-sqlite3

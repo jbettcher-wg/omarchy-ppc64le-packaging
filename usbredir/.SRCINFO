@@ -1,0 +1,23 @@
+pkgbase = usbredir
+	pkgdesc = USB traffic redirection protocol
+	pkgver = 0.15.0
+	pkgrel = 1
+	url = https://www.spice-space.org/usbredir.html
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	license = GPL-2.0-or-later
+	license = LGPL-2.1-or-later
+	makedepends = git
+	makedepends = meson
+	depends = glib2
+	depends = glibc
+	depends = libusb
+	provides = libusbredirhost.so
+	provides = libusbredirparser.so
+	source = git+https://gitlab.freedesktop.org/spice/usbredir.git#tag=usbredir-0.15.0
+	sha256sums = 60e71d25edbd9e0d1078b5ff48d091a1563ff069193f99c2045611951c60afd6
+
+pkgname = usbredir

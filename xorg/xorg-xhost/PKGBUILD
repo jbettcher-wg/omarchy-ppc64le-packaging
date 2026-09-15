@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xhost
+pkgver=1.0.10
+pkgrel=1.1
+pkgdesc="Server access control program for X"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT AND ICU')
+depends=('libx11' 'libxmu' 'glibc')
+makedepends=('xorg-util-macros')
+groups=('xorg-apps' 'xorg')
+source=(https://xorg.freedesktop.org/archive/individual/app/xhost-${pkgver}.tar.xz{,.sig})
+sha512sums=('65467b0a096455dae681f8397f5b8b0490a2f80db5cb9f92757cfff8d7822b43833202a275eed8467c6a6aaf3b02e0a7b1a069c5d587d32e56b1893297903051'
+            'SKIP')
+validpgpkeys=('4A193C06D35E7C670FA4EF0BA2FB9E081F2D130E') # Alan Coopersmith <alan.coopersmith@oracle.com>
+
+build() {
+  cd xhost-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xhost-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+}

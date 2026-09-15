@@ -1,0 +1,95 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Fabian Bornschein <fabiscafe@archlinux.org>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=epiphany
+pkgver=50.4
+pkgrel=2
+pkgdesc="A GNOME web browser based on the WebKit rendering engine"
+url="https://apps.gnome.org/Epiphany"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-3.0-or-later)
+depends=(
+  cairo
+  dconf
+  gcr-4
+  gdk-pixbuf2
+  glib2
+  glibc
+  gmp
+  gstreamer
+  gtk4
+  hicolor-icon-theme
+  json-glib
+  libadwaita
+  libarchive
+  libgcc
+  libportal
+  libportal-gtk4
+  libsecret
+  libsoup3
+  libxml2
+  nettle
+  pango
+  sqlite
+  webkitgtk-6.0
+)
+makedepends=(
+  blueprint-compiler
+  git
+  glib2-devel
+  gobject-introspection
+  lsb-release
+  meson
+  python-docutils
+  startup-notification
+  yelp-tools
+)
+checkdepends=(
+  aspell
+  glibc-locales
+  hspell
+  hunspell
+  libvoikko
+  nuspell
+  xorg-server-xvfb
+)
+groups=(gnome)
+source=("git+https://gitlab.gnome.org/GNOME/epiphany.git#tag=${pkgver/[a-z]/.&}")
+b2sums=('39c0ca75fa61936235a82b270efb61a2443d4fd67b1aae94cb680fa2f62e88aaba3e4f4ff050d444d861c2b74be87641485f184e294ed89ecaa0a1c1cc55f0a5')
+
+prepare() {
+  cd epiphany
+}
+
+build() {
+  arch-meson epiphany build
+  meson compile -C build
+}
+
+check() (
+  case "${CARCH}" in
+    powerpc|powerpc64) return 0 ;;
+  esac
+
+  if [[ "${CFLAGS}" == *"mcpu=espresso"* ]]; then
+    return 0
+  fi
+
+  export XDG_RUNTIME_DIR="$PWD/runtime-dir"
+  mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+
+  export LC_COLLATE=en_US.UTF-8
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+
+  dbus-run-session xvfb-run -s '-nolisten local' \
+    meson test -C build --print-errorlogs
+)
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

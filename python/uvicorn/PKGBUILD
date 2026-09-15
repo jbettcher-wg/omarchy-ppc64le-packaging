@@ -1,0 +1,46 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Filipe Laíns (FFY00) <lains@archlinux.org>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+
+pkgname=uvicorn
+pkgver=0.38.0
+pkgrel=2
+pkgdesc='The lightning-fast ASGI server'
+arch=(any)
+url=https://github.com/encode/uvicorn
+license=(BSD-3-Clause)
+depends=(
+  python
+  python-asgiref
+  python-click
+  python-h11
+  python-httptools
+  python-uvloop
+  python-websockets
+)
+makedepends=(
+  git
+  python-build
+  python-hatchling
+  python-installer
+)
+_tag=3850ad6520cafb290bd4174fa9c4ca5d33440c82
+source=(git+https://github.com/encode/uvicorn#tag=${_tag})
+b2sums=('ef48b2d21922769fd1e1979ef87378999ecd9b43622d6f59ebd1eaf1a00f65f2e99e181f002637b959c09ebdc9d7af097a60a1b575559a9852ec81568dcd2a15')
+
+pkgver() {
+  cd uvicorn
+  git describe --tags
+}
+
+build() {
+  cd uvicorn
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  python -m installer --destdir="${pkgdir}" uvicorn/dist/*.whl
+  install -Dm 644 uvicorn/LICENSE.md -t "${pkgdir}"/usr/share/licenses/uvicorn/
+}
+
+# vim:set ts=2 sw=2 et:

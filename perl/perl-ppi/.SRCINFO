@@ -1,0 +1,22 @@
+pkgbase = perl-ppi
+	pkgdesc = Parse, Analyze and Manipulate Perl (without perl)
+	pkgver = 1.291
+	pkgrel = 1
+	url = https://metacpan.org/release/PPI
+	arch = any
+	license = Artistic-1.0-Perl
+	license = GPL-1.0-or-later
+	makedepends = perl-class-inspector
+	makedepends = perl-test-nowarnings
+	makedepends = perl-test-object
+	makedepends = perl-test-subcalls
+	depends = perl-clone
+	depends = perl-params-util
+	depends = perl-task-weaken
+	depends = perl-safe-isa
+	depends = perl-yaml-pp
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/M/MI/MITHALDU/PPI-1.291.tar.gz
+	sha512sums = 33f7526f6294e1e8c62e1690960785a63e51b0822259417de2432b620f857c875120f54fa97b64fa621539abf787d752cfd2c1273a3193c50fb70a762e28a0d4
+
+pkgname = perl-ppi

@@ -1,0 +1,22 @@
+pkgbase = wasm-component-ld
+	pkgdesc = Command line linker for creating WebAssembly components
+	pkgver = 0.5.26
+	pkgrel = 1
+	url = https://github.com/bytecodealliance/wasm-component-ld
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0 WITH LLVM-exception AND Apache-2.0 AND MIT
+	checkdepends = rust-wasm
+	makedepends = cargo
+	makedepends = git
+	depends = glibc
+	depends = libgcc
+	depends = lld
+	options = !lto
+	source = git+https://github.com/bytecodealliance/wasm-component-ld#tag=v0.5.26
+	b2sums = 263667652ed13d4892bf4246714a63a29dbf882f91356c1009c5053c5485977a8521a1d8139b6d1fd613dcc734f4dcac03ee457986ca050d3b1e2044bd9675a2
+
+pkgname = wasm-component-ld

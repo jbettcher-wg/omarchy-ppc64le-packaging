@@ -1,0 +1,64 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sven-Hendrik Haase <svenstaro@archlinux.org>
+# Contributor: Manuel Hüsers <aur@huesers.de>
+# Contributor: Christian Pellegrin (chripell) <chripell@fsfe.org>
+# Contributor: An Nguyen (stk) <an@linux.com>
+# Contributor: George Angelopoulos <george@usermod.net>
+# Contributor: Christian Rebischke <Chris.Rebischke@archlinux.org>
+# Contributor: dront78 <dront78@gmail.com>
+
+pkgname=systemtap
+pkgver=5.4
+pkgrel=2
+pkgdesc="Infrastructure to simplify the gathering of information about the running Linux system"
+url="https://sourceware.org/systemtap/"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-or-later')
+depends=('elfutils' 'nss' 'python' 'cpio')
+makedepends=('python-setuptools' 'xmlto' 'boost')
+optdepends=('sqlite3: for storing results in a database')
+options=('!emptydirs')
+source=("https://sourceware.org/ftp/systemtap/releases/${pkgname}-${pkgver}.tar.gz"{,.asc}
+        systemtap.sysusers)
+sha512sums=('5869fe3735e44be65ba7895a46b4ea66fcdcc21ed2ab0673c62d822730553837f816d82fd78eeca4bfe6f17fdeaa12eb2f94c0b0b7ebb8c495c961f0b6935785'
+            'SKIP'
+            'c1ed109ee35081665fcf44138adf76255e1b802506375b3b6bce1f2fad11366e807ed4d9204379cc53a64ab18af4e411e5cedbac36f4fa659cab196d376c777c')
+validpgpkeys=('C60CFE9F27405101D06DE3B86D8D01ADE253B252')
+
+build() {
+  case "${CARCH}" in
+    powerpc) configure_flags=(--disable-Werror) ;;
+  esac
+
+  cd "${pkgname}-${pkgver}"
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --libexecdir=/usr/lib/"${pkgname}" \
+    --libdir=/usr/lib/"${pkgname}" \
+    --mandir=/usr/share/man/ \
+    --sbindir=/usr/bin \
+    --localstatedir=/var \
+    --enable-pie \
+    --disable-docs \
+    --enable-htmldocs \
+    --with-python3 ${configure_flags[@]}
+  make
+}
+
+check() {
+  cd "${pkgname}-${pkgver}"
+  make check
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+
+  chgrp 156 "${pkgdir}"/usr/bin/{stapbpf,staprun}
+  chmod 04110 "${pkgdir}"/usr/bin/{stapbpf,staprun}
+
+  install -Dm644 "${srcdir}"/systemtap.sysusers "${pkgdir}"/usr/lib/sysusers.d/systemtap.conf
+
+  rm -r "${pkgdir}/usr/include/sys"
+}

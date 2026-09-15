@@ -1,0 +1,19 @@
+pkgbase = ruby-matrix
+	pkgdesc = An implementation of Matrix and Vector classes
+	pkgver = 0.4.3
+	pkgrel = 1
+	url = https://github.com/ruby/matrix
+	arch = any
+	license = RUBY
+	license = BSD-2-CLAUSE
+	checkdepends = ruby-bundler
+	checkdepends = ruby-test-unit
+	checkdepends = ruby-test-unit-ruby-core
+	makedepends = ruby-rake
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/ruby/matrix/archive/v0.4.3/ruby-matrix-0.4.3.tar.gz
+	sha512sums = 54cb023d1e8c32eecc063bb734dc929ef541681b2681da8a3b3893d704b25b76c64833b64fa01f3325c2b3751919dd3c8eb29556380a581cfffe63e5a6c89e56
+	b2sums = 4dbafcf0f91f3b78c139a39fe3d90553266b604bf18e85958614cf8e840c7f0fc4f776f9860eac4ba260312ecaf4f7a15d1de381b55bb7322d0524536733095d
+
+pkgname = ruby-matrix

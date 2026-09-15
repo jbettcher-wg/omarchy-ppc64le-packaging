@@ -1,0 +1,60 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-elastic-transport
+_pkgname=elastic-transport-python
+pkgver=9.2.1
+pkgrel=1
+pkgdesc="Transport classes and utilities shared among Python Elastic client libraries"
+arch=(any)
+url="https://github.com/elastic/elastic-transport-python"
+license=(Apache-2.0)
+depends=(
+  python
+  python-aiohttp
+  python-certifi
+  python-httpx
+  python-orjson
+  python-requests
+  python-sniffio
+  python-urllib3
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+  python-pytest-asyncio
+  python-pytest-httpbin
+  python-pytest-httpserver
+  python-pytest-rerunfailures
+  python-respx
+  python-trio
+  python-trustme
+)
+source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('d469e4caa01f741dac083e30fd06b8770739060ae4eee5e4b6b5de1c043bbaf4a5267b3bac3bae63513416d0ddde2981b7c4867cd8a14dd53ea16e14e5187b4f')
+
+build() {
+  cd $_pkgname-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $_pkgname-$pkgver
+  # The calls to httpbin.org, and as such the tests, are flaky when running on
+  # build.archlinux.org.
+  # OpenTelemetry not in Arch repos (yet).
+  pytest --override-ini="addopts=" \
+    --reruns 1 \
+    --reruns-delay 1 \
+    --ignore tests/test_otel.py
+}
+
+package() {
+  cd $_pkgname-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

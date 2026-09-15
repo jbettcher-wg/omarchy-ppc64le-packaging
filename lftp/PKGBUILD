@@ -1,0 +1,34 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Aaron Griffin <aaron@archlinux.org>
+
+pkgname=lftp
+pkgver=4.9.3
+pkgrel=2
+pkgdesc="Sophisticated command line based FTP client"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-3.0-or-later')
+depends=('glibc' 'libstdc++' 'readline' 'gnutls' 'expat'
+         'zlib' 'libidn2' 'ncurses' 'sh' 'hicolor-icon-theme')
+optdepends=('perl: needed for convert-mozilla-cookies and verify-file')
+url="https://lftp.yar.ru/"
+backup=('etc/lftp.conf')
+source=(https://lftp.yar.ru/ftp/${pkgname}-${pkgver}.tar.xz{,.asc})
+sha256sums=('96e7199d7935be33cf6b1161e955b2aab40ab77ecdf2a19cea4fc1193f457edc'
+            'SKIP')
+validpgpkeys=('C027FA3148652A5513036413A824BB69F2A99A18') # "Alexander V. Lukyanov <lav@yars.free.net>"
+build() {
+  cd "${pkgname}"-${pkgver}
+  ./configure --prefix=/usr \
+    --with-gnutls \
+    --without-openssl \
+    --without-included-regex \
+    --disable-static
+  make
+}
+
+package() {
+  cd "${pkgname}"-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  rm -rfv "${pkgdir}"/usr/lib
+}

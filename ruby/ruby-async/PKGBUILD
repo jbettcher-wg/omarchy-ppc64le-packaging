@@ -1,0 +1,129 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Andreas 'Segaja' Schleifer <segaja at archlinux dot org>
+
+_gemname=async
+pkgname=ruby-${_gemname}
+pkgver=2.34.0
+pkgrel=1
+pkgdesc='Composable asynchronous I/O'
+url='https://github.com/socketry/async'
+arch=(any)
+license=('MIT')
+depends=(
+  ruby
+  ruby-console
+  ruby-fiber-annotation
+  ruby-io-event
+  ruby-metrics
+  ruby-traces
+)
+makedepends=(
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bake
+  ruby-bake-test
+  ruby-bake-test-external
+  ruby-bundler
+  ruby-decode
+  ruby-sus
+  ruby-sus-fixtures-async
+  ruby-sus-fixtures-benchmark
+  ruby-sus-fixtures-console
+  ruby-sus-fixtures-time
+)
+options=('!emptydirs')
+source=("https://github.com/socketry/async/archive/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
+sha512sums=('f916a4dadf4aee6919757d1f0a71304b94a63b489266d6ba5fcbec86175ddfcd11adde041da8fbeb25d28c09ba46cfcbaeb689058de05150a1a5cbb1b985f251')
+b2sums=('6b289ea262090639229426cffe8eb9d86b1e620b61bb68d621b7cd43cec9d9025637eea560742c33d7e84a2b2d363c9af793f49c3e915640da77ba44edefd4ed')
+
+prepare() {
+  cd ${_gemname}-${pkgver}
+
+  sed -r \
+    -e 's|~>|>=|g' \
+    -e '/signing_key/d' \
+    -i "${_gemname}.gemspec"
+
+  sed --in-place \
+    --expression '/group :maintenance/,/end/d' \
+    --expression '/agent-context/d' \
+    --expression '/benchmark-ips/d' \
+    --expression '/covered/d' \
+    --expression '/rubocop/d' \
+    gems.rb
+  sed --in-place \
+    --expression '/benchmark/d' \
+    test/async/reactor.rb
+  rm config/sus.rb
+
+  # remove broken test
+  rm --verbose test/net/http.rb
+}
+
+build() {
+  cd ${_gemname}-${pkgver}
+
+  local _gemdir="$(gem env gemdir)"
+
+  gem build --verbose "${_gemname}.gemspec"
+
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install${_gemdir}" \
+    --bindir "tmp_install/usr/bin" \
+    "${_gemname}-${pkgver}.gem"
+
+  # remove unrepreducible files
+  rm --force --recursive --verbose \
+    "tmp_install${_gemdir}/cache/" \
+    "tmp_install${_gemdir}/gems/${_gemname}-${pkgver}/vendor/" \
+    "tmp_install${_gemdir}/doc/${_gemname}-${pkgver}/ri/ext/"
+
+  find "tmp_install${_gemdir}/gems/" \
+    -type f \
+    \( \
+      -iname "*.o" -o \
+      -iname "*.c" -o \
+      -iname "*.so" -o \
+      -iname "*.time" -o \
+      -iname "gem.build_complete" -o \
+      -iname "Makefile" \
+    \) \
+    -delete
+
+  find "tmp_install${_gemdir}/extensions/" \
+    -type f \
+    \( \
+      -iname "mkmf.log" -o \
+      -iname "gem_make.out" \
+    \) \
+    -delete
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd ${_gemname}-${pkgver}
+
+  local _gemdir="$(gem env gemdir)"
+
+  GEM_HOME="tmp_install${_gemdir}" bake test
+}
+
+package() {
+  cd ${_gemname}-${pkgver}
+
+  cp --archive --verbose tmp_install/* "${pkgdir}"
+
+  install --verbose -D --mode=0644 license.md --target-directory "${pkgdir}/usr/share/licenses/${pkgname}"
+  install --verbose -D --mode=0644 readme.md --target-directory "${pkgdir}/usr/share/doc/${pkgname}"
+}
+
+# vim: ts=2 sw=2 et:

@@ -1,0 +1,62 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sven-Hendrik Haase <svenstaro@archlinux.org>
+pkgname=opensubdiv
+pkgver=3.7.0
+pkgrel=1
+pkgdesc="An Open-Source subdivision surface library"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="http://graphics.pixar.com/opensubdiv"
+license=('Apache-2.0')
+depends=('ptex' 'intel-tbb' 'libxcursor' 'xorg-xrandr' 'libxinerama' 'libxi')
+makedepends=('cmake' 'doxygen' 'glfw' 'glew' 'python' 'python-pygments' 'python-docutils' 'opencl-headers' 'libglvnd')
+makedepends_x86_64=('cuda')
+source=("https://github.com/PixarAnimationStudios/OpenSubdiv/archive/v${pkgver//./_}.tar.gz")
+sha512sums=('947ec6312c224fba3da7dffa863cabb252493c38f22c516ba16b7523883f8ac8cbf353cbc502d406064db71c561e7b1abaff8c0485f4cbb54b182bd871ab0ea0')
+options=(!lto staticlibs)
+
+prepare() {
+  cd "OpenSubdiv-${pkgver//./_}"
+  # replace deprecated function https://github.com/PixarAnimationStudios/OpenSubdiv/issues/997
+  sed -i 's|cudaThreadSynchronize|cudaDeviceSynchronize|g' opensubdiv/osd/cudaEvaluator.cpp
+}
+
+build() {
+  cd "OpenSubdiv-${pkgver//./_}"
+
+  case "${CARCH}" in
+    x86_64) _cmake_options=(
+              -DCUDA_HOST_COMPILER=/usr/bin/g++-14 \
+              -DOSD_CUDA_NVCC_FLAGS="-gencode=arch=compute_52,code=sm_52 \
+                                   -gencode=arch=compute_53,code=sm_53 \
+                                   -gencode=arch=compute_60,code=sm_60 \
+                                   -gencode=arch=compute_61,code=sm_61 \
+                                   -gencode=arch=compute_62,code=sm_62 \
+                                   -gencode=arch=compute_70,code=sm_70 \
+                                   -gencode=arch=compute_72,code=sm_72 \
+                                   -gencode=arch=compute_75,code=sm_75 \
+                                   -gencode=arch=compute_80,code=sm_80 \
+                                   -gencode=arch=compute_86,code=sm_86 \
+                                   -gencode=arch=compute_87,code=sm_87 \
+                                   -gencode=arch=compute_89,code=sm_89 \
+                                   -gencode=arch=compute_90,code=sm_90 \
+                                   -gencode=arch=compute_90,code=compute_90"
+          )
+    ;;
+  esac
+
+  cmake \
+      -Bbuild \
+      -DNO_EXAMPLES=ON \
+      -DNO_REGRESSION=ON \
+      -DNO_TUTORIALS=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr ${_cmake_options[@]}
+
+  make -C build
+}
+
+package() {
+  cd "OpenSubdiv-${pkgver//./_}"
+
+  DESTDIR="$pkgdir/" make -C build install
+}

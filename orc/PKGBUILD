@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgbase=orc
+pkgname=(
+  orc
+)
+pkgver=0.4.42
+pkgrel=1
+pkgdesc="Optimized Inner Loop Runtime Compiler"
+url="https://gstreamer.freedesktop.org/modules/orc.html"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(BSD-3-Clause)
+depends=(
+  glibc
+)
+makedepends=(
+  clang
+  git
+  llvm
+  meson
+  valgrind
+)
+source=("git+https://gitlab.freedesktop.org/gstreamer/orc.git?signed#tag=$pkgver")
+b2sums=('65b8fc3a403fb0eeb89edf865f8631bc56997149ef8e09a6a20a5e36a2fea84ab1b5cc7e916e0016d3e49cdc188957279f16baba615648bc7c7dbaf7f57e791a')
+validpgpkeys=(
+  D637032E45B8C6585B9456565D2EEE6F6F349D7C # Tim-Philipp Müller <tim@centricular.com>
+)
+
+prepare() {
+  cd orc
+}
+
+build() {
+  arch-meson orc -Dhotdoc=disabled  build
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package_orc() {
+  provides=(liborc{,-test}-${pkgver%.*}.so)
+
+  meson install -C build --destdir "$pkgdir"
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 orc/COPYING
+}
+
+# vim:set sw=2 sts=-1 et:

@@ -1,0 +1,25 @@
+pkgbase = netavark
+	pkgdesc = Container network stack
+	pkgver = 2.0.0
+	pkgrel = 1
+	url = https://github.com/containers/netavark
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	makedepends = cargo
+	makedepends = git
+	makedepends = go-md2man
+	makedepends = protobuf
+	depends = aardvark-dns
+	depends = glibc
+	depends = libgcc
+	depends = nftables
+	provides = container-network-stack=2
+	source = git+https://github.com/containers/netavark#tag=v2.0.0
+	sha512sums = 5eba5527eb5d887aed245410fbdf651b03bd1867690b92a57a4d2c39e23a9ba3b388043209bee0389481ee0ef5bf4d4a616ee89ebc46ac1a935c4eb5cef2344b
+	b2sums = 0ad67147638f0186c260fa27f81b1864e98678f20740f7e87c88b346c6ca6f774b71db6dea87bef5718c108fb658a163e6fbdf77e9cc410586d529226feb3619
+
+pkgname = netavark

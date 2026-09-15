@@ -1,0 +1,20 @@
+pkgbase = iniparser
+	pkgdesc = A free stand-alone ini file parsing library written in portable ANSI C
+	pkgver = 4.2.6
+	pkgrel = 2
+	url = https://github.com/ndevilla/iniparser
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = cmake
+	makedepends = doxygen
+	depends = glibc
+	provides = libiniparser.so
+	source = iniparser-4.2.6.tar.gz::https://github.com/ndevilla/iniparser/archive/v4.2.6.tar.gz
+	md5sums = 225e439bf6940377b7a334b4befa1b18
+	sha256sums = a0bd370713a744b1fa8ec27bba889ebf9dbd43060ec92e07fbe91fb43e3cb3ac
+
+pkgname = iniparser

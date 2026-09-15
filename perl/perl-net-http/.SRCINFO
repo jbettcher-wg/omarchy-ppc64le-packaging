@@ -1,0 +1,16 @@
+pkgbase = perl-net-http
+	pkgdesc = Low-level HTTP connection (client)
+	pkgver = 6.24
+	pkgrel = 2
+	url = https://search.cpan.org/dist/Net-HTTP
+	arch = any
+	license = PerlArtistic
+	license = GPL
+	checkdepends = perl-uri
+	depends = perl
+	conflicts = perl-libwww<6
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/O/OA/OALDERS/Net-HTTP-6.24.tar.gz
+	sha512sums = db34ff12b5782c213c35e500f8b6de1f11887b514fdb43e3a2ab6eeeb04917a66171a41ea548d04a4d62a2963eb09e5ec98a9ce614d94f7ae67674f0aeae8afd
+
+pkgname = perl-net-http

@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Aurelien Foret <orelien@chez.com>
+
+pkgname=xfce4-dict
+pkgver=0.8.10
+pkgrel=1
+pkgdesc="A dictionary plugin for the Xfce panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/apps/xfce4-dict/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'librsvg' 'hicolor-icon-theme')
+makedepends=('git' 'glib2-devel' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/apps/xfce4-dict.git#tag=$pkgname-$pkgver")
+sha256sums=('15dd542ae2135651634ef57fe6dd553b8aa80352bf05b36765dde3085edef9f0')
+
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

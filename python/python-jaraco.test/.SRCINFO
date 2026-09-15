@@ -1,0 +1,21 @@
+pkgbase = python-jaraco.test
+	pkgdesc = Testing support by jaraco
+	pkgver = 5.5.1
+	pkgrel = 2
+	url = https://github.com/jaraco/jaraco.test
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	makedepends = python-build
+	makedepends = python-installer
+	depends = python
+	depends = python-jaraco.collections
+	depends = python-jaraco.context
+	depends = python-jaraco.functools
+	source = git+https://github.com/jaraco/jaraco.test.git#tag=v5.5.1
+	sha512sums = d432cde578b256e0c8b3cbd6430c36e8a235fe6375d784cdc762fe7d48466d65f904be781ef4e1303ada6edb9801e9af019ba11368604e62f84c05046b086265
+
+pkgname = python-jaraco.test

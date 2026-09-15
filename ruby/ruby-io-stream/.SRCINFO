@@ -1,0 +1,25 @@
+pkgbase = ruby-io-stream
+	pkgdesc = Provides a generic stream wrapper for IO instances
+	pkgver = 0.11.1
+	pkgrel = 1
+	url = https://github.com/socketry/io-stream
+	arch = any
+	license = MIT
+	checkdepends = ruby-async-safe
+	checkdepends = ruby-bake
+	checkdepends = ruby-bake-test
+	checkdepends = ruby-bake-test-external
+	checkdepends = ruby-bundler
+	checkdepends = ruby-covered
+	checkdepends = ruby-decode
+	checkdepends = ruby-sus
+	checkdepends = ruby-sus-fixtures-async
+	checkdepends = ruby-sus-fixtures-openssl
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/socketry/io-stream/archive/v0.11.1/ruby-io-stream-0.11.1.tar.gz
+	sha512sums = 6567c15b838261cd8b0814d4451a188806cd7d29258094e4fa1155d9205d017c2e5d3034d82e3cd333e102c7d899354b59bc98165f5a47d8c2fb19d81320721b
+	b2sums = cf78b8985612bf91af57ed456456522fa63db54b67f101c0ad21d56080812733322f45bebb05b050cf7bca41d6896644db18c58f64b893f594430a888a808fc2
+
+pkgname = ruby-io-stream

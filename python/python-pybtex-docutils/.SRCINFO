@@ -1,0 +1,16 @@
+pkgbase = python-pybtex-docutils
+	pkgdesc = A docutils backend for pybtex
+	pkgver = 1.0.3
+	pkgrel = 2
+	url = https://github.com/mcmtroffaes/pybtex-docutils
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = python-setuptools
+	depends = python
+	depends = python-docutils
+	depends = python-pybtex
+	source = https://pypi.io/packages/source/p/pybtex-docutils/pybtex-docutils-1.0.3.tar.gz
+	sha256sums = 3a7ebdf92b593e00e8c1c538aa9a20bca5d92d84231124715acc964d51d93c6b
+
+pkgname = python-pybtex-docutils

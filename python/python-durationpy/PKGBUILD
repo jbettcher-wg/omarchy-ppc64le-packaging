@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-durationpy
+_commit=354a6781a153daa6f2c2ec373ef50b8d8ac2ec20
+pkgver=0.10
+pkgrel=2
+pkgdesc="Module for converting between datetime.timedelta and Go's time.Duration strings"
+arch=(any)
+url="https://github.com/icholy/durationpy"
+license=('MIT')
+depends=('python')
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+source=("git+$url.git#tag=$_commit")
+sha256sums=('973f70c2b689ef9f8311f6b3cb4a91ffc33f606463b143a41be3e7738a0ca4df')
+
+build() {
+  cd ${pkgname#python-}
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}
+  python -m unittest discover -v
+}
+
+package() {
+  cd ${pkgname#python-}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

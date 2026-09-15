@@ -1,0 +1,74 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: David Runge <dvzrv@archlinux.org>
+# Contributor: NicoHood <archlinux {cat} nicohood {dog} de>
+# Contributor: Carl George < arch at cgtx dot us >
+
+pkgname=python-gitdb
+pkgver=4.0.12
+pkgrel=2
+epoch=1
+pkgdesc='A pure Python git object database'
+arch=(any)
+url='https://github.com/gitpython-developers/gitdb'
+license=(BSD-3-Clause)
+depends=(
+  git
+  python
+  python-smmap
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+)
+source=("$pkgname::git+$url#tag=$pkgver?signed")
+sha512sums=('43e940278a5825368bd33618a196496df75e73c2e79dc152f51c2783d08f22891d19707ebe1a15acf62c1e2cfa4e32b2f884ed9819f85908596b5889c7e477c1')
+b2sums=('17d3bc2d8ec77e132c032d5a7b3f8035b1319c4cded1749e1ab47dc407e6245444643bb4d173c5582098acdc4957d52ee2fedae81fd52a19e804e39f5b34577b')
+validpgpkeys=('27C50E7F590947D7273A741E85194C08421980C9') # Sebastian Thiel (In Rust I trust!) <byronimo@gmail.com>
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+# some tests need to be disabled, because of coupling with the project
+# repository: https://github.com/gitpython-developers/gitdb/issues/51
+check() {
+  return 0
+  cd $pkgname
+
+  local TEST_TMPDIR=$(mktemp -d)
+  (
+    cd "$TEST_TMPDIR"
+    git init
+    git config user.name "Test User"
+    git config user.email "test@user.org"
+    for commit in {1..50}; do
+      touch "file$commit"
+      git add "file$commit"
+      git commit -m "file$commit"
+    done
+  )
+  export GITDB_TEST_GIT_REPO_BASE="$TEST_TMPDIR/.git"
+
+  pytest -vv -k "not test_pack_writing"
+}
+
+package() {
+  cd $pkgname
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # documentation
+  install -vDm644 -t "$pkgdir/usr/share/doc/$pkgname" AUTHORS README.rst
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

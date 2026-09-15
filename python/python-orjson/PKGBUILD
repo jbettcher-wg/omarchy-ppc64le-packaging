@@ -1,0 +1,58 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+
+_name=orjson
+pkgname=python-orjson
+pkgver=3.11.8
+pkgrel=1
+pkgdesc="Fast, correct Python JSON library supporting dataclasses and datetimes"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/ijl/orjson"
+license=('Apache-2.0 OR MIT')
+depends=(
+  glibc
+  libgcc
+  python
+)
+makedepends=(
+  maturin
+  python-installer
+  rust
+)
+checkdepends=(
+  python-arrow
+  python-pendulum
+  python-psutil
+  python-pytest
+  python-pytz
+  python-xxhash
+)
+source=($url/archive/$pkgver/$_name-$pkgver.tar.gz)
+sha512sums=('bd0f68e3961d0a0007faaccf0e64af10655d0bf5a9e0040fa432e90bda81d9dea4548aa79c829e4fbe58f12b9207e4d48b1a446315e5ba5b402de9b7bb531427')
+b2sums=('479288f4058a8bf41903002865f6dea52d06b135197a2eacb1fb156427039e4fce21c847a5915177b80cc47566d76c8093d36f633ccecc9b75bc700c64eab246')
+
+build() {
+  # Full LTO removes symbols from the resulting library.
+  # https://github.com/ijl/orjson/issues/613
+  CFLAGS+=" -ffat-lto-objects"
+
+  cd $_name-$pkgver
+  maturin build --release --strip
+}
+
+check() {
+  local _site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  python -m installer --destdir=test_dir target/wheels/*.whl
+  export PYTHONPATH="test_dir/$_site_packages:$PYTHONPATH"
+  pytest -vv
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" target/wheels/*.whl
+  install -vDm 644 {CHANGELOG,README}.md -t "$pkgdir/usr/share/doc/$pkgname/"
+  install -vDm 644 LICENSE-* -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

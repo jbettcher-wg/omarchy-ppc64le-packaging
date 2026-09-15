@@ -1,0 +1,23 @@
+pkgbase = python-pythran
+	pkgdesc = Ahead of Time compiler for numeric kernels
+	pkgver = 0.18.1
+	pkgrel = 3
+	url = https://pythran.readthedocs.io/
+	arch = any
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = boost
+	depends = python
+	depends = python-beniget
+	depends = python-gast
+	depends = python-numpy
+	depends = python-ply
+	depends = python-setuptools
+	depends = xsimd
+	source = git+https://github.com/serge-sans-paille/pythran#tag=0.18.1
+	sha256sums = c1cdee986285c45326c1c2bfd8289c16b4d37e1c58cc8b621007ec6872b03c0a
+
+pkgname = python-pythran

@@ -1,0 +1,33 @@
+pkgbase = goffice
+	pkgdesc = A GLib/GTK set of document-centric objects and utilities library
+	pkgver = 0.10.61
+	pkgrel = 1
+	url = https://gitlab.gnome.org/GNOME/goffice
+	arch = x86_64
+	arch = powerpc
+	arch = powerpc64
+	arch = powerpc64le
+	arch = espresso
+	license = GPL-2.0-only OR GPL-3.0-only
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = gtk-doc
+	makedepends = intltool
+	depends = at-spi2-core
+	depends = cairo
+	depends = gdk-pixbuf2
+	depends = glib2
+	depends = glibc
+	depends = gtk3
+	depends = lasem
+	depends = libgsf
+	depends = librsvg
+	depends = libspectre
+	depends = libxml2
+	depends = libxslt
+	depends = pango
+	source = git+https://gitlab.gnome.org/GNOME/goffice.git#tag=GOFFICE_0_10_61
+	b2sums = 104b42098cfc68679857236e8d9197f9d3c7bc9fa79141260db6af3476aa144a2f84e082d7e1b8f088250827e0790e740f94d5ec481cd58c25b61edae28c1f4c
+
+pkgname = goffice

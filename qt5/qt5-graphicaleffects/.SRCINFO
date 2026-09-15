@@ -1,0 +1,21 @@
+pkgbase = qt5-graphicaleffects
+	pkgdesc = Graphical effects for use with Qt Quick 2
+	pkgver = 5.15.19
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = qt5
+	license = GPL3
+	license = LGPL3
+	license = FDL
+	license = custom
+	makedepends = git
+	depends = qt5-declarative
+	source = kde-qtgraphicaleffects::git+https://invent.kde.org/qt/qt/qtgraphicaleffects#commit=551732fb1d963e53af437e3982a010f69eb76253
+	sha256sums = 955a7cb67e2731cab6dcab5b3459f70a8e8cb2230a94aa85e0a38c25e440a499
+
+pkgname = qt5-graphicaleffects

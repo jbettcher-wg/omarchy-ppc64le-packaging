@@ -1,0 +1,4 @@
+[pacutils]
+source = "git"
+git = "https://github.com/andrewgregory/pacutils"
+prefix = "v"

@@ -1,0 +1,51 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Karol "Kenji Takahashi" Woźniak <kenji.sx>
+# Contributor: spider-mario <spidermario@free.fr>
+# Contributor: Allen Li <darkfeline at abagofapples.com>
+
+pkgname=flake8
+pkgver=7.2.0
+pkgrel=1.1
+epoch=1
+pkgdesc="The modular source code checker: pep8, pyflakes and co"
+arch=(any)
+url="https://flake8.pycqa.org"
+license=('MIT')
+depends=('python-pyflakes' 'python-mccabe' 'python-pycodestyle' 'python-entrypoints')
+makedepends=('python-setuptools')
+checkdepends=('python-pytest')
+source=("https://github.com/PyCQA/flake8/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('8478b463aa84cdfb8144fb20db03116593e21cc4ec7dee2b87ac7edcb67cb00ae181a51117c885363f1050a83db5a91a65d52c3d8d80affb0a5e526e56792f26')
+
+prepare() {
+  sed -i -e 's/,<[0-9=.]*//' flake8-$pkgver/setup.cfg
+
+  sed -i '/error/a \    ignore:Creating a LegacyVersion has been deprecated and will be removed in the next major release:DeprecationWarning' flake8-$pkgver/pytest.ini
+}
+
+build() {
+  cd flake8-$pkgver
+  python setup.py build
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  # Hack entry points by installing it
+
+  cd flake8-$pkgver
+  python setup.py install --root="$PWD/tmp_install" --optimize=1
+  local python_version=$(python -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+  PYTHONPATH="$PWD/tmp_install/usr/lib/python${python_version}/site-packages:$PYTHONPATH" pytest -k 'not test_local_plugin_can_add_option'
+}
+
+package() {
+  cd flake8-$pkgver
+  python setup.py install --root="$pkgdir" --prefix=/usr --optimize=1
+  install -D -m644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,3 @@
+[python-tabulate]
+source = "pypi"
+pypi = "tabulate"

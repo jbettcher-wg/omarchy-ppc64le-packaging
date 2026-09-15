@@ -1,0 +1,19 @@
+pkgbase = python-testscenarios
+	pkgdesc = Testscenarios, a pyunit extension for dependency injection
+	pkgver = 0.6.2
+	pkgrel = 1
+	url = https://github.com/testing-cabal/testscenarios
+	arch = any
+	license = Apache-2.0
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python-testtools
+	source = git+https://github.com/testing-cabal/testscenarios.git#tag=0.6.2
+	sha512sums = b49e350af67ae3b198d0463c2bc8f7a473073abc0684d4e39066f7cec152aebcabb2e0c4ccd8b217e4271565c8b9f5e3e47b7a9be66242e5bb58371ac8e500a1
+
+pkgname = python-testscenarios

@@ -1,0 +1,20 @@
+pkgbase = python-pytest-aiohttp
+	pkgdesc = pytest plugin for aiohttp support
+	pkgver = 1.1.0
+	pkgrel = 1
+	url = https://github.com/aio-libs/pytest-aiohttp
+	arch = any
+	license = Apache-2.0
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	depends = python-pytest
+	depends = python-aiohttp
+	source = python-pytest-aiohttp-1.1.0.tar.gz::https://github.com/aio-libs/pytest-aiohttp/archive/v1.1.0.tar.gz
+	sha256sums = 8ba7aae079b97c015515918dc6e2f3cc8794e844c15574a688a65b37b53b0b20
+	sha512sums = 7f4362c9ef2ef4b63c5f9ef246f59bef78f4962df9878e81bfd4f70f5dccd1eaae1b08cf1389bcdf6d8b9efc2363415b16bcf071aac5e6a640940da12ffb35c3
+
+pkgname = python-pytest-aiohttp

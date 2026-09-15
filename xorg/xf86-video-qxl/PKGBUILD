@@ -1,0 +1,51 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Giancarlo Razzolini <grazzolini@archlinux.org>
+# Contributor: Christian Hesse <mail@eworm.de>
+# Contributor: Yonathan Dossow
+# Contributor: Ansgar Taflinski <ataflinski@uni-koblenz.de>
+
+pkgname=xf86-video-qxl
+pkgver=0.1.6
+pkgrel=2
+pkgdesc='Xorg X11 qxl video driver'
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url='https://www.x.org'
+license=('MIT')
+groups=('xorg-drivers')
+depends=('spice' 'systemd-libs' 'libxfont2' 'glibc')
+optdepends=('python: for Xspice')
+makedepends=('xorg-server-devel' 'X-ABI-VIDEODRV_VERSION=25.2' 'spice-protocol'
+    'xorgproto' 'git' 'libcacard')
+conflicts=('xf86-video-qxl-git' 'X-ABI-VIDEODRV_VERSION<25' 'X-ABI-VIDEODRV_VERSION>=26')
+validpgpkeys=('94A9F75661F77A6168649B23A9D8C21429AC6C82')
+source=("https://xorg.freedesktop.org/releases/individual/driver/${pkgname}-${pkgver}.tar.xz"{,.sig})
+sha256sums=('2ad39558db47a8fcc036e290e0b084671e58d43344a57b279abd870c4c67965f'
+            'SKIP')
+validpgpkeys=('3C2C43D9447D5938EF4551EBE23B7E70B467F0BF') # Peter Hutterer (Who-T) <office@who-t.net>
+
+build() {
+    cd ${pkgname}-${pkgver}
+
+    # Since pacman 5.0.2-2, hardened flags are now enabled in makepkg.conf
+    # With them, module fail to load with undefined symbol.
+    # See https://bugs.archlinux.org/task/55102 / https://bugs.archlinux.org/task/54845
+    export CFLAGS=${CFLAGS/-fno-plt}
+    export CXXFLAGS=${CXXFLAGS/-fno-plt}
+    export LDFLAGS=${LDFLAGS/-Wl,-z,now}
+
+    # ArchPOWER sets chained linker flags so do it again
+    export LDFLAGS=${LDFLAGS/,-z,now}
+
+    autoreconf -fi
+    ./configure --enable-xspice --prefix=/usr
+    make
+}
+
+package() {
+    cd ${pkgname}-${pkgver}
+
+    make DESTDIR="${pkgdir}/" install
+
+    install -v -Dm0755 scripts/Xspice "${pkgdir}"/usr/bin/Xspice
+    install -Dm644 "${srcdir}"/${pkgname}-${pkgver}/COPYING "${pkgdir}"/usr/share/licenses/${pkgname}/LICENSE
+}

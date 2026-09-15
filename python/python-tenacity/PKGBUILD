@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-tenacity
+pkgver=9.1.4
+pkgrel=1
+pkgdesc='Retry code until it succeeeds'
+arch=(any)
+license=('Apache-2.0')
+url='https://github.com/jd/tenacity'
+depends=('python')
+optdepends=('python-tornado: for Tornado coroutines support')
+makedepends=('git' 'python-setuptools-scm' 'python-setuptools' 'python-wheel' 'python-build' 'python-installer')
+checkdepends=('python-pytest' 'python-tornado' 'python-trio' 'python-typeguard')
+source=("git+https://github.com/jd/tenacity.git#tag=$pkgver")
+sha512sums=('a82a4233a1978b126ba326a556997a588037e098d55ee4052126228740b0353f93b7077db5d9667b1e0fc136cc8e3bf330c8eda22b98d09f1ef6cd5129f6669a')
+
+build() {
+  cd tenacity
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd tenacity
+  pytest
+}
+
+package() {
+  cd tenacity
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

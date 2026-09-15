@@ -1,0 +1,21 @@
+pkgbase = python-frozenlist
+	pkgdesc = FrozenList is a list-like structure which can be made immutable
+	pkgver = 1.8.0
+	pkgrel = 2
+	url = https://github.com/aio-libs/frozenlist
+	arch = x86_64
+	license = Apache-2.0
+	checkdepends = python-pytest
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-expandvars
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = python
+	source = https://github.com/aio-libs/frozenlist/archive/v1.8.0/python-frozenlist-1.8.0.tar.gz
+	sha512sums = dc1ae0bdec79a02de81adfbf280c26126dc5c8cdae22eb80b28d1ca65445f945cd71ce9bfdbf03d5aef8f36af13862c57ce5d1f159d0177889f403b871744118
+	b2sums = e7f3948385cea658ec0fd3a348092aa17b74f01c0ab3bb712a90353032ae011636fa5089da57495640f8b9ab8668f49b227576aba973e6521d7224bcf9914825
+
+pkgname = python-frozenlist

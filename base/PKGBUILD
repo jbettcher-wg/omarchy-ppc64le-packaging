@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Arch Linux Team
+# Contributor: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+
+pkgname=base
+pkgver=4
+pkgrel=4.2
+pkgdesc='Minimal package set to define a basic Arch Linux installation'
+url='https://www.archlinux.org'
+arch=(powerpc64le powerpc64 powerpc espresso)
+license=('GPL')
+depends=(
+  # very very base
+  'filesystem' 'gcc-libs' 'glibc' 'libxcrypt' 'bash'
+
+  # POSIX tools
+  'coreutils' 'file' 'findutils' 'gawk' 'grep' 'procps-ng' 'sed' 'tar'
+
+  # standard linux toolset
+  'e2fsprogs' 'gettext' 'pciutils' 'psmisc' 'shadow' 'util-linux' 'bzip2' 'gzip' 'xz'
+
+  # distro defined requirements
+  'licenses' 'pacman' 'systemd' 'systemd-sysvcompat' 'mkinitcpio' 'archpower-keyring'
+
+  # networking, ping, etc
+  'iputils' 'iproute2'
+)
+
+case "${CARCH}" in
+  powerpc64*) depends+=('powerpc-utils') ;;
+  powerpc) depends+=('powerpc-utils' 'mac-fdisk' 'hfsutils') ;;
+esac
+
+optdepends=('linux: bare metal support')
+
+# vim: ts=2 sw=2 et:
+

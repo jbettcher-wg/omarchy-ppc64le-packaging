@@ -1,0 +1,22 @@
+pkgbase = python-jinja
+	pkgdesc = A simple pythonic template language written in Python
+	pkgver = 3.1.6
+	pkgrel = 3
+	epoch = 1
+	url = https://palletsprojects.com/p/jinja/
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	checkdepends = python-trio
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-flit-core
+	depends = python
+	depends = python-markupsafe
+	optdepends = python-babel: for i18n support
+	source = jinja-3.1.6.tar.gz::https://github.com/pallets/jinja/archive/refs/tags/3.1.6.tar.gz
+	sha256sums = 2074b22a72caa65474902234b320d73463d6d4c223ee49f4b433495758356337
+
+pkgname = python-jinja

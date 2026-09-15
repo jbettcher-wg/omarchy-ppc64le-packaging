@@ -1,0 +1,23 @@
+pkgbase = qt6-connectivity
+	pkgdesc = Provides access to Bluetooth hardware
+	pkgver = 6.11.1
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	groups = qt6
+	license = GPL-3.0-only
+	license = LGPL-3.0-only
+	license = LicenseRef-Qt-Commercial
+	license = Qt-GPL-exception-1.0
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	depends = bluez-libs
+	depends = gcc-libs
+	depends = glibc
+	depends = pcsclite
+	depends = qt6-base
+	source = git+https://code.qt.io/qt/qtconnectivity#tag=v6.11.1
+	sha256sums = d160d35605b3c56284602f6600096f25fb7e299258e1371bbdd4b8d1a5e43834
+
+pkgname = qt6-connectivity

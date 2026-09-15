@@ -1,0 +1,47 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Łukasz Tuz <lukasz.tuz@gmail.com>
+
+pkgname=python-aiohappyeyeballs
+pkgver=2.6.1
+pkgrel=4
+pkgdesc='Happy Eyeballs for asyncio'
+arch=(any)
+url=https://github.com/aio-libs/aiohappyeyeballs
+license=(PSF-2.0)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-poetry-core
+)
+checkdepends=(
+  python-pytest
+  python-pytest-asyncio
+)
+source=("git+$url.git#tag=v$pkgver")
+b2sums=('0b0bb1839179524370e3fce083b3d87d3bfdeecb937f8f7e58692c79f15b9d52dff3f22f685d9dfbbc9c9df1709051a9f1010b4791c658119bd2995d7ed36177')
+
+prepare() {
+  cd ${pkgname#python-}
+  # python-pytest-asyncio 1.X compatibility
+  git show --no-color 1227b81094da3d46c478245aaa99a80de3cb1c72 -- tests/conftest.py | patch -Np1
+}
+
+build() {
+  cd ${pkgname#python-}
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}
+  # Override addopts as they invoke coverage testing
+  pytest --override-ini="addopts=-v -Wdefault"
+}
+
+package() {
+  cd ${pkgname#python-}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

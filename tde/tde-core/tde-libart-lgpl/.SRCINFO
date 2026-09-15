@@ -1,0 +1,24 @@
+pkgbase = tde-libart-lgpl
+	pkgdesc = Trinity Desktop LGPL'd Component
+	pkgver = 14.1.6
+	pkgrel = 1
+	url = https://scm.trinitydesktop.org/scm/git/libart-lgpl
+	arch = i686
+	arch = x86_64
+	arch = aarch64
+	arch = armv7h
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = tde-core
+	license = LGPL
+	makedepends = tde-cmake-trinity
+	provides = libart-lgpl
+	options = staticlibs
+	options = libtool
+	options = !strip
+	source = https://mirror.ppa.trinitydesktop.org/trinity/releases/R14.1.6/main/dependencies/libart-lgpl-trinity-14.1.6.tar.xz
+	md5sums = 4e1155ed5f45d7afc0410dfe366b416a
+
+pkgname = tde-libart-lgpl

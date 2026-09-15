@@ -1,0 +1,79 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+pkgname=arcticfox
+pkgver=46.4
+pkgrel=3
+pkgdesc='A fork of Palemoon with TenFourFox enhancements'
+arch=(powerpc64 powerpc espresso)
+license=(MPL2)
+url='https://github.com/rmottola/Arctic-Fox'
+depends=(gtk2 gtk3 libxcb libxt alsa-lib libpulse icu nss dbus-glib)
+makedepends=(zip unzip autoconf2.13 python2 xorgproto python2-setuptools git
+             pulseaudio yasm hunspell)
+provides=('browser')
+options=(!debug !lto)
+_commit="7381e61cdb54e888679f936b91c19f6b0f2cf5ae"
+source=("git+https://github.com/rmottola/Arctic-Fox.git#commit=${_commit}"
+        mozconfig-powerpc{,64}
+        hotfix-icu4c-std.patch
+        hotfix-no-shlibsign.patch)
+sha256sums=('70422813cfac550c1a4f9d29954de2d58faec7c1c5a3665202f788a647948b7e'
+            '5a4ca7a8295c1633397427ca1b2c9ae7b0438bd1899cd1802ccdd32461b051b6'
+            '5a4ca7a8295c1633397427ca1b2c9ae7b0438bd1899cd1802ccdd32461b051b6'
+            '064b259847302c163f643c497dbdf84fdbd5d02438f9b10bed50d53ebade61bc'
+            '228f894dd1f2f5e533ad7123e903567a51bd78feb6c0b353aa3e252edb69a3b9')
+
+prepare() {
+  cd Arctic-Fox
+
+  cp ${srcdir}/mozconfig-${CARCH} mozconfig
+  [ ! -z "${MAKEFLAGS}" ] &&
+    echo "mk_add_options MOZ_MAKE_FLAGS=\"${MAKEFLAGS}\"" >> mozconfig
+
+  case "${CARCH}" in
+    powerpc)
+      export LDFLAGS="$LDFLAGS -latomic -licui18n -licuuc"
+      export CFLAGS+=" -fno-delete-null-pointer-checks -fno-lifetime-dse -fno-schedule-insns2"
+      export CXXFFLAGS+=" -fno-delete-null-pointer-checks -fno-lifetime-dse -fno-schedule-insns2"
+    ;;  
+    powerpc64) 
+      echo "ac_add_options --enable-altivec" >> ${srcdir}/mozconfig
+      export LDFLAGS="$LDFLAGS -latomic -licui18n -licuuc"
+      export CFLAGS+=" -fno-delete-null-pointer-checks -fno-lifetime-dse -fno-schedule-insns2"
+      export CXXFFLAGS+=" -fno-delete-null-pointer-checks -fno-lifetime-dse -fno-schedule-insns2"
+    ;;
+  esac
+
+  echo "ac_add_options --enable-optimize=\"${CFLAGS}\"" >> ${srcdir}/mozconfig
+
+  patch -Np1 -i ${srcdir}/hotfix-icu4c-std.patch
+  patch -Np1 -i ${srcdir}/hotfix-no-shlibsign.patch
+}
+
+build() {
+  cd Arctic-Fox 
+
+
+	export CFLAGS="$CFLAGS -Wno-dangling-pointer -Wno-array-bounds -Wno-comment -Wno-maybe-uninitialized -Wno-misleading-indentation -Wno-multistatement-macros -Wno-stringop-overflow -Wno-unused-function -Wno-unused-value -Wno-ignored-qualifiers -Wno-deprecated-declarations -Wno-implicit-fallthrough -Wno-unused-but-set-variable -Wno-int-in-bool-context -Wno-stringop-overread -Wno-address -Wno-use-after-free -Wno-implicit-int -Wno-incompatible-pointer-types -Wno-int-conversion"
+	export CXXFLAGS="$CFLAGS -Wno-class-memaccess -Wno-changes-meaning -Wno-subobject-linkage -Wno-return-local-addr -Wno-unused-local-typedefs"
+	export SHELL=/bin/sh
+	export BUILD_OFFICIAL=1
+	export MOZILLA_OFFICIAL=1
+	export USE_SHORT_LIBNAME=1
+	export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+	export PATH="$PATH:$srcdir/python/bin"
+	export CXX="/usr/bin/g++ -std=gnu++17"
+
+	# set rpath so linker finds the libs
+	export UNIXCONFDIR="$srcdir"
+
+	python2 ./mach configure
+	python2 ./mach build -j1 export
+	python2 ./mach build
+}
+
+package() {
+  cd Arctic-Fox
+  DESTDIR=${pkgdir} python2 mach install
+}
+
+# vim: ts=2 sw=2 et:

@@ -1,0 +1,139 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+# Contributor: Dan McGee <dan@archlinux.org>
+# Contributor: Allan McRae <allan@archlinux.org>
+
+# README
+# this package requires glibc-debug to run the check() function
+# as -debug packages are not available in [core], it has to be applied manually
+# whenever the tests shall run
+#
+# For a fresh build:
+# pkgctl build -I ../../glibc/trunk/glibc-debug*.pkg.tar.zst
+# pkgctl build
+
+pkgname=valgrind
+pkgver=3.25.1
+pkgrel=5
+pkgdesc='Tool to help find memory-management problems in programs'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-or-later')
+url='https://valgrind.org/'
+depends=('glibc' 'perl' 'debuginfod')
+makedepends=('gdb' 'docbook-xml' 'docbook-xsl' 'docbook-sgml')
+checkdepends=('procps-ng')
+optdepends=(
+  'python: cg_* scripts'
+)
+makedepends=('gdb' 'docbook-xml' 'docbook-xsl' 'docbook-sgml' 'libxslt')
+makedepends_x86_64=('lib32-glibc' 'lib32-gcc-libs')
+optdepends_x86_64=('lib32-glibc: 32-bit ABI support')
+provides=('valgrind-multilib')
+replaces=('valgrind-multilib')
+options=('!emptydirs' '!strip')
+source=(https://sourceware.org/pub/valgrind/valgrind-${pkgver}.tar.bz2{,.asc}
+        valgrind-3.7.0-respect-flags.patch
+        elfv2-ppc64-be.patch
+        ppc32.patch
+        hotfix-ppc32-syscalls.patch
+        hotfix-ppc64-tkill.patch)
+validpgpkeys=(
+  0E9FFD0C16A1856CF9C7C690BA0166E698FA6035 # Julian Seward <jseward@acm.org>
+  EC3CFE88F6CA0788774F5C1D1AA44BE649DE760A # Mark Wielaard <mjw@gnu.org>
+)
+sha512sums=('6a474d58730274c57d6ca012ffd3226d393d6507cd57bf46c3b26c87a0cba84e3c8cfc84c8c76e50041861e98baba7b9613490faef4212d082845581d08af351'
+            'SKIP'
+            'e0cec39381cefeca09ae4794cca309dfac7c8693e6315e137e64f5c33684598726d41cfbb4edf764fe985503b13ff596184ca5fc32b159d500ec092e4cf8838c'
+            'd87bcec99a65b13b9c6dc3e4c3454abf885ca377ef08e81f81dde84e8d06fbdf474b3573439c7f0cb8aef33ac7ec3fd0b6d0dec5d038c052f651bfef008ecd8a'
+            '25804fafe2372808c29233ec7415a94633ef17c72c9bd1d78a5c1da53fad2ed8e76da2d0923ff0a73fad8a86b7709c5ea3774b35be6a5b4c1ef1a55bc86b2c18'
+            '94fb562e3df8a43989bcea54679ba2cf4a6eaa98bf10ad66a57e6bea3793a817c1353043a3ea0d8703e1c7931aca2932888a5377b43547b8b960d3a51be277cc'
+            'daf819d0f9bbbaf4243c7bf931fed840f1f55304df1b45d4a72ceaf8403b8e0e1fc8079343b86106f0741aa812560a466389d7d3878c5547f3ff7a9e46e63df7')
+b2sums=('5337096c846b62899017589fbb242ca601741ebb353834cd788efb60f951f2380c5904ba5102a17b26fa9561c2fa58912570d477e5fcc901612d6e5c14ff9b97'
+        'SKIP'
+        'af556fdf3c02e37892bfe9afebc954cf2f1b2fa9b75c1caacfa9f3b456ebc02bf078475f9ee30079b3af5d150d41415a947c3d04235c1ea8412cf92b959c484a'
+        '3cb71aeb6934a521a9e2d1d3da47f5933777c529e207ef6d5715be15d37cb0e5c0e59ce88db636ee2cdf1242e7872de8a3427f8feb5ae2fb01f74370de669f20'
+        '6c481fb4aff6b66221ba13b82d5e8046da8338c939272997aeaccfc7b63ef3bcb8062de8ed26493a918093d1aec9fb130176126d73d06d1d4e2ae2be483e8341'
+        '6e5154e50077fd145e467241e110059a769c1d56948a2e6e0c6c770f3e4a694ac37360a820a2f6eee29f6ab5eb31621c95ec48a4d1a68d75235a7bdc3a00bbf5'
+        '41c70ead8852a907553de2568193060371de8332e7718479ca625c07368d247666f7e98184e819d77014f6e566f31aa59011daa3ff9e3a36e6bd9774178f773d')
+options=(!lto) # https://bugs.kde.org/show_bug.cgi?id=338252
+
+prepare() {
+  cd valgrind-${pkgver}
+  patch -Np1 < ../valgrind-3.7.0-respect-flags.patch
+  sed -i 's|sgml/docbook/xsl-stylesheets|xml/docbook/xsl-stylesheets-1.79.2-nons|' docs/Makefile.am
+
+  patch -Np1 < ../elfv2-ppc64-be.patch
+  patch -Np1 < ../ppc32.patch
+  patch -Np1 < ../hotfix-ppc32-syscalls.patch
+  patch -Np1 < ../hotfix-ppc64-tkill.patch
+
+  autoreconf -ifv
+}
+
+build() {
+  cd valgrind-${pkgver}
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --libexecdir=/usr/lib \
+    --mandir=/usr/share/man \
+    --enable-lto=yes
+  make
+  make -C docs man-pages
+}
+
+check() {
+  # only run if glibc-debug is supplied manually
+  if ! pacman -Q glibc-debug; then echo -e "\033[1;31mcheck() not run, supply glibc-debug if unintended!\033[0m"; return 0; fi
+
+  cd valgrind-${pkgver}
+
+  # Make sure a basic binary runs. There should be no errors.
+  ./vg-in-place --error-exitcode=1 /bin/true
+
+  # Make sure no extra FLAGS leak through, the testsuite
+  # sets all flags necessary. See also configure above.
+  make check CPPFLAGS= CFLAGS= CXXFLAGS= LDFLAGS=
+
+  # XXX: run full regtest but only report issues some tests fail duo
+  # current toolchain and expectations, take a manual look if its fine
+  #echo "===============TESTING==================="
+  #make regtest || true
+
+  # Make sure test failures show up in build.log
+  # Gather up the diffs (at most the first 20 lines for each one)
+  #local f max_lines=20 diff_files=()
+  #mapfile -d '' diff_files < <(find . -name '*.diff' -print0 | sort -z)
+  #if (( ${#diff_files[@]} == 0 )); then
+    #echo "Congratulations, all tests passed!"
+  #else
+    #warning "Some tests failed!"
+    #for f in "${diff_files[@]}"; do
+        #echo "================================================="
+        #echo "${f}"
+        #echo "================================================="
+        #if (( $(wc -l < "${f}") < ${max_lines} )); then
+          #cat "${f}"
+        #else
+          #head -n ${max_lines} "${f}"
+          #echo "<truncated beyond ${max_lines} lines>"
+        #fi
+    #done | tee diffs
+  #fi
+  #echo "===============END TESTING==============="
+}
+
+package() {
+  cd valgrind-${pkgver}
+  make DESTDIR="${pkgdir}" install
+
+  install -Dm644 docs/*.1 -t "$pkgdir/usr/share/man/man1"
+
+  if check_option 'debug' n; then
+    find "${pkgdir}/usr/bin" -type f -executable -exec strip $STRIP_BINARIES {} + || :
+  fi
+}
+
+# vim: ts=2 sw=2 et:

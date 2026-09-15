@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+
+pkgname=python-pyfakefs
+pkgver=6.1.4
+pkgrel=1
+pkgdesc='pyfakefs implements a fake file system that mocks the Python file system modules'
+url=https://github.com/jmcgeheeiv/pyfakefs/
+license=(APACHE)
+arch=(any)
+depends=(python-pytest)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pandas
+  python-xlrd
+  python-openpyxl
+)
+_tag=3309aa963a50b21e213990f5280fe85b69e1d61c
+source=(git+https://github.com/jmcgeheeiv/pyfakefs.git#tag=${_tag})
+b2sums=('8ec4bc08757040406205d70fdeb43e181aee5110687babd21a70aa68dc0a1ca25fecb5289f7bd0a78a82cd71e0205e218e0f517a25e08e8a50f15224e510f485')
+
+pkgver() {
+  cd pyfakefs
+  git describe --tags | sed 's/^v//'
+}
+
+build() {
+  cd  pyfakefs
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd  pyfakefs
+  python -m pyfakefs.tests.all_tests
+  python -m pytest pyfakefs/pytest_tests/pytest_plugin_test.py
+}
+
+package() {
+  python -m installer --destdir="${pkgdir}" pyfakefs/dist/*.whl
+}
+
+# vim: ts=2 sw=2 et:

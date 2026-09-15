@@ -1,0 +1,24 @@
+pkgbase = libxvmc
+	pkgdesc = X11 Video Motion Compensation extension library
+	pkgver = 1.0.15
+	pkgrel = 1
+	url = https://gitlab.freedesktop.org/xorg/lib/libxvmc
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = meson
+	depends = libxext
+	depends = libxv
+	depends = libx11
+	depends = xorgproto
+	depends = glibc
+	source = https://xorg.freedesktop.org/releases/individual/lib/libXvMC-1.0.15.tar.xz
+	source = https://xorg.freedesktop.org/releases/individual/lib/libXvMC-1.0.15.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = 92ae35f11ca60289062e58c0a31bdf14b739fa09d3b421b4eabb7a6f05cb9cb30159c161301191df6c253aadebe35634ca717ebff329d169ab016a5469453737
+	sha512sums = SKIP
+
+pkgname = libxvmc

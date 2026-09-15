@@ -1,0 +1,22 @@
+pkgbase = python-pynacl
+	pkgdesc = Python binding to the Networking and Cryptography (NaCl) library
+	pkgver = 1.6.2
+	pkgrel = 1
+	url = https://github.com/pyca/pynacl
+	arch = x86_64
+	license = Apache-2.0
+	checkdepends = python-hypothesis
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-pycparser
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = libsodium
+	depends = python
+	depends = python-cffi
+	source = https://github.com/pyca/pynacl/archive/1.6.2/python-pynacl-1.6.2.tar.gz
+	b2sums = 6df2326873b5cac01cf4d427946fc3c57228f6b87b006d6d54c36ae882d3c2277c490be2f328e9c52e6213ba749c6cb9e0ea3b5745c04cc68e5691692eaf64b4
+
+pkgname = python-pynacl

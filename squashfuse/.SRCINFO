@@ -1,0 +1,22 @@
+pkgbase = squashfuse
+	pkgdesc = FUSE filesystem to mount squashfs archives
+	pkgver = 0.6.2
+	pkgrel = 1
+	url = https://github.com/vasi/squashfuse
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LicenseRef-squashfuse
+	makedepends = git
+	depends = fuse
+	depends = glibc
+	depends = lz4
+	depends = zlib
+	depends = zstd
+	depends = xz
+	source = git+https://github.com/vasi/squashfuse#tag=0.6.2
+	sha256sums = 4b9cb76973dd3abf9a767479252c7c7bfc68f5d578651ad675f8649cbd6ee73c
+
+pkgname = squashfuse

@@ -1,0 +1,26 @@
+pkgbase = python-watchfiles
+	pkgdesc = Simple, modern and high performance file watching and code reload in Python
+	pkgver = 1.1.1
+	pkgrel = 3
+	url = https://github.com/samuelcolvin/watchfiles
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-dirty-equals
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	checkdepends = python-pytest-timeout
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-maturin
+	depends = glibc
+	depends = libgcc
+	depends = python
+	depends = python-anyio
+	source = https://github.com/samuelcolvin/watchfiles/archive/v1.1.1/python-watchfiles-1.1.1.tar.gz
+	b2sums = df9831559c0e0bf91b436763aea2a8b7cf85477d33bbe9427118c2b7ef5c6af235c18740f9cdd73b31629de6ec2f2b8b1acdf78da05921d5d0ad3f8deba9b230
+
+pkgname = python-watchfiles

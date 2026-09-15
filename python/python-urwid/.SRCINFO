@@ -1,0 +1,37 @@
+pkgbase = python-urwid
+	pkgdesc = Curses-based user interface library
+	pkgver = 4.0.0
+	pkgrel = 1
+	url = https://urwid.org/
+	arch = x86_64
+	arch = powerpc
+	arch = powerpc64
+	arch = powerpc64le
+	arch = espresso
+	license = LGPL-2.1-only
+	checkdepends = python-gobject
+	checkdepends = python-pytest
+	checkdepends = python-pyzmq
+	checkdepends = python-tornado
+	checkdepends = python-trio
+	checkdepends = python-twisted
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = glib2
+	depends = python
+	depends = python-wcwidth
+	optdepends = python-gobject: for gobject integration
+	optdepends = python-pyserial: for LCD and serial integration
+	optdepends = python-pyzmq: for zmq integration
+	optdepends = python-tornado: for tornado integration
+	optdepends = python-trio: for trio integration
+	optdepends = python-twisted: for twisted integration
+	source = git+https://github.com/urwid/urwid.git#tag=4.0.0
+	sha512sums = fc751e3a28a6e21442e0aad8a868dfb6c80884b2b71d635a7c348f945a2248c0913c39ffc51aeda5f2aa7b56e644570fc3e62defc9fb79d7084b951b13167797
+	b2sums = 8cf2f88fd7fb9aa681368151688e8bbcdbab8d32eddaf045f986b5b277080118015c8535ddb545a5789ebbfe5a21b0d8f1127679b6055df59cd8085a898fff33
+
+pkgname = python-urwid

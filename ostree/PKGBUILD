@@ -1,0 +1,127 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+# Contributor: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Mirco Tischler <mt-ml at gmx dot de>
+
+pkgname=ostree
+pkgver=2026.2
+pkgrel=1
+pkgdesc="Operating system and container binary deployment and upgrades"
+url="https://ostreedev.github.io/ostree/"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(LGPL-2.0-or-later)
+depends=(
+  bash
+  composefs
+  fuse3
+  glibc
+  libgcc
+  libgpg-error
+  libsodium
+  sh
+  util-linux
+  which  # remove after https://github.com/ostreedev/ostree/pull/3154 is merged and released
+  zlib
+)
+makedepends=(
+  avahi
+  curl
+  e2fsprogs
+  git
+  glib2
+  glib2-devel
+  gobject-introspection
+  gpgme
+  gtk-doc
+  libarchive
+  libsoup3
+  libxslt
+  mkinitcpio
+  openssl
+  python
+  systemd
+  xz
+)
+checkdepends=(
+  cpio
+  elfutils
+  fsverity-utils
+  gjs
+  jq
+  parallel
+  python-yaml
+)
+checkdepends_x86_64=(
+  syslinux
+)
+provides=(libostree-1.so)
+source=(
+  git+https://github.com/ostreedev/ostree#tag=v$pkgver
+  git+https://github.com/mendsley/bsdiff
+  git+https://gitlab.gnome.org/GNOME/libglnx.git
+  $pkgname-2023.1-use_fuse3.patch
+)
+b2sums=('06a8f46d9ae7d980a18ab59bb36aca0cbc2692e81d87d5b205e5b87c628630161733f146960f4eae868bd5d71b4f5a2dd6aa4769f8b3b5fdfbba5a84d44a08ff'
+        'SKIP'
+        'SKIP'
+        'cfff162120f70995e18ec56454711501391b97456e2a0f34643c9d2a9c2b50b4d76afc2e2fc50ea28e8a773c618215d6cb855b96663f69dc5cc93bc5766f3f28')
+
+prepare() {
+  cd $pkgname
+
+  # use fusemount3 (fuse3)
+  git apply -3 ../$pkgname-2023.1-use_fuse3.patch
+
+  git submodule init
+  git submodule set-url bsdiff "$srcdir/bsdiff"
+  git submodule set-url libglnx "$srcdir/libglnx"
+  git -c protocol.file.allow=always submodule update
+
+  NOCONFIGURE=1 ./autogen.sh
+}
+
+build() {
+  local configure_options=(
+    --disable-static
+    --enable-experimental-api
+    --enable-gtk-doc
+    --libexecdir=/usr/lib
+    --localstatedir=/var
+    --prefix=/usr
+    --sbindir=/usr/bin
+    --sysconfdir=/etc
+    --with-curl
+    --with-dracut=yesbutnoconf
+    --with-ed25519-libsodium
+    --with-grub2-mkconfig-path=/usr/bin/grub-mkconfig
+    --with-mkinitcpio
+    --with-modern-grub
+    --with-openssl
+  )
+
+  cd $pkgname
+  ./configure "${configure_options[@]}"
+  # prevent overlinking due to libtool
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+check() {
+  make check -k -C $pkgname
+}
+
+package() {
+  depends+=(
+    avahi libavahi-client.so libavahi-common.so libavahi-glib.so
+    curl libcurl.so
+    glib2 libgio-2.0.so libglib-2.0.so libgobject-2.0.so
+    gpgme libgpgme.so
+    libarchive libarchive.so
+    openssl libcrypto.so
+    systemd-libs libsystemd.so
+    xz liblzma.so
+  )
+
+  make DESTDIR="$pkgdir" install -C $pkgname
+}

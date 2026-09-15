@@ -1,0 +1,26 @@
+pkgbase = fuse3
+	pkgdesc = Interface for userspace programs to export a filesystem to the Linux kernel
+	pkgver = 3.18.2
+	pkgrel = 1
+	url = https://github.com/libfuse/libfuse
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL2
+	makedepends = pkg-config
+	makedepends = meson
+	makedepends = udev
+	options = !emptydirs
+	source = https://github.com/libfuse/libfuse/releases/download/fuse-3.18.2/fuse-3.18.2.tar.gz
+	validpgpkeys = ED31791B2C5C1613AF388B8AD113FCAC3C4E599F
+	sha256sums = f01de85717e20adf5f98aff324acd85dd73d61a5ca3834d573dcf0bd6e54a298
+
+pkgname = fuse-common
+	pkgdesc = Common files for fuse2/3 packages
+	backup = etc/fuse.conf
+
+pkgname = fuse3
+	depends = fuse-common
+	depends = glibc

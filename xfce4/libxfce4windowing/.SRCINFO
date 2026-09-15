@@ -1,0 +1,32 @@
+pkgbase = libxfce4windowing
+	pkgdesc = Windowing concept abstraction library for X11 and Wayland
+	pkgver = 4.20.7
+	pkgrel = 1
+	url = https://docs.xfce.org/xfce/libxfce4windowing/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-only
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = gtk-doc
+	makedepends = meson
+	makedepends = vala
+	makedepends = wayland-protocols
+	makedepends = xfce4-dev-tools
+	depends = gdk-pixbuf2
+	depends = glib2
+	depends = gtk3
+	depends = libwnck3
+	depends = libdisplay-info
+	depends = libx11
+	depends = wayland
+	source = git+https://gitlab.xfce.org/xfce/libxfce4windowing.git#tag=libxfce4windowing-4.20.7
+	source = git+https://gitlab.freedesktop.org/wlroots/wlr-protocols.git
+	sha256sums = cd25a006a03d3e81d1ba0f48524af8404ee165480762a5f15db3934e02aaf84d
+	sha256sums = SKIP
+
+pkgname = libxfce4windowing

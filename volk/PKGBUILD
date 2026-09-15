@@ -1,0 +1,50 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Maintainer: Laurent Carlier <lordheavym@gmail.com>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+
+pkgname=volk
+pkgver=1.4.357.0
+pkgrel=1
+pkgdesc="Meta loader for Vulkan API"
+url="https://github.com/zeux/volk"
+arch=(aarch64 armv7h i486 i686 pentium4 x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(MIT)
+makedepends=(
+  cmake
+  git
+  ninja
+  vulkan-headers
+)
+groups=(vulkan-devel)
+options=(
+  # We are producing static libraries
+  !lto
+)
+source=("git+$url#tag=vulkan-sdk-$pkgver")
+b2sums=('1b124176d588d5d3af774de5a9e7023cbca817ae350697da1ff2e7c9d6711988895879984c618660aa474023d4b6097f76e28b1c1d529759586efb741b4dbd9b')
+
+build() {
+  local cmake_options=(
+    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D CMAKE_INSTALL_SYSCONFDIR=/etc
+    -D CMAKE_SKIP_INSTALL_RPATH=ON
+    -D VOLK_INSTALL=ON
+  )
+
+  cmake -S volk -B build -G Ninja "${cmake_options[@]}"
+  cmake --build build
+}
+
+check() {
+  ctest --test-dir build --output-on-failure --stop-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 volk/LICENSE.md -t "$pkgdir/usr/share/licenses/$pkgname"
+}
+
+# vim:set sw=2 sts=-1 et:

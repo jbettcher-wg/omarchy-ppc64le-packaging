@@ -1,0 +1,17 @@
+pkgbase = bats-assert
+	pkgdesc = Common assertions for Bats
+	pkgver = 2.2.4
+	pkgrel = 1
+	url = https://github.com/bats-core/bats-assert
+	arch = any
+	license = custom:CC0
+	checkdepends = coreutils
+	depends = bash
+	depends = bats
+	depends = bats-support
+	replaces = bash-bats-assert
+	source = https://github.com/bats-core/bats-assert/archive/refs/tags/v2.2.4/bats-assert-2.2.4.tar.gz
+	sha512sums = ed826f9dfd07e66386584f16c5abc81321162b25ebe34ef1e9ac6524cf706b19db9d9e27d4008ad3b4edc17d2f9a8c1fe08947767129ec71be18c3d349408e92
+	b2sums = 721907ee86b5f070abe5fae135ad053413b1dc6527b123d1683796566f1cc96bd142e84e090455df52ec7b4884aadca1b16e2d68e23e1e1da241b897115ef005
+
+pkgname = bats-assert

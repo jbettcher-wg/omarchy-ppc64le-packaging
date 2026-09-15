@@ -1,0 +1,29 @@
+pkgbase = python-fsspec
+	pkgdesc = Specification that python filesystems should adhere to
+	pkgver = 2026.3.0
+	pkgrel = 1
+	url = https://github.com/intake/filesystem_spec
+	arch = any
+	license = BSD-3-Clause
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatch-vcs
+	makedepends = python-hatchling
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	optdepends = python-aiohttp: HTTP support
+	optdepends = python-distributed: Dask support
+	optdepends = python-libarchive-c: archives support
+	optdepends = python-lz4: LZ4 compression support
+	optdepends = python-paramiko: SFTP support
+	optdepends = python-pyarrow: Arrow/Parquet support
+	optdepends = python-pygit2: git support
+	optdepends = python-requests: web protocols support
+	optdepends = python-smbprotocol: SMB support
+	optdepends = python-snappy: snappy compression support
+	optdepends = python-tqdm: progress bar support
+	source = python-fsspec::git+https://github.com/intake/filesystem_spec.git#tag=2026.3.0
+	b2sums = 4b904c69ded3c06eaea79d8af4fdbce305a70f30d5e1ead0f362fd36231128cee39e55dca1b1940665d2fe58afea70511506d72cb18eda13c58f8c7d1f75c310
+
+pkgname = python-fsspec

@@ -1,0 +1,19 @@
+pkgbase = passt
+	pkgdesc = Plug A Simple Socket Transport
+	pkgver = 2026_01_20.386b5f5
+	pkgrel = 1
+	url = https://passt.top/passt/about/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	license = GPL-2.0-or-later
+	depends = glibc
+	optdepends = sh: for demo script
+	source = https://passt.top/passt/snapshot/passt-2026_01_20.386b5f5.tar.zst
+	sha512sums = fb8230d6181fddadfffc027ccb0b04aeefd4af01d3a5673938819b246b61487b91f325b9b6a5e0ec9bbdde3d7de38fe5866319403ffffcafbddcc8c2ece55f47
+	b2sums = f7f394e70a86f71cfd44224956a49dc65f8f652756341dd4389a207c1c13e1fcbdb727582c1d74cd0dd5c7fa62dcd70f3aca142439f850c314721ff31a8b316e
+
+pkgname = passt

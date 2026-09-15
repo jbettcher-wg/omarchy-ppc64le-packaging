@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Merk Matthias <macem@chello.at>
+
+pkgname=xfce4-sensors-plugin
+pkgver=1.5.0
+pkgrel=2
+pkgdesc="Sensors plugin for the Xfce panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/panel-plugins/xfce4-sensors-plugin/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('xfce4-panel' 'lm_sensors' 'libnotify' 'hicolor-icon-theme')
+makedepends=('git' 'hddtemp' 'meson' 'netcat' 'xfce4-dev-tools')
+optdepends=('hddtemp: for monitoring the temperature of hard drives')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-sensors-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('11185e845b5a52813b9a7610505384813eb4ad3cfe3c3e7aee5ce10d75b91468')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var \
+    -D xnvctrl=disabled
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

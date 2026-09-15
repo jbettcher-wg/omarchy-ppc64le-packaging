@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Andri Yngvason <andri@yngvason.is>
+
+pkgname=neatvnc
+pkgver=1.0.1
+pkgrel=2
+pkgdesc='Fast and neat VNC server library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://github.com/any1/neatvnc
+license=(ISC)
+depends=(
+  glibc
+  gmp
+  gnutls
+  libaml.so
+  libavcodec.so
+  libdrm
+  libpixman-1.so
+  libturbojpeg.so
+  mesa
+  nettle
+  zlib
+)
+makedepends=(
+  git
+  meson
+  ninja
+)
+provides=(libneatvnc.so)
+source=(git+https://github.com/any1/neatvnc.git#tag=v${pkgver})
+b2sums=('cdc7c850c46f59f70c3132e8279191d65e37a0bd453c5ec2d9746470a3cd9d43045c086a57f4e755f77c01f1e47928c693812d208a0803633d3f010e312b0096')
+
+prepare() {
+  cd neatvnc
+  git cherry-pick -n 5b190f0fd9e6b0bfd32752a9115242f87ec36c59
+  git cherry-pick -n f97805deaaea489a1c8c851324163a92a3125195
+}
+
+build() {
+  arch-meson neatvnc build \
+    -Djpeg=enabled \
+    -Dtls=enabled
+  meson compile -C build
+}
+
+package() {
+  DESTDIR="${pkgdir}" meson install -C build
+  install -Dm 644 neatvnc/COPYING -t "${pkgdir}"/usr/share/licenses/neatvnc
+}
+
+# vim: ts=2 sw=2 et:

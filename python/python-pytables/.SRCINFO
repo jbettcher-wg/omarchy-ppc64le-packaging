@@ -1,0 +1,36 @@
+pkgbase = python-pytables
+	pkgdesc = A Python package to manage extremely large amounts of data
+	pkgver = 3.11.1
+	pkgrel = 1
+	url = https://www.pytables.org
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = cython
+	makedepends = git
+	makedepends = python-blosc2
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = blosc2
+	depends = bzip2
+	depends = glibc
+	depends = hdf5
+	depends = lzo
+	depends = python
+	depends = python-numexpr
+	depends = python-numpy
+	depends = python-packaging
+	depends = python-py-cpuinfo
+	source = git+https://github.com/PyTables/PyTables.git#tag=v3.11.1
+	source = git+https://github.com/Blosc/c-blosc.git
+	source = git+https://github.com/Blosc/hdf5-blosc.git
+	b2sums = 2197e4be34066e2803b588ec3fe1cb94b230dc4a4ac9e00eb7e0c4c6a4696653e8ad072b8196c8287784994cd74d8f04d0ea45b9c6b6bbe4b96d1cc170da2186
+	b2sums = SKIP
+	b2sums = SKIP
+
+pkgname = python-pytables

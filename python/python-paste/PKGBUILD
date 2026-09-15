@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: David Campbell <davekong@archlinux.us>
+# Contributor: Cilyan Olowen <gaknar@gmail.com>
+
+pkgname=python-paste
+pkgver=3.10.1
+pkgrel=6
+pkgdesc="Tools for using a Web Server Gateway Interface stack"
+arch=(any)
+url="https://pythonpaste.readthedocs.io/"
+license=('MIT')
+depends=('python')
+optdepends=('python-flup: WSGI utilities')
+makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools')
+checkdepends=('python-pytest' 'python-flup')
+source=("https://files.pythonhosted.org/packages/source/p/paste/paste-${pkgver}.tar.gz")
+sha512sums=('3d224fc017f8354a4737c83d3dcddd0dfa8baaa80a86f843e817ccba295b8e04d16bb10594f17f010da204a0854cf9d57c03a09d0dacb0e7af305a9b0f86422f')
+
+build() {
+  cd paste-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd paste-$pkgver
+  pytest -W ignore::DeprecationWarning --deselect tests/test_cgiapp.py::test_form
+}
+
+package() {
+  cd paste-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -Dm644 docs/license.txt -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

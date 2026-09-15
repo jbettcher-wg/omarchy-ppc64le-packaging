@@ -1,0 +1,45 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Contributor: Angel Velasquez <angvp@archlinux.org>
+# Contributor: Juergen Hoetzel <juergen@archlinux.org>
+
+pkgname=lxde-icon-theme
+pkgver=0.5.2
+pkgrel=2
+pkgdesc='LXDE default icon theme based on nuoveXT2'
+arch=(any)
+url='https://github.com/lxde/lxde-icon-theme'
+license=(LGPL-3.0-or-later)
+groups=(lxde)
+makedepends=(git)
+source=(
+  "git+https://github.com/lxde/$pkgname.git#tag=$pkgver"
+  lxde-icon-theme-adwaita-inherit.patch
+)
+b2sums=(
+  4257a8eae1f5c8fb5c8e7c0ed5c4a568ef1488b86ded9640ef09c5eb6ec2cde1077f4a10eb25bc8d038ce362b2f0ed8cb5a4ee49e2a5879a28d348eb4d70753c
+  1a28dd101456a0f285f60041c905f70153231e4c7bd3b178a486c731fc13e6a43b7f3d55d928a8b2b674dd8af06aa5b9e5448ddd56f77cfd83affd002ac7baf5
+)
+
+prepare() {
+  cd $pkgname
+
+  # https://github.com/lxde/lxde-icon-theme/pull/1
+  git apply -3 ../lxde-icon-theme-adwaita-inherit.patch
+
+  autoreconf -fi
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

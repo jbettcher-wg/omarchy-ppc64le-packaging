@@ -1,0 +1,23 @@
+pkgbase = python-gitpython
+	pkgdesc = A python library used to interact with Git repositories
+	pkgver = 3.1.50
+	pkgrel = 1
+	url = https://github.com/gitpython-developers/gitpython
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-ddt
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = git
+	depends = python
+	depends = python-gitdb
+	source = python-gitpython::git+https://github.com/gitpython-developers/gitpython.git?signed#tag=3.1.50
+	validpgpkeys = 27C50E7F590947D7273A741E85194C08421980C9
+	sha512sums = 100360015e8620b82acb3893c86f6fd96c5b9b18b2e587691c580a151d1b79c5661ce0e263776fa505227e5699cadb2380048908597a96374139aacae98b5d4d
+	b2sums = 24ff27bb256d77f67bfce0446bcb72db3eb9eb5c2930a3fedc9f617a3f46a763cb739e5866456ebbb6c36422ab8284f51988e73d96ecf7cc6740f79240406e5d
+
+pkgname = python-gitpython

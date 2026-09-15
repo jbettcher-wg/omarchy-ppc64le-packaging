@@ -1,0 +1,19 @@
+pkgbase = python-hpack
+	pkgdesc = Pure-Python HPACK header compression
+	pkgver = 4.1.0
+	pkgrel = 3
+	url = https://hyper.rtfd.org/
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-hypothesis
+	makedepends = git
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/python-hyper/hpack.git#tag=v4.1.0
+	sha512sums = 8720b30e65ce48b2d085699d172b14d362f19e9d85aab20c6bed47a3665f2f371e09e093f9cca58e443d735a54765596a32daf918cc121624b5c2f209b62d457
+
+pkgname = python-hpack

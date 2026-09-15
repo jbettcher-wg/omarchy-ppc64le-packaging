@@ -1,0 +1,23 @@
+pkgbase = python-sphinxcontrib-mermaid
+	pkgdesc = Mermaid diagrams in yours sphinx powered docs
+	pkgver = 2.1.0
+	pkgrel = 1
+	url = https://github.com/mgaitan/sphinxcontrib-mermaid
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	depends = python
+	depends = python-sphinx
+	depends = python-packaging
+	depends = python-docutils
+	depends = python-pyyaml
+	depends = python-jinja
+	source = python-sphinxcontrib-mermaid::git+https://github.com/mgaitan/sphinxcontrib-mermaid#tag=2.1.0
+	sha512sums = 650a6bdb2719c7a91938e08da0f80e7c2bb3207a19965f35f9ed245c862353e8f8ecad0fba8315a91f933833b3428bf21b334cbbbdd01c796214b5101e9fa92c
+	b2sums = 56eb9b349e16f6e8763a0b90b555529f535ac6a231c2ae0360892e9975348a8532f2e21892f4f0e61b52e0ebd5779ec2c8508618bf18ee3266820c76bc11c7d5
+
+pkgname = python-sphinxcontrib-mermaid

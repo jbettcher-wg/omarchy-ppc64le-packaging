@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xev
+pkgver=1.2.7
+pkgrel=1
+pkgdesc="Print contents of X events"
+url="https://gitlab.freedesktop.org/xorg/app/xev"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('MIT')
+depends=('libx11' 'libxrandr' 'glibc')
+makedepends=('xorg-util-macros' 'xorgproto')
+groups=('xorg-apps' 'xorg')
+source=(https://xorg.freedesktop.org/archive/individual/app/xev-${pkgver}.tar.xz{,.sig})
+sha512sums=('e6537827972b80bd58af4569054d44028cbb8a86e94445e9e99c7a6299500454da7b7dad0783bd49e937ca43e39cde1bf564762576ae3f2c52dc4a5c7c68b333'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # Alan Coopersmith <alan.coopersmith@oracle.com>
+#validpgpkeys+=('3BB639E56F861FA2E86505690FDD682D974CA72A') # "Matt Turner <mattst88@gmail.com>" 
+
+build() {
+  cd xev-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xev-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+}

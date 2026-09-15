@@ -1,0 +1,18 @@
+pkgbase = python-poetry-plugin-export
+	pkgdesc = Poetry plugin to export the dependencies to various formats
+	pkgver = 1.10.0
+	pkgrel = 1
+	url = https://github.com/python-poetry/poetry-plugin-export
+	arch = any
+	license = MIT
+	checkdepends = python-pytest-mock
+	checkdepends = python-pytest-xdist
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python-poetry
+	source = git+https://github.com/python-poetry/poetry-plugin-export.git#tag=1.10.0
+	sha512sums = e2c8ff3994488c93721d4df36aa4d234d2c8661a611ad46f289e4e7b9499ca8565cc954ae75e82638fae046e2ddbbb7f7574f704c88e0e7d03eed163720a4765
+
+pkgname = python-poetry-plugin-export

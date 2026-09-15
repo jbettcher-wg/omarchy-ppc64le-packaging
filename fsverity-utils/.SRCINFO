@@ -1,0 +1,17 @@
+pkgbase = fsverity-utils
+	pkgdesc = Userspace utilities for fs-verity
+	pkgver = 1.7
+	pkgrel = 1
+	url = https://git.kernel.org/pub/scm/fs/fsverity/fsverity-utils.git
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	depends = openssl
+	source = https://git.kernel.org/pub/scm/fs/fsverity/fsverity-utils.git/snapshot/fsverity-utils-1.7.tar.gz
+	sha256sums = 686de715e27c30b579d468ab02d7a841ab2a1f553975754fd134ebf627b26149
+	makedepends_x86_64 = pandoc
+
+pkgname = fsverity-utils

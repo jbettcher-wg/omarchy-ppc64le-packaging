@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-pygaljs
+pkgver=1.0.2
+pkgrel=6
+pkgdesc="Python package providing assets from https://github.com/Kozea/pygal.js"
+url="https://github.com/ionelmc/python-pygaljs"
+license=('GPL-3.0-or-later')
+arch=(any)
+depends=('python')
+makedepends=('git' 'python-build' 'python-installer' 'python-wheel' 'python-setuptools')
+checkdepends=('python-pytest')
+source=("git+https://github.com/ionelmc/python-pygaljs.git#tag=v$pkgver"
+        "git+https://github.com/Kozea/pygal.js.git")
+sha512sums=('218828260603db7c6c8f4deb3a22d25f6b470fc178f66f8be39ec1543f840261158d1137522d1b037d9556650a84b7814749a121f223945adcfbfcbb42599ca8'
+            'SKIP')
+
+prepare() {
+  cd python-pygaljs
+  git config submodule.src/pygaljs/static.url "$srcdir/pygal.js"
+  git -c protocol.file.allow=always submodule update --init
+}
+
+build() {
+  cd python-pygaljs
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd python-pygaljs
+  pytest
+}
+
+package() {
+  cd python-pygaljs
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

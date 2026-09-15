@@ -1,0 +1,7 @@
+[perl-sgmls]
+source = "regex"
+regex = 'SGMLSpm-\d+\.\d+\.tar.gz'
+url = "https://cpan.metacpan.org/authors/id/R/RA/RAAB/"
+prefix = "SGMLSpm-"
+from_pattern = ".tar.gz"
+to_pattern = ""

@@ -1,0 +1,4 @@
+[wasm-component-ld]
+source = "git"
+git = "https://github.com/bytecodealliance/wasm-component-ld.git"
+prefix = "v"

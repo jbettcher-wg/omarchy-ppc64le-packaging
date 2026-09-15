@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Ben <ben@benmazer.net>
+
+pkgname=xfce4-fsguard-plugin
+pkgver=1.2.0
+pkgrel=1
+pkgdesc="File system usage monitor plugin for the Xfce4 panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('BSD-2-Clause')
+url="https://docs.xfce.org/panel-plugins/xfce4-fsguard-plugin/start"
+groups=('xfce4-goodies')
+depends=('xfce4-panel')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-fsguard-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('d44618a302ae94cd0e79870b7f789d74cbc7c1a5be42317b40fe10aed5ceeb8d')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 $pkgname/COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Troy C < rstrox -ta yahoo -tod com >
+
+pkgname=python-wrapt
+pkgver=2.1.2
+pkgrel=1
+pkgdesc="A Python module for decorators, wrappers and monkey patching"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/GrahamDumpleton/wrapt"
+license=("BSD-2-Clause")
+depends=('python')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-pytest')
+source=("git+https://github.com/GrahamDumpleton/wrapt.git#tag=$pkgver")
+sha512sums=('ad9bab39af92455637fca3651ca47540de56bbbaae3c8f221a568dcfac8270564dbadc87774e06cd18c7cc95f5a4b225e210d8ecdaeafaf37d649ccc7c03fb7d')
+
+MYARCH=${CARCH}
+case "${CARCH}" in
+	powerpc*) MYARCH=${CARCH/powerpc/ppc} ;;
+esac
+
+build() {
+  cd wrapt
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  local python_version=$(python -c 'import sys; print("".join(map(str, sys.version_info[:2])))')
+
+  cd wrapt
+  PYTHONPATH="$PWD/build/lib.linux-$MYARCH-cpython-$python_version" pytest -k "not mypy"
+}
+
+package() {
+  cd wrapt
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

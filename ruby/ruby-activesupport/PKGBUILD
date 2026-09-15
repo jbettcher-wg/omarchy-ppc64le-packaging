@@ -1,0 +1,115 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+_name=activesupport
+pkgname=ruby-activesupport
+pkgver=8.1.2
+pkgrel=1
+pkgdesc='A collection of utility classes and standard library extensions'
+arch=(any)
+url="https://github.com/rails/rails/tree/master/activesupport"
+license=(MIT)
+depends=(
+  ruby
+  ruby-base64
+  ruby-benchmark
+  ruby-bigdecimal
+  ruby-concurrent
+  ruby-connection_pool
+  ruby-drb
+  ruby-logger
+  ruby-i18n  # NOTE: bootstrap without (circular dependency)
+  ruby-minitest
+  ruby-securerandom
+  ruby-tzinfo
+  ruby-uri
+  ruby-zeitwerk
+)
+makedepends=(
+  git
+  ruby-rdoc
+)
+options=(!emptydirs)
+source=($pkgname::git+https://github.com/rails/rails#tag=v$pkgver?signed)
+sha512sums=('167f8ce56dceef5c10550acb5e2260410081c4afd4e1e30317f0df44a5a211ffba57148403ee56046f231b12b5e29c83f193865ff5260e965d8d04e5b9d26aa3')
+b2sums=('b2bd1f48507249de9fff05770f34fb0cbc67305e33f098d95cf7d5247a19623b9fb62eb07eded5e8b660060a59cb254bce9baa6edc65ea8963ea66636f1c3632')
+validpgpkeys=(
+  '54FE550EA35E26D7C75362C1FC23B6D0F1EEE948'  # Rafael Mendonça França <rafael.ufs@gmail.com>
+  '4CE91B75A79828E86B1AA8BB953170BCB4FFAFC6'  # Aaron Patterson <tenderlove@ruby-lang.org>
+)
+
+pkgver() {
+  cd $pkgname
+  git describe --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g;s/v//g'
+}
+
+prepare() {
+  cd $pkgname/$_name
+
+  # update gemspec/Gemfile to allow newer version of the dependencies
+  sed -i -e 's|~>|>=|g' $_name.gemspec
+}
+
+build() {
+  local gemdir="$(gem env gemdir)"
+  local gem_install_options=(
+    --local
+    --verbose
+    --ignore-dependencies
+    --no-user-install
+    --install-dir tmp_install/$gemdir
+    --bindir tmp_install/usr/bin
+    $_name-$pkgver.gem
+  )
+  local unrepro_files=(
+    tmp_install/$gemdir/cache/
+    tmp_install/$gemdir/gems/$_name-$pkgver/vendor/
+    tmp_install/$gemdir/doc/$_name-$pkgver/ri/ext/
+  )
+
+  cd $pkgname/$_name
+
+  gem build $_name.gemspec
+  gem install "${gem_install_options[@]}"
+
+  # remove unrepreducible files
+  rm -frv "${unrepro_files[@]}"
+
+  find tmp_install/$gemdir/gems/ \
+    -type f \
+    \( \
+      -iname "*.o" -o \
+      -iname "*.c" -o \
+      -iname "*.so" -o \
+      -iname "*.time" -o \
+      -iname "gem.build_complete" -o \
+      -iname "Makefile" \
+    \) \
+    -delete
+
+  find tmp_install/$gemdir/extensions/ \
+    -type f \
+    \( \
+      -iname "mkmf.log" -o \
+      -iname "gem_make.out" \
+    \) \
+    -delete
+}
+
+# NOTE: probably requires a specific git checkout of ruby-mysql2
+# check() {
+#   local gemdir="$(gem env gemdir)"
+
+#   cd $pkgname/$_name
+
+#   GEM_HOME="tmp_install/$gemdir" rake test
+# }
+
+package() {
+  cd $pkgname/$_name
+
+  mv -v tmp_install/* "$pkgdir/"
+
+  install -vDm 0644 MIT-LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 0644 {CHANGELOG.md,README.rdoc} -t "$pkgdir/usr/share/doc/$pkgname/"
+}

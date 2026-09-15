@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-aiounittest
+pkgver=1.5.0
+pkgrel=4
+pkgdesc="Test asyncio code more easily"
+url="https://github.com/kwarunek/aiounittest"
+license=('MIT')
+arch=(any)
+depends=('python-wrapt')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools')
+checkdepends=('python-pytest')
+source=("git+https://github.com/kwarunek/aiounittest.git#tag=$pkgver")
+sha512sums=('ae8c3c2ff504f095e5b90dd898a60c6d8bfc844e7fa6f81c56bad1d183b55e723861844bbd820ff57ae6b69b1e336c70e67b5a4d4e2249fc8f3d7dea5ca55c8b')
+
+prepare() {
+  cd aiounittest
+  git cherry-pick -n 603ca4f57ee2f580d59066600e0ca886efcf8700 # Fix tests with python 3.14
+}
+
+build() {
+  cd aiounittest
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd aiounittest
+  PYTHONPATH=. pytest
+}
+
+package() {
+  cd aiounittest
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

@@ -1,0 +1,34 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-pytest-forked
+pkgver=1.6.0
+_commit=ec46db382116f82d36ebc4ceba453b903be7174b
+pkgrel=6
+pkgdesc='run tests in isolated forked subprocesses'
+arch=(any)
+license=('MIT')
+url='https://github.com/pytest-dev/pytest-forked'
+depends=('python-py' 'python-pytest')
+makedepends=('git' 'python-setuptools-scm' 'python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+source=("git+https://github.com/pytest-dev/pytest-forked.git#commit=$_commit")
+sha512sums=('SKIP')
+
+build() {
+  cd pytest-forked
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd pytest-forked
+  # test_functional_boxed_capturing.py::test_function test failure since Python 3.11
+  PYTHONPATH="$PWD"/src pytest -v || true
+}
+
+package() {
+  cd pytest-forked
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-nodeenv
+pkgver=1.10.0
+pkgrel=1
+pkgdesc="Node.js virtual environment builder"
+url="https://github.com/ekalinin/nodeenv"
+license=('BSD-3-Clause')
+arch=(any)
+depends=('python-setuptools' 'make')
+makedepends=('git' 'python-build' 'python-installer' 'python-wheel' 'python-setuptools-scm')
+optdepends=('nodejs: for --node=system')
+checkdepends=('nodejs' 'python-pytest' 'python-coverage')
+source=("git+https://github.com/ekalinin/nodeenv.git#tag=$pkgver")
+sha512sums=('0dbc58d602926bef23fa9fa9a266884fc2b609cc32a6806a57bf78b02cb374f479d9ee12c8df6fc29c3e68e01eda26858da8524b13b7e0bcc975f026f4c12603')
+
+prepare() {
+  cd nodeenv
+  export SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver
+}
+
+build() {
+  cd nodeenv
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd nodeenv
+  pytest
+}
+
+package() {
+  cd nodeenv
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-ukpostcodeparser
+pkgver=1.1.2
+pkgrel=15
+pkgdesc="UK Postcode parser"
+arch=(any)
+license=('MIT')
+url="https://github.com/hamstah/ukpostcodeparser"
+depends=('python')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("git+https://github.com/hamstah/ukpostcodeparser.git#tag=v$pkgver")
+sha512sums=('c72bc94c6451a3d782806fad197d503e34f118af851d2a2c1a1c2527146140ab642b4dbaa34ce438092e970c4248309b6dde9fd74e3d79f2b07073bddd21f00d')
+
+build() {
+  cd ukpostcodeparser
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  # Expected failure: https://github.com/hamstah/ukpostcodeparser/issues/8
+
+  cd ukpostcodeparser
+  python -m unittest discover -s ukpostcodeparser/test -p '*.py' || echo "Tests failed"
+}
+
+package() {
+  cd ukpostcodeparser
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

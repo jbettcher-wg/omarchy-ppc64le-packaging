@@ -1,0 +1,20 @@
+pkgbase = python-secretstorage
+	pkgdesc = Securely store passwords and other private data using the SecretService DBus API
+	pkgver = 3.5.0
+	pkgrel = 1
+	url = https://github.com/mitya57/secretstorage
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = org.freedesktop.secrets
+	checkdepends = xorg-server-xvfb
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = git
+	depends = python-cryptography
+	depends = python-jeepney
+	source = git+https://github.com/mitya57/secretstorage.git#tag=3.5.0
+	sha512sums = e37edabee40eab2c3788b3cdb4a5b320ed48eaf77edde25812a2dc99c7e38013b15bfcc3f26405a54c0743a8b982e3c858812a2b517fd6dd0c3dd42f9889b416
+
+pkgname = python-secretstorage

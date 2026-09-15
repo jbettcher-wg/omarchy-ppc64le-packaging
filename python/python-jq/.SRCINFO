@@ -1,0 +1,24 @@
+pkgbase = python-jq
+	pkgdesc = Python bindings for jq
+	pkgver = 1.11.0
+	pkgrel = 1
+	url = https://github.com/mwilliamson/jq.py
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-2-Clause
+	checkdepends = python-pytest
+	makedepends = cython
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = jq
+	depends = python
+	source = git+https://github.com/mwilliamson/jq.py.git#tag=1.11.0
+	b2sums = b4b35c07ec1269271bca598debfc92e9dddcc1f86baa41ee7f24ab617139bd6682f813912b76a5433adc5c89f43d2713984062cded9958698a4fb4287c85b735
+
+pkgname = python-jq

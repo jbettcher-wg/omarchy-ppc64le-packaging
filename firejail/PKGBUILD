@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Sergej Pupykin <arch+pub@sergej.pp.ru>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+# Maintainer: T.J. Townsend <blakkheim@archlinux.org>
+# Contributor: ajs124 < aur AT ajs124 DOT de >
+
+pkgname=firejail
+pkgver=0.9.80
+pkgrel=1
+pkgdesc='Linux namespaces sandbox program'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://github.com/netblue30/firejail
+license=('GPL-2.0-only')
+depends=('apparmor')
+makedepends=('git')
+optdepends=('xdg-dbus-proxy: for D-Bus filtering')
+backup=('etc/apparmor.d/local/firejail-default'
+        'etc/firejail/firecfg.config'
+        'etc/firejail/firejail.config'
+        'etc/firejail/login.users')
+install=firejail.install
+source=("git+https://github.com/netblue30/firejail.git#tag=$pkgver")
+sha256sums=('50f525b06dc01e798fdfa904902f7b5d696a38ad190872340c4175f0d40b02f6')
+b2sums=('58708f5cc818ea6a01a3b2e50729ca2d96913997b98b7d7d64e8cdc3169b8c7e09fdf2ea118f4524a6ba1efb9eada9f8b61a2849e19ea67a542af34c25840ce5')
+#validpgpkeys=('F951164995F5C4006A73411E2CCB36ADFC5849A7')
+
+build() {
+  cd $pkgname
+  ./configure --prefix=/usr --enable-apparmor
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

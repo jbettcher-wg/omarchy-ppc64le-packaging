@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Contributor: Eric Bélanger <eric@archlinux.org>
+
+pkgname=libwmf
+pkgver=0.2.15
+pkgrel=1
+pkgdesc="A library for reading vector images in Microsoft's native Windows Metafile Format (WMF)"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/caolanm/libwmf"
+license=('LGPL-2.1-or-later')
+depends=('expat' 'freetype2' 'glibc' 'libjpeg-turbo' 'libpng' 'libx11' 'zlib')
+makedepends=('gdk-pixbuf2' 'git')
+optdepends=('gdk-pixbuf2: for pixbuf loader')
+source=("git+https://github.com/caolanm/libwmf.git#tag=v$pkgver")
+sha256sums=('e4277aa51da5e849b5808c2e10d0a98a43b2c339506764ce775d0aef36d82af1')
+
+prepare() {
+  cd ${pkgname}
+  autoreconf -fi
+}
+
+build() {
+  cd ${pkgname}
+  ./configure --prefix=/usr \
+              --with-gsfontmap=/usr/share/ghostscript/Resource/Init/Fontmap.GS \
+              --with-gsfontdir=/usr/share/fonts/gsfonts
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+check() {
+  cd ${pkgname}
+  make check
+}
+
+package() {
+  cd ${pkgname}
+  make DESTDIR="${pkgdir}" install
+}

@@ -1,0 +1,20 @@
+pkgbase = python-sphobjinv
+	pkgdesc = Manipulate and inspect Sphinx objects.inv files
+	pkgver = 2.4
+	pkgrel = 1
+	url = https://github.com/bskinn/sphobjinv
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	depends = python-attrs
+	depends = python-certifi
+	depends = python-jsonschema
+	source = git+https://github.com/bskinn/sphobjinv.git#tag=v2.4
+	sha256sums = 39b54b804d541cb81735d02311b9b4bcaab8556c0bc74a1f0bf755f493d65f3d
+
+pkgname = python-sphobjinv

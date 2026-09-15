@@ -1,0 +1,17 @@
+pkgbase = python-process-tests
+	pkgdesc = Tools for testing processes
+	pkgver = 3.0.0
+	pkgrel = 3
+	url = https://pypi.python.org/pypi/process-tests
+	arch = any
+	license = BSD-2-Clause
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/ionelmc/python-process-tests.git#tag=v3.0.0
+	sha512sums = d87ca80ab6332d2e419e660ad8640c50eb398ec6141e0af68ae4a49a641583fa78fb41efd6fd2e31ea990d4f9436fd67028cedd08a7fea6210f1f9109b8dc395
+
+pkgname = python-process-tests

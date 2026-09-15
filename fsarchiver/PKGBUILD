@@ -1,0 +1,26 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer:  Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Tobias Powalowski <tpowa@archlinux.org>
+
+pkgname=fsarchiver
+pkgver=0.8.9
+pkgrel=1
+pkgdesc='Safe and flexible file-system backup and deployment tool'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://www.fsarchiver.org/'
+license=('GPL2')
+depends=('bzip2' 'e2fsprogs' 'lzo' 'xz' 'libgcrypt' 'zlib' 'lz4' 'zstd')
+source=(https://github.com/fdupoux/fsarchiver/releases/download/$pkgver/fsarchiver-$pkgver.tar.gz)
+sha256sums=('ade1d9d3c7de815c0b40b54e24e39b53d4a3b0add69d47f23b36fc2fd8f21843')
+
+build() {
+  cd $pkgname-$pkgver
+  ./configure --prefix=/usr --sbindir=/usr/bin
+  make
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make DESTDIR="$pkgdir" install
+}

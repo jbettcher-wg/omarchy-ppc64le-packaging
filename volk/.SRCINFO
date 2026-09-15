@@ -1,0 +1,26 @@
+pkgbase = volk
+	pkgdesc = Meta loader for Vulkan API
+	pkgver = 1.4.357.0
+	pkgrel = 1
+	url = https://github.com/zeux/volk
+	arch = aarch64
+	arch = armv7h
+	arch = i486
+	arch = i686
+	arch = pentium4
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = vulkan-devel
+	license = MIT
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	makedepends = vulkan-headers
+	options = !lto
+	source = git+https://github.com/zeux/volk#tag=vulkan-sdk-1.4.357.0
+	b2sums = 1b124176d588d5d3af774de5a9e7023cbca817ae350697da1ff2e7c9d6711988895879984c618660aa474023d4b6097f76e28b1c1d529759586efb741b4dbd9b
+
+pkgname = volk

@@ -1,0 +1,22 @@
+pkgbase = python-nodeenv
+	pkgdesc = Node.js virtual environment builder
+	pkgver = 1.10.0
+	pkgrel = 1
+	url = https://github.com/ekalinin/nodeenv
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = nodejs
+	checkdepends = python-pytest
+	checkdepends = python-coverage
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools-scm
+	depends = python-setuptools
+	depends = make
+	optdepends = nodejs: for --node=system
+	source = git+https://github.com/ekalinin/nodeenv.git#tag=1.10.0
+	sha512sums = 0dbc58d602926bef23fa9fa9a266884fc2b609cc32a6806a57bf78b02cb374f479d9ee12c8df6fc29c3e68e01eda26858da8524b13b7e0bcc975f026f4c12603
+
+pkgname = python-nodeenv

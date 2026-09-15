@@ -1,0 +1,27 @@
+pkgbase = elixir
+	pkgdesc = A dynamic, functional language for building scalable and maintainable applications
+	pkgver = 1.19.5
+	pkgrel = 1
+	url = https://elixir-lang.org
+	arch = any
+	license = Apache-2.0
+	checkdepends = erlang-dialyzer
+	checkdepends = erlang-eunit
+	checkdepends = rebar3
+	makedepends = erlang-compiler
+	makedepends = erlang-crypto
+	makedepends = erlang-erts
+	makedepends = erlang-inets
+	makedepends = erlang-kernel
+	makedepends = erlang-parsetools
+	makedepends = erlang-public_key
+	makedepends = erlang-sasl
+	makedepends = erlang-stdlib
+	makedepends = erlang-tools
+	makedepends = erlang-xmerl
+	makedepends = git
+	depends = erlang-core
+	source = git+https://github.com/elixir-lang/elixir.git#tag=v1.19.5
+	sha512sums = 0aed73478563ada1e2f7751718a0a845e379e8bbf15539190b17c2cf6e5e84c6bd32519e6251446d9e49434374e9f87878be9ff7293528aa8532d6863b1fa158
+
+pkgname = elixir

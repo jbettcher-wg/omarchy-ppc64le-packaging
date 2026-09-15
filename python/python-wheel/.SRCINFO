@@ -1,0 +1,25 @@
+pkgbase = python-wheel
+	pkgdesc = A built-package format for Python
+	pkgver = 0.47.0
+	pkgrel = 1
+	url = https://pypi.python.org/pypi/wheel
+	arch = any
+	license = MIT
+	checkdepends = python-jsonschema
+	checkdepends = python-pytest
+	checkdepends = python-keyring
+	checkdepends = python-keyrings-alt
+	checkdepends = python-xdg
+	checkdepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-flit-core
+	makedepends = python-installer
+	depends = python
+	depends = python-packaging
+	optdepends = python-keyring: for wheel.signatures
+	optdepends = python-xdg: for wheel.signatures
+	optdepends = python-setuptools: for legacy bdist_wheel subcommand
+	source = python-wheel-0.47.0.tar.gz::https://github.com/pypa/wheel/archive/0.47.0.tar.gz
+	sha512sums = c07fa4a4e9efa28680f5ee7601058d71d9de3f005771eb452029a3866d0734a5a341d51b73f90f94773e9bb39a1438755aa1f9a34a24929c253047b7f7e65708
+
+pkgname = python-wheel

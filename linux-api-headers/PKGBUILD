@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Giancarlo Razzolini <grazzolini@archlinux.org>
+# Maintainer: Frederik Schwan <freswa at archlinux dot org>
+# Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: Allan McRae <allan@archlinux.org>
+
+# toolchain build order: linux-api-headers->glibc->binutils->gcc->glibc->binutils->gcc
+
+pkgname=linux-api-headers
+pkgver=7.0
+pkgrel=1
+pkgdesc='Kernel headers sanitized for use in userspace'
+arch=(powerpc64le powerpc64 powerpc espresso)
+url='https://www.gnu.org/software/libc'
+license=(GPL-2.0-only)
+makedepends=(rsync)
+source=(https://www.kernel.org/pub/linux/kernel/v${pkgver:0:1}.x/linux-${pkgver}.tar.{xz,sign})
+sha256sums=('bb7f6d80b387c757b7d14bb93028fcb90f793c5c0d367736ee815a100b3891f0'
+            'SKIP')
+validpgpkeys=('ABAF11C65A2970B130ABE3C479BE3E4300411886'   # Linus Torvalds
+              '647F28654894E3BD457199BE38DBBDC86092693E')  # Greg Kroah-Hartman
+
+case "${CARCH}" in
+  powerpc*) export ARCH=powerpc ;;
+esac
+
+build() {
+  cd linux-$pkgver
+
+  ARCH=${ARCH} make mrproper
+}
+
+package() {
+  cd linux-$pkgver
+  ARCH=${ARCH} make INSTALL_HDR_PATH="$pkgdir/usr" headers_install
+}

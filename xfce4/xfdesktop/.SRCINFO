@@ -1,0 +1,27 @@
+pkgbase = xfdesktop
+	pkgdesc = Xfce's desktop manager
+	pkgver = 4.20.2
+	pkgrel = 1
+	url = https://docs.xfce.org/xfce/xfdesktop/start
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xfce4
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = xfce4-dev-tools
+	depends = libxfce4ui
+	depends = libxfce4windowing
+	depends = libyaml
+	depends = gtk-layer-shell
+	depends = exo
+	depends = thunar
+	depends = garcon
+	depends = hicolor-icon-theme
+	source = git+https://gitlab.xfce.org/xfce/xfdesktop.git#tag=xfdesktop-4.20.2
+	sha256sums = 4ff7c3e854f694754c4464688fcb432d60229453f48819bc2ffd47d306f63290
+
+pkgname = xfdesktop

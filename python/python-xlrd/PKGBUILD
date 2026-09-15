@@ -1,0 +1,40 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andrzej Giniewicz <gginiu@gmail.com>
+# Contributor: Aaron DeVore <aaron.devore@gmail.com>
+# Contributor: tocer <tocer.deng@gmail.com>
+# Contributor: Piotr Beling <qwak@stud.ics.p.lodz.pl>
+# Contributor: Douglas Soares de Andrade <dsandrade@gmail.com>
+
+pkgname='python-xlrd'
+pkgver=2.0.2
+pkgrel=2
+pkgdesc='Library for developers to extract data from Excel spreadsheet files'
+arch=(any)
+url='http://www.python-excel.org/'
+license=(BSD-3-Clause BSD-4-Clause)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+source=("$pkgname::git+https://github.com/python-excel/xlrd#tag=$pkgver")
+sha512sums=('0d3e4c7f5485f8440d1082ff25aece2654a375556ab6b8fa51054423101acc3d7bf3da4ed23e024919d9168e11a87fde020d1657dc2eb741fc397b542538d4b3')
+b2sums=('7242f502206fb3443b599825a76507de509ad546a89ad998bab31085bd172a2982e1aaca7ccf861e50b7bb30608e4a4be9016a6c2b786636492b200892cd521e')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" docs/licenses.rst
+}

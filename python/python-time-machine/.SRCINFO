@@ -1,0 +1,25 @@
+pkgbase = python-time-machine
+	pkgdesc = Travel through time in your tests
+	pkgver = 3.2.0
+	pkgrel = 2
+	url = https://github.com/adamchainz/time-machine
+	arch = x86_64
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-randomly
+	checkdepends = python-tokenize-rt
+	checkdepends = python-freezegun
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-dateutil
+	optdepends = python-pytest: for pytest plugin
+	optdepends = python-tokenize-rt: for the migration tool
+	source = python-time-machine::git+https://github.com/adamchainz/time-machine#tag=3.2.0
+	sha512sums = e507871c7d1ff87a3ce7d6ac8e90957e3f81c2b3d220b336ec95a38af7ddf622f7d8de4aa61d0a7e20ae543817ec90ae2403a8b5faba34681767903dd0a0825a
+	b2sums = 06f66a6682cde59de942d032d14385ff98a8f4d6eddb4e573b7ea96984c36b23d3bdb808dd4a18c5670d8a450791201835f377dbafc0fa2c48aae4935c02c21e
+
+pkgname = python-time-machine

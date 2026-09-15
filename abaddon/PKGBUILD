@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Contributor: NexAdn <git@nexadn.de>
+# Contributor: Techflash <officialtechflashyt@gmail.com>
+# Maintainer: javsanpar <javsanpar@riseup.net>
+pkgname=abaddon
+_pkgname=abaddon
+pkgver=0.2.4
+pkgrel=1
+pkgdesc='An alternative Discord client made with C++/gtkmm'
+url='https://github.com/uowuo/abaddon'
+_tag="v${pkgver}"
+source=("git+https://github.com/uowuo/abaddon#tag=${_tag}"
+        ${pkgname}.desktop)
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL3')
+makedepends=('git' 'cmake' 'nlohmann-json')
+# 'rnnoise' not packaged in ArchPOWER, and is optional according
+# to abaddon's readme.
+depends=('gtkmm3' 'libhandy' 'spdlog' 'opus' 'libsodium')
+sha256sums=('04e29cc0fe2b6e35a025bf50ac1ca39099b71386e1fcd1bad5b4954f732146b1'
+            '7840732362b8f2202cf79b7d7c2eb0e2cbd5a83dc45c5fca4609ec15b8bea6df')
+
+prepare () {
+  cd "$_pkgname"
+  git submodule update --init --filter=tree:0 subprojects/{ixwebsocket,keychain,miniaudio,qrcodegen,mlspp,libdave}
+}
+
+build () {
+  cmake -B build -S "$_pkgname" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DENABLE_RNNOISE=OFF
+  make -C build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -D -m644 ${srcdir}/${pkgname}.desktop ${pkgdir}/usr/share/applications/${pkgname}.desktop
+}

@@ -1,0 +1,3 @@
+[python-fixtures]
+source = "git"
+git = "https://github.com/testing-cabal/fixtures.git"

@@ -1,0 +1,81 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=ruby-sus
+pkgver=0.35.1
+pkgrel=1
+pkgdesc='A fast and scalable test runner'
+arch=(any)
+url='https://github.com/socketry/sus'
+license=(MIT)
+depends=(
+  ruby
+)
+makedepends=(
+  git
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bake-test
+  ruby-bake-test-external
+  ruby-bundler
+  ruby-covered
+  ruby-decode
+)
+options=(!emptydirs)
+source=(git+https://github.com/socketry/sus.git#tag=v$pkgver)
+sha512sums=('61d066e05f82f75aa710e8372f195e051ee4dc8a94cd9339b57c378fcfee316f49132661dbcafdaab1f359cf85274cf9f5cf842e0377f8ffa470fd2b28dced84')
+b2sums=('ff373fc2c8e5ac3d4e9e6b3969fda954ed4f3f3f60bac44923732a3f1d9a65eb576fe1be23ff7c8375d5711ed0972c4f2a53d2857ef44489353403798a607f87')
+
+prepare() {
+  cd sus
+
+  sed -r \
+    -e 's|~>|>=|g' \
+    -e '/signing_key/d' \
+    -i sus.gemspec
+
+  sed --in-place \
+    --expression '/group :maintenance/,/end/d' \
+    --expression '/agent-context/d' \
+    --expression '/rubocop/d' \
+    gems.rb
+}
+
+build() {
+  local _gemdir="$(gem env gemdir)"
+  cd sus
+  gem build sus.gemspec
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install/$_gemdir" \
+    --bindir "tmp_install/usr/bin" \
+    sus-$pkgver.gem
+  find "tmp_install/$_gemdir/gems/" \
+    -type f \
+    \( \
+        -iname "*.o" -o \
+        -iname "*.c" -o \
+        -iname "*.so" -o \
+        -iname "*.time" -o \
+        -iname "gem.build_complete" -o \
+        -iname "Makefile" \
+    \) \
+    -delete
+  rm -r tmp_install/$_gemdir/cache
+}
+
+check() {
+  local _gemdir="$(gem env gemdir)"
+  cd sus
+  PATH="$PWD/tmp_install/usr/bin:$PATH" GEM_HOME="tmp_install/$_gemdir" bake test
+}
+
+package() {
+  cd sus
+  cp -a tmp_install/* "$pkgdir"/
+  install -Dm644 license.md -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

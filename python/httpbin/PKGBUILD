@@ -1,0 +1,43 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Chih-Hsuan Yen <yan12125@archlinux.org>
+
+pkgname=httpbin
+pkgver=0.10.4
+pkgrel=1
+pkgdesc="HTTP Request and Response Service"
+arch=(any)
+url="https://github.com/psf/httpbin"
+# Dual-licensed, see https://github.com/psf/httpbin/blob/main/LICENSE
+license=('MIT OR ISC')
+depends=('python' 'python-flask' 'python-decorator' 'python-brotlicffi' 'python-werkzeug'
+         # Not directly used, see https://github.com/psf/httpbin/pull/51
+         'python-greenlet')
+makedepends=('git' 'python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+checkdepends=('python-pytest')
+source=("git+https://github.com/psf/httpbin.git#tag=release-v$pkgver")
+sha512sums=('6f2a43b3a072ef1e5bfdecaca19159d2e4e1af8f69d97b268200f57f695645f8c6378f83e5f5fa929b9f7b7292499fc7f6d163b25c03aa190861abb686b16459')
+
+prepare() {
+  cd httpbin
+  # Remove six - from a not-yet-merged pull request https://github.com/psf/httpbin/pull/40
+  git cherry-pick -n 17d02f215e18df999facc20808f47fcbb72f3a18
+}
+
+build() {
+  cd httpbin
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd httpbin
+  pytest tests
+}
+
+package() {
+  cd httpbin
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 {LICENSE,LICENSE.MIT,LICENSE.ISC} -t "$pkgdir"/usr/share/licenses/$pkgname/
+}
+
+# vim:set ts=2 sw=2 et:

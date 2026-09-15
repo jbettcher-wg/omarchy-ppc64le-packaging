@@ -1,0 +1,24 @@
+pkgbase = python-jupyter-core
+	pkgdesc = Jupyter core package. A base package on which Jupyter projects rely
+	pkgver = 5.9.1
+	pkgrel = 2
+	url = https://pypi.python.org/pypi/jupyter_core
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pip
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	depends = python-argcomplete
+	depends = python-traitlets
+	depends = python-platformdirs
+	provides = python-jupyter_core
+	conflicts = python-jupyter_core
+	replaces = python-jupyter_core
+	source = git+https://github.com/jupyter/jupyter_core#tag=v5.9.1
+	sha256sums = 9e9e35096c8954817231766ffd071f0ecf749c932b78f5a9d933f52da95d10c2
+
+pkgname = python-jupyter-core

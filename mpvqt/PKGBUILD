@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=mpvqt
+pkgver=1.2.0
+pkgrel=1
+pkgdesc='A libmpv wrapper for QtQuick2 and QML'
+license=(LGPL-2.1-only
+         LGPL-3.0-only)
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://invent.kde.org/libraries/mpvqt'
+depends=(glibc
+         libglvnd
+         libstdc++
+         mpv
+         qt6-base
+         qt6-declarative)
+makedepends=(extra-cmake-modules)
+source=(https://download.kde.org/stable/$pkgname/$pkgname-$pkgver.tar.xz{,.sig})
+sha256sums=('8660ad79c0d60fed77f29b36e1742841466af5405de702c81a121e6eeb625ebb'
+            'SKIP')
+validpgpkeys=(4E421C6554B89766DF9B7A37E12AB207C8755905) # George Florea Bănuș <georgefb899@gmail.com>
+
+build() {
+  cmake -B build -S $pkgname-$pkgver
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

@@ -1,0 +1,59 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+
+pkgname=python-genshi
+pkgver=0.7.11
+pkgrel=1
+pkgdesc='Toolkit for stream-based generation of output for the web'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://genshi.edgewall.org'
+license=(BSD-3-Clause)
+depends=(
+  glibc
+  python
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=("$pkgname::git+https://github.com/edgewall/genshi#tag=$pkgver")
+sha512sums=('3f672e57aaf98a6238055574ed6d3aaeef0aedef472a4739c0938201da9698115f4faabe8095c688e000cf09adfa6a306b70fb3eac61760e8bebe0a69d6312ec')
+b2sums=('8179d5cc21da81d8321841fb4bade24da061d4d7f05c97f65a2dc401ace8b618f2a5c7e5cf49799244c4616ba474e57533e5622220308871befec31af5de5336')
+
+prepare() {
+  cd "$pkgname"
+  # Port from pkg_resources to importlib.resources (#97)
+  git cherry-pick -n a31979dcc8d1b974ddff36301472b348664414a3
+}
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  # install to temporary directory
+  python -m installer --destdir="$PWD/tmp_install" dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  export PYTHONPATH="$PWD/tmp_install$site_packages"
+
+  # skip doctests
+  pytest -v --import-mode=importlib -c /dev/null
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" COPYING
+}

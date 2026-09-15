@@ -1,0 +1,21 @@
+pkgbase = python-pytest-httpserver
+	pkgdesc = Http server for pytest to test http clients
+	pkgver = 1.1.5
+	pkgrel = 1
+	url = https://github.com/csernazs/pytest-httpserver
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-requests
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	makedepends = python-wheel
+	depends = python
+	depends = python-pytest
+	depends = python-werkzeug
+	source = pytest-httpserver-1.1.5.tar.gz::https://github.com/csernazs/pytest-httpserver/archive/refs/tags/1.1.5.tar.gz
+	sha256sums = 04dcf14d2792d7378029cff45b6c415ad169c4f96f10d5a9673322eb6a96ba62
+	b2sums = 735ee604c81a0a0c6b5f695885a73eee6f3165110010fa79d7fa0e08c96cb66050e8d5b9f348bb4969c8774e97d6b40b04abb1621504a3dbed5ddc8a1b763e10
+
+pkgname = python-pytest-httpserver

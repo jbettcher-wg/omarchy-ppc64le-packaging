@@ -1,0 +1,15 @@
+pkgbase = gulp
+	pkgdesc = The streaming build system
+	pkgver = 5.0.0
+	pkgrel = 1
+	url = https://gulpjs.com/
+	arch = any
+	license = MIT
+	makedepends = npm
+	depends = nodejs
+	depends = semver
+	noextract = gulp-5.0.0.tgz
+	source = https://registry.npmjs.org/gulp/-/gulp-5.0.0.tgz
+	sha512sums = 4bc67cd3ae924a295e698c354b637523ae0851cfe6c88d9ba9eda284e0733bafa72a9bcd4a0ed971626dfc0c05f0b0bf35537efd0679eb409bff938fb3286486
+
+pkgname = gulp

@@ -1,0 +1,35 @@
+pkgbase = multipath-tools
+	pkgdesc = Multipath tools for Linux (including kpartx)
+	pkgver = 0.14.3
+	pkgrel = 1
+	url = https://github.com/opensvc/multipath-tools
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	license = GPL-3.0-or-later
+	license = LGPL-2.0-or-later
+	license = LGPL-2.1-or-later
+	makedepends = git
+	makedepends = systemd
+	depends = glibc
+	depends = device-mapper
+	depends = libdevmapper.so
+	depends = json-c
+	depends = libjson-c.so
+	depends = libaio
+	depends = libaio.so
+	depends = libgcc
+	depends = libgcc_s.so
+	depends = liburcu
+	depends = systemd-libs
+	depends = libsystemd.so
+	depends = libudev.so
+	depends = util-linux-libs
+	depends = libmount.so
+	source = multipath-tools::git+https://github.com/opensvc/multipath-tools#tag=0.14.3
+	sha256sums = f7489066879598c7d8c4af5f168dc85fbce5b92b9d1c96a7c815415443fa32af
+
+pkgname = multipath-tools

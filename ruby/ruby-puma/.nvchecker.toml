@@ -1,0 +1,5 @@
+[ruby-puma]
+source = "git"
+git = "https://github.com/puma/puma.git"
+prefix = "v"
+exclude_regex = ".*pre.*"

@@ -1,0 +1,68 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: Evgeniy Alekseev <arcanis at archlinux dot org>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Geoffroy Carrier <geoffroy@archlinux.org>
+# Contributor: William Rea <sillywilly@gmail.com>
+# Contributor: Robert Emil Berge <filoktetes@linuxophic.org>
+# Contributor: Jonas Hahnfeld <hahnjo@hahnjo.de>
+
+pkgname=lilypond
+pkgver=2.24.4
+pkgrel=6
+pkgdesc="Music engraving program, devoted to producing the highest-quality sheet music possible"
+arch=(x86_64 powerpc64le powerpc64) #FIXME: powerpc espresso segaults guilde during build
+url="https://lilypond.org"
+license=(FDL1.3 GPL3 OFL)
+groups=(pro-audio)
+depends=(fontconfig libfontconfig.so
+         freetype2 libfreetype.so
+         gcc-libs
+         ghostscript
+         glib2 libgobject-2.0.so
+         glibc libglib-2.0.so
+         gsfonts
+         guile
+         harfbuzz libharfbuzz.so
+         pango libpango-1.0.so libpangoft2-1.0.so
+         )
+makedepends=(dblatex
+             fontforge
+             imagemagick
+             python
+             rsync
+             t1utils
+             texinfo
+             texlive-basic
+             texlive-bin
+             texlive-binextra
+             texlive-fontutils
+             texlive-langcyrillic
+             texlive-metapost
+             texlive-xetex
+             zip)
+optdepends=('python: for lilypond-book and other scripts'
+            'tex-gyre-fonts: for extra fonts'
+            'ttf-dejavu: for extra fonts')
+source=("https://lilypond.org/downloads/sources/v${pkgver%.*}/$pkgname-$pkgver.tar.gz")
+sha512sums=('f350d1bf6d653c3af9e0b6b12457bbc5f6f3b27d4116ef25d8809e515cef3a28f569f00845a1144f3b4dd8b2fff5265de8f5b338506db4aca2a2928d0ecca726')
+b2sums=('12e05f4f9831b9e0eb589b970b16dfde9fe8d4a82d93990e77a8c57cc696bb851e444c65c7f050a457973f5594bfe3e1847bde4adcce82618fd6f5a926eefebb')
+
+build() {
+  case "${CARCH}" in
+    powerpc) _configure_flags=(--disable-optimising --disable-pipe) ;;
+  esac
+
+  cd $pkgname-$pkgver
+  ./configure --prefix=/usr \
+              --disable-texi2html ${_configure_flags[@]}
+  make all bytecode
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make DESTDIR="$pkgdir" vimdir="/usr/share/vim/vimfiles" install install-bytecode
+  install -vDm 644 LICENSE.OFL -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 644 {AUTHORS,NEWS}.txt README.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}

@@ -1,0 +1,59 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jaroslav Lichtblau <svetlemodry@archlinux.org>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+# Contributor: dibblethewrecker dibblethewrecker.at.jiwe.dot.org
+# Contributor: William Rea <sillywilly@gmail.com>
+
+pkgname=postgis
+pkgver=3.6.2
+pkgrel=1
+pkgdesc="A spatial database extender for PostgreSQL"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://postgis.net/"
+license=(GPL-2.0-or-later)
+depends=(
+  bash
+  gcc-libs
+  gdal
+  geos
+  glibc
+  json-c
+  libxml2
+  pcre2
+  perl
+  postgresql
+  postgresql-libs
+  proj
+  protobuf-c
+)
+makedepends=(
+  clang
+  llvm
+)
+changelog=$pkgname.changelog
+source=(https://download.osgeo.org/postgis/source/${pkgname}-${pkgver}.tar.gz)
+sha256sums=('d488089a64ee4060bce7dbba0291fcca358e7f7ac5230e2ee5b344e7485729c4')
+b2sums=('66a998b1495bd4c03943fa718f08dee5abcd7ee9f16c3eec87574672f785359456f3d1913b1d26882968ce812bda8db86b5fc42c241ed82b1eb75a227034280c')
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+  autoreconf -vfi
+}
+
+build() {
+  # WiiU Espresso mcpu doesn't work with clang
+  if [[ "${CFLAGS}" == *"mcpu=espresso"* ]]; then
+    export CFLAGS="${CFLAGS/-mcpu=espresso/}"
+    export CXXFLAGS="${CXXFLAGS/-mcpu=espresso/}"
+  fi
+
+  cd ${pkgname}-${pkgver}
+  ./configure --prefix=/usr
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  make DESTDIR="${pkgdir}" install
+}

@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Dan McGee <dan@archlinux.org>
+# Contributor: Geoffroy Carrier <geoffroy.carrier@koon.fr>
+
+pkgname=nilfs-utils
+pkgver=2.3.0
+pkgrel=1
+pkgdesc="A log-structured file system supporting continuous snapshotting (userspace utils)"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="http://nilfs.sourceforge.net/"
+license=('GPL-2.0-or-later' 'LGPL-2.1-or-later')
+backup=('etc/nilfs_cleanerd.conf')
+depends=('util-linux')
+source=(http://nilfs.sourceforge.net/download/$pkgname-$pkgver.tar.bz2)
+sha256sums=('c0876a7ecd13d4b54cb65abb9ad6cd0bf1ed102d03ca12738f12eab9bd84e67b')
+
+prepare() {
+  cd $pkgname-$pkgver
+  autoreconf -fiv
+}
+
+build() {
+  cd $pkgname-$pkgver
+  sed -i -e 's#root_sbindir=/sbin#root_sbindir=/usr/bin#' configure
+  ./configure --sbindir=/usr/bin --with-libmount
+  make
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make DESTDIR="$pkgdir" sbindir=/usr/bin install LDCONFIG=/bin/true
+}

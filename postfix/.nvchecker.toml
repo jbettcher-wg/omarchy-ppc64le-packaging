@@ -1,0 +1,4 @@
+[postfix]
+source = "regex"
+regex = "postfix-([\\d.]+)\\.tar\\.gz?"
+url = "https://www.artfiles.org/postfix.org/postfix-release/official/"

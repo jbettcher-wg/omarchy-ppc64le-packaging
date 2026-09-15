@@ -1,0 +1,108 @@
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+
+pkgname=kdevelop
+pkgver=26.04.0
+pkgrel=1
+pkgdesc='C++ IDE using KDE technologies'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='http://www.kdevelop.org/'
+license=(GPL-2.0-or-later)
+depends=(clang
+         gcc-libs
+         glibc
+         karchive
+         kbookmarks
+         kcmutils
+         kcodecs
+         kcolorscheme
+         kcompletion
+         kconfig
+         kconfigwidgets
+         kcoreaddons
+         kcrash
+         kguiaddons
+         ki18n
+         kiconthemes
+         kio
+         kitemmodels
+         kitemviews
+         kjobwidgets
+         knewstuff
+         knotifications
+         knotifyconfig
+         kparts
+         kservice
+         ktexteditor
+         ktexttemplate
+         ktextwidgets
+         kwidgetsaddons
+         kwindowsystem
+         kxmlgui
+         libkomparediff2
+         libksysguard
+         qt6-5compat
+         qt6-base
+         qt6-declarative
+         sh
+         sonnet
+         syntax-highlighting
+         threadweaver)
+depends_x86_64=(
+         qt6-webengine)
+makedepends=(astyle
+             boost
+             extra-cmake-modules
+             kdevelop-pg-qt
+             kdoctools
+             krunner
+             libplasma
+             llvm
+#            okteta
+             purpose
+             qt6-tools
+             subversion)
+optdepends=('apr: SVN support'
+            'apr-util: SVN support'
+            'astyle: astyle plugin'
+            'clazy: clazy analyzer plugin'
+            'cmake: cmake integration'
+            'cppcheck: code analyzer'
+            'gdb: GNU debugger support'
+            'git: Git support'
+            'heaptrack: memory profiler'
+            'kate: for additional plugins'
+            'kde-cli-tools: shell integration in the embedded terminal'
+            'kio-extras: man pages plugin'
+            'kirigami: sessions applet'
+            'konsole: embedded terminal'
+            'krunner: sessions runner'
+            'ksvg: sessions applet'
+            'libplasma: Plasma addons'
+            'lldb-mi: LLDB debugger support'
+            'meson: meson integration'
+#           'okteta: GNU debugger support'
+            'purpose: patch review plugin'
+            'python: debugger support'
+            'qt6-doc: Qt documentation integration'
+            'qt6-tools: qthelp plugin'
+            'subversion: SVN support')
+groups=(kde-applications
+        kdevelop)
+source=(https://download.kde.org/stable/release-service/$pkgver/src/$pkgname-$pkgver.tar.xz{,.sig})
+sha256sums=('4af9c4a2a7d3c9c76caa53556ee756e1179b31e91363a909fcc3dbba64d8e3ca'
+            'SKIP')
+validpgpkeys=(CA262C6C83DE4D2FB28A332A3A6A4DB839EAA6D7  # Albert Astals Cid <aacid@kde.org>
+              F23275E4BF10AFC1DF6914A6DBD2CE893E2D1C87  # Christoph Feck <cfeck@kde.org>
+              D81C0CB38EB725EF6691C385BB463350D6EF31EF) # Heiko Becker <heiko.becker@kde.org>
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

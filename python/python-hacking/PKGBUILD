@@ -1,0 +1,36 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-hacking
+pkgver=8.0.0
+pkgrel=1
+arch=(any)
+pkgdesc='OpenStack Hacking Guideline Enforcement'
+url='https://docs.openstack.org/developer/hacking'
+license=('Apache-2.0')
+depends=('flake8')
+makedepends=('git' 'python-build' 'python-installer' 'python-pbr' 'python-setuptools' 'python-wheel')
+checkdepends=('python-subunit' 'python-stestr' 'python-testscenarios' 'python-testtools'
+              'python-ddt' 'python-eventlet')
+source=("git+https://github.com/openstack/hacking.git#tag=$pkgver")
+sha512sums=('72cf3ff7288ab215b2810ff945b2b10e63d29c19d81851a5e2c29adf00d63a8cb07f14702af41887d939e4449d7c84d7f6578aa54e7c2e66b945fdebb70882e2')
+
+prepare() {
+  cd hacking
+  sed -i 's/~=/>=/' requirements.txt
+}
+
+build() {
+  cd hacking
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd hacking
+  stestr run
+}
+
+package() {
+  cd hacking
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

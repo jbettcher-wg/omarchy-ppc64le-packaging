@@ -1,0 +1,26 @@
+pkgbase = qt6-charts
+	pkgdesc = Provides a set of easy to use chart components
+	pkgver = 6.11.1
+	pkgrel = 1
+	url = https://www.qt.io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = qt6
+	license = GPL-3.0-only
+	license = LGPL-3.0-only
+	license = LicenseRef-Qt-Commercial
+	license = Qt-GPL-exception-1.0
+	makedepends = cmake
+	makedepends = git
+	makedepends = ninja
+	depends = gcc-libs
+	depends = glibc
+	depends = qt6-base
+	depends = qt6-declarative
+	source = git+https://code.qt.io/qt/qtcharts#tag=v6.11.1
+	sha256sums = ed626442cbe87e1032a7ecce61f8bc0eff9ee5d5ab4270ce5c224e0930076e8f
+
+pkgname = qt6-charts

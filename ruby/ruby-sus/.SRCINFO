@@ -1,0 +1,21 @@
+pkgbase = ruby-sus
+	pkgdesc = A fast and scalable test runner
+	pkgver = 0.35.1
+	pkgrel = 1
+	url = https://github.com/socketry/sus
+	arch = any
+	license = MIT
+	checkdepends = ruby-bake-test
+	checkdepends = ruby-bake-test-external
+	checkdepends = ruby-bundler
+	checkdepends = ruby-covered
+	checkdepends = ruby-decode
+	makedepends = git
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = git+https://github.com/socketry/sus.git#tag=v0.35.1
+	sha512sums = 61d066e05f82f75aa710e8372f195e051ee4dc8a94cd9339b57c378fcfee316f49132661dbcafdaab1f359cf85274cf9f5cf842e0377f8ffa470fd2b28dced84
+	b2sums = ff373fc2c8e5ac3d4e9e6b3969fda954ed4f3f3f60bac44923732a3f1d9a65eb576fe1be23ff7c8375d5711ed0972c4f2a53d2857ef44489353403798a607f87
+
+pkgname = ruby-sus

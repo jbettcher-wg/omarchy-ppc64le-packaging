@@ -1,0 +1,21 @@
+pkgbase = python-sphinx-autodoc-typehints
+	pkgdesc = Type hints support for the Sphinx autodoc extension
+	pkgver = 3.12.1
+	pkgrel = 1
+	url = https://github.com/tox-dev/sphinx-autodoc-typehints
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-sphobjinv
+	checkdepends = python-typing_extensions
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatch-vcs
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	depends = python-sphinx
+	source = git+https://github.com/tox-dev/sphinx-autodoc-typehints.git#tag=3.12.1
+	b2sums = b9ec92ab55b1c1b30066b080d86f862cd37cb54154bb401fb699490297ae31ad352c001e2ff06717cb7106e37fb0c638d2840fb0bccebf00a0402f365bf68d78
+
+pkgname = python-sphinx-autodoc-typehints

@@ -1,0 +1,14 @@
+pkgbase = perl-json
+	pkgdesc = JSON (JavaScript Object Notation) encoder/decoder
+	pkgver = 4.11
+	pkgrel = 1
+	url = https://search.cpan.org/dist/JSON
+	arch = any
+	license = GPL-1.0-or-later
+	license = Artistic-1.0-Perl
+	depends = perl>=5.10.0
+	options = !emptydirs
+	source = https://search.cpan.org/CPAN/authors/id/I/IS/ISHIGAKI/JSON-4.11.tar.gz
+	sha256sums = 713bdbe724dbb915ed50265ffe47e079a511980cb2427aa19076788bb64c3182
+
+pkgname = perl-json

@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Ashwin Vishnu <ashwinvis+arch at pr0t0nm4il dot com>
+# Contributor: xantares
+
+pkgname=python-pythran
+pkgver=0.18.1
+pkgrel=3
+pkgdesc='Ahead of Time compiler for numeric kernels'
+arch=(any)
+url='https://pythran.readthedocs.io/'
+license=(BSD-3-Clause)
+depends=(boost
+         python
+         python-beniget
+         python-gast
+         python-numpy
+         python-ply
+         python-setuptools # distutils
+         xsimd)
+makedepends=(git
+             python-build
+             python-installer
+             python-wheel)
+#checkdepends=(python-pytest)
+source=(git+https://github.com/serge-sans-paille/pythran#tag=$pkgver)
+sha256sums=('c1cdee986285c45326c1c2bfd8289c16b4d37e1c58cc8b621007ec6872b03c0a')
+
+prepare() {
+  cd pythran
+  # Update gast and beniget requirements
+  # https://github.com/serge-sans-paille/pythran/commit/3690121152403dc4fb4fe50bb5837007f7a4de68
+  git cherry-pick -n 3690121152403dc4fb4fe50bb5837007f7a4de68
+}
+
+build() {
+  cd pythran
+  python -m build --wheel --no-isolation
+}
+
+# Takes many hours
+#check() {
+#  cd pythran-$pkgver
+#  pytest -v
+#}
+
+package() {
+  cd pythran
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  rm -r "$pkgdir"/usr/lib/python*/site-packages/pythran/{boost,xsimd} # Remove bundled boost and xsimd
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+}

@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Christian Hesse <mail@eworm.de>
+# Maintainer: T.J. Townsend <blakkheim@archlinux.org>
+
+pkgname=tmux
+pkgver=3.6_a
+pkgrel=1
+pkgdesc='Terminal multiplexer'
+url='https://github.com/tmux/tmux/wiki'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('BSD')
+depends=('libevent' 'libevent_core-2.1.so'
+         'libutempter'
+         'ncurses' 'libncursesw.so'
+         'systemd-libs' 'libsystemd.so')
+makedepends=('git' 'systemd')
+source=("git+https://github.com/tmux/tmux.git#tag=${pkgver/_/}")
+sha256sums=('4889f3cdd14c538fa199e788e78ed4d0bc46f16d70d79b525d58e96d931ca47a')
+
+prepare() {
+	cd "$pkgname"
+
+	sh autogen.sh
+}
+
+build() {
+	cd "$pkgname"
+
+	./configure \
+		--prefix=/usr \
+		--enable-sixel \
+		--enable-systemd \
+		--enable-utempter
+	make
+}
+
+package() {
+	cd "$pkgname"
+
+	make install DESTDIR="$pkgdir"
+	install -D -m0644 COPYING "$pkgdir/usr/share/licenses/tmux/LICENSE"
+}

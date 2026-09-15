@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer:
+# Contributor: Robert Tari <robert at tari dot in>
+
+pkgname=libayatana-appindicator
+pkgver=0.6.0
+pkgrel=1
+pkgdesc='Ayatana Application Indicators shared library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/AyatanaIndicators/libayatana-appindicator'
+license=(LGPL-2.1-or-later)
+depends=(glib2
+         glibc
+         gtk3
+         libayatana-indicator
+         libdbusmenu-glib
+         libdbusmenu-gtk3
+         libgcc)
+makedepends=(cmake
+             git
+             glib2-devel
+             gobject-introspection
+             vala)
+source=(git+https://github.com/AyatanaIndicators/$pkgname#tag=$pkgver)
+sha256sums=('fc09340ad932ac0803a5b813b9c4219bec50d2b0f1e5e07e0a5bcc86fc0fc751')
+
+build() {
+  cmake -B build -S $pkgname \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DENABLE_BINDINGS_MONO=OFF \
+    -DENABLE_GTKDOC=ON
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

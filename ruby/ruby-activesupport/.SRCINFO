@@ -1,0 +1,31 @@
+pkgbase = ruby-activesupport
+	pkgdesc = A collection of utility classes and standard library extensions
+	pkgver = 8.1.2
+	pkgrel = 1
+	url = https://github.com/rails/rails/tree/master/activesupport
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-base64
+	depends = ruby-benchmark
+	depends = ruby-bigdecimal
+	depends = ruby-concurrent
+	depends = ruby-connection_pool
+	depends = ruby-drb
+	depends = ruby-logger
+	depends = ruby-i18n
+	depends = ruby-minitest
+	depends = ruby-securerandom
+	depends = ruby-tzinfo
+	depends = ruby-uri
+	depends = ruby-zeitwerk
+	options = !emptydirs
+	source = ruby-activesupport::git+https://github.com/rails/rails#tag=v8.1.2?signed
+	validpgpkeys = 54FE550EA35E26D7C75362C1FC23B6D0F1EEE948
+	validpgpkeys = 4CE91B75A79828E86B1AA8BB953170BCB4FFAFC6
+	sha512sums = 167f8ce56dceef5c10550acb5e2260410081c4afd4e1e30317f0df44a5a211ffba57148403ee56046f231b12b5e29c83f193865ff5260e965d8d04e5b9d26aa3
+	b2sums = b2bd1f48507249de9fff05770f34fb0cbc67305e33f098d95cf7d5247a19623b9fb62eb07eded5e8b660060a59cb254bce9baa6edc65ea8963ea66636f1c3632
+
+pkgname = ruby-activesupport

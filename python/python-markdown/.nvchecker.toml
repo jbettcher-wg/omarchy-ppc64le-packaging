@@ -1,0 +1,3 @@
+[python-markdown]
+source = "git"
+git = "https://github.com/Python-Markdown/markdown.git"

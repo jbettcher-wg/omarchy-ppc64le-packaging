@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+_name=cytoolz
+pkgname=python-cytoolz
+pkgver=1.1.0
+pkgrel=2
+pkgdesc="Cython implementation of Toolz: High performance functional utilities"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/pytoolz/cytoolz/"
+license=(BSD-3-Clause)
+depends=(
+  glibc
+  python
+  python-toolz
+)
+makedepends=(
+  cython
+  python-build
+  python-installer
+  python-setuptools
+  python-setuptools-git-versioning
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=($_name-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz)
+b2sums=('b8de868393eab35433e55e249294a9a36bcc305f5cb664a73242f6405a7cbc68452bd99d1d75d4e1c14b5d1ac0693ad8d1e2cd864a395d8fbd38a6b7aad3582b')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  local _site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  # install to temporary location, as importlib is used
+  python -m installer --destdir=test_dir dist/*.whl
+  export PYTHONPATH="test_dir/$_site_packages:$PYTHONPATH"
+  pytest -vv test_dir/$_site_packages
+}
+
+package() {
+  local _site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 README.rst -t "${pkgdir}/usr/share/doc/${pkgname}"
+  install -vDm 644 LICENSE.txt -t "${pkgdir}/usr/share/licenses/${pkgname}"
+  rm -frv "$pkgdir/$_site_packages/$_name/tests"
+}

@@ -1,0 +1,21 @@
+pkgbase = cracklib
+	pkgdesc = Password Checking Library
+	pkgver = 2.10.3
+	pkgrel = 1.1
+	url = https://github.com/cracklib/cracklib
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = riscv64
+	arch = espresso
+	license = GPL-2.0-or-later
+	depends = glibc
+	depends = zlib
+	source = https://github.com/cracklib/cracklib/releases/download/v2.10.3/cracklib-2.10.3.tar.gz
+	source = https://github.com/cracklib/cracklib/releases/download/v2.10.3/cracklib-2.10.3.tar.gz.asc
+	validpgpkeys = FCE0F8C65F5B2972C2EB55E2350D0B0705E9C3CB
+	b2sums = 4b493f3275d81c886c4f2f4d36726c90dd5b2d9a6aead959bb2a3e1e1f7d2b08816f68dc4cceafe32317424212237a20e9cd35066ffb8debbd3c201275a0fa85
+	b2sums = SKIP
+
+pkgname = cracklib

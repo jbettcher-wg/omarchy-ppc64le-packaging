@@ -1,0 +1,18 @@
+pkgbase = python-tblib
+	pkgdesc = Python traceback fiddling library
+	pkgver = 3.2.2
+	pkgrel = 2
+	url = https://github.com/ionelmc/python-tblib
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://github.com/ionelmc/python-tblib/archive/v3.2.2/python-tblib-3.2.2.tar.gz
+	sha512sums = a6783855592c726ecb9d4134106af7d4dc07f147737809a69ab2af773ac03538f584f3552f7fede72e754a6a3d1b67a46cbab8d2c2128b49ab4fd736fb480586
+	b2sums = c6f71416be7f44b846718748af0926fd1bdfde2fdf21f992dd37f433413f1b55866a7a84568275aac5a4c2ffff690e1491ff32e0a0e5814495fd5c0cc46b97ce
+
+pkgname = python-tblib

@@ -1,0 +1,5 @@
+[lpsolve]
+source = "github"
+github = "lp-solve/lp_solve"
+use_max_tag = true
+prefix = "v"

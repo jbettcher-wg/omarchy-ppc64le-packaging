@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jonathan Steel <jsteel at archlinux.org>
+# Contributor: megadriver <megadriver at gmx dot com>
+# Contributor: Angel Velasquez <angvp@archlinux.org>
+# Contributor: Daenyth <Daenyth+Arch [at] gmail [dot] com>
+# Contributor: kagan <juanynie@mi.madritel.es>
+# Contributor: Hans-Kristian Arntzen <maister@archlinux.us>
+
+pkgname=mednafen
+pkgver=1.32.1
+pkgrel=2
+pkgdesc="Command-line multi-system gaming emulator"
+url="https://mednafen.github.io"
+license=('GPL2')
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+depends=('flac' 'sdl2' 'zlib' 'alsa-lib')
+makedepends=('mesa' 'glu')
+source=(https://mednafen.github.io/releases/files/$pkgname-$pkgver.tar.xz)
+sha256sums=('de7eb94ab66212ae7758376524368a8ab208234b33796625ca630547dbc83832')
+
+build() {
+  cd $pkgname
+
+  ./configure --prefix=/usr
+
+  make
+}
+
+package() {
+  cd $pkgname
+
+  make DESTDIR="$pkgdir" install
+
+  for i in ABOUT-NLS AUTHORS ChangeLog COPYING INSTALL NEWS \
+           README{,.DOS,.PORTING} TODO; do
+    install -Dm644 $i "$pkgdir"/usr/share/doc/$pkgname/$i
+  done
+}

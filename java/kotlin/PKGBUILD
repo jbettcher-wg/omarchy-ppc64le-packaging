@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Romain Gautier <romain.gautier@nimamoh.com>
+
+pkgname=kotlin
+pkgver=2.3.20
+pkgrel=1
+pkgdesc='Statically typed programming language with multiplatform support'
+arch=(any)
+url='https://kotlinlang.org/'
+license=(Apache-2.0 custom)
+makedepends=(setconf)
+depends=(java-runtime-headless)
+source=("https://github.com/JetBrains/kotlin/releases/download/v${pkgver/_/-}/kotlin-compiler-${pkgver/_/-}.zip")
+b2sums=('1531554741152cc1116796d898a1cd08962962cdc64dabe8408744678b1ea026c303d591868818c24d4f27c24fd7855c8152049dad774670d9288b3af986d741')
+
+prepare() {
+  cd ${pkgname}c/bin
+
+  setconf kotlin      DIR         /usr/bin
+  setconf kotlinc-js  DIR         /usr/bin
+  setconf kotlinc-jvm DIR         /usr/bin
+  setconf kotlinc     KOTLIN_HOME /usr/share/kotlin
+}
+
+package() {
+  cd ${pkgname}c
+
+  # jar files
+  install -d "$pkgdir/usr/share/$pkgname/lib"
+  for jar in lib/*.jar; do
+    install -Dm644 "$jar" "$pkgdir/usr/share/$pkgname/lib"
+  done
+
+  # build.txt must be installed for "-version" to work
+  install -Dm644 build.txt "$pkgdir/usr/share/$pkgname"
+
+  # executables
+  install -Dm755 -t "$pkgdir/usr/bin" bin/kotlin
+  install -Dm755 -t "$pkgdir/usr/bin" bin/kotlinc-js
+  install -Dm755 -t "$pkgdir/usr/bin" bin/kotlinc-jvm
+  install -Dm755 -t "$pkgdir/usr/bin" bin/kotlinc
+
+  # licenses
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  cd "$srcdir/${pkgname}c/license"
+  install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 NOTICE.txt "$pkgdir/usr/share/licenses/$pkgname"
+  for txt in third_party/*.txt; do
+    install -Dm644 "$txt" "$pkgdir/usr/share/licenses/$pkgname"
+  done
+}

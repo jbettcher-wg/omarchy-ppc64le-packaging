@@ -1,0 +1,65 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Gordian Edenhofer <gordian.edenhofer[at]yahoo[dot]de>
+
+pkgname=python-acme
+pkgver=5.7.0
+pkgrel=1
+pkgdesc='ACME protocol implementation in Python'
+arch=(any)
+license=(Apache-2.0)
+url='https://github.com/certbot/certbot'
+depends=(
+  python
+  python-cryptography
+  python-josepy
+  python-pyopenssl
+  python-pyrfc3339
+  python-requests
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-wheel
+  python-setuptools
+  python-sphinx
+  python-sphinx_rtd_theme
+)
+checkdepends=(python-pytest)
+# git repository is used because certbot is a huge monorepo and it's easier to
+# share the entire repository across all certbot related packages than a few
+# hundred tarballs.
+_repo='github.com-certbot-certbot'
+source=("$_repo::git+https://github.com/certbot/certbot#tag=v$pkgver")
+sha512sums=('915cf461587e00927a6b577da35d935effa01272729c3491633a42d6c4a1b6be5f01b8af5fccde89b1edd99c79dff31e96b7327bdc14f8f07409499ced692df2')
+b2sums=('8fe6a242e0c7510ceb0ac1810ef861dc31679949c4538d59bf7b3b7f6c69eafb378b1ad03fd16945ff70a838a321f3eb1590215191863e33f56c482c6dd1b1ed')
+
+build() {
+  cd "$_repo/acme"
+
+  python -m build --wheel --no-isolation
+
+  # create man page
+  make -C docs man
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd "$_repo/acme"
+
+  python -m pytest -v
+}
+
+package() {
+  cd "$_repo/acme"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # man pages
+  install -vDm644 -t "$pkgdir/usr/share/man/man1" docs/_build/man/*.1
+}

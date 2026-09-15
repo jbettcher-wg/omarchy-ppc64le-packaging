@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Daniel Wallace <danielwallace at gtmanfred dot com>
+# Contributor: Limao Luo <luolimao+AUR@gmail.com>
+
+pkgname=python-pbr
+pkgver=7.0.3
+pkgrel=3
+pkgdesc="Python Build Reasonableness"
+arch=(any)
+url='https://pypi.python.org/pypi/pbr'
+license=('Apache-2.0')
+depends=('python-setuptools')
+makedepends=('git' 'python-build' 'python-installer')
+checkdepends=('python-stestr' 'python-testresources' 'python-testscenarios'
+              'python-testtools' 'python-virtualenv' 'python-sphinx' 'python-testrepository')
+source=("git+https://github.com/openstack-dev/pbr.git#tag=$pkgver")
+sha512sums=('ec2e43ef12eeb4e71deb76b44862e2fde588e96505b3e4e67d4aaadb62a796baa25777feaac9ded79e3759e3bc8da6465d6bafdf408757810df2893f3a389066')
+
+build() {
+  cd pbr
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  return 0
+  cd pbr
+  # HACK: work around error: could not lock config file /dev/null: Permission denied
+  export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
+  # Exclude tests that require networking
+  stestr run --exclude-regex 'test_pep_517_support|test_requirement_parsing'
+}
+
+package() {
+  cd pbr
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

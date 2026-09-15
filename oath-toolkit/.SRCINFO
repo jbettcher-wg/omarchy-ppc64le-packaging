@@ -1,0 +1,23 @@
+pkgbase = oath-toolkit
+	pkgdesc = OATH one-time password toolkit
+	pkgver = 2.6.14
+	pkgrel = 4
+	url = https://oath-toolkit.codeberg.page/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-3.0-or-later
+	depends = glibc
+	depends = pam
+	depends = xmlsec
+	provides = liboath.so
+	provides = libpskc.so
+	source = https://codeberg.org/oath-toolkit/oath-toolkit/releases/download/v2.6.14/oath-toolkit-2.6.14.tar.gz
+	source = https://codeberg.org/oath-toolkit/oath-toolkit/releases/download/v2.6.14/oath-toolkit-2.6.14.tar.gz.sig
+	validpgpkeys = B1D2BD1375BECB784CF4F8C4D73CF638C53C06BE
+	sha256sums = 8b1da365759f1249be57a82aec6e107f7b57dc77d813f96dc0aaf81624f28971
+	sha256sums = SKIP
+
+pkgname = oath-toolkit

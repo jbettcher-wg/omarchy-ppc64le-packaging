@@ -1,0 +1,47 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx@archlinux.org>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+# Maintainer: T.J. Townsend <blakkheim@archlinux.org>
+# Contributor: Thorsten Töpper <atsutane-tu@freethoughts.de>
+# Contributor: Jelle van der Waa <jelle@vdwaa.nl>
+
+pkgname=i3-wm
+pkgver=4.25.1
+pkgrel=1
+pkgdesc='Improved dynamic tiling window manager'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://i3wm.org"
+license=('BSD')
+groups=('i3')
+depends=('libev' 'libxkbcommon-x11' 'pango' 'startup-notification' 'ttf-font'
+         'xcb-util-cursor' 'xcb-util-keysyms' 'xcb-util-wm' 'xcb-util-xrm'
+         'yajl')
+makedepends=('asciidoc' 'git' 'meson' 'xmlto')
+optdepends=('dmenu: for the default program launcher'
+            'rofi: for a modern dmenu replacement'
+            'i3lock: for the default screen locker'
+            'xss-lock: for the default screen locker'
+            'i3status: for the default status bar generator'
+            'perl: for i3-save-tree and i3-dmenu-desktop'
+            'perl-anyevent-i3: for i3-save-tree'
+            'perl-json-xs: for i3-save-tree')
+replaces=('i3' 'i3bar' 'i3-gaps')
+provides=('i3-gaps')
+backup=('etc/i3/config')
+source=("git+https://github.com/i3/i3.git?signed#tag=${pkgver}")
+b2sums=('3d74a67a2527f036e07a830947f80ee72ed0cd44a80324349af308d9a93115df8cf2a9157195c40be8cd84625ef7d95bde601ac9dd1b1cb827b48b34d783334e')
+validpgpkeys=('424E14D703E7C6D43D9D6F364E7160ED4AC8EE1D') # Michael Stapelberg <michael@stapelberg.de>
+
+build() {
+  cd i3
+  arch-meson build -Dmans=true
+  ninja -C build
+}
+
+package() {
+  cd i3
+  DESTDIR="$pkgdir" ninja -C build install
+  install -Dm644 -t "$pkgdir"/usr/share/licenses/$pkgname LICENSE
+}
+
+# vim:set ts=2 sw=2 et:

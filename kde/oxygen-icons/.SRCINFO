@@ -1,0 +1,22 @@
+pkgbase = oxygen-icons
+	pkgdesc = The Oxygen Icon Theme
+	pkgver = 6.29.0
+	pkgrel = 1
+	epoch = 1
+	url = https://develop.kde.org/products/frameworks/
+	arch = any
+	groups = kf6
+	license = LGPL-2.1-or-later
+	makedepends = extra-cmake-modules
+	makedepends = qt6-base
+	source = https://download.kde.org/stable/frameworks/6.29/oxygen-icons-6.29.0.tar.xz
+	source = https://download.kde.org/stable/frameworks/6.29/oxygen-icons-6.29.0.tar.xz.sig
+	validpgpkeys = 39FFA93CAE9C6AFC212AD00202325448204E452A
+	validpgpkeys = 90A968ACA84537CC27B99EAF2C8DF587A6D4AAC1
+	sha256sums = 3d365f052087de1b5f870a4ecee083a6eb6e5f9174925152331110025113367a
+	sha256sums = SKIP
+
+pkgname = oxygen-icons
+
+pkgname = oxygen-icons-svg
+	pkgdesc = The Oxygen Icon Theme (Scalable Vector Graphics)

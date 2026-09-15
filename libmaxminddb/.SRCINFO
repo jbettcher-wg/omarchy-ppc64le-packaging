@@ -1,0 +1,23 @@
+pkgbase = libmaxminddb
+	pkgdesc = MaxMind GeoIP2 database - split package with library and utilities
+	pkgver = 1.13.3
+	pkgrel = 1
+	url = https://maxmind.github.io/libmaxminddb/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	optdepends = geoip2-database: IP geolocation databases
+	source = https://github.com/maxmind/libmaxminddb/releases/download/1.13.3/libmaxminddb-1.13.3.tar.gz
+	sha256sums = a66502ea76eadbe17f2cd6fd708946777253972d2ae8157dee1b23a2fb528171
+
+pkgname = libmaxminddb
+	pkgdesc = MaxMindDB GeoIP2 database library
+	depends = glibc
+
+pkgname = mmdblookup
+	pkgdesc = MaxMindDB GeoIP2 lookup utility
+	url = https://maxmind.github.io/libmaxminddb/mmdblookup.html
+	depends = libmaxminddb

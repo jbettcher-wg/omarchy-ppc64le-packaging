@@ -1,0 +1,15 @@
+pkgbase = unicode-cldr
+	pkgdesc = Unicode Common Locale Data Repository
+	pkgver = 48.1
+	pkgrel = 1
+	url = http://cldr.unicode.org/
+	arch = any
+	license = Unicode-3.0
+	source = https://unicode.org/Public/cldr/48.1/cldr-common-48.1.zip
+	sha512sums = 6727fb2c130b0b1c13067b8f1c5292b6ebe87f03c1a4449fc84490f405e249fabf3a283f2a8e428086e7e840975c94bce2aaa300cbaa42c64dac3219696c14f0
+
+pkgname = unicode-cldr
+	depends = unicode-cldr-annotations
+
+pkgname = unicode-cldr-annotations
+	pkgdesc = Unicode Common Locale Data Repository (annotations only)

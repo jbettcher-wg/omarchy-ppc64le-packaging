@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer:
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: XazZ <xazz.xazz [AT] googlemail.com>
+
+pkgbase=liblastfm
+pkgname=(liblastfm-qt5)
+pkgver=1.1.0
+pkgrel=1.1
+pkgdesc="A Qt C++ library for the Last.fm webservices"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url='https://github.com/lastfm/liblastfm/'
+license=('GPL3')
+depends=('qt5-base' 'fftw' 'libsamplerate')
+makedepends=('cmake')
+source=(https://github.com/lastfm/${pkgbase}/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz
+        liblastfm-qt5.11.patch)
+sha1sums=('a84f00a42b3bb8c0f8845ce29c776d609a3b44ac'
+          '40d84032eaeae32072715732b9fe67295483ffad')
+
+prepare() {
+  cd ${pkgbase}-${pkgver}
+  patch -p1 -i ../liblastfm-qt5.11.patch # Fix build with Qt 5.11
+}
+
+build() {
+  mkdir build
+  cd build
+  cmake ../${pkgbase}-${pkgver} \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=/usr/lib \
+    -DCMAKE_CXX_STANDARD=14 \
+    -DBUILD_TESTS=OFF
+  make
+}
+
+package_liblastfm-qt5() {
+  cd build
+  make DESTDIR="${pkgdir}" install
+} 

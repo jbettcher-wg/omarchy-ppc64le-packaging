@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: tobias <tobias funnychar archlinux.org>
+# Contributor: Aurelien Foret <orelien@chez.com>
+
+pkgname=xfce4-terminal
+pkgver=1.2.0
+pkgrel=1
+pkgdesc="A modern terminal emulator primarily for the Xfce desktop environment"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/apps/terminal/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4')
+depends=('libutempter' 'libxfce4ui' 'vte3' 'gtk-layer-shell' 'hicolor-icon-theme')
+makedepends=('git' 'glib2-devel' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/apps/xfce4-terminal.git#tag=$pkgname-$pkgver")
+sha256sums=('6a6fe2a7925ed20d1c2b2dff6421bfd8e9cdee38e99b2a9a8da7f0834641c313')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

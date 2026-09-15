@@ -1,0 +1,15 @@
+pkgbase = randomx
+	pkgdesc = RandomX: The proof of work algorithm based on random code execution
+	pkgver = 1.2.1
+	pkgrel = 1
+	url = https://github.com/tevador/RandomX
+	arch = x86_64
+	arch = powerpc64le
+	license = BSD
+	makedepends = git
+	makedepends = cmake
+	depends = glibc
+	source = git+https://github.com/tevador/RandomX.git#tag=v1.2.1
+	sha256sums = 36d2182e5d7a71823eef3c66ed9f41c1487332c0f59a4a40e9950f2fda62f2f4
+
+pkgname = randomx

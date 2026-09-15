@@ -1,0 +1,6 @@
+[zxing-cpp]
+source = 'github'
+github = 'nu-book/zxing-cpp'
+use_max_tag = true
+prefix = 'v'
+exclude_regex = '.*(beta|rc).*'

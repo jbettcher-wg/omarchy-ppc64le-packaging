@@ -1,0 +1,34 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=perl-perl-critic
+pkgver=1.156
+pkgrel=3
+pkgdesc="Critique Perl source code for best-practices"
+arch=(any)
+license=('PerlArtistic')
+url="https://metacpan.org/release/Perl-Critic"
+depends=('perl-b-keywords' 'perl-config-tiny' 'perl-exception-class' 'perl-file-homedir'
+         'perl-file-which' 'perl-list-someutils' 'perl-module-build' 'perl-module-pluggable'
+         'perl-ppi' 'perl-ppix-quotelike' 'perl-ppix-regexp' 'perl-ppix-utils' 'perl-pod-spell'
+         'perl-tidy' 'perl-readonly' 'perl-string-format')
+checkdepends=('perl-test-memory-cycle')
+options=('!emptydirs')
+source=("https://cpan.metacpan.org/authors/id/P/PE/PETDANCE/Perl-Critic-$pkgver.tar.gz")
+sha512sums=('c5aa84e6dca89f2af3e1afff920bd36a71ac69e1c5b5f3260e1a50b6cb6e6b88cecae28200e54d9ff98540a97ad6a7755c6e1b468d1a1d642d73b6e05e468c34')
+
+build() {
+  cd Perl-Critic-$pkgver
+  perl Build.PL installdirs=vendor
+  perl Build
+}
+
+check() {
+  cd Perl-Critic-$pkgver
+  perl Build test
+}
+
+package() {
+  cd Perl-Critic-$pkgver
+  perl Build install destdir="$pkgdir"
+}

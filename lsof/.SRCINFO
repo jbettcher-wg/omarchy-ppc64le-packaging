@@ -1,0 +1,19 @@
+pkgbase = lsof
+	pkgdesc = Lists open files for running Unix processes
+	pkgver = 4.99.7
+	pkgrel = 1
+	url = https://github.com/lsof-org/lsof
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = custom
+	makedepends = groff
+	depends = glibc
+	depends = libtirpc
+	source = lsof-4.99.7.tar.gz::https://github.com/lsof-org/lsof/archive/refs/tags/4.99.7.tar.gz
+	sha256sums = bac1b0acbc50aede42fc97dffaa0b0475e97973e36a6351de5f349c6155afc68
+	b2sums = 73279d59bf7f86cb287dc3e9209903a58d9aa8ff409b0907b51658262baaad68cede04a863706ca28e1f170e80e9184e7dab0f578430086e023d467ee4ed68a4
+
+pkgname = lsof

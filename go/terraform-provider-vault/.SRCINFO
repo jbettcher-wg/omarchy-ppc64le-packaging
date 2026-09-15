@@ -1,0 +1,15 @@
+pkgbase = terraform-provider-vault
+	pkgdesc = Terraform provider to configure Hashicorp's Vault
+	pkgver = 2.24.0
+	pkgrel = 1
+	url = https://github.com/mrparkers/terraform-provider-vault
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	license = MIT
+	makedepends = go
+	makedepends = git
+	source = terraform-provider-vault-2.24.0.tar.gz::https://github.com/hashicorp/terraform-provider-vault/archive/v2.24.0.tar.gz
+	sha512sums = 61c46256925fc88f8802b259f7345956ba1073351cdac6d726e2dea239262fc45491d0de3e363db0d4cc172f1a289ee84dcdd750691fb79137adc6a2eedefec8
+
+pkgname = terraform-provider-vault

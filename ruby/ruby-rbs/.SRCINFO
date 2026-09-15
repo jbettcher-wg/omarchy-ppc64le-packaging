@@ -1,0 +1,20 @@
+pkgbase = ruby-rbs
+	pkgdesc = RBS is the language for type signatures for Ruby and standard library definitions
+	pkgver = 3.8.0
+	pkgrel = 2.1
+	url = https://github.com/ruby/rbs
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = custom:BSDL
+	makedepends = git
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = git+https://github.com/ruby/rbs#tag=v3.8.0
+	sha512sums = 94de5d47ba6a1f22c4c939f4e50669f3aa484962908d866c27faa9c53b69eaa6e0c0c66670a2ef741c80474b997f1774024d89e31896deb5bbf8c95f8aa98f78
+	b2sums = 0b34e8a2ae0ca129e705ab446b86472f6d3d2be6207685b591b19810afe3dae06d3190922362df715c93abd70022c01aa2e15a4fc92bf7e6941868cf3144e717
+
+pkgname = ruby-rbs

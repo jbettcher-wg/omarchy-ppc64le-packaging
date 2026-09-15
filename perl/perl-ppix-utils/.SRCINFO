@@ -1,0 +1,14 @@
+pkgbase = perl-ppix-utils
+	pkgdesc = Utility functions for PPI
+	pkgver = 0.004
+	pkgrel = 3
+	url = https://metacpan.org/release/PPIx-Utils
+	arch = any
+	license = PerlArtistic
+	depends = perl-b-keywords
+	depends = perl-ppi
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/D/DB/DBOOK/PPIx-Utils-0.004.tar.gz
+	sha512sums = 2245df7aff9b23dd478eb8d0242428e2f02a29cccc17217f141213745cc9c112b14ea047f7200bd7bcdd05260f5325981eb45cfc4c93f552fbc1ae25d5ddc158
+
+pkgname = perl-ppix-utils

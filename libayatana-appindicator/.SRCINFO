@@ -1,0 +1,27 @@
+pkgbase = libayatana-appindicator
+	pkgdesc = Ayatana Application Indicators shared library
+	pkgver = 0.6.0
+	pkgrel = 1
+	url = https://github.com/AyatanaIndicators/libayatana-appindicator
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = cmake
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gobject-introspection
+	makedepends = vala
+	depends = glib2
+	depends = glibc
+	depends = gtk3
+	depends = libayatana-indicator
+	depends = libdbusmenu-glib
+	depends = libdbusmenu-gtk3
+	depends = libgcc
+	source = git+https://github.com/AyatanaIndicators/libayatana-appindicator#tag=0.6.0
+	sha256sums = fc09340ad932ac0803a5b813b9c4219bec50d2b0f1e5e07e0a5bcc86fc0fc751
+
+pkgname = libayatana-appindicator

@@ -1,0 +1,57 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Kyle Keen <keenerd@gmail.com>
+# Contributor: Angel Velasquez <angvp@archlinux.org>
+# Contributor: Andrew Antle <andrew dot antle at gmail dot com>
+# Contributor: Thomas Dziedzic < gostrc at gmail >
+# Contributor: Chaiwat Suttipongsakul <cwt at bashell dot com>
+
+pkgname=python-markdown
+pkgver=3.10.2
+pkgrel=1
+pkgdesc="Python implementation of John Gruber's Markdown"
+arch=(any)
+url='https://python-markdown.github.io/'
+license=(BSD-3-Clause)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+optdepends=(
+  'python-yaml: parse Python in YAML metadata'
+  'python-pygments: Code highlighting'
+)
+checkdepends=(python-yaml python-pygments)
+source=("$pkgname::git+https://github.com/Python-Markdown/markdown#tag=$pkgver")
+sha512sums=('63b6d165015c94bd837cd8cbf6f7df3bf2b142eb569efcc7a6d12783417fc650f1b25b751d56e0601220fc7d3c78ee245fd26712e2367db642100e2a57a53e26')
+b2sums=('ae3c36d39eae9885782375265e581b19de2335e0c42f51ec60db17d3b6a9df837e7e38289ca9197efc7c8160959837b8c4d2654ce5002820cea340acf9af481f')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd "$pkgname"
+
+  python -m unittest discover tests
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.md
+}

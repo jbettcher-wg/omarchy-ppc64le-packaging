@@ -1,0 +1,28 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+
+pkgbase=libmygpo-qt
+pkgname=(libmygpo-qt6)
+pkgver=1.2.0
+pkgrel=1
+pkgdesc='A C++/Qt client library for gpodder.net'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="http://wiki.gpodder.org/wiki/Libmygpo-qt"
+license=('LGPL-2.1-or-later')
+depends=('glibc' 'gcc-libs' 'qt6-base')
+makedepends=('cmake' 'doxygen' 'git')
+source=(git+https://github.com/gpodder/libmygpo-qt#tag=$pkgver)
+sha256sums=('2177cd41d835d2ca923498786807a5bc1e47c50ec7988eabedff90a11701fc71')
+
+build() {
+  cmake -B build -S libmygpo-qt \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMYGPO_BUILD_TESTS=OFF \
+    -DBUILD_WITH_QT6=ON
+  cmake --build build
+}
+
+package_libmygpo-qt6() {
+  DESTDIR="$pkgdir" cmake --install build
+}

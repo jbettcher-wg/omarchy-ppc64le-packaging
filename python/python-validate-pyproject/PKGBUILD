@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Jelle van der Waa <jelle@archlinux.org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-validate-pyproject
+pkgver=0.25
+pkgrel=1
+pkgdesc="Validation library and CLI tool for checking on 'pyproject.toml' files using JSON Schema"
+arch=(any)
+url="https://github.com/abravalheri/validate-pyproject"
+license=('MPL-2.0')
+depends=(
+  'python'
+  'python-fastjsonschema'
+  'python-packaging'
+  'python-trove-classifiers'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools-scm'
+  'python-wheel'
+)
+checkdepends=('python-pytest')
+source=("git+$url.git#tag=v$pkgver")
+b2sums=('a97c6458c0f8099d1ebbc686a231c27592150fdac3d913508cc58c227edcc07d1357be6736cac73ef1aa5b0c80c349383600d79f7ace356f9020022fa980136b')
+
+build() {
+  cd ${pkgname#python-}
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd ${pkgname#python-}
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m pytest --override-ini="addopts="
+}
+
+package() {
+  cd ${pkgname#python-}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

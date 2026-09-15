@@ -1,0 +1,17 @@
+pkgbase = python-tokenize-rt
+	pkgdesc = Wrapper around the stdlib tokenize which roundtrips
+	pkgver = 6.2.0
+	pkgrel = 2
+	url = https://github.com/asottile/tokenize-rt
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://github.com/asottile/tokenize-rt/archive/v6.2.0/tokenize-rt-6.2.0.tar.gz
+	b2sums = 19a4c93a069b8bdccc7391c62fa57fc2112b2eb29fd9f16ecd3c937817a3712b4b86f403f0a61b9e7818b0b30a04706d7136adbf12dca5fe8157de8e664d9111
+
+pkgname = python-tokenize-rt

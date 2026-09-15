@@ -1,0 +1,5 @@
+[level-zero]
+source = "github"
+github = "oneapi-src/level-zero"
+prefix = "v"
+use_latest_release = true

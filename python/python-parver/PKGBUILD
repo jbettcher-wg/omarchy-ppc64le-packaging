@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-parver
+pkgver=0.5
+pkgrel=4
+pkgdesc="Parse and manipulate version numbers"
+url="https://github.com/RazerM/parver"
+license=('MIT')
+arch=(any)
+depends=('python-arpeggio' 'python-attrs')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-pytest' 'python-hypothesis' 'python-pretend')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/RazerM/parver/archive/$pkgver.tar.gz")
+sha512sums=('55fd52cb229c8358e89053f4c44d8cdb4bfbc8fd79ec40f4b7c6f18f2c848fb025e2be4e907b5cfbeb598e535fed67be4e10cea71d529a21e6d0712679c665d3')
+
+build() {
+  cd parver-$pkgver
+  python -m build -nw
+}
+
+check() {
+  cd parver-$pkgver
+  PYTHONPATH=src pytest
+}
+
+package() {
+  cd parver-$pkgver
+  python -m installer -d "$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

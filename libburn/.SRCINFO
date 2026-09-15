@@ -1,0 +1,19 @@
+pkgbase = libburn
+	pkgdesc = Library for reading, mastering and writing optical discs
+	pkgver = 1.5.8
+	pkgrel = 1
+	url = https://dev.lovelyhq.com/libburnia/libburn
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	makedepends = git
+	depends = glibc
+	options = !emptydirs
+	source = libburn::git+https://dev.lovelyhq.com/libburnia/libburn#tag=release-1.5.8
+	sha512sums = def7938f240b75429df7041b5e4480886ceab0425e1c79ce2791749edc6d3373a6e5f5022c8741c1ab60de386a09821e29b4b4f2a266997341dd00c988c20e3c
+	b2sums = 996110879e25061677f670a1bcf3f4838f27f80d0df7f47782d1a3d7ff971ad90801dfa8228b2fe6f5c029f3c0191bbb510a55a57e0b8932106ec0e9963ded9f
+
+pkgname = libburn

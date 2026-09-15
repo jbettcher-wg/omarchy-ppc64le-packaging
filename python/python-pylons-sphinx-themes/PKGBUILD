@@ -1,0 +1,25 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-pylons-sphinx-themes
+pkgver=1.0.13
+pkgrel=7
+pkgdesc="Sphinx themes for Pylons Project documentation"
+url="https://pylonsproject.org"
+license=('BSD-4-Clause')
+arch=(any)
+depends=('python')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("git+https://github.com/Pylons/pylons-sphinx-themes.git#tag=$pkgver")
+sha512sums=('443c533a27102ea2138d58b3204bdb87f9735413901c345b01258e80a63171a3aafedf18cbaec45ceb5b7952fe79e7f0c185954ec2b7aaaeb962bce9fd0f8737')
+
+build() {
+  cd pylons-sphinx-themes
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd pylons-sphinx-themes
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE.txt -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

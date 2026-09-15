@@ -1,0 +1,19 @@
+pkgbase = libtpms
+	pkgdesc = Library providing a software emulation of a Trusted Platform Module (TPM 1.2 and TPM 2.0)
+	pkgver = 0.10.1
+	pkgrel = 1
+	url = https://github.com/stefanberger/libtpms
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = git
+	depends = glibc
+	depends = openssl
+	source = git+https://github.com/stefanberger/libtpms.git?signed#tag=v0.10.1
+	validpgpkeys = B818B9CADF9089C2D5CEC66B75AD65802A0B4211
+	sha512sums = 11b023199beb54c38df6d60eedc0dcddcdf99f866788da5e893ec5337795623b3442f8878e3fff06dd31eb5e682c8ef159a8b43f33baeddbe978f563e4f96bc6
+
+pkgname = libtpms

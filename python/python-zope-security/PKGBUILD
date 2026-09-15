@@ -1,0 +1,54 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-zope-security
+_pkgname=zope.security
+pkgver=8.3
+pkgrel=3
+pkgdesc="Zope Security Framework"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/zopefoundation/zope.security"
+license=('ZPL-2.1')
+depends=(
+  'glibc'
+  'python'
+  'python-zope-component'
+  'python-zope-i18nmessageid'
+  'python-zope-interface'
+  'python-zope-location'
+  'python-zope-proxy'
+  'python-zope-schema'
+)
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=(
+  'python-btrees'
+  'python-zope-configuration'
+  'python-zope-testing'
+  'python-zope-testrunner'
+)
+optdepends=('python-zope-configuration: for ZCML support')
+source=("$url/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('f3626558e35f4ef1ffca7fd0bd3ca54183e274bb2b67988a9bcf8ab1a8d21dcab3a41b356276c15e97745ba715d11bd05e6e8184c6acdc9971fb6134a32f8d0d')
+
+build() {
+  cd $_pkgname-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $_pkgname-$pkgver
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m zope.testrunner -vc --test-path src/
+}
+
+package() {
+  cd $_pkgname-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

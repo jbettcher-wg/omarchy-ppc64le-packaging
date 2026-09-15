@@ -1,0 +1,27 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Kenneth Endfinger <kaendfinger@gmail.com>
+
+pkgname=con2fbmap
+pkgver=2.1.0
+pkgrel=53
+pkgdesc='Shows and sets mapping between consoles and framebuffer devices'
+url='https://www.debian.org/'
+license=('GPL')
+arch=(i686 x86_64 armv6h armv7h aarch64 powerpc64le powerpc64 powerpc riscv64)
+source=('https://mirrors.kernel.org/debian/pool/main/f/fbset/fbset_2.1-33.debian.tar.xz')
+sha512sums=('f4bc90057a34e3c7ae1e3906da90a255977bc444df365314843a84250cf66dd9a7bcd6815149eed0a99d771bc80388fc12981e43ee003b525b68943a44a7c4b5')
+
+prepare() {
+  cd "${srcdir}"
+  patch -N --silent -i debian/patches/03_con2fbmap.patch &2>/dev/null
+}
+
+build() {
+  cd "${srcdir}"
+  gcc con2fbmap.c -o con2fbmap
+}
+
+package() {
+  cd "${srcdir}"
+  install -Dm755 con2fbmap "${pkgdir}/usr/bin/con2fbmap"
+}

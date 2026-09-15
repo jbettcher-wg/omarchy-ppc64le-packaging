@@ -1,0 +1,96 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: T.J. Townsend <blakkheim@archlinux.org>
+# Contributor: Gaetan Bisson <bisson@archlinux.org>
+# Contributor: tobias [tobias [at] archlinux.org]
+
+pkgname=mutt
+pkgver=2.3.1
+pkgrel=1
+pkgdesc="Small but very powerful text-based mail client"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="http://www.mutt.org/"
+license=(GPL-2.0-or-later)
+depends=(
+  glibc
+  libgpg-error
+  mime-types
+  sqlite
+  zlib
+)
+makedepends=(
+  docbook-xml
+  docbook-xsl
+  elinks
+  gdbm
+  git
+  gpgme
+  krb5
+  libidn2
+  libsasl
+  libxslt
+  lynx
+  ncurses
+  openssl
+)
+optdepends=(
+  'perl: for smime_keys'
+  'python: for experimental mutt_oath2.py'
+  'smtp-forwarder: to send mail'
+)
+backup=(etc/$pkgname/Muttrc)
+source=("git+https://gitlab.com/muttmua/mutt.git#tag=mutt-${pkgver//./-}-rel?signed")
+sha512sums=('1a515d35890a86ec028e0ab5f4bedef747aa4edfda4859c6ab00e4a1c4ad76bf85a79ab68c3cb712dec8e927d4593dc0a63521da02ca3b2e69c3da6640321a8c')
+b2sums=('c1cdd47edfe03b3313f0da8e686c8afaaeb41fb3b93ff3660bf88d2517a78178cc36680430065e98e2bc5d7a13032a0d1d1eb042e07385186194aa923f0ed2fa')
+validpgpkeys=('8975A9B33AA37910385C5308ADEF768480316BDA') # Kevin J. McCarthy <kevin@8t8.us>
+
+prepare() {
+  cd $pkgname
+  autoreconf -fiv
+}
+
+build() {
+  local configure_options=(
+    --prefix=/usr
+    --sysconfdir=/etc/$pkgname
+    --enable-autocrypt
+    --enable-compressed
+    --enable-debug
+    --enable-gpgme
+    --enable-hcache
+    --enable-imap
+    --enable-pop
+    --enable-sidebar
+    --enable-smtp
+    --with-curses=/usr
+    --with-gdbm
+    --with-gss=/usr
+    --with-idn2
+    --with-sasl
+    --with-sqlite3
+    --with-ssl=/usr
+  )
+
+  cd $pkgname
+  ./configure "${configure_options[@]}"
+  make
+}
+
+package() {
+  depends+=(
+    gdbm libgdbm.so
+    gpgme libgpgme.so
+    krb5 libgssapi_krb5.so
+    libidn2 libidn2.so
+    libsasl libsasl2.so
+    ncurses libncursesw.so
+    openssl libssl.so
+  )
+
+  make DESTDIR="$pkgdir" install -C $pkgname
+  # we backup /etc/mutt/Muttrc and don't need another copy
+  rm -v "$pkgdir/etc/$pkgname/Muttrc.dist"
+  # a more comprehensive list of mime types is provided by mailcap in /etc/mime.types
+  rm -v "$pkgdir/etc/$pkgname/mime.types"{,.dist}
+  ln -sv ../mime.types "$pkgdir/etc/$pkgname/mime.types"
+}

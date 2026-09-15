@@ -1,0 +1,75 @@
+# Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+
+_arch=x86_64
+_target=${_arch}-pc-linux-gnu
+pkgname=${_target}-pacman
+pkgver=2024.05
+pkgrel=1
+pkgdesc="Pacman configurations for ${_target} to install dependencies for cross-compilation"
+arch=(any)
+url="https://archlinuxpower.org"
+install=pacman.install
+depends=(
+  ${_target}-gcc
+  ${_target}-glibc
+)
+_mirrorlist_commit=6e4f5b21223bd655f539d8256deed86d425d383f
+source=(pacman-arch.sh
+        pacman.conf
+        fakebase.desc
+        "pacman-mirrorlist-20230820.conf::https://gitlab.archlinux.org/archlinux/packaging/packages/pacman-mirrorlist/-/raw/${_mirrorlist_commit}/mirrorlist")
+backup=(
+  etc/pacman-${_arch}.conf
+  etc/pacman.d/mirrorlist.${_arch}
+)
+sha256sums=('5fd18c74198312560579d900af2b0e52b757b47fb70e4f78e995b29cf0b5ee7a'
+            '71d817548ca64f07af356b7bbb20dcd566dd3a63bf1e68dc57e71a1e827599e1'
+            '2581ae121b28b48a36d5170dc8000eda240002c0e340a0a6aad86aa5c65101b1'
+            'dc63e1f1d117f15df233e4d67d808ec50b21831be1f51d3adc0015ea527a4b6c')
+
+prepare() {
+  if [ -d /usr/${_target}/var/lib/pacman ]; then
+    echo "Remove existing synced dbs etc from /usr/${_target}/var/lib/pacman/ and try again"
+    exit 1
+  fi
+}
+
+build() {
+  sed "s/@@CARCH@@/${_arch}/g" -i pacman-arch.sh
+  sed "s/@@CARCH@@/${_arch}/g" -i pacman.conf
+  sed "s/@@CHOST_PREFIX@@/\/usr\/${_target}\//g" -i pacman.conf
+  sed "s/@@TIMESTAMP@@/$(date "+%s")/g" -i fakebase.desc
+  sed "s/@@FAKEBASE_VERSION@@/${pkgver}-${pkgrel}/g" -i fakebase.desc
+}
+
+package() {
+  install -d -m755 ${pkgdir}/usr/${_target}/usr
+  ln -s usr/lib ${pkgdir}/usr/${_target}/lib64
+  ln -s usr/lib ${pkgdir}/usr/${_target}/usr/lib64
+
+  ln -s usr/bin ${pkgdir}/usr/${_target}/bin
+  ln -s usr/bin ${pkgdir}/usr/${_target}/sbin
+  ln -s usr/bin ${pkgdir}/usr/${_target}/usr/sbin
+
+  install -d -m755 ${pkgdir}/usr/bin
+  install -m755 ${srcdir}/pacman-arch.sh ${pkgdir}/usr/bin/pacman-${_arch}
+
+  install -d -m 755 ${pkgdir}/etc/pacman.d
+  install -m644 ${srcdir}/pacman.conf ${pkgdir}/etc/pacman-${_arch}.conf
+  install -m644 ${srcdir}/pacman-mirrorlist-20230820.conf ${pkgdir}/etc/pacman.d/mirrorlist.x86_64
+
+  # fake that we install a few basic packages via pacman
+  install -d -m 755 ${pkgdir}/usr/${_target}/var/lib/pacman/local/fakebase-${pkgver}-${pkgrel}
+
+  pushd /usr/${_target}/
+  shopt -s dotglob globstar
+  printf '%s\0' **/* | LANG=C bsdtar -cnf - --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256,link' --null --files-from - --exclude .MTREE | gzip -c -f -n > ${pkgdir}/usr/${_target}/var/lib/pacman/local/fakebase-${pkgver}-${pkgrel}/mtree
+  shopt -u dotglob globstar
+ 
+  echo '%FILES%' > ${pkgdir}/usr/${_target}/var/lib/pacman/local/fakebase-${pkgver}-${pkgrel}/files
+  find | sed 's@^./@@g' | grep -v '^\.$' | grep -v '.*mtree$' >> ${pkgdir}/usr/${_target}/var/lib/pacman/local/fakebase-${pkgver}-${pkgrel}/files
+  echo 9 > ${pkgdir}/usr/${_target}/var/lib/pacman/local/ALPM_DB_VERSION
+  install -m644 ${srcdir}/fakebase.desc ${pkgdir}/usr/${_target}/var/lib/pacman/local/fakebase-${pkgver}-${pkgrel}/desc
+
+  popd
+}

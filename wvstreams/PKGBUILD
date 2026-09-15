@@ -1,0 +1,71 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: dorphell <dorphell@archlinux.org>
+
+pkgname=wvstreams
+pkgver=4.6.1
+pkgrel=21.1
+pkgdesc="A network programming library written in C++"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url="https://github.com/apenwarr/wvstreams/"
+license=('LGPL')
+depends=('zlib' 'pam' 'openssl' 'readline')
+source=(https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/wvstreams/wvstreams-$pkgver.tar.gz
+        wvstreams-4.6.1-glibc212.patch # Debian patch
+        wvstreams-4.6.1-gcc47.patch # Fedora patch
+        wvstreams-4.6.1-gcc6.patch # Debian patch
+        wvstreams-4.6.1-gcc10.patch # Debian patch
+        wvstreams-4.6.1-magic.patch # Fedora patch
+        wvstreams-4.6.1-openssl10.patch # Gentoo patch
+        wvstreams-4.6.1-openssl11.patch # Debian patch
+        wvstreams-4.6.1-parallel-make.patch) # Gentoo patch
+sha256sums=('8403f5fbf83aa9ac0c6ce15d97fd85607488152aa84e007b7d0621b8ebc07633'
+            'b1163b4375f59769d4aff5280aa847636e987da8cc028945988a2370154658bc'
+            'e23256235611def432763ec8a8ae53fde159ace053bbcc413df1dbc75689af91'
+            '1f750516825dc8c3ef7de980b90dadf22c5132eab828a5dd634fa2a88624b6d9'
+            'df6e4a6e9b47964212621e40c7034db00e37d95e3b1d5e4f3e9693fa8c91346f'
+            'cf798f7e7c29fa239cc3201f0d19166b92bc181c19418a12bfd7cbd8f8fea6b1'
+            '57b55ed6a2a6aa8abef00711d9e03bed664f2c4357404cd38ae778f8b3b97482'
+            'e1294644eb44c3d58789f2aca51fa28d15af799bd1b7bc2ff2583c41c74efae5'
+            'f3c433a8371f539f67ba320331ba393384e0e5f68375ab9d859975ad643dff71')
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    echo "Applying patch $src..."
+    patch -Np1 < "../$src"
+  done
+}
+
+build() {
+  cd ${pkgname}-${pkgver}
+
+  ./configure --prefix=/usr \
+     --sbin=/usr/bin \
+     --sysconfdir=/etc \
+     --localstatedir=/var \
+     --without-dbus \
+     --with-pam \
+     --with-openssl \
+     --without-tcl \
+     --without-qt \
+     --build=${CHOST}
+  make CPPOPTS="$CPPFLAGS -D_DEFAULT_SOURCE"  COPTS="$CFLAGS -ffat-lto-objects -fPIC" CXXOPTS="$CXXFLAGS -ffat-lto-objects -fPIC -fpermissive -fno-tree-dce -fno-optimize-sibling-calls" VERBOSE=1
+}
+
+package() {
+  cd ${pkgname}-${pkgver}
+  make DESTDIR="${pkgdir}" install
+
+  # FS#15974
+  # --without-dbus still installs the pkg-config file
+  rm "${pkgdir}/usr/lib/pkgconfig/libwvdbus.pc"
+  # --without-qt still installs the pkg-config file
+  rm "${pkgdir}/usr/lib/pkgconfig/libwvqt.pc"
+}

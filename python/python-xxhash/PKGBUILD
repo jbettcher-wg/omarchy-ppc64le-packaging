@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jakub Klinkovský <lahwaacz at archlinux dot org>
+# Contributor: Konstantin Gizdov <arch at kge dot pw>
+
+pkgname=python-xxhash
+pkgver=3.8.1
+pkgrel=1
+pkgdesc='Python binding for xxHash'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/ifduyue/$pkgname"
+license=(BSD-2-Clause)
+depends=(
+    glibc
+    python
+    xxhash
+)
+makedepends=(
+    git
+    python-build
+    python-installer
+    python-setuptools-scm
+    python-wheel
+)
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+b2sums=('89a858f5efffcafbf1e02592d2798920786d933467ec0e98fba8f6e2f9d513bcfd07ec6a711163cb42142badba40871b9ab0bab1bee20abdbb9183a701ffa73d')
+
+prepare() {
+    # benchmark imports pytest, all other tests rely on the unittest module
+    rm $pkgname/tests/test_benchmark.py
+}
+
+build() {
+    cd $pkgname
+    # link to xxHash
+    XXHASH_LINK_SO=1 \
+    python -m build --wheel --no-isolation
+}
+
+check() {
+    python -m venv --system-site-packages test-env
+    test-env/bin/python -m installer $pkgname/dist/*.whl
+    test-env/bin/python -m unittest discover -vs $pkgname/tests
+}
+
+package() {
+    cd $pkgname
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

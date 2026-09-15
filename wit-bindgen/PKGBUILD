@@ -1,0 +1,44 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Frederik Schwan <freswa at archlinux.org>
+# Maintainer: Quentin Michaud <mh4ckt3mh4ckt1c4s@archlinux.org>
+
+pkgname=wit-bindgen
+pkgver=0.59.0
+pkgrel=1
+pkgdesc="A language binding generator for WebAssembly interface types "
+url="https://github.com/bytecodealliance/wit-bindgen"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('Apache-2.0' 'MIT')
+depends=(
+  cargo
+  glibc
+  libgcc
+)
+makedepends=(
+  git
+)
+options=(!lto)
+source=("git+https://github.com/bytecodealliance/wit-bindgen.git#tag=v${pkgver}")
+sha256sums=('769a2e7998c81f23ba151dffd2996f9b858fb262fe5f657de6f8ab87bbe45232')
+b2sums=('b1a361694ea485fbcbd4743261f89898b659d95c543b68f36449c60a5762bca7d6f75eac7edb6a9ca1838cb5f32e7acb768ebd40788ffbf2e2f5ac23f5d13bd9')
+
+prepare() {
+  cd ${pkgname}
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd ${pkgname}
+  cargo build --release --locked
+}
+
+check() {
+  cd ${pkgname}
+  cargo test --release --locked
+}
+
+package() {
+  cd ${pkgname}
+  install -Dm755 target/release/${pkgname} -t "${pkgdir}"/usr/bin
+  install -Dm644 LICENSE-MIT -t "${pkgdir}"/usr/share/licenses/${pkgname}
+}

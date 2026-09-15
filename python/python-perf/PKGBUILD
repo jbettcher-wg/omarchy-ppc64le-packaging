@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: j605
+
+_name=pyperf
+pkgname='python-perf'
+pkgver=2.10.0
+pkgrel=1
+pkgdesc='Toolkit to run Python benchmarks'
+arch=(any)
+url='https://github.com/psf/pyperf'
+license=('MIT')
+depends=(
+  'python'
+  'python-psutil'
+)
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+provides=(python-pyperf)
+source=("$url/archive/$pkgver/$_name-$pkgver.tar.gz")
+sha512sums=('9eae461e241d9f1c038c95852c97de76f9ebc8556f59bb8d6375447c55616368c7da773923d00c0b65affb4e2b6b6eea012779360223c3e7472a3aa7d2731404')
+b2sums=('0ee5bf4c24dedeab86868e1a70a73ac24629757b9415ff715af8603f6d5047385313190ef60d75e1c4753548e3fd26a30f1e34a72306572ea0e881cf2914c193')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $_name-$pkgver
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m unittest discover -v
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 -t "$pkgdir/usr/share/doc/$pkgname" README.rst
+  install -vDm 644 -t "$pkgdir/usr/share/licenses/$pkgname" COPYING
+}
+
+# vim: ts=2 sw=2 et:

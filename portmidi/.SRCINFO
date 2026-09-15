@@ -1,0 +1,24 @@
+pkgbase = portmidi
+	pkgdesc = Cross platform library for interfacing with OS MIDI I/O APIs
+	pkgver = 2.0.8
+	pkgrel = 1
+	epoch = 1
+	url = https://github.com/portmidi/portmidi
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = alsa-lib
+	makedepends = cmake
+	depends = glibc
+	provides = libportmidi.so
+	source = https://github.com/portmidi/portmidi/archive/v2.0.8/portmidi-v2.0.8.tar.gz
+	sha512sums = d66e9587324da729f3f97037decc8dbd436f86aa346969e4f9189f74a8f60451a92db4c5a5f551064cf794e872c174ebe731bcb2aaf6554f00dacc5b3b8209be
+	b2sums = 41ee64ef204fc30756c63255e00442cd58ee4e6aa6430c13a184ad623959e17da22518e87b1d6303f817d6c04ac08df3c113b1adfe5ec03c6ae8cfc3ed615118
+
+pkgname = portmidi
+	depends = glibc
+	depends = alsa-lib
+	depends = libasound.so

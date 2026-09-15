@@ -1,0 +1,28 @@
+pkgbase = namcap
+	pkgdesc = A Pacman package analyzer
+	pkgver = 3.6.0
+	pkgrel = 3
+	url = https://gitlab.archlinux.org/pacman/namcap
+	arch = any
+	license = GPL-2.0-or-later
+	checkdepends = python-pytest
+	checkdepends = systemd
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	makedepends = git
+	depends = binutils
+	depends = elfutils
+	depends = licenses
+	depends = pkgconf
+	depends = pyalpm
+	depends = python
+	depends = python-license-expression
+	depends = python-pyelftools
+	source = git+https://gitlab.archlinux.org/pacman/namcap.git#tag=3.6.0
+	validpgpkeys = 9F377DDB6D3153A48EB3EB1E63CC496475267693
+	validpgpkeys = CCB34EBBB9541EF3F7B366C1D4A753468A5A5B67
+	sha256sums = SKIP
+
+pkgname = namcap

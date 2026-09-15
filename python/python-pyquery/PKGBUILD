@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer : Felix Yan <felixonmars@archlinux.org>
+# Contributor: speps <speps at aur dot archlinux dot org>
+# Contributor: Arnau Sanchez <tokland {at} gmail {dot} com>
+
+pkgname=python-pyquery
+pkgver=2.0.1
+pkgrel=3
+pkgdesc="A jquery-like library for python."
+arch=(any)
+url="https://github.com/gawel/pyquery/"
+license=('BSD')
+depends=('python-lxml' 'python-cssselect')
+optdepends=('python-webob: query wsgi app')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-requests' 'python-webob' 'python-pytest' 'python-webtest')
+source=("git+https://github.com/gawel/pyquery.git#tag=$pkgver")
+sha512sums=('7c496fac61e2ae0d0755bd49f5e129cf8739fcd013e932c3363feaf5c22463452dc034bc1ed6d5beae4056405ae2613a5c4be5f7ede9eeeb3b401cc0e0361792')
+
+build() {
+  cd pyquery
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd pyquery
+  # Test removed upstream
+  pytest -k 'not test_selector_html' \
+    --deselect tests/test_pyquery.py::TestManipulating::test_val_for_textarea \
+    --deselect tests/test_pyquery.py::TestHTMLParser::test_replaceWith \
+    --deselect tests/test_pyquery.py::TestHTMLParser::test_replaceWith_with_function \
+    --deselect tests/test_pyquery.py::TestWebScrapping::test_get \
+    --deselect tests/test_pyquery.py::TestWebScrapping::test_post \
+    --deselect tests/test_pyquery.py::TestWebScrapping::test_session \
+    --deselect tests/test_pyquery.py::TestWebScrappingEncoding::test_get
+  # https://github.com/gawel/pyquery/issues/257 - Fail with libxml2 2.14
+}
+
+package() {
+  cd pyquery
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # Symlink license file
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "$pkgdir"/usr/share/licenses/$pkgname
+  ln -s "$site_packages"/pyquery-$pkgver.dist-info/LICENSE.txt \
+    "$pkgdir"/usr/share/licenses/$pkgname/LICENSE.txt
+}

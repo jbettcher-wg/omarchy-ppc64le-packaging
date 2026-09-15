@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-fastbencode
+pkgver=0.3.10
+pkgrel=1
+pkgdesc="Implementation of bencode with optional fast C extensions"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/breezy-team/fastbencode"
+license=(GPL-2.0-or-later)
+depends=(
+  glibc
+  libgcc
+  python
+)
+makedepends=(
+  cython
+  python-build
+  python-installer
+  python-setuptools-rust
+  python-wheel
+)
+source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('6a403de8da01e347a7aa74fe19925c1ad0403e404979efc3ef7e38006dcf0bbda5f7bd91d6badc1a99b4383224e1a14f63a1a1c7c933ad65de5ff37200582154')
+
+build() {
+  cd ${pkgname#python-}-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}-$pkgver
+  python -m unittest discover -v
+}
+
+package() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

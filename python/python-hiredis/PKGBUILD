@@ -1,0 +1,54 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Johannes Löthberg <johannes@kyriasis.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+
+pkgname=python-hiredis
+_pkgname=hiredis-py
+pkgver=3.3.1
+pkgrel=1
+pkgdesc='Non-blocking redis client for python'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://pypi.org/project/hiredis/'
+license=('MIT')
+depends=(
+  'glibc'
+  'hiredis'
+  'python'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=('python-pytest')
+source=(
+  "git+https://github.com/redis/hiredis-py.git#tag=v$pkgver"
+  "$pkgname-use-system-hiredis.patch"
+)
+b2sums=('3bdd52bd96c24b233db6ced36b06a58374465c3cfef4ecfc68ec35ff6d6ed21f81aedb3a97d282cc82ad23738ab6c32008d4f9b5f051aaf088373e187ab69661'
+        '6a12a7237f742c02e852ac1823f7585c2246016c981b1b2b4436fa3859309cd2cb0efcb1c09f0d380d4f6430e61247d662922e53c690223a30138caa424f8e02')
+
+prepare() {
+  cd $_pkgname
+  patch -Np1 < ../$pkgname-use-system-hiredis.patch
+}
+
+build() {
+  cd $_pkgname
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $_pkgname
+  python -m installer --destdir=tmp_install dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  PYTHONPATH="$PWD/tmp_install/$site_packages" pytest
+}
+
+package() {
+  cd $_pkgname
+  python -m installer -d "$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

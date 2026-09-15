@@ -1,0 +1,15 @@
+pkgbase = terraform-provider-helm
+	pkgdesc = Terraform provider to utilize Helm
+	pkgver = 2.3.0
+	pkgrel = 1
+	url = https://github.com/mrparkers/terraform-provider-helm
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	license = MIT
+	makedepends = go
+	makedepends = git
+	source = terraform-provider-helm-2.3.0.tar.gz::https://github.com/hashicorp/terraform-provider-helm/archive/v2.3.0.tar.gz
+	sha512sums = 8a8482f50ec972750251b05beb4d55ac192d9b4c7219379aae7583959283dfd43c34927f262ac4ed0a722b31d7400be649e57f59c5c0d486ddfbb4d35140ff9a
+
+pkgname = terraform-provider-helm

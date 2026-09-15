@@ -1,0 +1,15 @@
+pkgbase = nodejs-nopt
+	pkgdesc = Node/npm Option Parsing library
+	pkgver = 7.2.1
+	pkgrel = 1
+	url = https://github.com/npm/nopt
+	arch = any
+	license = custom:ISC
+	makedepends = npm
+	depends = nodejs
+	noextract = nopt-7.2.1.tgz
+	options = !strip
+	source = https://registry.npmjs.org/nopt/-/nopt-7.2.1.tgz
+	sha256sums = 1abeca1ede32a6d0d6517a1dedee0bd1faefaac99364b5c519bc179ac921e44d
+
+pkgname = nodejs-nopt

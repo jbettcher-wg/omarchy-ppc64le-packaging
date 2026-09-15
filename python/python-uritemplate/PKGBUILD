@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Andrzej Giniewicz <gginiu@gmail.com>
+
+pkgname=python-uritemplate
+pkgver=4.2.0
+pkgrel=2
+pkgdesc='A Python implementation of RFC6570'
+arch=(any)
+url='https://github.com/python-hyper/uritemplate'
+license=('BSD-3-Clause OR Apache-2.0')
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=("$pkgname::git+$url#tag=$pkgver")
+sha512sums=('aa35627b930e352515ae6d4ffc674f1980ffc0b9872d6cff3058d16073caeab5543d4d473c6f7237f4bb4bb886a7d3331565438ee099eeb01b32de5e2476e5fe')
+b2sums=('3d6ea6552ce243670ae4b45d6a380d0201a549b95942bf4d77ac7cb8cfed9852df578447a560713a3513db782c1f20c3635557d16f217a6e9654cd0f46311088')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  # temporary install
+  python -m installer --destdir="$(pwd)/tmp" dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  export PYTHONPATH="$(pwd)/tmp/$site_packages"
+
+  pytest -v
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE*
+}

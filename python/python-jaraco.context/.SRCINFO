@@ -1,0 +1,19 @@
+pkgbase = python-jaraco.context
+	pkgdesc = Context managers by jaraco
+	pkgver = 6.1.2
+	pkgrel = 1
+	url = https://github.com/jaraco/jaraco.context
+	arch = any
+	license = MIT
+	checkdepends = python-portend
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/jaraco/jaraco.context.git#tag=v6.1.2
+	b2sums = abc3dbf22c32e76cf010744ed622004b12293407b89ae767aad320f3c7c6aa99b78806c66acd32d012c933fc52e9bf4ca5fd12ec72b7c6c045e938c0fb8a6b1b
+
+pkgname = python-jaraco.context

@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nick Wellnhofer <wellnhofer@aevum.de>
+Date: Tue, 21 May 2024 15:17:30 +0200
+Subject: [PATCH] Fix test suite with libxml2 2.13.0
+
+---
+ t/02parse.t                        | 7 ++++++-
+ t/08findnodes.t                    | 8 +++++++-
+ t/19die_on_invalid_utf8_rt_58848.t | 2 +-
+ t/25relaxng.t                      | 4 ++--
+ t/26schema.t                       | 4 ++--
+ t/60error_prev_chain.t             | 8 ++++----
+ 6 files changed, 22 insertions(+), 11 deletions(-)
+
+diff --git a/t/02parse.t b/t/02parse.t
+index b111507b7978..40aa5f13faf9 100644
+--- a/t/02parse.t
++++ b/t/02parse.t
+@@ -884,7 +884,12 @@ EOXML
+         eval {
+            $doc2    = $parser->parse_string( $xmldoc );
+         };
+-        isnt($@, '', "error parsing $xmldoc");
++        # https://gitlab.gnome.org/GNOME/libxml2/-/commit/b717abdd
++        if (XML::LibXML::LIBXML_RUNTIME_VERSION() < 21300) {
++            isnt($@, '', "error parsing $xmldoc");
++        } else {
++            is( $doc2->documentElement()->firstChild()->nodeName(), "foo" );
++        }
+ 
+         $parser->validation(1);
+ 
+diff --git a/t/08findnodes.t b/t/08findnodes.t
+index 016c85a1d30c..e9417bc519ab 100644
+--- a/t/08findnodes.t
++++ b/t/08findnodes.t
+@@ -123,7 +123,13 @@ my $docstring = q{
+ my @ns = $root->findnodes('namespace::*');
+ # TEST
+ 
+-is(scalar(@ns), 2, ' TODO : Add test name' );
++# https://gitlab.gnome.org/GNOME/libxml2/-/commit/aca16fb3
++# fixed xmlCopyNamespace with XML namespace.
++if (XML::LibXML::LIBXML_RUNTIME_VERSION() < 21300) {
++    is(scalar(@ns), 2, ' TODO : Add test name' );
++} else {
++    is(scalar(@ns), 3, ' TODO : Add test name' );
++}
+ 
+ # bad xpaths
+ # TEST:$badxpath=4;
+diff --git a/t/19die_on_invalid_utf8_rt_58848.t b/t/19die_on_invalid_utf8_rt_58848.t
+index aa8ad105adfb..4160cb27eb8e 100644
+--- a/t/19die_on_invalid_utf8_rt_58848.t
++++ b/t/19die_on_invalid_utf8_rt_58848.t
+@@ -16,7 +16,7 @@ use XML::LibXML;
+     my $err = $@;
+ 
+     # TEST
+-    like ("$err", qr{parser error : Input is not proper UTF-8},
++    like ("$err", qr{not proper UTF-8|Invalid bytes in character encoding},
+         'Parser error.',
+     );
+ }
+diff --git a/t/25relaxng.t b/t/25relaxng.t
+index 93e618836a1c..71383b2ae75d 100644
+--- a/t/25relaxng.t
++++ b/t/25relaxng.t
+@@ -132,27 +132,27 @@ print "# 6 check that no_network => 1 works\n";
+ {
+     my $rng = eval { XML::LibXML::RelaxNG->new( location => $netfile, no_network => 1 ) };
+     # TEST
+-    like( $@, qr{I/O error : Attempt to load network entity}, 'RNG from file location with external import and no_network => 1 throws an exception.' );
++    like( $@, qr{Attempt to load network entity}, 'RNG from file location with external import and no_network => 1 throws an exception.' );
+     # TEST
+     ok( !defined $rng, 'RNG from file location with external import and no_network => 1 is not loaded.' );
+ }
+ {
+     my $rng = eval { XML::LibXML::RelaxNG->new( string => <<'EOF', no_network => 1 ) };
+ <?xml version="1.0" encoding="iso-8859-1"?>
+ <grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+   <include href="http://example.com/xml.rng"/>
+   <start>
+     <ref name="include"/>
+   </start>
+   <define name="include">
+     <element name="include">
+       <text/>
+     </element>
+   </define>
+ </grammar>
+ EOF
+     # TEST
+-    like( $@, qr{I/O error : Attempt to load network entity}, 'RNG from buffer with external import and no_network => 1 throws an exception.' );
++    like( $@, qr{Attempt to load network entity}, 'RNG from buffer with external import and no_network => 1 throws an exception.' );
+     # TEST
+     ok( !defined $rng, 'RNG from buffer with external import and no_network => 1 is not loaded.' );
+ }
+diff --git a/t/26schema.t b/t/26schema.t
+index 17f641e43a17..c404cedd7b5e 100644
+--- a/t/26schema.t
++++ b/t/26schema.t
+@@ -117,19 +117,19 @@ EOF
+ {
+     my $schema = eval { XML::LibXML::Schema->new( location => $netfile, no_network => 1 ) };
+     # TEST
+-    like( $@, qr{I/O error : Attempt to load network entity}, 'Schema from file location with external import and no_network => 1 throws an exception.' );
++    like( $@, qr{Attempt to load network entity}, 'Schema from file location with external import and no_network => 1 throws an exception.' );
+     # TEST
+     ok( !defined $schema, 'Schema from file location with external import and no_network => 1 is not loaded.' );
+ }
+ {
+     my $schema = eval { XML::LibXML::Schema->new( string => <<'EOF', no_network => 1 ) };
+ <?xml version="1.0" encoding="UTF-8"?>
+ <xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+   <xsd:import namespace="http://example.com/namespace" schemaLocation="http://example.com/xml.xsd"/>
+ </xsd:schema>
+ EOF
+     # TEST
+-    like( $@, qr{I/O error : Attempt to load network entity}, 'Schema from buffer with external import and no_network => 1 throws an exception.' );
++    like( $@, qr{Attempt to load network entity}, 'Schema from buffer with external import and no_network => 1 throws an exception.' );
+     # TEST
+     ok( !defined $schema, 'Schema from buffer with external import and no_network => 1 is not loaded.' );
+ }
+diff --git a/t/60error_prev_chain.t b/t/60error_prev_chain.t
+index e48215c426ef..55ac0b2e7e6d 100644
+--- a/t/60error_prev_chain.t
++++ b/t/60error_prev_chain.t
+@@ -16,34 +16,34 @@ use XML::LibXML;
+ 
+ {
+     my $parser = XML::LibXML->new();
+-    $parser->validation(0);
+-    $parser->load_ext_dtd(0);
+ 
+     eval
+     {
+         local $^W = 0;
+-        $parser->parse_file('example/JBR-ALLENtrees.htm');
++        $parser->parse_string('<doc>&ldquo;&nbsp;&rdquo;</doc>');
+     };
+ 
+     my $err = $@;
+     my $count = 0;
+ 
+     if( $err && !ref($err) ) {
+       plan skip_all => 'The local libxml library does not support errors as objects to $@';
+     }
+-    plan tests => 1;
++    plan tests => 2;
+ 
+     while (defined($err) && $count < 200)
+     {
+         $err = $err->_prev();
+     }
+     continue
+     {
+         $count++;
+     }
+ 
+     # TEST
+     ok ((!$err), "Reached the end of the chain.");
++    # TEST
++    is ($count, 3, "Correct number of errors reported")
+ }
+ 
+ =head1 COPYRIGHT & LICENSE

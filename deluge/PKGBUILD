@@ -1,0 +1,163 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Hugo Doria <hugo@archlinux.org>
+
+pkgbase=deluge
+pkgname=(
+  deluge
+  deluge-gtk
+)
+pkgver=2.2.0
+pkgrel=4
+epoch=1
+pkgdesc="BitTorrent client with multiple user interfaces in a client/server model"
+url="https://deluge-torrent.org/"
+arch=(any)
+license=("GPL-3.0-only WITH cryptsetup-OpenSSL-exception")
+depends=(
+  libtorrent-rasterbar
+  openssl
+  python
+  python-chardet
+  python-dbus
+  python-distro
+  python-geoip
+  python-idna
+  python-ifaddr
+  python-incremental
+  python-mako
+  python-pillow
+  python-pyasn1
+  python-pyopenssl
+  python-rencode
+  python-service-identity
+  python-setproctitle
+  python-setuptools
+  python-twisted
+  python-xdg
+  python-zope-interface
+)
+_gtk_depends=(
+  glib2
+  gtk3
+  hicolor-icon-theme
+  librsvg
+  pango
+  python-cairo
+  python-gobject
+  xdg-utils
+)
+makedepends=(
+  "${_gtk_depends[@]}"
+  git
+  intltool
+  libappindicator-gtk3
+  libnotify
+  python-build
+  python-installer
+  python-pygame
+  python-rjsmin
+  python-wheel
+)
+source=(
+  "git+https://github.com/deluge-torrent/deluge?signed#tag=deluge-$pkgver"
+  0001-Fix-data-installation-when-building-wheel.patch
+)
+b2sums=('2dad4c8e05e1b0d7f3b1ece0ea2d184a8d584b1bae377d3aee8a19003829f204516125cc5d17acf6f1c33b099190ff606ee2f352374897214498e6311815a854'
+        '01fd93dd75ec5d7317f03fb8fcbcc46ac39737c8e751560b51476b038879dde3de4194393c556dea2ec74c443c0d1a8d67a12e2121b8cc4bb581e3a16495999d')
+validpgpkeys=(
+  EA01185D0E8AA00D6323A30890597A687B836BA3 # Calum Lind <calumlind@gmail.com>
+)
+
+_backports=(
+  # tests(plugins): new tests for plugin discovery and loading
+  '319eaf53995afd729dd9001a04811c669a540871'
+  # feat(ui): use importlib in entrypoint instead of pkg_resources
+  '1a031d00094d4613667bcaadae57b548b7e1413b'
+  # feat(pluginmanager): new plugin finder using stdlib without pkg_resources
+  'dab761f3b857327ca87c18e56f723849bd8baeef'
+  # feat(plugins): replace common.py pkg_resources with importlib
+  '959d5b83e37ce8ef497685634984909367702fe9'
+)
+
+
+prepare() {
+  cd deluge
+
+  local _c
+  for _c in "${_backports[@]}"; do
+    git log --oneline --max-count=1 "${_c}"
+    git cherry-pick --no-commit "${_c}"
+  done
+
+  # Installation fixes
+  git apply -3 ../0001-Fix-data-installation-when-building-wheel.patch
+}
+
+build() {
+  cd deluge
+  python -m build --wheel --no-isolation
+}
+
+_pick() {
+  local p="$1" f d; shift
+  for f; do
+    d="$srcdir/$p/${f#$pkgdir/}"
+    mkdir -p "$(dirname "$d")"
+    mv "$f" "$d"
+    rmdir -p --ignore-fail-on-non-empty "$(dirname "$f")"
+  done
+}
+
+package_deluge() {
+  cd deluge
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -Dt "$pkgdir/usr/lib/systemd/system" \
+    -m644 packaging/systemd/*.service
+  install -Dt "$pkgdir/usr/lib/systemd/user" \
+    -m644 packaging/systemd/user/*.service
+  install -Dt "$pkgdir/usr/lib/systemd/system/deluged.service.d" \
+    -m644 packaging/systemd/user.conf
+  install -Dt "$pkgdir/usr/lib/systemd/system/deluge-web.service.d" \
+    -m644 packaging/systemd/user.conf
+
+  echo 'u deluge - "Deluge BitTorrent daemon" /srv/deluge' |
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/sysusers.d/$pkgname.conf"
+  echo 'd /srv/deluge 0770 deluge deluge' |
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/tmpfiles.d/$pkgname.conf"
+
+  _pick gtk "$pkgdir"/usr/bin/deluge-gtk
+  _pick gtk "$pkgdir"/usr/share/man/man1/deluge-gtk.1
+  _pick gtk "$pkgdir"/usr/share/{applications,icons,metainfo,pixmaps}
+
+  local sitedir="$(python -c 'import site; print(site.getsitepackages()[0])')"
+  _pick gtk "$pkgdir$sitedir"/deluge/ui/gtk3
+
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 LICENSE
+}
+
+package_deluge-gtk() {
+  pkgdesc="GTK UI for Deluge"
+  depends=(
+    "${_gtk_depends[@]}"
+    "deluge=$epoch:$pkgver-$pkgrel"
+    python
+    python-rencode
+    python-setproctitle
+    python-twisted
+  )
+  optdepends=(
+    'libappindicator-gtk3: appindicator notifications'
+    'python-pygame: audible notifications'
+    'libnotify: desktop notifications'
+  )
+  replaces=('deluge<2.0.4.dev23+g2f1c008a2-2')
+
+  mv gtk/* "$pkgdir"
+
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 deluge/LICENSE
+}
+
+# vim:set sw=2 sts=-1 et:

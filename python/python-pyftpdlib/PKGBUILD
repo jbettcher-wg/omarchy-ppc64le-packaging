@@ -1,0 +1,54 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Daniel Wallace <danielwallace at gtmanfred dot com>
+# Contributor: Thomas S Hatch <thatch45@gmail.com>
+
+pkgname=python-pyftpdlib
+pkgver=2.2.0
+pkgrel=1
+pkgdesc="Extremely fast and scalable Python FTP server library"
+arch=(any)
+url="https://github.com/giampaolo/pyftpdlib"
+license=(MIT)
+depends=(
+  python
+  python-pyasynchat
+  python-pyasyncore
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-psutil
+  python-pyopenssl
+  python-pytest
+)
+optdepends=(
+  'python-pyopenssl: FTPS support'
+  'python-psutil: to keep track of FTP server memory usage'
+)
+source=("$url/archive/release-$pkgver/$pkgname-release-$pkgver.tar.gz")
+b2sums=('9feb0dea43f026ea20df4799fa0abf6ac9cc5961b50816175dbffb6731ea8523614bae7a2ba24b655c215860945b15165a0ee13a9d73a66ea5f7e9f33e6d33b5')
+
+build() {
+  cd "${pkgname#python-}-release-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "${pkgname#python-}-release-$pkgver"
+  pytest --override-ini="addopts=" \
+    --deselect=tests/test_functional_ssl.py::TestFtpListingCmdsTLSMixin::test_nlst \
+    --deselect=tests/test_functional_ssl.py::TestFtpListingCmdsTLSMixin::test_nlst \
+    --deselect=tests/test_functional_ssl.py::TestFtpListingCmdsTLSMixin::test_stat
+}
+
+package() {
+  cd "${pkgname#python-}-release-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

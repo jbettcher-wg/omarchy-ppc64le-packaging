@@ -1,0 +1,86 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Frederik Schwan <freswa at archlinux dot org>
+# Contributor: Christian Rebischke <chris.rebischke@archlinux.org>
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Daniel Micay <danielmicay@gmail.com>
+# Contributor: Jonathan Wiersma <archaur at jonw dot org>
+
+pkgbase=virt-manager
+pkgname=(virt-install virt-manager)
+pkgver=5.1.0
+pkgrel=4
+arch=(any)
+url='https://virt-manager.org/'
+license=('GPL-2.0-only')
+makedepends=(
+  git
+  meson
+  python-docutils
+)
+optdepends=(
+  'libappindicator: SNI tray icon'
+  'x11-ssh-askpass: provide password for remote machines connected via ssh tunnel'
+)
+source=("git+https://github.com/virt-manager/virt-manager.git#tag=v${pkgver}"
+	"0001-virtinst-cloudinit-include-empty-meta-data-file.patch")
+b2sums=('f4f0a51662eed1431ec00ab4bd8820ab1f44aac2ade9b3ab4f95bf6bad6151d575519337b155eb1f0f1463ca3461c7cf4193c2ee6a3bce95cd3dd89295787b88'
+        'cc90ff5fe118419ca580a7085e8475a8b5eb759068491abde12262e8cea4d95f99bf70ce905075e9ab47a8152c5a5cdee57249f122a2f78cd71148ff3be02791')
+
+prepare() {
+  cd $pkgbase
+  patch -Np1 -i "${srcdir}/0001-virtinst-cloudinit-include-empty-meta-data-file.patch"
+  sed -i 's/AyatanaAppIndicator3/AppIndicator3/' virtManager/systray.py
+}
+
+build() {
+  local meson_options=(
+    -D default-hvs=qemu,lxc
+    -D compile-schemas=false
+    -D update-icon-cache=false
+    -D tests=disabled
+  )
+
+  arch-meson ${pkgbase} build "${meson_options[@]}"
+  meson compile -C build
+}
+
+package_virt-install() {
+  pkgdesc='Command line tool for creating new KVM , Xen, or Linux container guests using the libvirt hypervisor'
+  depends=(
+    cpio
+    libisoburn
+    libosinfo
+    libvirt-python
+    python-gobject
+    python-requests
+  )
+
+  meson install -C build --destdir "${pkgdir}"
+
+  python -m compileall "${pkgdir}"/usr/share/virt-manager
+  python -O -m compileall "${pkgdir}"/usr/share/virt-manager
+
+  # Split virt-manager
+  [[ -d "${srcdir}"/virt-manager ]] && rm -r "${srcdir}"/virt-manager/
+  mkdir -p "${srcdir}"/split/usr/{bin,share/{man/man1,virt-manager}}
+  mv "${pkgdir}"/usr/bin/virt-manager "${srcdir}"/split/usr/bin/
+  mv "${pkgdir}"/usr/share/{applications,glib-2.0,icons,metainfo} "${srcdir}"/split/usr/share/
+  mv "${pkgdir}"/usr/share/man/man1/virt-manager.1 "${srcdir}"/split/usr/share/man/man1/
+  mv "${pkgdir}"/usr/share/virt-manager/{icons,ui,virtManager} "${srcdir}"/split/usr/share/virt-manager/
+}
+
+package_virt-manager() {
+  pkgdesc='Desktop user interface for managing virtual machines'
+  depends=(
+    "virt-install=${pkgver}"
+    gtk-update-icon-cache
+    gtk-vnc
+    libvirt-glib
+    spice-gtk
+    vte3
+    python-cairo
+    gtksourceview4
+  )
+
+  mv -v split/* "${pkgdir}/"
+}

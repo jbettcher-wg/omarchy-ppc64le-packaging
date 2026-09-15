@@ -1,0 +1,17 @@
+pkgbase = python-fluidity
+	pkgdesc = Fluidity: state machine implementation for Python objects
+	pkgver = 0.2.1
+	pkgrel = 8
+	url = https://github.com/nsi-iff/fluidity
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/nsi-iff/fluidity.git#commit=468627ea13ed4c3043dc67ccc1ff16089fdb7b25
+	sha512sums = 2ff7c490c0503fd9019afe176e97524b2644d5d6b05be4a0dc49c3455212e4bf3f1bd4caa6206b4bf068fedabe7f83514d3baedcb0189449dee77074315792ef
+
+pkgname = python-fluidity

@@ -1,0 +1,31 @@
+pkgbase = vulkan-validation-layers
+	pkgdesc = Vulkan Validation Layers
+	pkgver = 1.4.357.0
+	pkgrel = 1
+	url = https://www.vulkan.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = vulkan-devel
+	license = Apache-2.0
+	makedepends = cmake
+	makedepends = git
+	makedepends = libxrandr
+	makedepends = ninja
+	makedepends = python-lxml
+	makedepends = spirv-headers
+	makedepends = vulkan-headers
+	makedepends = vulkan-icd-loader
+	makedepends = vulkan-utility-libraries
+	makedepends = wayland
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = spirv-tools
+	options = !lto
+	source = git+https://github.com/KhronosGroup/Vulkan-ValidationLayers#tag=vulkan-sdk-1.4.357.0
+	b2sums = 16b7b5b675dc743f17291794469d37cc957e39766591088cf366511570024125cf6a91be48a5ff26b28777063b9127e79021ad05ef525244eb46b40825d08104
+
+pkgname = vulkan-validation-layers

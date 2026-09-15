@@ -1,0 +1,50 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jakub Klinkovský <lahwaacz at archlinux dot org>
+
+pkgname=inchi
+pkgver=1.07.5
+pkgrel=1
+pkgdesc="The IUPAC International Chemical Identifier"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/IUPAC-InChI/InChI"
+license=(MIT)
+depends=(
+  glibc
+)
+makedepends=(
+  cmake
+)
+source=($pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz)
+b2sums=('ab3f8d37ee4ced75dc1eefb3f92fdb1eca128db00e333f69e2924e8759a554c45ed4fca9ca15c8fb1bd56d3166799c428884e06f1b7d13cbcbbe1ce4c91f506c')
+
+build() {
+  local cmake_options=(
+    -W no-dev
+    -DCMAKE_BUILD_TYPE=None
+    -DCMAKE_INSTALL_PREFIX=/usr
+    -DCMAKE_SKIP_RPATH=ON
+  )
+
+  # main API
+  cmake -B build-main -S InChI-$pkgver/INCHI-1-SRC/INCHI_API/demos/inchi_main/src "${cmake_options[@]}"
+  cmake --build build-main
+
+  # CLI
+  cmake -B build-cli -S InChI-$pkgver/INCHI-1-SRC/INCHI_EXE/inchi-1/src "${cmake_options[@]}"
+  cmake --build build-cli
+}
+
+package() {
+  # upstream build system has no install targets :-/
+  install -vDm 755 build-main/bin/inchi_main -t "$pkgdir"/usr/bin/
+  install -vDm 644 build-main/bin/libinchi.so -t "$pkgdir"/usr/lib/
+  install -vDm 755 build-cli/bin/inchi-1 -t "$pkgdir"/usr/bin/
+
+  # install headers
+  for h in InChI-$pkgver/INCHI-1-SRC/INCHI_BASE/src/*.h InChI-$pkgver/INCHI-1-SRC/INCHI_API/libinchi/src/*.h; do
+    install -vDm 644 "$h" -t "$pkgdir"/usr/include/inchi/
+  done
+
+  # install license
+  install -vDm 644 InChI-$pkgver/LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

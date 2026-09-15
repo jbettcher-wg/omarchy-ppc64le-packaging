@@ -1,0 +1,45 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Pierre Schmitz <pierre@archlinux.de>
+
+pkgname=kaffeine
+pkgver=2.0.19
+pkgrel=4
+pkgdesc='KDE media player'
+license=(GPL-3.0-or-later)
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://apps.kde.org/kaffeine/'
+depends=(hicolor-icon-theme
+         glibc
+         libstdc++
+         kconfig5
+         kconfigwidgets5
+         kcoreaddons5
+         kdbusaddons5
+         ki18n5
+         kio5
+         kwidgetsaddons5
+         kwindowsystem5
+         kxmlgui5
+         libvlc
+         qt5-base
+         solid5
+         v4l-utils
+         vlc-plugins-video-output)
+makedepends=(extra-cmake-modules
+             git
+             libxss)
+source=(git+https://invent.kde.org/multimedia/kaffeine#tag=v$pkgver)
+sha256sums=('3d89859b4e8315d91386d188013aa121bba77a0bb7a861f6b2482791c4ec5842')
+validpgpkeys=(F909AE68FC11DF09C1755C00085F3EBD8EE4E115) # Mauro Carvalho Chehab <mchehab@s-opensource.com>
+
+build() {
+  cmake -B build -S $pkgname \
+    -DCMAKE_BUILD_TYPE=None \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

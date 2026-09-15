@@ -1,0 +1,18 @@
+pkgbase = python-zope-deferredimport
+	pkgdesc = Allows you to perform imports names that will only be resolved when used in the code
+	pkgver = 6.1.1
+	pkgrel = 1
+	url = https://github.com/zopefoundation/zope.deferredimport
+	arch = any
+	license = ZPL-2.1
+	checkdepends = python-zope-testrunner
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-zope-proxy
+	source = https://github.com/zopefoundation/zope.deferredimport/archive/6.1.1/python-zope-deferredimport-6.1.1.tar.gz
+	b2sums = 5b7dae52bbf4d218fe35ba31a23ccd512165ac61347ad9c044c5bbd48a42eac4d0a74fdd380421c42b08dc1c45a2fe9c5765c9ace703f5856a613a741e713da4
+
+pkgname = python-zope-deferredimport

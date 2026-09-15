@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=sip
+pkgver=6.15.3
+pkgrel=1
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+pkgdesc='A tool that makes it easy to create Python bindings for C and C++ libraries'
+url='https://www.riverbankcomputing.com/'
+license=(BSD-2-Clause)
+depends=(python
+         python-packaging
+         python-setuptools)
+makedepends=(git
+             python-build
+             python-installer
+             python-setuptools-scm
+             python-wheel)
+source=(git+https://github.com/Python-SIP/sip#tag=$pkgver)
+sha256sums=('ccb97983ec2cb995259ae60658f04e61bb3766af309c0e3a11d3786b0eb49060')
+
+build() {
+  cd $pkgname
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd $pkgname
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+}

@@ -1,0 +1,55 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+
+pkgname=python-munch
+pkgver=4.0.0
+pkgrel=5
+pkgdesc='A dot-accessible dictionary (a la Javascript objects)'
+arch=(any)
+url='https://github.com/Infinidat/munch'
+license=(MIT)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+  python-pbr
+)
+checkdepends=(
+  python-pytest
+  python-yaml
+)
+source=("$pkgname::git+$url#tag=$pkgver")
+sha512sums=('406ad8c014a25a07fa4967c940c7b18596c4f64b2eb84aebb5b331364f75bf3e909b04d9f68cc3444d544fbf2b01a4b1761a5905fe2174152423de3f9254315c')
+b2sums=('8aaccc629aa384ab1037d98248dbaf17395431b741b666613cd65ca1c6d8e53510862d31649108f0eea4e2e9658bfba32abfeab28843edd5f4acbeec21f036b8')
+
+prepare() {
+  cd "$pkgname"
+
+  # adjust tests for Python 3.13+
+  git cherry-pick --no-commit 84651ee872f9ea6dbaed986fd3818202933a8b50
+}
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  pytest -v
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.txt
+}

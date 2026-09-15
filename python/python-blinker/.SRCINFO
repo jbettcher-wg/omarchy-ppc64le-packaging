@@ -1,0 +1,16 @@
+pkgbase = python-blinker
+	pkgdesc = Fast, simple object-to-object and broadcast signaling
+	pkgver = 1.9.0
+	pkgrel = 4
+	url = https://blinker.readthedocs.io
+	arch = any
+	license = MIT
+	checkdepends = python-pytest-asyncio
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-flit-core
+	depends = python
+	source = https://files.pythonhosted.org/packages/source/b/blinker/blinker-1.9.0.tar.gz
+	sha512sums = 587eaead4750eb742209703d792498293579dc55afc855498066b49a067527b6b3eccbe9a35ddbacc2cb1b7ced0bb3bb7a5716dba82d87b434a6ca8281bd76e5
+
+pkgname = python-blinker

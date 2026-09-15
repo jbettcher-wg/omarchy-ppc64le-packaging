@@ -1,0 +1,21 @@
+pkgbase = ntfs-3g
+	pkgdesc = NTFS filesystem driver and utilities
+	pkgver = 2022.10.3
+	pkgrel = 2
+	url = https://www.tuxera.com/community/open-source-ntfs-3g/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL2
+	makedepends = git
+	depends = util-linux
+	depends = fuse2
+	provides = ntfsprogs
+	conflicts = ntfsprogs
+	replaces = ntfsprogs
+	source = git+https://github.com/tuxera/ntfs-3g.git#tag=2022.10.3
+	sha256sums = 2ea31198406ad58b7cf4fd163c7192b7ea21639b0f770d930ccb25b3c188112e
+
+pkgname = ntfs-3g

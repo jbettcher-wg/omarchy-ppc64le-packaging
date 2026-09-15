@@ -1,0 +1,65 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Anatol Pomozov
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Andrew Sun <adsun701 at gmail dot com>
+# Contributor: Joel Teichroeb <joel at teichroeb dot net>
+# Contributor: Alim Gokkaya <alimgokkaya at gmail dot com>
+
+pkgname=librdkafka
+pkgver=2.14.0
+pkgrel=1
+pkgdesc='The Apache Kafka C/C++ library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/confluentinc/librdkafka'
+license=(
+  Apache-2.0
+  BSD-2-Clause
+  BSD-3-Clause
+  MIT
+  Zlib
+)
+depends=(
+  curl
+  glibc
+  libgcc
+  libsasl
+  libstdc++
+  lz4
+  openssl
+  zlib
+  zstd
+)
+makedepends=(
+  cmake
+  python
+  rapidjson
+)
+provides=(librdkafka.so)
+source=("$url/archive/v$pkgver/$pkgname-$pkgver.tar.gz")
+b2sums=('fa16bda58e7798bd5e8d89c50f4dedf11c8be559f077ff103e40d7cc9f2176ef9a503457ce80ca14f38d964af9cb0d38737324ba0e4a8ad8076f84529079a099')
+
+build() {
+  cd $pkgname-$pkgver
+  cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -Wno-dev
+  cmake --build build
+}
+
+check() {
+  cd $pkgname-$pkgver
+  local skip_tests=(
+	  RdKafkaTestInParallel
+	  RdKafkaTestSequentially
+    RdKafkaTestBrokerLess
+  )
+  local skip_tests_pattern="${skip_tests[0]}$(printf '|%s' "${skip_tests[@]:1}")"
+  ctest --test-dir build --output-on-failure -E "$skip_tests_pattern"
+}
+
+package() {
+  cd $pkgname-$pkgver
+  DESTDIR="$pkgdir" cmake --install build
+  install -vDm644 -t "$pkgdir/usr/share/doc/$pkgname" ./*.md
+}

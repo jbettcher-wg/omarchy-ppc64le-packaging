@@ -1,0 +1,43 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Dan Johansen <strit@archlinux.org>
+# Contributor: Jonathan Steel <jsteel at archlinux.org>
+# Contributor: M0Rf30
+
+pkgname=drbl
+pkgver=5.9.11
+pkgrel=1
+pkgdesc="Diskless Remote Boot in Linux: manage the deployment of the GNU/Linux operating system across many clients"
+arch=(any)
+url="https://github.com/stevenshiau/drbl"
+license=('GPL-2.0-only')
+depends=(
+        'perl'
+        'bc'
+)
+makedepends=('vim')
+backup=('etc/drbl/drbl.conf')
+options=('!emptydirs')
+source=(
+        "${url}/archive/v${pkgver}/${pkgname}-${pkgver}.tar.gz"
+        "usrbin.patch"
+)
+sha256sums=('843efaf2832f3d8d10175fa20abde4df408546f7b4048eae222f40a55778ad5d'
+            'c1ae79ac2d2d07cfd4437b093986823e9e14f75dbefbf04dde407b648be17ec4')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+
+  patch -Np0 -i "$srcdir"/usrbin.patch
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+
+  make  
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  make DESTDIR="$pkgdir" install
+}

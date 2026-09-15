@@ -1,0 +1,5 @@
+[liburing]
+source = "git"
+git = "https://github.com/axboe/liburing.git"
+prefix = "liburing-"
+exclude_regex = ".*(rc).*"

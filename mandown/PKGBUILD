@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jelle van der Waa <jelle@archlinux.org>
+
+pkgname=mandown
+pkgver=1.1.0
+pkgrel=2
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('Apache-2.0')
+url="https://gitlab.com/kornelski/mandown"
+pkgdesc="Create man pages from markdown markup"
+depends=(
+  glibc
+  libgcc
+)
+makedepends=(rust cargo)
+source=(https://gitlab.com/kornelski/mandown/-/archive/v${pkgver}/mandown-v${pkgver}.tar.gz)
+sha512sums=('516a7b655c8aee8e171ba8e0a23997a6cfc9cbbc60197039acc10892ebdd6a454dfb3ca9dc4b7a49856edef0b1102f2126a0ad14ff203bcbb735603627125bbe')
+
+prepare() {
+  cd "$pkgname-v$pkgver"
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$pkgname-v$pkgver"
+  cargo build --frozen --release --all-features
+}
+
+check() {
+  cd "$pkgname-v$pkgver"
+  cargo test --frozen --all-features
+}
+
+package() {
+  cd "$pkgname-v$pkgver"
+  install -vDm 755 target/release/${pkgname} -t "${pkgdir}/usr/bin"
+}

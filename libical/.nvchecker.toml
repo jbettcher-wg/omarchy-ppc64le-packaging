@@ -1,0 +1,4 @@
+[libical]
+source = "git"
+git = "https://github.com/libical/libical.git"
+prefix = "v"

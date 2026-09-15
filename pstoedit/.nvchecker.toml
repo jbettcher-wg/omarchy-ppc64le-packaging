@@ -1,0 +1,4 @@
+[pstoedit]
+source = "git"
+git = "https://github.com/woglu/pstoedit.git"
+prefix = "v"

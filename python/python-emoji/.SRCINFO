@@ -1,0 +1,18 @@
+pkgbase = python-emoji
+	pkgdesc = Emoji for Python
+	pkgver = 2.15.0
+	pkgrel = 2
+	url = https://github.com/carpedm20/emoji
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/carpedm20/emoji.git#tag=v2.15.0
+	sha512sums = 94ceba743b2babd639a561354b9b379decb5ed10bcf1b0f49c6023873bd7d13609b1d8e8a11a884638f8ac94fb5c2b616c8bdad5b431c15e78bbfab58957fefc
+
+pkgname = python-emoji

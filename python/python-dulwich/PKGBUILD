@@ -1,0 +1,75 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+# Contributor: Timothée Ravier <tim@siosm.fr>
+
+pkgname=python-dulwich
+_name=${pkgname#python-}
+pkgver=1.1.0
+pkgrel=1
+pkgdesc='Pure-Python implementation of the Git file formats and protocols'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://www.dulwich.io
+license=('Apache-2.0 OR GPL-2.0-or-later')
+depends=(
+  python
+  python-urllib3
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools-rust
+  python-wheel
+)
+checkdepends=(
+  openssh
+  python-fastimport
+  python-gevent
+  python-gpgme
+  python-merge3
+  python-paramiko
+  python-pytest
+)
+optdepends=(
+  'python-fastimport: for fast-import support'
+  'python-gpgme: for PGP signature support'
+  'python-idna: for HTTPS support via urllib3'
+  'python-merge3: for merge support'
+  'python-paramiko: for use as the SSH implementation'
+  'python-pyopenssl: for HTTPS support via urllib3'
+  'python-pyinotify: to watch for changes to refs'
+  'python-rich: for colorized diff support'
+)
+source=("git+https://github.com/jelmer/dulwich.git#tag=dulwich-$pkgver")
+b2sums=('1b110b4c23b845a77151ef129daec1626631a3ff7853ce035306684c63c4cf1955d7adf75ebb8d96124613a1f9442f06f0a8d7487081e18af38de4d0e4088707')
+validpgpkeys=(DC837EE14A7E37347E87061700806F2BD729A457) # Jelmer Vernooĳ <jelmer@jelmer.uk>
+
+prepare() {
+  cd "$_name"
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$_name"
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  local pytest_options=(
+    -v
+    --ignore tests/contrib/test_swift_smoke.py
+  )
+
+  cd "$_name"
+  cargo test --frozen --all-features
+  pytest "${pytest_options[@]}" tests
+}
+
+package() {
+  cd "$_name"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

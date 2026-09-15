@@ -1,0 +1,4 @@
+[python-redis]
+source = "git"
+git = "https://github.com/redis/redis-py"
+prefix = "v"

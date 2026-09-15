@@ -1,0 +1,4 @@
+[libcgif]
+source = "git"
+git = "https://github.com/dloebl/cgif.git"
+prefix = "v"

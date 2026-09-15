@@ -1,0 +1,19 @@
+pkgbase = python-six
+	pkgdesc = Python 2 and 3 compatibility utilities
+	pkgver = 1.17.0
+	pkgrel = 3
+	url = https://pypi.python.org/pypi/six/
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = tk
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	source = git+https://github.com/benjaminp/six.git#tag=1.17.0
+	sha512sums = ba4642ae45ad2039a680517905bc52700d6a41869a120a3bedab2cb6664d051bc0a761f48ee56d6636d4594326b1cf1d4a1f4438046c53e29c2dbf5ef7267dc2
+
+pkgname = python-six

@@ -1,0 +1,17 @@
+pkgbase = python-moreorless
+	pkgdesc = Python diff wrapper
+	pkgver = 0.5.0
+	pkgrel = 2
+	url = https://github.com/thatch/moreorless
+	arch = any
+	license = MIT
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools-scm
+	depends = python
+	source = https://files.pythonhosted.org/packages/source/m/moreorless/moreorless-0.5.0.tar.gz
+	sha256sums = 560a04f85006fccd74feaa4b6213a446392ff7b5ec0194a5464b6c30f182fa33
+	b2sums = 25bcd94c9614acb24b7d14402f2264db06514699196f97073ebe6f83672e2d0a9685bf5c3c6b8a43f6ecd8ff4ec7878ad5c1764ed565dbe073ecdd43cdca142c
+
+pkgname = python-moreorless

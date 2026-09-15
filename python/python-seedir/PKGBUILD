@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-seedir
+pkgver=0.5.1
+pkgrel=2
+pkgdesc="A Python package for creating, editing, and reading folder tree diagrams"
+url="https://github.com/earnestt1234/seedir"
+license=('MIT')
+arch=(any)
+depends=('python-natsort')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools')
+optdepends=('python-emoji: for emoji style')
+checkdepends=('python-emoji' 'python-pytest')
+source=("git+https://github.com/earnestt1234/seedir.git#tag=v$pkgver")
+sha512sums=('14bfd6ede7f47898c3180800bc9af11a78dfb1af260c8507704186ff0f50167b23fe2b5f7c7497e5d3dfff149e2e1c4161452e4c6810ffef666730e12b66dd96')
+
+build() {
+  cd seedir
+  python -m build -nw
+}
+
+check() {
+  cd seedir
+  pytest
+}
+
+package() {
+  cd seedir
+  python -m installer -d "$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
+}

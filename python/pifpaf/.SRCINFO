@@ -1,0 +1,38 @@
+pkgbase = pifpaf
+	pkgdesc = Suite of tools and fixtures to manage daemons for testing
+	pkgver = 3.4.0
+	pkgrel = 2
+	url = https://github.com/jd/pifpaf
+	arch = any
+	license = Apache-2.0
+	checkdepends = consul
+	checkdepends = httpbin
+	checkdepends = memcached
+	checkdepends = postgresql
+	checkdepends = python-requests
+	checkdepends = python-testtools
+	checkdepends = rabbitmq
+	checkdepends = valkey
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python
+	depends = python-click
+	depends = python-daiquiri
+	depends = python-fixtures
+	depends = python-jinja
+	depends = python-packaging
+	depends = python-psutil
+	depends = python-xattr
+	provides = python-pifpaf=3.4.0
+	conflicts = python-pifpaf
+	replaces = python-pifpaf
+	source = git+https://github.com/jd/pifpaf.git#tag=3.4.0
+	source = pifpaf-skip-failing-tests.patch
+	sha512sums = f6b0db3fbf4d53a38850957761837a895345b53e008dbc3ab40ae176950861f1a2eb1a6e9a9340a9873d3b1ff952a9e0d5a07ef1f3f237a3d411d17e9f560137
+	sha512sums = 40af139e6e142f5b476eff46a056bc53a688bcb65d93b21462ce7089e158a4ac852921c8de34054eb2b8739749028fc35db9a55fc573335a9362000f13ca4530
+
+pkgname = pifpaf

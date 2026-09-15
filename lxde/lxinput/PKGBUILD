@@ -1,0 +1,64 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: Filipp "Scorp" Andjelo <scorp@mailueberfall.de>
+
+pkgname=lxinput
+pkgver=0.3.6
+pkgrel=3
+pkgdesc='Small program to configure keyboard and mouse for LXDE'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/lxde/lxinput'
+license=(GPL-2.0-or-later)
+groups=(lxde)
+depends=(
+  glib2
+  glibc
+  gtk3
+  libx11
+  xorg-xmodmap
+  xorg-xset
+)
+makedepends=(
+  git
+  intltool
+)
+conflicts=(lxinput-gtk3)
+replaces=(lxinput-gtk3)
+source=(
+  "git+https://github.com/lxde/lxinput.git#tag=$pkgver"
+  lxinput-notshowin.patch
+  lxinput-x11-only.patch
+)
+b2sums=(
+  35f17ab642d2da3099fa5593592ae2b96aaaba19f746328e6a271ca9d8689b5f1f5cb925e9ca92b86600719966601b1be969e84d6afce2034fe8da6a64a2db13
+  13c4fa3c80b1eec3529f9ae1a3097d806f69061e3766626b5b01f80148bc127c5619f19458cbece585d3c5f137a6b32801ff36151a0aff51bd6c434a657c05ce
+  4f2cd26de3dfb69f16f8283035a3aa43bd64ec8841941dff24eb9be190c780e4f6b84acafb176831807c4a5be8d87353b096ceb80bfaea959b4f41bee960748f
+)
+
+prepare() {
+  cd $pkgname
+
+  # https://github.com/lxde/lxinput/pull/3
+  git apply -3 ../lxinput-notshowin.patch
+
+  # https://github.com/lxde/lxinput/pull/4
+  git apply -3 ../lxinput-x11-only.patch
+
+  autoreconf -fi
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --enable-gtk3
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

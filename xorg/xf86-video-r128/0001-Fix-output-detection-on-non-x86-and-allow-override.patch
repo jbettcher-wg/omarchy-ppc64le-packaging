@@ -1,0 +1,173 @@
+diff -ruN xf86-video-r128-xf86-video-r128-6.13.0.orig/man/r128.man xf86-video-r128-xf86-video-r128-6.13.0/man/r128.man
+--- xf86-video-r128-xf86-video-r128-6.13.0.orig/man/r128.man	2025-08-13 22:11:55.459560629 +0200
++++ xf86-video-r128-xf86-video-r128-6.13.0/man/r128.man	2025-08-13 22:12:04.130791436 +0200
+@@ -93,6 +93,10 @@
+ .B at your own risk.
+ The default depends on the device.
+ .TP
++.BI "Option \*qForceOutput\*q \*q" integer \*q
++Force a specific output layout.  This option is only read when the video card BIOS is
++inaccessible (typically on non-x86 architectures).  This allows you to override the
++default output layout, which is a single VGA output on port 0.
+ .BI "Option \*qPanelWidth\*q \*q" integer \*q
+ .TP
+ .BI "Option \*qPanelHeight\*q \*q" integer \*q
+diff -ruN xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128_driver.c xf86-video-r128-xf86-video-r128-6.13.0/src/r128_driver.c
+--- xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128_driver.c	2025-08-13 22:11:55.460491664 +0200
++++ xf86-video-r128-xf86-video-r128-6.13.0/src/r128_driver.c	2025-08-13 22:12:04.131583996 +0200
+@@ -67,6 +67,7 @@
+ 
+ 				/* Driver data structures */
+ #include "r128.h"
++#include "r128_options.h"
+ #include "r128_probe.h"
+ #include "r128_reg.h"
+ #include "r128_version.h"
+@@ -116,33 +117,6 @@
+ static void R128Save(ScrnInfoPtr pScrn);
+ static void R128Restore(ScrnInfoPtr pScrn);
+ 
+-typedef enum {
+-  OPTION_NOACCEL,
+-  OPTION_FBDEV,
+-  OPTION_DAC_6BIT,
+-  OPTION_VGA_ACCESS,
+-  OPTION_SHOW_CACHE,
+-  OPTION_SW_CURSOR,
+-  OPTION_VIDEO_KEY,
+-  OPTION_PANEL_WIDTH,
+-  OPTION_PANEL_HEIGHT,
+-  OPTION_PROG_FP_REGS,
+-#ifdef R128DRI
+-  OPTION_XV_DMA,
+-  OPTION_IS_PCI,
+-  OPTION_CCE_PIO,
+-  OPTION_NO_SECURITY,
+-  OPTION_USEC_TIMEOUT,
+-  OPTION_AGP_MODE,
+-  OPTION_AGP_SIZE,
+-  OPTION_RING_SIZE,
+-  OPTION_BUFFER_SIZE,
+-  OPTION_PAGE_FLIP,
+-#endif
+-  OPTION_ACCELMETHOD,
+-  OPTION_RENDERACCEL
+-} R128Opts;
+-
+ static const OptionInfoRec R128Options[] = {
+ { OPTION_NOACCEL,      "NoAccel",          OPTV_BOOLEAN, {0}, FALSE },
+ { OPTION_FBDEV,        "UseFBDev",         OPTV_BOOLEAN, {0}, FALSE },
+@@ -168,6 +142,7 @@
+ #endif
+   { OPTION_ACCELMETHOD,  "AccelMethod",      OPTV_STRING,  {0}, FALSE },
+   { OPTION_RENDERACCEL,  "RenderAccel",      OPTV_BOOLEAN, {0}, FALSE },
++  { OPTION_FORCEOUTPUT,  "ForceOutput",      OPTV_INTEGER, {0}, FALSE },
+   { -1,                  NULL,               OPTV_NONE,    {0}, FALSE }
+ };
+ 
+diff -ruN xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128.h xf86-video-r128-xf86-video-r128-6.13.0/src/r128.h
+--- xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128.h	2025-08-13 22:11:55.459915753 +0200
++++ xf86-video-r128-xf86-video-r128-6.13.0/src/r128.h	2025-08-13 22:12:04.131036336 +0200
+@@ -63,7 +63,7 @@
+ #undef R128DRI
+ #endif
+ 
+-#if R128DRI
++#ifdef R128DRI
+ #define _XF86DRI_SERVER_
+ #include "r128_dripriv.h"
+ #include "dri.h"
+diff -ruN xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128_options.h xf86-video-r128-xf86-video-r128-6.13.0/src/r128_options.h
+--- xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128_options.h	1970-01-01 01:00:00.000000000 +0100
++++ xf86-video-r128-xf86-video-r128-6.13.0/src/r128_options.h	2025-08-13 22:12:04.132140710 +0200
+@@ -0,0 +1,59 @@
++/*
++ * Copyright 2023 A. Wilcox, Tulsa, Oklahoma.
++ *
++ * All Rights Reserved.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining
++ * a copy of this software and associated documentation files (the
++ * "Software"), to deal in the Software without restriction, including
++ * without limitation on the rights to use, copy, modify, merge,
++ * publish, distribute, sublicense, and/or sell copies of the Software,
++ * and to permit persons to whom the Software is furnished to do so,
++ * subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the
++ * next paragraph) shall be included in all copies or substantial
++ * portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++ * NON-INFRINGEMENT.  IN NO EVENT SHALL ATI, VA LINUX SYSTEMS AND/OR
++ * THEIR SUPPLIERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
++ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ */
++
++#ifndef _R128_OPTIONS_H_
++#define _R128_OPTIONS_H_ 1
++
++typedef enum {
++  OPTION_NOACCEL,
++  OPTION_FBDEV,
++  OPTION_DAC_6BIT,
++  OPTION_VGA_ACCESS,
++  OPTION_SHOW_CACHE,
++  OPTION_SW_CURSOR,
++  OPTION_VIDEO_KEY,
++  OPTION_PANEL_WIDTH,
++  OPTION_PANEL_HEIGHT,
++  OPTION_PROG_FP_REGS,
++#ifdef R128DRI
++  OPTION_XV_DMA,
++  OPTION_IS_PCI,
++  OPTION_CCE_PIO,
++  OPTION_NO_SECURITY,
++  OPTION_USEC_TIMEOUT,
++  OPTION_AGP_MODE,
++  OPTION_AGP_SIZE,
++  OPTION_RING_SIZE,
++  OPTION_BUFFER_SIZE,
++  OPTION_PAGE_FLIP,
++#endif
++  OPTION_ACCELMETHOD,
++  OPTION_RENDERACCEL,
++  OPTION_FORCEOUTPUT
++} R128Opts;
++
++#endif /* _R128_OPTIONS_H_ */
+diff -ruN xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128_output.c xf86-video-r128-xf86-video-r128-6.13.0/src/r128_output.c
+--- xf86-video-r128-xf86-video-r128-6.13.0.orig/src/r128_output.c	2025-08-13 22:11:55.460797188 +0200
++++ xf86-video-r128-xf86-video-r128-6.13.0/src/r128_output.c	2025-08-13 22:13:28.171392810 +0200
+@@ -51,6 +51,7 @@
+ #endif
+ 
+ #include "r128.h"
++#include "r128_options.h"
+ #include "r128_probe.h"
+ #include "r128_reg.h"
+ 
+@@ -476,13 +477,15 @@
+ 
+     /* non-x86 platform */
+     if (!info->VBIOS) {
+-        if (info->isDFP) {
+-            /* XXX assume LVDS on mobility chips */
+-            otypes[0] = OUTPUT_LVDS;
+-            otypes[1] = OUTPUT_VGA;
++        int outputs;
++        xf86GetOptValInteger(info->Options, OPTION_FORCEOUTPUT, &outputs);
++        if (outputs) {
++            otypes[0] = outputs & 0x3;
++            otypes[1] = (outputs >> 2) & 0x3;
+         } else {
+             otypes[0] = OUTPUT_VGA;
+         }
++        return;
+     }
+ 
+     bios_header = R128_BIOS16(0x48);

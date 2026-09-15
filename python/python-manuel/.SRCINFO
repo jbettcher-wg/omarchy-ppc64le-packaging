@@ -1,0 +1,19 @@
+pkgbase = python-manuel
+	pkgdesc = Manuel lets you build tested documentation
+	pkgver = 1.13.0
+	pkgrel = 1
+	url = https://github.com/benji-york/manuel
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-zope-testing
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/benji-york/manuel.git#tag=1.13.0
+	sha512sums = 9f74c48549ad6e4ac7cda0fa4bb5572c125f9f9ad7a6db57b44c9852cd9b59c19ad957997d8c56c0a9a603675b19e25fbecac3fbc8ff8c4d1b3387f4424d5db4
+	b2sums = 0d5538458b5e11da40ea2b3a9685afe374c1aa8c1d304bbdc23eb15b6e983ead6aa57bc6320e669763e57e2a0bd41b4f8be035b47d05422edeef962de8cfd5a0
+
+pkgname = python-manuel

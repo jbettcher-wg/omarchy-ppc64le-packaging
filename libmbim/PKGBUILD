@@ -1,0 +1,69 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+
+pkgbase=libmbim
+pkgname=(
+  libmbim
+  libmbim-docs
+)
+pkgver=1.34.0
+pkgrel=1
+pkgdesc="MBIM modem protocol helper library"
+url="https://www.freedesktop.org/wiki/Software/libmbim/"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-2.0-or-later)
+depends=(
+  bash
+  gcc-libs
+  glib2
+  glibc
+)
+makedepends=(
+  bash-completion
+  git
+  gobject-introspection
+  gtk-doc
+  help2man
+  meson
+)
+source=("git+https://gitlab.freedesktop.org/mobile-broadband/libmbim.git?signed#tag=${pkgver/[a-z]/-&}")
+b2sums=('bb5d02ebc7a14fc79803fcfc651fcb9d979e0ee45a97c9cb001df4a078e8fafb3fe2e54cfd2e18609423e64cdbe5aee537ce8ae4e8615302e03d807c0d594fe0')
+validpgpkeys=(
+  A814D09B9C5BC01945A64308AECE0239C6606AD5 # Aleksander Morgado <aleksandermj@chromium.org>
+  3A948E16E8860C68CD68441D734614319E26A433 # Dan Williams <dan@ioncontrol.co>
+)
+
+prepare() {
+  cd libmbim
+}
+
+build() {
+  local meson_options=(
+    -D gtk_doc=true
+  )
+
+  arch-meson libmbim build "${meson_options[@]}"
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package_libmbim() {
+  provides=(libmbim-glib.so)
+
+  meson install -C build --destdir "$pkgdir"
+
+  mkdir -p doc/usr/share
+  mv {"$pkgdir",doc}/usr/share/gtk-doc
+}
+
+package_libmbim-docs() {
+  pkgdesc+=" (documentation)"
+  depends=()
+
+  mv doc/* "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

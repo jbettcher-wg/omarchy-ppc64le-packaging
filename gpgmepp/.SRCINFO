@@ -1,0 +1,20 @@
+pkgbase = gpgmepp
+	pkgdesc = C++ bindings for GPGME
+	pkgver = 2.1.0
+	pkgrel = 1
+	url = https://gnupg.org/software/gpgme/index.html
+	arch = powerpc64
+	license = LGPL-2.0-or-later
+	makedepends = cmake
+	makedepends = git
+	depends = glibc
+	depends = gpgme
+	depends = libgcc
+	depends = libgpg-error
+	depends = libstdc++
+	provides = libgpgmepp.so
+	conflicts = gpgme<2
+	source = git+https://github.com/gpg/gpgmepp.git#tag=gpgmepp-2.1.0
+	sha256sums = b95a368b0a8f6f72a6e9421fd88a0ba58d2390a3c8a5401c063854c113c3eb6b
+
+pkgname = gpgmepp

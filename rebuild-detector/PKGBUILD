@@ -1,0 +1,28 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Maxim Baz <archlinux at maximbaz dot com>
+
+pkgname=rebuild-detector
+pkgver=4.4.5
+pkgrel=1
+pkgdesc="Detects which packages need to be rebuilt"
+url="https://github.com/maximbaz/rebuild-detector"
+arch=(any)
+license=('ISC')
+depends=('binutils' 'parallel' 'pacutils' 'pacman-contrib')
+makedepends=('marked-man')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz"
+        "${url}/releases/download/${pkgver}/${pkgname}-${pkgver}.tar.gz.sig")
+b2sums=('3d2aa1115b9cc69d4651ac8fe1354099388353dfe448084a05a44e5e6e682aa4b2c52cd14cfe03120a37144e51397444cdcf477f9b0b5516af2746307659f0cd'
+        'SKIP')
+validpgpkeys=('56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601')
+
+build() {
+	cd "${pkgname}-${pkgver}"
+	make docs
+}
+
+package() {
+	cd "${pkgname}-${pkgver}"
+	make DESTDIR="${pkgdir}" install
+}

@@ -1,0 +1,26 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Jürgen Hötzel <juergen@hoetzel.info>
+
+pkgname=ocamlbuild
+pkgver=0.14.3
+pkgrel=2
+pkgdesc='Build tool that has built-in rules for building OCaml libraries and programs'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-2.0-only)
+url='https://github.com/ocaml/ocamlbuild'
+depends=(ocaml zstd)
+options=(!makeflags)
+source=($pkgname-$pkgver.tar.gz::"$url/archive/$pkgver.tar.gz")
+b2sums=('b839d3757f4c2ce466291e00d2e5a87c51f81cc9e21f252ca7381fed9a4e8468e920d34946cb58c9297a1b98afe231b7eabc3960d68ba99f051891880742d7a6')
+
+build() {
+  cd $pkgname-$pkgver
+  make configure PREFIX=/usr MANDIR=/usr/share/man
+  make
+}
+
+package() {
+  cd $pkgname-$pkgver
+  make DESTDIR="$pkgdir" install
+}

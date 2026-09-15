@@ -1,0 +1,96 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+_gemname=debug
+pkgname=ruby-${_gemname}
+pkgver=1.11.1
+pkgrel=1
+pkgdesc='Debugging functionality for Ruby'
+url='https://github.com/ruby/debug'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('BSD-2-Clause')
+depends=(
+  ruby
+  ruby-irb
+  ruby-reline
+)
+makedepends=(
+  git
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bundler
+  ruby-rake
+  ruby-test-unit
+  ruby-test-unit-rr
+)
+options=('!emptydirs' '!debug')
+source=(${pkgname}::git+"${url}#tag=v${pkgver}")
+sha512sums=('28e569f248930dc2e7dd1755f79baa08eb6d9c585730001346e402e0ef08f0a0c47ee74dd078069d2f805558fdddf31e0411bb25eddefd94de25fbab093ed2e5')
+
+build() {
+  cd "${pkgname}"
+
+  local _gemdir="$(gem env gemdir)"
+
+  gem build "${_gemname}.gemspec"
+
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install/${_gemdir}" \
+    --bindir "tmp_install/usr/bin" \
+    "${_gemname}-${pkgver}.gem"
+
+  # remove unrepreducible files
+  rm --force --recursive --verbose \
+    "tmp_install/${_gemdir}/cache/" \
+    "tmp_install/${_gemdir}/gems/${_gemname}-${pkgver}/vendor/" \
+    "tmp_install/${_gemdir}/doc/${_gemname}-${pkgver}/ri/ext/"
+
+  find "tmp_install/${_gemdir}/gems/" \
+    -type f \
+    \( \
+      -iname "*.o" -o \
+      -iname "*.c" -o \
+      -iname "*.so" -o \
+      -iname "*.time" -o \
+      -iname "gem.build_complete" -o \
+      -iname "Makefile" \
+    \) \
+    -delete
+
+  find "tmp_install/${_gemdir}/extensions/" \
+    -type f \
+    \( \
+      -iname "mkmf.log" -o \
+      -iname "gem_make.out" \
+    \) \
+    -delete
+}
+
+check() {
+  cd ${pkgname}
+
+  local _gemdir="$(gem env gemdir)"
+
+  export RUBY_DEBUG_TEST_NO_REMOTE=1
+
+  GEM_HOME="tmp_install${_gemdir}" rake test_console
+}
+
+package() {
+  cd ${pkgname}
+
+  cp --archive --verbose tmp_install/* "${pkgdir}"
+
+  if [[ ! -f "${pkgdir}/usr/bin/rdbg" ]]; then
+    error "missing /usr/bin/rdbg"
+    exit 1
+  fi
+
+  install -Dm 644 README.md  -t "${pkgdir}/usr/share/doc/${pkgname}"
+  install -Dm 644 LICENSE.txt -t "${pkgdir}/usr/share/licenses/${pkgname}"
+}
+
+# vim: ts=2 sw=2 et:

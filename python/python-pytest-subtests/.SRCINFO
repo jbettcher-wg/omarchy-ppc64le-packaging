@@ -1,0 +1,19 @@
+pkgbase = python-pytest-subtests
+	pkgdesc = unittest subTest() support and subtests fixture
+	pkgver = 0.15.0
+	pkgrel = 2
+	url = https://github.com/pytest-dev/pytest-subtests
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	depends = python-attrs
+	depends = python-pytest
+	source = git+https://github.com/pytest-dev/pytest-subtests.git#tag=v0.15.0
+	sha512sums = 36e639bd9957365188c090bd10cd2f291acb6c02e706251f0e3763dd381c32292ef76ba6995d3492ee110554e14a7f3c52085600e3a48952c41de80adc579735
+
+pkgname = python-pytest-subtests

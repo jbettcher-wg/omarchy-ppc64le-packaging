@@ -1,0 +1,6 @@
+[ghostscript]
+source = "git"
+git = "git://git.ghostscript.com/ghostpdl.git"
+prefix = "ghostpdl-"
+include_regex = "ghostpdl-.*"
+exclude_regex = ".*(rc|test).*"

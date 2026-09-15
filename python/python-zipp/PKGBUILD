@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-zipp
+pkgver=3.21.0
+pkgrel=4.1
+pkgdesc="Pathlib-compatible object wrapper for zip files"
+url="https://github.com/jaraco/zipp"
+license=('MIT')
+arch=(any)
+depends=('python')
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools-scm'
+  'python-wheel'
+)
+source=(
+  "git+$url.git#tag=v$pkgver"
+)
+sha512sums=('2ad4d7889b84896d879ca0ffd350dd421bc2712b0027c69ac90713c6c89fc0d3c1033fc2cf9b40a9429c7258a47d4fd5ff8002ebc394a6ccbee9b54a45940a99')
+
+build() {
+  cd zipp
+  python -m build -nw
+}
+
+package() {
+  cd zipp
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # Symlink license file
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "$pkgdir"/usr/share/licenses/$pkgname
+  ln -s "$site_packages"/zipp-$pkgver.dist-info/LICENSE \
+    "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

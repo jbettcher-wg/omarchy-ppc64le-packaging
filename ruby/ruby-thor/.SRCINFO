@@ -1,0 +1,19 @@
+pkgbase = ruby-thor
+	pkgdesc = Toolkit for building powerful command-line interfaces
+	pkgver = 1.5.0
+	pkgrel = 1
+	url = https://github.com/erikhuda/thor
+	arch = any
+	license = MIT
+	checkdepends = ruby-bundler
+	checkdepends = ruby-rake
+	checkdepends = ruby-rspec
+	checkdepends = ruby-webmock
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/erikhuda/thor/archive/v1.5.0/ruby-thor-1.5.0.tar.gz
+	sha512sums = 48a64494eecd3ae1d1b0b7c487b639d759c38211139d96286535d96f967886e9d2eab952fd0edcf4e2ed762854fe8154a350272a2675cd1727000c7e6befedcd
+	b2sums = 804c4d7cdbdda344f9516814ee5d648107eb3867da78dcaab1ecc81db9fb819f19be88dc2b8b81cabe9a8f3f1bea4febdcf531eccfee7990d790915c37c90e98
+
+pkgname = ruby-thor

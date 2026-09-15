@@ -1,0 +1,14 @@
+pkgbase = python-ruff-api
+	pkgdesc = Experimental Python API for Ruff
+	pkgver = 0.2.1
+	pkgrel = 1
+	url = https://github.com/amyreese/ruff-api
+	arch = x86_64
+	license = MIT
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-maturin
+	source = python-ruff-api-0.2.1.tar.gz::https://github.com/amyreese/ruff-api/archive/v0.2.1.tar.gz
+	sha512sums = e3f39d4e9006fe0fa4bc291181e4d8ee16b79db9470c2fe2c83fea0494d17c57758af9d496081124799db3bafc74b02493e086023dff1c4ed7129073e4be45e7
+
+pkgname = python-ruff-api

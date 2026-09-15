@@ -1,0 +1,4 @@
+[libinput]
+source = "git"
+git = "https://gitlab.freedesktop.org/libinput/libinput.git"
+exclude_regex = '.*\.9\d\d'

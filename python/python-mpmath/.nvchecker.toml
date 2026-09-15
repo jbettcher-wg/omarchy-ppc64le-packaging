@@ -1,0 +1,4 @@
+[python-mpmath]
+source = 'git'
+git = 'https://github.com/mpmath/mpmath'
+include_regex = '[\d.]+'

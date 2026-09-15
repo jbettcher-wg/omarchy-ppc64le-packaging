@@ -1,0 +1,22 @@
+pkgbase = python-greenlet
+	pkgdesc = Lightweight in-process concurrent programming
+	pkgver = 3.5.1
+	pkgrel = 1
+	url = https://pypi.org/project/greenlet/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-objgraph
+	checkdepends = python-psutil
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = https://files.pythonhosted.org/packages/source/g/greenlet/greenlet-3.5.1.tar.gz
+	sha512sums = b81fd3a55655457356c5087a5cb109fb5ef3d0ea7daf0a1bdfcb24772fecca50932c8c548d5edf6f36e5d980d9dfeb3ae1323aaa05d19d781b2b47021806d930
+
+pkgname = python-greenlet

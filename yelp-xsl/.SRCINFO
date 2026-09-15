@@ -1,0 +1,17 @@
+pkgbase = yelp-xsl
+	pkgdesc = Document transformations from Yelp
+	pkgver = 49.0
+	pkgrel = 1
+	url = https://gitlab.gnome.org/GNOME/yelp-xsl
+	arch = any
+	license = BSD-3-Clause
+	license = GPL-2.0-or-later
+	license = LGPL-2.1-or-later
+	makedepends = git
+	makedepends = itstool
+	makedepends = libxslt
+	makedepends = meson
+	source = git+https://gitlab.gnome.org/GNOME/yelp-xsl.git#tag=49.0
+	b2sums = 1d9f21e4ca2f1ae7c718f55650f4e21af2aec80c075b8f7b42b2489658ca93d22ffde2006ed6ac607b832475256cab654700e7ac2c4c483890eaa1b15829b671
+
+pkgname = yelp-xsl

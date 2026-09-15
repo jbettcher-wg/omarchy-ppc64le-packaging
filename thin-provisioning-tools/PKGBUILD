@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Eric Bélanger <eric@archlinux.org>
+# Contributor: Jason Hall <cakersq@gmail.com>
+
+pkgname=thin-provisioning-tools
+pkgver=1.3.3
+pkgrel=1
+pkgdesc='Suite of tools for manipulating the metadata of the dm-thin device-mapper target'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/jthornber/thin-provisioning-tools'
+license=('GPL3')
+depends=('gcc-libs' 'systemd-libs')
+makedepends=('git' 'cargo' 'clang' 'device-mapper')
+source=("git+https://github.com/jthornber/thin-provisioning-tools#tag=v${pkgver}"
+        hotfix-no-atomic64.diff)
+sha256sums=('fdd73436d4f70165cdc3753d1082d630845a7a1dbd773a73ac99595b97a5aa93'
+            '6eb1ecd180a3184374ac930b5a69414dc664cde14ba7945b008d5c3357e5784d')
+
+build() {
+  cd "${srcdir}/${pkgname}"
+
+  case "${CARCH}" in
+    powerpc)
+      # T2 is awesome
+      patch -Np1 -i ${srcdir}/hotfix-no-atomic64.diff
+    ;;
+  esac
+
+  cargo build --release
+}
+
+package() {
+  cd "${srcdir}/${pkgname}"
+
+  make \
+    DESTDIR="${pkgdir}"/usr \
+    BINDIR="${pkgdir}"/usr/bin \
+    DATADIR="${pkgdir}"/usr/share \
+    install
+}
+

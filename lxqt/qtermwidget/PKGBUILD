@@ -1,0 +1,43 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Chih-Hsuan Yen <yan12125@archlinux.org>
+# Contributor: Jerome Leclanche <jerome@leclan.ch>
+
+pkgname=qtermwidget
+pkgver=2.4.0
+pkgrel=1
+pkgdesc="A terminal widget for Qt, used by QTerminal"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/lxqt/qtermwidget"
+# Yep, it's messy when you're talking about licenses
+# https://github.com/lxqt/qtermwidget/blob/2.0.0/README.md?plain=1#L13-L42
+license=('LGPL-2.0-or-later' 'BSD-3-Clause')
+depends=("qt6-base")
+makedepends=("git" "lxqt-build-tools"
+             "python-pyqt6" "pyqt-builder" "sip" "python-installer")
+optdepends=(
+  'python: PyQt bindings'
+)
+source=(
+  "git+https://github.com/lxqt/qtermwidget.git?signed#tag=$pkgver"
+)
+sha256sums=('f38385ca2fd0ed0fd85410619c80933567a3a1ae7eaaafbd244af1436df4c24d')
+validpgpkeys=(
+  "19DFDF3A579BD509DBB572D8BE793007AD22DF7E"  # https://github.com/tsujan.gpg
+  "48836EB124A1EAAE695EDFEA229CA0A00A17D258"  # the key owned by an email used by https://github.com/stefonarch/, a long-time LXQt contributor, as per keys.openpgp.org
+)
+
+build() {
+  cmake -B build -S qtermwidget \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  make -C build
+
+  cd "$srcdir"/qtermwidget/pyqt
+  CXXFLAGS="$CXXFLAGS -I$PWD/../lib -I$PWD/../../build/lib" LDFLAGS="$LDFLAGS -L$PWD/../../build" sip-wheel --verbose --qmake /usr/bin/qmake6
+}
+
+package() {
+  make -C build DESTDIR="$pkgdir" install
+  install -Dm644 "$srcdir"/qtermwidget/README.md -t "$pkgdir"/usr/share/licenses/$pkgname
+
+  python -m installer --destdir="$pkgdir" "$srcdir"/qtermwidget/pyqt/*.whl
+}

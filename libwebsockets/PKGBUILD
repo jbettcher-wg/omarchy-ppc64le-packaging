@@ -1,0 +1,68 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jelle van der Waa <jelle@archlinux.org>
+# Contributor: David Runge <dvzrv@archlinux.org>
+# Contributor: Jingbei Li <i@jingbei.li>
+
+pkgname=libwebsockets
+pkgver=4.5.8
+pkgrel=1
+pkgdesc="C library for websocket clients and servers"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://libwebsockets.org"
+license=(MIT)
+depends=(glibc openssl libuv libev zlib)
+makedepends=(cmake glib2 libcap)
+provides=(libwebsockets.so)
+source=($pkgname-$pkgver.tar.gz::https://github.com/warmcat/$pkgname/archive/v$pkgver.tar.gz)
+sha512sums=('77fcb15c325d514fee18193a6509755618ce4232115259377d67f93015490a11642f5974fddd2efebc89496e28a52f0a135b6635c662be1e2c641aaa68397b11')
+b2sums=('94e9003f382ef89975059385cd8b161c17dc3e3eb812fbed51ce56d7408430e0dd182d3384e01ebda76ec3bcb321a5e45708373148d7716d190949c4c9b2ebcb')
+
+build() {
+  # this uses malloc_usable_size, which is incompatible with fortification level 3
+  # https://github.com/warmcat/libwebsockets/pull/2977
+  export CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  export CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+
+  cmake -D CMAKE_INSTALL_PREFIX=/usr \
+        -D CMAKE_BUILD_TYPE=None \
+        -D DISABLE_WERROR=ON \
+        -D LWS_IPV6=ON \
+        -D LWS_LINK_TESTAPPS_DYNAMIC=ON \
+        -D LWS_WITH_ACME=ON \
+        -D LWS_WITH_DISKCACHE=ON \
+        -D LWS_WITH_EXTERNAL_POLL=ON \
+        -D LWS_WITH_FTS=ON \
+        -D LWS_WITH_GLIB=ON \
+        -D LWS_WITH_HTTP2=ON \
+        -D LWS_WITH_HTTP_PROXY=ON \
+        -D LWS_WITH_LIBEV=ON \
+        -D LWS_WITH_LIBEVENT=OFF \
+        -D LWS_WITH_LIBUV=ON \
+        -D LWS_WITH_LWSAC=ON \
+        -D LWS_WITH_RANGES=ON \
+        -D LWS_WITH_SOCKS5=ON \
+        -D LWS_WITH_STATIC=OFF \
+        -D LWS_WITH_THREADPOOL=ON \
+        -D LWS_WITH_ZIP_FOPS=ON \
+        -D LWS_WITHOUT_BUILTIN_GETIFADDRS=ON \
+        -D LWS_WITHOUT_BUILTIN_SHA1=ON \
+        -D LWS_WITHOUT_CLIENT=OFF \
+        -D LWS_WITHOUT_SERVER=OFF \
+        -D LWS_WITHOUT_TESTAPPS=ON \
+        -D LWS_WITHOUT_TEST_CLIENT=ON \
+        -D LWS_WITHOUT_TEST_PING=ON \
+        -D LWS_WITHOUT_TEST_SERVER=OFF \
+        -D LWS_WITHOUT_TEST_SERVER_EXTPOLL=ON \
+        -D LWS_UNIX_SOCK=ON \
+        -Wno-dev \
+        -B build \
+        -S $pkgname-$pkgver
+  make VERBOSE=1 -C build
+}
+
+package() {
+  depends+=(libcap.so libglib-2.0.so)
+
+  make DESTDIR="$pkgdir" install -C build
+  install -vDm 644 $pkgname-$pkgver/LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

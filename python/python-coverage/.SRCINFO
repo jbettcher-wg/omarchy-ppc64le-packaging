@@ -1,0 +1,27 @@
+pkgbase = python-coverage
+	pkgdesc = A tool for measuring code coverage of Python programs
+	pkgver = 7.13.5
+	pkgrel = 1
+	url = https://coverage.readthedocs.io/en/latest/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-pytest
+	makedepends = python-pytest-xdist
+	makedepends = python-flaky
+	makedepends = python-hypothesis
+	depends = glibc
+	depends = python
+	source = git+https://github.com/nedbat/coveragepy.git#tag=7.13.5
+	sha512sums = 4ba95dcba3f81cb330b635d3cbe79eeeea1301fd0ce75a407c9f2590e6bd8a3e16e3b36ccb04b7c8955ed04ea908228c39f767900a18c32753f4d1df408b6346
+	b2sums = c08eca86c512a73180a01cbb2c143b3017dff911fdedc0402818816bcc6f43496b048bbdcf327d413dda29357cdb5379ae2f5f02a9b375f7563d51690378b3ef
+
+pkgname = python-coverage

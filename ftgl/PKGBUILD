@@ -1,0 +1,51 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
+# Contributor: Alexander Baldeck <alexander@archlinux.org>
+# Contributor: tobias <tobias@archlinux.org>
+
+pkgname=ftgl
+pkgver=2.4.0
+pkgrel=3.1
+pkgdesc="OpenGL library to use arbitrary fonts"
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url="https://github.com/frankheckenbach/ftgl"
+license=(MIT)
+depends=(freetype2 glu)
+makedepends=(doxygen mesa graphviz git)
+_commit=483639219095ad080538e07ceb5996de901d4e74  # tags/v2.4.0
+source=("git+https://github.com/frankheckenbach/ftgl#commit=$_commit"
+        "${pkgname}-${pkgver}-gcc14.patch::https://patch-diff.githubusercontent.com/raw/frankheckenbach/ftgl/pull/20.patch")
+sha256sums=('ecc5e2a5709aa1170cdbced5eac2661ed0757c6d912499b0f7d87a8261be7946'
+            'd01a333f621fad8bef95d92358ce2f21b958d6baef0c631683b0d43471ac33c2')
+
+pkgver() {
+  cd $pkgname
+  git describe --tags | sed 's/^v//;s/-/+/g'
+}
+
+prepare() {
+  cd $pkgname
+  patch -Np1 -i ${srcdir}/${pkgname}-${pkgver}-gcc14.patch
+
+  printf '%s\n' >>docs/doxygen.cfg.in \
+    HAVE_DOT=yes DOT_IMAGE_FORMAT=svg INTERACTIVE_SVG=yes
+  ./autogen.sh
+}
+
+build() {
+  cd $pkgname
+  ./configure --prefix=/usr --with-pic --disable-static
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+
+  # FS#23283: install missing headers for OpenCascade
+  install -Dt "$pkgdir/usr/include/FTGL" -m644 src/FT{Face,Size}.h
+
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 COPYING
+}
+
+# vim:set sw=2 et:

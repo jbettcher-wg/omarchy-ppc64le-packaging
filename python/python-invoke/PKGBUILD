@@ -1,0 +1,66 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-invoke
+pkgver=3.0.3
+pkgrel=1
+pkgdesc="Pythonic task execution"
+arch=(any)
+url="https://github.com/pyinvoke/invoke"
+license=('BSD-2-Clause')
+depends=(
+  'python'
+  'python-fluidity'
+  'python-lexicon'
+  'python-yaml'
+)
+makedepends=(
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+)
+checkdepends=(
+  'python-icecream'
+  'python-pytest'
+  'python-pytest-relaxed'
+)
+source=(
+  "$url/archive/$pkgver/${pkgname#python-}-$pkgver.tar.gz"
+  "$pkgname-fix-mock-pty-ioctl-wrapping.patch"
+)
+b2sums=('bf88a6b7e327c612a0b424478498594dffdb072d55071c39d1f8571d95bd111dcdb3f070912a13363944099c4f21eb45b23b20c31a9e3654c45130f7ad15f98e'
+        '8e2ddc5c0a9c20cec6406621f02d74e52b3712bd8fc2015568540a0b3fec29f4faa0db3f1a3b720451ddce91776153d985fa185cd34eb9017dbcb8e7309663f2')
+
+prepare() {
+  cd ${pkgname#python-}-$pkgver
+  patch -Np1 < ../$pkgname-fix-mock-pty-ioctl-wrapping.patch
+  rm -r invoke/vendor
+}
+
+build() {
+  cd ${pkgname#python-}-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc*) return 0 ;;
+  esac
+
+  cd ${pkgname#python-}-$pkgver
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m pytest -s \
+    --deselect tests/runners.py::Local_::env::uses_execve_for_pty_True \
+    --deselect tests/runners.py::Local_::pty \
+    --deselect tests/runners.py::Local_::shell::defaults_to_bash_or_cmdexe_when_pty_True \
+    --deselect tests/runners.py::Local_::shell::may_be_overridden_when_pty_True
+}
+
+package() {
+  cd ${pkgname#python-}-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

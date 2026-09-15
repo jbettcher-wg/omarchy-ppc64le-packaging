@@ -1,0 +1,25 @@
+pkgbase = xorg-xev
+	pkgdesc = Print contents of X events
+	pkgver = 1.2.7
+	pkgrel = 1
+	url = https://gitlab.freedesktop.org/xorg/app/xev
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xorg-apps
+	groups = xorg
+	license = MIT
+	makedepends = xorg-util-macros
+	makedepends = xorgproto
+	depends = libx11
+	depends = libxrandr
+	depends = glibc
+	source = https://xorg.freedesktop.org/archive/individual/app/xev-1.2.7.tar.xz
+	source = https://xorg.freedesktop.org/archive/individual/app/xev-1.2.7.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = e6537827972b80bd58af4569054d44028cbb8a86e94445e9e99c7a6299500454da7b7dad0783bd49e937ca43e39cde1bf564762576ae3f2c52dc4a5c7c68b333
+	sha512sums = SKIP
+
+pkgname = xorg-xev

@@ -1,0 +1,22 @@
+pkgbase = ruby-net-imap
+	pkgdesc = Ruby client api for Internet Message Access Protocol
+	pkgver = 0.5.12
+	pkgrel = 1
+	url = https://github.com/ruby/net-imap
+	arch = any
+	license = RUBY
+	license = BSD-2-CLAUSE
+	checkdepends = ruby-base64
+	checkdepends = ruby-bundler
+	checkdepends = ruby-rake
+	checkdepends = ruby-test-unit
+	checkdepends = ruby-test-unit-ruby-core
+	makedepends = ruby-rdoc
+	depends = ruby
+	depends = ruby-net-protocol
+	options = !emptydirs
+	source = https://github.com/ruby/net-imap/archive/v0.5.12/ruby-net-imap-0.5.12.tar.gz
+	sha512sums = 6fb0e695d4b53418225a3f3d9bc09345211718325f3ebd05911aac288a31c8920c57256cf47e7e15cef6b6a2689674f2e8385e0cb8249bcb59490317cf964377
+	b2sums = 6a2bae76b90a69d055e4eff0e432bae8eb52032f9d259ed9e3353f23417da2ccddc920f9819a75dae46c00d9aa8e3245375ac6fe4e20621b52982cd364a08e28
+
+pkgname = ruby-net-imap

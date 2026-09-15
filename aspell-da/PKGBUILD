@@ -1,0 +1,26 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Dan Johansen <strit@archlinux.org>
+# Contributor: Maxim Baz <$pkgname at maximbaz dot com>
+# Contributor: Esben Haabendal <esben@haabendal.dk>
+
+pkgname=aspell-da
+pkgver=4.6.0
+pkgrel=1
+pkgdesc='Danish dictionary for aspell'
+arch=(any)
+url='https://github.com/mortenivar/aspell-da'
+license=('GPL-2.0-or-later')
+depends=('aspell')
+source=("${url}/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz")
+sha512sums=('7f37c133e628fd9574ee24760709f9fc06745e706c9033f603e14dfc9586eaed95a936ed1b98356910710fd1d06074a2980c9afd01408c45afc33da7ff983021')
+
+build() {
+    cd "${pkgname}-${pkgver}"
+    ./configure
+    make
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+    make DESTDIR="${pkgdir}" install
+}

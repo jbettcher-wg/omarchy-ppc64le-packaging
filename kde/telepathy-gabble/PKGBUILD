@@ -1,0 +1,93 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Contributor: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Daniel Balieiro <daniel@balieiro.com>
+# Contributor: Rodrigo L. M. Flores <mail@rodrigoflores.org>
+
+pkgname=telepathy-gabble
+pkgver=0.18.4
+pkgrel=8
+pkgdesc='Jabber/XMPP connection manager for Telepathy'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://telepathy.freedesktop.org/'
+license=(LGPL-2.1-or-later)
+depends=(
+  dbus
+  dbus-glib
+  glib2
+  glibc
+  gnutls
+  libgcc
+  libnice
+  libsoup3
+  libxml2
+  sqlite
+  telepathy-glib
+)
+makedepends=(
+  git
+  glib2-devel
+  gtk-doc
+)
+optdepends=('python: XMPP console')
+source=(
+  "git+https://gitlab.freedesktop.org/telepathy/$pkgname.git?signed#tag=$pkgname-$pkgver"
+  git+https://gitlab.freedesktop.org/telepathy/wocky.git
+  telepathy-gabble-0.18.4-python3.patch
+  telepathy-gabble-0.18.4-aviod-errno-name-confusion.patch
+  telepathy-gabble-0.18.4-xmlerror-constness.patch
+  telepathy-gabble-0.18.4-libsoup-3.0.patch
+)
+b2sums=(
+  5bb2903a3567f5527864e00a861084cd709eeefab0f3dbea2449c8596c3789ac3ba4dbe253bd58d47577f0df83de3360c467f28c103d7b01bf36c05ae8c268e4
+  SKIP
+  6cbd6469febe4acc6d8d07c0c209b47fbf79990601f41c4715f13944d81165df6dccfc344b3cc674fa131fc383a609ae628d8508ff96b05ef63634af6c32b638
+  1b8feb79ddd8a48ee02e5b3f200130d1cbbe5cd814e2f4339c3ad8f6d9fddb9ea2987c859bcfcec9977e997617a023348367c536c118553b0a58b6341f3202ea
+  748ba32bdf5fbbed534e7d3dc88763b2e9c73ed124741515cd85e6265e6a3b9269cfb30854c2b24710ae05c5aadaa06f862fe818bbaf7347f0a0dc4387b23106
+  9118a5817abf4b38e3b6c127d691c23d7bf81d2a46520b1c4278a4e6235f54ecff00449131497f5e4905f6c5b3d38bebc5620e5f8e2c8caa1182c1c3404ec7bd
+)
+validpgpkeys=(38FDAD7D73CE1AE7A16200291F3845DD1432A9FB) # Georgios Kiagiadakis <gkiagia@tolabaki.gr>
+
+prepare() {
+  cd $pkgname
+
+  git submodule init
+  git submodule set-url lib/ext/wocky "$srcdir/wocky"
+  git -c protocol.file.allow=always submodule update
+
+  # Port to python3, patch taken from Fedora
+  patch -Np1 -i ../telepathy-gabble-0.18.4-python3.patch
+
+  # Fixes for gcc14, taken from Fedora
+  patch -Np1 -i ../telepathy-gabble-0.18.4-aviod-errno-name-confusion.patch
+  patch -Np1 -i ../telepathy-gabble-0.18.4-xmlerror-constness.patch
+
+  # Port to libsoup-3.0, taken from Fedora
+  patch -Np1 -i ../telepathy-gabble-0.18.4-libsoup-3.0.patch
+
+  autoreconf -fiv
+
+  cd lib/ext/wocky
+  autoreconf -fiv
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --libexecdir=/usr/lib/telepathy
+  make
+}
+
+check() {
+  cd $pkgname
+  make check
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

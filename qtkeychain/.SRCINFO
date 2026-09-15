@@ -1,0 +1,25 @@
+pkgbase = qtkeychain
+	pkgdesc = Provides support for secure credentials storage
+	pkgver = 0.16.0
+	pkgrel = 1
+	url = https://github.com/frankosterfeld/qtkeychain
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	makedepends = cmake
+	makedepends = git
+	makedepends = qt6-declarative
+	makedepends = qt6-tools
+	depends = glib2
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = org.freedesktop.secrets
+	depends = qt6-base
+	source = git+https://github.com/frankosterfeld/qtkeychain#tag=0.16.0
+	sha256sums = 27cb78ca44c9395a8b5e1e59dbc68896842d8b39a11d88973833afda1447cf76
+
+pkgname = qtkeychain-qt6

@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Aleksana QWQ <me@aleksana.moe>
+
+pkgname=hyfetch
+pkgver=2.1.0
+pkgrel=1
+pkgdesc="Neofetch with LGBTQ+ pride flags!"
+url="https://github.com/hykilpikonna/hyfetch"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('MIT')
+makedepends=('cargo')
+optdepends=('fastfetch: Alternative fetch backend'
+            'macchina: Alternative fetch backend')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${pkgver}.tar.gz")
+sha256sums=('23e3600093de3daa60dbbfd1edff258504f41f0fcfcb5537ddff78711b0d2eb2')
+
+prepare() {
+	cd "${pkgname}-${pkgver}"
+	cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+	cd "${pkgname}-${pkgver}"
+	cargo build --frozen --release --all-features
+}
+
+check() {
+	cd "${pkgname}-${pkgver}"
+	cargo test --frozen --all-features
+}
+
+package() {
+	cd "${pkgname}-${pkgver}"
+	install -Dm 755 "target/release/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+	install -Dm 644 "docs/${pkgname}.1" "${pkgdir}/usr/share/man/man1/${pkgname}.1"
+	install -Dm 644 "${pkgname}/scripts/autocomplete.bash" "${pkgdir}/usr/share/bash-completion/completions/${pkgname}"
+	install -Dm 644 "${pkgname}/scripts/autocomplete.zsh" "${pkgdir}/usr/share/zsh/site-functions/_${pkgname}"
+	install -Dm 644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+	install -Dm 644 LICENSE.md "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

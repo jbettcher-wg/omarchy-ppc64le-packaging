@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: tobias <tobias funnychar archlinux.org>
+
+pkgname=xfce4-cpufreq-plugin
+pkgver=1.3.0
+pkgrel=1
+pkgdesc="CPU frequency and governor plugin for the Xfce4 panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-or-later')
+url="https://docs.xfce.org/panel-plugins/xfce4-cpufreq-plugin/start"
+groups=('xfce4-goodies')
+depends=('xfce4-panel')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-cpufreq-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('250037af285533e6cef705116ea6d8bc002af1c64ae6d5a1ab6dccbffa6e99da')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

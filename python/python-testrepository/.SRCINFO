@@ -1,0 +1,24 @@
+pkgbase = python-testrepository
+	pkgdesc = A repository of test results.
+	pkgver = 0.0.22
+	pkgrel = 1
+	url = https://launchpad.net/testrepository
+	arch = any
+	license = Apache-2.0
+	license = BSD-3-Clause
+	checkdepends = python-testresources
+	checkdepends = python-testscenarios
+	makedepends = git
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-testtools
+	depends = python-fixtures
+	depends = python-subunit
+	source = git+https://github.com/testing-cabal/testrepository.git#tag=0.0.22
+	sha512sums = b82ee42a032d91b662377523e1006c5c0e3b44c494d53e97ffa83cbd8fc7dc03744a035035c41112a1d17eaa0dd9e93b4f9bd91557a04e63654d4c7a71c841a7
+
+pkgname = python-testrepository

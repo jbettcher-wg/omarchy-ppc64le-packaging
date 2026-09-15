@@ -1,0 +1,22 @@
+pkgbase = python-ujson
+	pkgdesc = Ultra fast JSON encoder and decoder for Python
+	pkgver = 5.13.0
+	pkgrel = 1
+	url = https://github.com/ultrajson/ultrajson
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD
+	checkdepends = python-pytest
+	makedepends = python-setuptools-scm
+	makedepends = python-wheel
+	makedepends = python-build
+	makedepends = python-installer
+	depends = python
+	source = https://github.com/ultrajson/ultrajson/archive/5.13.0/python-ujson-5.13.0.tar.gz
+	sha512sums = d5cdb7f01d1f57490039c73098b53a09cf6aa3f325035da4a1476cc7b258276f42a3e5f140a3a0d592e7df2bcf2d38245b07bf6ee56a06994eeeffe344a20488
+	b2sums = b5bc4e4571eed6d7dc45e0fe417da9e383c0eb7562eb55ebec95d99fa16197675874904364e4ac992463b01fa8b863002365522ccab9ebe1551fd638c74e7803
+
+pkgname = python-ujson

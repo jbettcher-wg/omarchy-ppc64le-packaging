@@ -1,0 +1,18 @@
+pkgbase = python-pkgconfig
+	pkgdesc = Python module to interface with the pkg-config command line tool
+	pkgver = 1.6.0
+	pkgrel = 1
+	url = https://github.com/matze/pkgconfig
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-setuptools
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	depends = python
+	source = git+https://github.com/matze/pkgconfig#tag=v1.6.0
+	sha256sums = 3d7909fdf516b89b18edb54110aaedb2a4180bd0f1b8f2d3d20da5a42bc7d5ae
+
+pkgname = python-pkgconfig

@@ -1,0 +1,65 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+
+pkgname=python-curio
+pkgver=1.6
+pkgrel=7
+pkgdesc='Concurrent I/O'
+arch=(any)
+url=https://github.com/dabeaz/curio
+license=(BSD)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+  python-sphinx
+  python-standard-telnetlib
+)
+provides=(python-multio-provider)
+_tag=5d8ecb2333761b4fd629e14d940f3807d143c0ed
+source=(
+  git+https://github.com/dabeaz/curio.git#tag=${_tag}
+  curio-py312-support.patch::https://github.com/dabeaz/curio/commit/a5590bb04de3f1f201fd1fd0ce9cfe5825db80ac.patch
+)
+sha256sums=('6b0f33c303cde68e70dd0267523227f67eaa8888cee7288c3f52c80e5b0540af'
+            'e94c676822ce930320cbe367f4c743e72f59c86f572a2add4c01beff6ad66568')
+
+pkgver() {
+  cd curio
+  git describe --tags
+}
+
+prepare() {
+  cd curio
+  patch --forward --strip=1 --input=../curio-py312-support.patch
+}
+
+build() {
+  cd curio
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd curio
+  PYTHONPATH=$PWD/build/lib pytest \
+    -k 'not test_cpu' # https://github.com/dabeaz/curio/issues/368
+}
+
+package() {
+  cd curio
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+
+  # Symlink license file
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "${pkgdir}"/usr/share/licenses/${pkgname}
+  ln -s "${site_packages}"/curio-${pkgver}.dist-info/LICENSE \
+    "${pkgdir}"/usr/share/licenses/${pkgname}/LICENSE
+}
+
+# vim: ts=2 sw=2 et:

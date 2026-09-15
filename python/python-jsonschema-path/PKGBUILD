@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Chih-Hsuan Yen <yan12125@archlinux.org>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-jsonschema-path
+# https://github.com/p1c2u/jsonschema-path/releases
+pkgver=0.4.5
+pkgrel=1
+pkgdesc="JSONSchema Spec with object-oriented paths"
+url="https://github.com/p1c2u/jsonschema-path"
+license=('Apache-2.0')
+arch=(any)
+depends=('python' 'python-pathable' 'python-yaml' 'python-requests' 'python-referencing')
+makedepends=('git' 'python-build' 'python-installer' 'python-poetry-core')
+checkdepends=('python-pytest' 'python-responses')
+source=("git+https://github.com/p1c2u/jsonschema-path.git#tag=$pkgver")
+sha512sums=('7e6e3d0e9c8ae4a0badeffbe17500d5c49bf2586e6539b4d643d5974e7fc163c190723d8a6be72e5eb67c9590e2894df1928c95623b07bd1b424c8c4a573cf7d')
+
+prepare() {
+  cd jsonschema-path
+  sed -i '/--cov/d' pyproject.toml
+  # Allow newer referencing versions
+  sed -i 's/referencing = "<0.37.0"/referencing = ">=0.28.0"/' pyproject.toml
+}
+
+build() {
+  cd jsonschema-path
+  python -m build -wn
+}
+
+check() {
+  cd jsonschema-path
+  PYTHONPATH="$PWD" pytest
+}
+
+package() {
+  cd jsonschema-path
+  python -m installer -d "$pkgdir" dist/*.whl
+}

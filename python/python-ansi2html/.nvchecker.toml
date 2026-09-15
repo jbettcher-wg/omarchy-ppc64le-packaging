@@ -1,0 +1,4 @@
+[python-ansi2html]
+source = "git"
+git = "https://github.com/pycontribs/ansi2html.git"
+prefix = "v"

@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+
+pkgname=libsvgtiny
+pkgver=0.1.8
+pkgrel=1.2
+pkgdesc='SVG Tiny library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://www.netsurf-browser.org/projects/libsvgtiny/'
+license=(MIT)
+makedepends=(gperf libdom libwapcaplet netsurf-buildsystem git)
+depends=('libdom>=0.4.2')
+source=("git://git.netsurf-browser.org/libsvgtiny.git#tag=release/$pkgver")
+b2sums=('7e41903c7ece2c9d95ca100774e9b963de57fb955ae07b027adc947da74b881f6a66ac7a1ddeb84038c60acb6de0fa8237ded1009449b0ad36b5d7b0efc3dbd7')
+
+prepare() {
+  sed -i 's:_BSD_SOURCE:_DEFAULT_SOURCE:' $pkgname/Makefile
+}
+
+build() {
+  export CFLAGS="$CFLAGS -shared -fPIC -w"
+  export LDFLAGS="$LDFLAGS -shared"
+  make -C $pkgname COMPONENT_TYPE=lib-shared INCLUDEDIR=include LIBDIR=lib PREFIX=/usr
+}
+
+package() {
+  make -C $pkgname COMPONENT_TYPE=lib-shared DESTDIR="$pkgdir" INCLUDEDIR=include LIBDIR=lib PREFIX=/usr install
+  install -Dm644 $pkgname/COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}

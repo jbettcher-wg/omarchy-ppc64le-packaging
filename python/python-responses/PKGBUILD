@@ -1,0 +1,52 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+
+pkgname=python-responses
+pkgver=0.26.0
+pkgrel=1
+pkgdesc='A utility library for mocking out the `requests` Python library'
+arch=(any)
+url='https://github.com/getsentry/responses'
+license=(Apache-2.0)
+depends=(
+  python
+  python-requests
+  python-urllib3
+  python-yaml
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+  python-pytest-asyncio
+  python-pytest-httpserver
+  python-tomli-w
+)
+source=("$pkgname::git+$url#tag=$pkgver")
+sha512sums=('5d9284cdeee277de8a088e97534e24248be862b86ebd09a18cb10553ae3e15f5d17b19659932e1a8d2cf10aed6928ee0804e775f0eb01df6e03ce281b770b83a')
+b2sums=('b46f20978e227aa3c540dbd72b09e041c8c37a6a32a3b2c87e827c97b6b8888ab2069b0f8425174792cdc4e447c2d0378f0eb2b644d6261b27f93ee4cdcbb1c5')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  pytest -v
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
+# vim:set ts=2 sw=2 et:

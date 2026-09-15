@@ -1,0 +1,110 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+# Contributor: Maël Lavault <moimael@neuf.fr>
+
+pkgname=abiword
+pkgver=3.0.8
+pkgrel=2
+pkgdesc='Fully-featured word processor'
+arch=(x86_64 powerpc powerpc64 powerpc64le espresso)
+url='https://gitlab.gnome.org/World/AbiWord'
+license=(GPL-2.0-or-later)
+depends=(
+  at-spi2-core
+  cairo
+  enchant
+  fontconfig
+  fribidi
+  gdk-pixbuf2
+  glib2
+  glibc
+  goffice
+  gtk3
+  hicolor-icon-theme
+  libgcc
+  libgsf
+  libical
+  libjpeg-turbo
+  libpng
+  librsvg
+  libstdc++
+  libx11
+  libxml2
+  libxslt
+  pango
+  rasqal
+  readline
+  redland
+  wv
+  zlib
+)
+makedepends=(
+  autoconf-archive
+  boost
+  git
+  gobject-introspection
+  libwmf
+  libwpg
+  libwps
+  link-grammar
+  python-gobject
+  telepathy-glib
+)
+optdepends=(
+  'libwmf: WMF Import plugin'
+  'libwpg: WordPerfect Graphics Importer plugin'
+  'libwps: WordPerfect and Microsoft Works Importer plugin'
+  'link-grammar: AbiGrammar plugin'
+  'telepathy-glib: Collaboration plugin'
+)
+conflicts=(abiword-plugins)
+replaces=(abiword-plugins)
+source=(
+  "git+https://gitlab.gnome.org/World/AbiWord.git#tag=release-$pkgver"
+  abiword-fix-appstream-data.patch
+)
+b2sums=(
+  3a8daba3c3a7f690500ecc3ff88e0205041ba8d55d35f67cdfc575b43b9a3cc6b380b1dbe3b6f5a79c7b8fa92dee7130e20964fe3bf778a886421c8ba80c43be
+  93736365b5db419a2dd19e581d7aafff75fe87aba3eccd1a2c54e0312f494227d1e0a7f9783966c3f5b227408728505f9ce5447caab567c4b5cfa398d2f71292
+)
+validpgpkeys=(6C44DB3E0BF3EAF5B433239A5FEE05E6A56E15A3) # Hubert Figuiere <hub@figuiere.net>
+
+prepare() {
+  cd AbiWord
+
+  # Fix python override code to work with Python 3.x
+  git cherry-pick -n 51787d61993cb3981c18e4cf174fc229734fba1e
+
+  # Port to enchant 2
+  git cherry-pick -n ae05e92df5a5d6151641622c83d35a6fdba47b1f
+
+  # Install AppStream data into metainfo directory
+  sed -i 's|/appdata|/metainfo|' Makefile.am
+
+  # Fix AppStream data
+  patch -Np1 -i ../abiword-fix-appstream-data.patch
+
+  ./autogen-common.sh
+  autoreconf -fiv
+}
+
+build() {
+  cd AbiWord
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --enable-plugins \
+    --enable-clipart \
+    --enable-templates \
+    --enable-introspection
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+package() {
+  cd AbiWord
+  make DESTDIR="$pkgdir" install
+}

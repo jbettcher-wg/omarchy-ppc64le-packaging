@@ -1,0 +1,64 @@
+--- config.toml.example.orig	2025-04-16 06:58:04.000000000 +0300
++++ config.toml.example	2025-04-16 10:19:17.088007978 +0300
+@@ -2,15 +2,15 @@
+ # For Gitaly documentation, see https://docs.gitlab.com/administration/gitaly/.
+ 
+ # A path which Gitaly should open a Unix socket.
+-socket_path = "/home/git/gitlab/tmp/sockets/private/gitaly.socket"
++socket_path = "/run/gitlab/gitlab-gitaly.socket"
+ 
+ # Directory containing Gitaly executables.
+-bin_dir = "/home/git/gitaly/_build/bin"
++bin_dir = "/usr/bin"
+ 
+ # # Optional. The directory where Gitaly can create all files required to
+ # # properly operate at runtime. If not set, Gitaly will create a directory in
+ # # the global temporary directory. This directory must exist.
+-# runtime_dir = "/home/git/gitaly/run"
++# runtime_dir = "/run/gitlab/gitaly/run"
+ 
+ # # Optional if socket_path is set. TCP address for Gitaly to listen on. This is insecure (unencrypted connection).
+ # listen_addr = "localhost:9999"
+@@ -35,9 +35,9 @@
+ # # Gitaly supports TLS encryption. You must bring your own certificates because this isn’t provided automatically.
+ # [tls]
+ # # Path to the certificate.
+-# certificate_path = '/home/git/cert.cert'
++# certificate_path = '/var/lib/gitlab/cert.cert'
+ # # Path to the key.
+-# key_path = '/home/git/key.pem'
++# key_path = '/var/lib/gitlab/key.pem'
+ # Minimum offered TLS version. Options: ["TLS 1.2", "TLS 1.3"].
+ # min_version = "TLS 1.2"
+ 
+@@ -60,7 +60,7 @@
+ # # The name of the storage
+ name = "default"
+ # # The path to the storage.
+-path = "/home/git/repositories"
++path = "/var/lib/gitlab/repositories"
+ 
+ # # You can optionally configure more storages for this Gitaly instance to serve up
+ #
+@@ -91,18 +91,18 @@
+ # # Custom Git hooks that are used to perform tasks based on changes performed in any repository.
+ [hooks]
+ # # Directory where custom Git hooks are installed. If left unset, no custom hooks are used.
+-custom_hooks_dir = "/home/git/custom_hooks"
++custom_hooks_dir = "/var/lib/gitlab/custom_hooks"
+ 
+ # # Gitaly must connect to the GitLab application to perform access checks when a user performs a change.
+ [gitlab]
+ # # URL of the GitLab server.
+-url = "http+unix://%2Fhome%2Fgit%2Fgitlab%2Ftmp%2Fsockets%2Fgitlab-workhorse.socket"
++url = "http+unix://%2Frun%2Fgitlab%2Fgitlab-workhorse.socket"
+ # # 'relative_url_root' is only needed if a UNIX socket is used in 'url' and GitLab is configured to
+ # # use a relative path. For example, '/gitlab'.
+ # relative_url_root = '/'
+ # # Path of the file containing the secret token used to authenticate with GitLab. Use either 'secret_token' or 'secret'
+ # # but not both.
+-secret_file = "/home/git/gitlab-shell/.gitlab_shell_secret"
++secret_file = "/etc/webapps/gitlab-shell/secret"
+ # # Secret token used to authenticate with GitLab.
+ # secret = ""
+ 

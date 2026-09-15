@@ -1,0 +1,15 @@
+pkgbase = ruby-multi_json
+	pkgdesc = A common interface to multiple JSON libraries.
+	pkgver = 1.19.1
+	pkgrel = 1
+	url = https://github.com/sferik/multi_json
+	arch = any
+	license = MIT
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/sferik/multi_json/archive/v1.19.1/ruby-multi_json-1.19.1.tar.gz
+	sha512sums = e647b1e99bdabdf1b1b934aade333ed038e88d239a7f9b9dff62c4f7b950cc6d5f3c171b9e9ebc1fd3b970d1522daec695d6bb146d83d95f01dc2b24a3887fec
+	b2sums = f87eeb1ef8104edc8e77466253392d68f6314b8aebeb5b88d01b0864f4083a3637257d72e0e1564a0811f2d760fd8f5d14b6d1cd2535d940bacaa42bac99ad33
+
+pkgname = ruby-multi_json

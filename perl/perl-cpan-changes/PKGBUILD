@@ -1,0 +1,36 @@
+# Maintainer: Jaroslav Lichtblau <svetlemodry@archlinux.org>
+# Contributor: John D Jones III <jnbek1972 -_AT_- g m a i l -_Dot_- com>
+
+pkgname=perl-cpan-changes
+pkgver=0.500005
+pkgrel=1
+pkgdesc="Read and write Changes files"
+arch=(any)
+url='https://search.mcpan.org/dist/CPAN-Changes'
+license=('GPL' 'PerlArtistic')
+depends=('perl' 'perl-sub-quote' 'perl-module-runtime' 'perl-moo' 'perl-type-tiny')
+options=('!emptydirs')
+source=(https://cpan.metacpan.org/authors/id/H/HA/HAARG/CPAN-Changes-$pkgver.tar.gz)
+sha256sums=('1b022a0a6451827d060ee9cbfe9b2d8edbac2a3d7155cbee33ea93274b830fb5')
+
+build() {
+  cd "${srcdir}"/CPAN-Changes-$pkgver
+
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL installdirs=vendor
+  make
+}
+
+check() {
+  cd "${srcdir}"/CPAN-Changes-$pkgver
+
+  make test
+}
+
+package() {
+  cd "${srcdir}"/CPAN-Changes-$pkgver
+
+  make install DESTDIR="${pkgdir}"
+
+  find "${pkgdir}" -name '.packlist' -delete
+  find "${pkgdir}" -name '*.pod' -delete
+}

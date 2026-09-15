@@ -1,0 +1,22 @@
+pkgbase = python-cleo
+	pkgdesc = create beautiful and testable command-line interfaces
+	pkgver = 2.1.0
+	pkgrel = 2
+	epoch = 1
+	url = https://github.com/python-poetry/cleo
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-poetry-core
+	depends = python-crashtest
+	depends = python-rapidfuzz
+	depends = python-typing_extensions
+	source = https://github.com/python-poetry/cleo/archive/2.1.0/cleo-2.1.0.tar.gz
+	sha256sums = f5905052d783d540271de62b546c8ad89792e8c2787a59c41b0d8c8c31934093
+	b2sums = 7c9d0cc869d1e185c2c5a092a8aa1d1b3cce5fc25246939c0ff94920ac7070000b110be9f6cd9d1f827ed951ff22b9ad62e3c17a941022967b7599e456cda837
+
+pkgname = python-cleo

@@ -1,0 +1,36 @@
+pkgbase = python-rapidfuzz
+	pkgdesc = Rapid fuzzy string matching in Python using various string metrics
+	pkgver = 3.14.5
+	pkgrel = 1
+	url = https://github.com/rapidfuzz/RapidFuzz
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-hypothesis
+	checkdepends = python-pandas
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = cython
+	makedepends = python-scikit-build-core
+	makedepends = rapidfuzz-cpp
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = python
+	optdepends = python-numpy
+	source = python-rapidfuzz::git+https://github.com/rapidfuzz/RapidFuzz#tag=v3.14.5
+	source = github.com-taskflow-taskflow::git+https://github.com/taskflow/taskflow
+	source = remove-version-constraints.patch
+	sha512sums = c9268e0367923253087e9b33ffe232324a75420efa59334cc5be9cc16abedf611de12af6dde7e220f305119a2a273acea29a4cf3f266cb32e4bbb374e55f12fb
+	sha512sums = SKIP
+	sha512sums = 43771f873fbf91e3bad9a1e0653e30ec54523a278195ea642622f15ab2fdcbdf0d2037819ce01e0f0e6d445a36695bd8f4638ce1be80a2bdcbbc83ec516fa01a
+	b2sums = 74edd62999993e12352fa318d1d4ccc5c62b56272492c5c8c78aa21306fe4b6e72062cf168f83a00df91373641dc7eb28508e393cbf35255296dff6278f1f625
+	b2sums = SKIP
+	b2sums = 156581b1e900d951008e489c22e887728baf0f014ea6e4848226ceca683baa16b7f8bcd979b7db42e9e65b029fd74fe9f66c10862a53ed8e08bc6142af406370
+
+pkgname = python-rapidfuzz

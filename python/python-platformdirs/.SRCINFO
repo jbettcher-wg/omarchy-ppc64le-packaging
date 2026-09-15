@@ -1,0 +1,21 @@
+pkgbase = python-platformdirs
+	pkgdesc = A library to determine platform-specific system directories
+	pkgver = 4.10.1
+	pkgrel = 1
+	url = https://github.com/tox-dev/platformdirs
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	checkdepends = python-appdirs
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-hatchling
+	makedepends = python-hatch-vcs
+	depends = python
+	source = python-platformdirs::git+https://github.com/tox-dev/platformdirs#tag=4.10.1
+	sha512sums = a7ee3409b45baee35755d46ee58d20615c579b13f6671b5a73fe1478c12c5d9eb6769fc3c6a1b314af502dc60bc608a9c0fde6be0c848cb343a8cca485ce7087
+	b2sums = bcdf3acd124425b1c0aa06faa7f0761cbc4b6235c1d097feaf74a16d31193a32d479f23fab71c8cf16c12a3fe4e3f0da9741ec0df2fe801f7453ee2e10f41b70
+
+pkgname = python-platformdirs

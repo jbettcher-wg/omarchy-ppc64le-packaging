@@ -1,0 +1,29 @@
+pkgbase = libqrtr-glib
+	pkgdesc = Qualcomm IPC Router protocol helper library
+	pkgver = 1.4.0
+	pkgrel = 1
+	url = https://gitlab.freedesktop.org/mobile-broadband/libqrtr-glib
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	makedepends = gi-docgen
+	makedepends = git
+	makedepends = gobject-introspection
+	makedepends = meson
+	depends = gcc-libs
+	depends = glib2
+	depends = glibc
+	source = git+https://gitlab.freedesktop.org/mobile-broadband/libqrtr-glib.git?signed#tag=1.4.0
+	validpgpkeys = D88D6B90198F924A78705D8C3CAD53398973FFFA
+	validpgpkeys = 3A948E16E8860C68CD68441D734614319E26A433
+	b2sums = b2b8fe0f01fcb3dd6fcd55883c837c461c57791f7e472d448bb096c0e32b0ceea191b72731479343024b39e119af5f6d6ae358fccfbd9bee48077776145626e8
+
+pkgname = libqrtr-glib
+	provides = libqrtr-glib.so
+
+pkgname = libqrtr-glib-docs
+	pkgdesc = Qualcomm IPC Router protocol helper library (documentation)
+	depends = 

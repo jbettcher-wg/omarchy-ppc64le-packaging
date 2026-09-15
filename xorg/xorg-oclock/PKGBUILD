@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-oclock
+pkgver=1.0.6
+pkgrel=1.1
+pkgdesc="Round X clock"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT-open-group')
+depends=('libx11' 'libxmu' 'libxext' 'libxkbfile' 'libxt' 'glibc')
+makedepends=('xorg-util-macros')
+source=(https://xorg.freedesktop.org/archive/individual/app/oclock-${pkgver}.tar.xz{,.sig})
+sha512sums=('02d062745356ad09e2c5ef22c41f2f5c271e756c6a78cac78d459fdf8e4b107f4f8df1a657e16ecc3ae0c1801c2a913396133ba0628685c9ea4fe359c0d7dcc3'
+            'SKIP')
+validpgpkeys=('4A193C06D35E7C670FA4EF0BA2FB9E081F2D130E') # Alan Coopersmith <alan.coopersmith@oracle.com>
+
+build() {
+  cd "${srcdir}/oclock-${pkgver}"
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd "${srcdir}/oclock-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+  install -m755 -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

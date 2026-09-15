@@ -1,0 +1,13 @@
+pkgbase = hunspell-pl
+	pkgdesc = Polish dictionary for Hunspell
+	pkgver = 20260301
+	pkgrel = 1
+	url = https://www.sjp.pl/slownik/ort/
+	arch = any
+	license = GPL
+	optdepends = hunspell: the spell checking libraries and apps
+	provides = hunspell-dictionary
+	source = https://sjp.pl/sl/ort/sjp-myspell-pl-20260301.zip
+	sha256sums = 7af3c392680a66145328e547744b26a3ae1abba6b5f9f7c0d218c98faf5887da
+
+pkgname = hunspell-pl

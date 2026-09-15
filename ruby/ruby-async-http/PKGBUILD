@@ -1,0 +1,75 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=ruby-async-http
+pkgver=0.94.2
+pkgrel=1
+pkgdesc='A HTTP client and server library'
+arch=(any)
+url='https://github.com/socketry/async-http'
+license=(MIT)
+depends=(
+  ruby
+  ruby-async
+  ruby-async-pool
+  ruby-io-endpoint
+  ruby-io-stream
+  ruby-metrics
+  ruby-protocol-http
+  ruby-protocol-http1
+  ruby-protocol-http2
+  ruby-protocol-url
+  ruby-traces
+)
+makedepends=(
+  ruby-rdoc
+)
+options=(!emptydirs)
+source=(https://github.com/socketry/async-http/archive/v$pkgver/$pkgname-$pkgver.tar.gz)
+sha512sums=('e44bea2da90a84d271e32d7b5219b315d1e608d6e57f412237b82ae17c0bd1b4e9aa2485209637223abaa8baf413d1a640d90c65c3772f8e4d60f8396082cef1')
+b2sums=('a901d08b69044ff80da65b755c7a160dd12de8eb86d46dc8d0eee72bc00939065235addc6e0476806ee8a58bbb04b5f5a695037b82e3f20b30c2845b15078cb0')
+
+prepare() {
+  cd async-http-$pkgver
+
+  sed -r \
+    -e 's|~>|>=|g' \
+    -e '/signing_key/d' \
+    -i async-http.gemspec
+
+  sed --in-place \
+    --expression '/group :maintenance/,/end/d' \
+    --expression '/rubocop/d' \
+    gems.rb
+}
+
+build() {
+  local _gemdir="$(gem env gemdir)"
+  cd async-http-$pkgver
+  gem build async-http.gemspec
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install/$_gemdir" \
+    --bindir "tmp_install/usr/bin" \
+    async-http-$pkgver.gem
+  find "tmp_install/$_gemdir/gems/" \
+    -type f \
+    \( \
+        -iname "*.o" -o \
+        -iname "*.c" -o \
+        -iname "*.so" -o \
+        -iname "*.time" -o \
+        -iname "gem.build_complete" -o \
+        -iname "Makefile" \
+    \) \
+    -delete
+  rm -r tmp_install/$_gemdir/cache
+}
+
+package() {
+  cd async-http-$pkgver
+  cp -a tmp_install/* "$pkgdir"/
+}

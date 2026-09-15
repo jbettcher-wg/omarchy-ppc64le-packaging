@@ -1,0 +1,59 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+
+pkgname=krdc
+pkgver=26.08.0
+pkgrel=1
+pkgdesc='Remote Desktop Client'
+url='https://apps.kde.org/krdc/'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-2.0-or-later
+         LGPL-2.0-or-later)
+depends=(glibc
+         kbookmarks
+         kcmutils
+         kcompletion
+         kconfig
+         kconfigwidgets
+         kcoreaddons
+         kcrash
+         kdnssd
+         kguiaddons
+         ki18n
+         kio
+         knotifyconfig
+         kstatusnotifieritem
+         kwidgetsaddons
+         kxmlgui
+         libssh
+         libstdc++
+         qt6-base
+         qtkeychain-qt6
+         wayland)
+makedepends=(extra-cmake-modules
+             freerdp
+             kdoctools
+             libvncserver)
+optdepends=('libvncserver: VNC support'
+            'freerdp: RDP support'
+            'keditbookmarks: to edit bookmarks')
+groups=(kde-applications
+        kde-network)
+source=(https://download.kde.org/stable/release-service/$pkgver/src/$pkgname-$pkgver.tar.xz{,.sig})
+sha256sums=('88ce3abf300c39baf58fa27d8ed2f1abdaf4da41e645982f62c41d444f69a66a'
+            'SKIP')
+validpgpkeys=(CA262C6C83DE4D2FB28A332A3A6A4DB839EAA6D7  # Albert Astals Cid <aacid@kde.org>
+              F23275E4BF10AFC1DF6914A6DBD2CE893E2D1C87  # Christoph Feck <cfeck@kde.org>
+              D81C0CB38EB725EF6691C385BB463350D6EF31EF) # Heiko Becker <heiko.becker@kde.org>
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

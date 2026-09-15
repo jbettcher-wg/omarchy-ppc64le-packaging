@@ -1,0 +1,96 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+
+pkgname=nodejs-lts-dubnium
+pkgver=10.24.2
+pkgrel=1.1
+pkgdesc="Evented I/O for V8 javascript (LTS release: Dubnium)"
+arch=(x86_64 powerpc)
+url="https://nodejs.org/"
+license=(MIT)
+depends=(glibc)
+makedepends=(python2 procps-ng git)
+provides=(npm nodejs "nodejs=$pkgver")
+conflicts=(nodejs)
+options=(!debug !lto)
+_commit=19f3e1702e9e732462fcf83939b99d3bd0587ed2
+source=("git+https://github.com/nodejs/node.git#commit=${_commit}"
+	icu68.patch
+	ppc32.patch
+        atomic.patch
+        fix_disable_cctest.patch
+        system-brotli.patch
+        use_system_node_gyp.patch
+        uv_stable.patch)
+# https://nodejs.org/download/release/latest-dubnium/SHASUMS256.txt.asc
+sha256sums=('2f296fc77af267f9f1d3e4557bc2010b27f224cb8abed4a25d0c69e63c56640d'
+            'e953185d2d7de61bf8d4ca168fe034cce7a968264c1e7c24d53421fe7d24aace'
+            'ce5cfc86a633ff38c5ad718454f48a55469ab8522779f3ec3387ef48ca5eb91a'
+            'ddffa7cfe35d56174ee80c3b6bcad4785d21e1da9fc9ef41ae328f2242ee5d80'
+            '143f0e2d73a221c86aa0fc8fea46b264b49a1026aad14ca1e4ac2c1bfc2d55e7'
+            'efbd230df42ea85c1b8c5ac22d0b3bc74114b272e9da49f111b8a0ed7484c4b5'
+            'be4f1f2108289274792a2d86ed0146d4649ccfb19193d7207e5490d0f5080c27'
+            '8d395c057c960b470cc4de467e70dc6d6f4b119022c852565398fb4427dc30b3')
+validpgpkeys=(C4F0DFFF4E8C1A8236409D08E73BC641CC11F4C8  # Myles Borins <mylesborins@google.com>
+              77984A986EBC2AA786BC0F66B01FBB92821C587A  # Gibson Fahnestock <gibfahn@gmail.com>
+              B9AE9905FFD7803F25714661B63B535A4C206CA9  # Evan Lucas <evanlucas@me.com> 
+              DD8F2338BAE7501E3DD5AC78C273792F7D83545D  # Rod Vagg <rod@vagg.org>
+              B9E2F5981AA6E0CD28160D9FF13993A75599653C  # Shelley Vohr <shelley.vohr@gmail.com>
+              4ED778F539E3634C779C87C6D7062848A1AB005C  # Beth Griggs <Bethany.Griggs@uk.ibm.com>
+              C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C) # Richard Lau <rlau@redhat.com>
+
+prepare() {
+  cd node
+
+  patch -Np0 -i ${srcdir}/ppc32.patch
+  #patch -Np0 -i ${srcdir}/icu68.patch
+  patch -Np1 -i ${srcdir}/atomic.patch
+  patch -Np1 -i ${srcdir}/fix_disable_cctest.patch
+  patch -Np1 -i ${srcdir}/system-brotli.patch
+  patch -Np1 -i ${srcdir}/use_system_node_gyp.patch
+  patch -Np1 -i ${srcdir}/uv_stable.patch
+
+  echo 'Fixing for python2 name'
+  find -type f -exec sed \
+    -e 's_^#!/usr/bin/env python$_&2_' \
+    -e 's_^\(#!/usr/bin/python2\).[45]$_\1_' \
+    -e 's_^#!/usr/bin/python$_&2_' \
+    -e 's_^\( *exec \+\)python\( \+.*\)$_\1python2\2_'\
+    -e 's_^\(.*\)python\( \+-c \+.*\)$_\1python2\2_'\
+    -e "s_'python'_'python2'_" -i {} +
+  find test/ -type f -exec sed 's_python _python2 _' -i {} +
+}
+
+build() {
+  cd node
+
+  CPU=ppc
+  LDFLAGS+=" -latomic"
+  CFLAGS+=" -Wno-implicit-function-declaration"
+
+  export PYTHON=python2
+  ./configure \
+    --dest-cpu=${CPU} \
+    --dest-os=linux \
+    --prefix=/usr \
+    --openssl-no-asm \
+    --without-snapshot \
+    --without-intl \
+    --partly-static \
+    --cross-compiling \
+    --download=icu
+
+  make
+}
+
+check() {
+  cd node
+  # One failing test due to our http-parser version
+  make test-only || echo "Tests failed"
+}
+
+package() {
+  cd node
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 LICENSE -t "${pkgdir}"/usr/share/licenses/${pkgname}/
+}

@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Sergej Pupykin <arch+pub@sergej.pp.ru>
+# Contributor: EVorster <evorster@gmail.com>
+
+pkgname=vid.stab
+pkgver=1.1.1
+pkgrel=3
+pkgdesc='Video stabilization library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=http://public.hronopik.de/vid.stab
+license=(GPL-2.0-or-later)
+depends=(
+  glibc
+  libgcc
+  libgomp
+)
+makedepends=(
+  cmake
+  git
+  ninja
+)
+provides=(libvidstab.so)
+source=(git+https://github.com/georgmartius/vid.stab.git#tag=v${pkgver})
+b2sums=('8d9a2d5ee0b61e7963a6e1a2ebd3a2ab6fc23f5fe18041e36b0c6b789a9117fa15220c7ba7b7086f8addb7a8f6f0ccc7d3de95b2d826776cf88f87da6282b61b')
+
+pkgver() {
+  cd vid.stab
+  git describe --tags | sed 's/^v//'
+}
+
+build() {
+  cmake -S vid.stab -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  cmake --build build
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+}

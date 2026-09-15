@@ -1,0 +1,19 @@
+pkgbase = python-seedir
+	pkgdesc = A Python package for creating, editing, and reading folder tree diagrams
+	pkgver = 0.5.1
+	pkgrel = 2
+	url = https://github.com/earnestt1234/seedir
+	arch = any
+	license = MIT
+	checkdepends = python-emoji
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python-natsort
+	optdepends = python-emoji: for emoji style
+	source = git+https://github.com/earnestt1234/seedir.git#tag=v0.5.1
+	sha512sums = 14bfd6ede7f47898c3180800bc9af11a78dfb1af260c8507704186ff0f50167b23fe2b5f7c7497e5d3dfff149e2e1c4161452e4c6810ffef666730e12b66dd96
+
+pkgname = python-seedir

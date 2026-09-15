@@ -1,0 +1,15 @@
+pkgbase = terraform-provider-kubernetes
+	pkgdesc = Terraform provider to configure K8s objects
+	pkgver = 2.5.0
+	pkgrel = 1
+	url = https://github.com/mrparkers/terraform-provider-kubernetes
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	license = MIT
+	makedepends = go
+	makedepends = git
+	source = terraform-provider-kubernetes-2.5.0.tar.gz::https://github.com/hashicorp/terraform-provider-kubernetes/archive/v2.5.0.tar.gz
+	sha512sums = c9ea05ff45583aaf8520ab216a3c0a0ffe2050e4cd7173824215d78941aa8093689fde1e20dd896fdfa2cb54c9dad92a03dddef79d0dd337a0e7214caf4a6eb5
+
+pkgname = terraform-provider-kubernetes

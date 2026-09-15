@@ -1,0 +1,24 @@
+pkgbase = ayatana-ido
+	pkgdesc = Ayatana Indicator Display Objects
+	pkgver = 0.10.4
+	pkgrel = 1
+	url = https://github.com/AyatanaIndicators/ayatana-ido
+	arch = x86_64
+	license = LGPL-2.1-or-later
+	license = LGPL-3.0-or-later
+	makedepends = cmake
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = gtest
+	makedepends = gobject-introspection
+	makedepends = vala
+	depends = cairo
+	depends = gdk-pixbuf2
+	depends = glib2
+	depends = glibc
+	depends = gtk3
+	depends = pango
+	source = git+https://github.com/AyatanaIndicators/ayatana-ido#tag=0.10.4
+	sha256sums = 7358770ad5aca5d8a2c389a48c83a9f694ddd28034390da7042277d5c92a6538
+
+pkgname = ayatana-ido

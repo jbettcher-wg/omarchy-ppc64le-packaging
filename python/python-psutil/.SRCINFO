@@ -1,0 +1,20 @@
+pkgbase = python-psutil
+	pkgdesc = A cross-platform process and system utilities module for Python
+	pkgver = 7.2.2
+	pkgrel = 1
+	url = https://github.com/giampaolo/psutil
+	arch = x86_64
+	license = BSD-3-Clause
+	checkdepends = net-tools
+	checkdepends = procps-ng
+	checkdepends = python-pytest
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = python
+	source = https://github.com/giampaolo/psutil/archive/release-7.2.2/python-psutil-7.2.2.tar.gz
+	b2sums = fd921b20773f2d5a7df5f45a6341e2146de18b0e47cf628d3016353e9b09ef424ea40d01bc23adcf56574a1ba0054b491c45ef85cb3101ece2a9e9b02c57983e
+
+pkgname = python-psutil

@@ -1,0 +1,77 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgbase=geocode-glib
+pkgname=(
+  geocode-glib
+  geocode-glib-docs
+)
+pkgver=3.26.4
+pkgrel=6
+pkgdesc="Helper library for geocoding services"
+url="https://gitlab.gnome.org/GNOME/geocode-glib"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(LGPL-2.0-or-later)
+depends=(
+  glib2
+  glibc
+  hicolor-icon-theme
+  json-glib
+  libgcc
+  libsoup3 libsoup-3.0.so
+)
+makedepends=(
+  git
+  glib2-devel
+  gobject-introspection
+  gtk-doc
+  meson
+)
+checkdepends=(glibc-locales)
+source=("git+$url.git#tag=$pkgver")
+b2sums=('c235a8ebf5d5b7ef19d8a6ff0b8b4f2d7e1609350ffc915cf4c9252b9ee3401383e0aab1ebde4aed8ab02c8e594f83a33a411a4b28093f091bc25d3cf6a74eea')
+
+prepare() {
+  cd $pkgbase
+}
+
+build() {
+  local meson_options=(
+    -D enable-installed-tests=false
+    -D soup2=false
+  )
+
+  arch-meson $pkgbase build "${meson_options[@]}"
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package_geocode-glib() {
+  provides=(
+    "geocode-glib-2=$pkgver-$pkgrel"
+    libgeocode-glib-2.so
+  )
+  replaces=('geocode-glib-2<=3.26.4-5')
+  conflicts=(
+    'geocode-glib-2<=3.26.4-5'
+    'geocode-glib-common<=3.26.4-5'
+  )
+
+  meson install -C build --destdir "$pkgdir"
+
+  mkdir -p doc/usr/share
+  mv {"$pkgdir",doc}/usr/share/gtk-doc
+}
+
+package_geocode-glib-docs() {
+  pkgdesc+=" (documentation)"
+  depends=()
+
+  mv doc/* "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

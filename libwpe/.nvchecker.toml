@@ -1,0 +1,4 @@
+[libwpe]
+source = "git"
+git = "https://github.com/WebPlatformForEmbedded/libwpe.git"
+include_regex = '\d+\.\d*[02468]\.\d+'

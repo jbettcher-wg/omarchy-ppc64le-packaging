@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Brett Cornwall <ainola@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Eric Gillingham <sysrq@sysrq.tk>
+
+pkgname=libdiscid
+pkgver=0.6.5
+pkgrel=2
+pkgdesc="A Library for creating MusicBrainz DiscIDs"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://musicbrainz.org/doc/libdiscid"
+license=('LGPL-2.1-or-later')
+depends=('glibc')
+source=("$pkgname-$pkgver".tar.gz::"https://github.com/metabrainz/libdiscid/releases/download/v$pkgver/libdiscid-$pkgver.tar.gz")
+sha256sums=('72dbb493e07336418fe2056f0ebc7ce544eedb500bb896cc1cc04bd078c2d530')
+
+build() {
+    cd "$pkgname-$pkgver"
+    ./configure --prefix=/usr
+    make
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    make check
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    make DESTDIR="$pkgdir" install
+}

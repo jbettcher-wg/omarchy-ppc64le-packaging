@@ -1,0 +1,26 @@
+pkgbase = xorg-xrdb
+	pkgdesc = X server resource database utility
+	pkgver = 1.2.3
+	pkgrel = 1
+	url = https://xorg.freedesktop.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	groups = xorg-apps
+	groups = xorg
+	license = MIT-open-group
+	makedepends = xorg-util-macros
+	depends = libx11
+	depends = libxmu
+	depends = glibc
+	optdepends = gcc: for preprocessing
+	optdepends = mcpp: a lightweight alternative for preprocessing
+	source = https://xorg.freedesktop.org/archive/individual/app/xrdb-1.2.3.tar.xz
+	source = https://xorg.freedesktop.org/archive/individual/app/xrdb-1.2.3.tar.xz.sig
+	validpgpkeys = 3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2
+	sha512sums = 4dbbfd38afc9c795de3671a37e377247dc598b9c1352f6f07158fb716437f0465fb5db4eee22d74ebee93dff4a3ef1c1e4268f333cea0d8f02d1fa10104ac748
+	sha512sums = SKIP
+
+pkgname = xorg-xrdb

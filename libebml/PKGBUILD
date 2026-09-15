@@ -1,0 +1,41 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+# Contributor: 03/08/04 <lefungus@altern.org>
+
+pkgname=libebml
+pkgver=1.4.5
+pkgrel=1.1
+pkgdesc='Extensible Binary Meta Language library'
+arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+url=https://github.com/Matroska-Org/libebml
+license=(LGPL2.1)
+depends=(gcc-libs)
+makedepends=(
+  cmake
+  git
+  ninja
+)
+provides=(libebml.so)
+_tag=1878e784321673561039a6a37076b2736f4dc98f
+source=(git+https://github.com/Matroska-Org/libebml.git#tag=${_tag})
+b2sums=(SKIP)
+
+pkgver() {
+  cd libebml
+  git describe --tags | sed 's/^release-//'
+}
+
+build() {
+  cmake -S libebml -B build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=/usr/lib \
+    -DBUILD_SHARED_LIBS=ON
+  cmake --build build
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+}
+
+# vim: ts=2 sw=2 et:

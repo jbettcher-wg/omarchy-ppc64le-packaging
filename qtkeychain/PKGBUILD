@@ -1,0 +1,37 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Kuba Serafinowski <zizzfizzix(at)gmail(dot)com>
+# Contributor: Teo Mrnjavac <teo@kde.org>
+
+pkgbase=qtkeychain
+pkgname=(qtkeychain-qt6)
+pkgver=0.16.0
+pkgrel=1
+pkgdesc='Provides support for secure credentials storage'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/frankosterfeld/qtkeychain'
+license=(BSD-3-Clause)
+depends=(glib2
+         glibc
+         libgcc
+         libstdc++
+         org.freedesktop.secrets
+         qt6-base)
+makedepends=(cmake
+             git
+             qt6-declarative
+             qt6-tools)
+source=(git+https://github.com/frankosterfeld/qtkeychain#tag=$pkgver)
+sha256sums=('27cb78ca44c9395a8b5e1e59dbc68896842d8b39a11d88973833afda1447cf76')
+
+build() {
+  cmake -B build -S $pkgbase \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBUILD_WITH_QT6=ON
+  cmake --build build
+}
+
+package_qtkeychain-qt6() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 $pkgbase/COPYING "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

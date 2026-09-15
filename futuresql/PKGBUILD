@@ -1,0 +1,33 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=futuresql
+pkgver=0.1.1
+pkgrel=4
+pkgdesc='Non-blocking Qt database framework'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://kde.org/'
+license=(LGPL-2.1-or-later)
+depends=(glibc
+         libstdc++
+         qt6-base)
+makedepends=(extra-cmake-modules)
+conflicts=(futuresql-qt6)
+provides=(futuresql-qt6)
+replaces=(futuresql-qt6)
+source=(https://download.kde.org/stable/$pkgname/$pkgname-$pkgver.tar.xz{,.sig})
+sha256sums=('e44ed8d5a9618b3ca7ba2983ed9c5f7572e6e0a5b199f94868834b71ccbebd43'
+            'SKIP')
+validpgpkeys=(C3D7CAFBF442353F95F69F4AA81E075ABEC80A7E) # Jonah Brüchert <jbb@kaidan.im>
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DQT_MAJOR_VERSION=6 \
+    -DBUILD_TESTING=OFF \
+    -DCMAKE_SKIP_RPATH=ON
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=libcerf
+epoch=1
+pkgver=3.3
+pkgrel=2
+pkgdesc='Self-contained numeric library that provides an efficient and accurate implementation of complex error functions'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://jugit.fz-juelich.de/mlz/libcerf/'
+license=(MIT)
+depends=(glibc
+         libgcc)
+makedepends=(cmake
+             git)
+source=(git+https://jugit.fz-juelich.de/mlz/libcerf#tag=v$pkgver)
+sha256sums=('504fd78f65361b6a40a54be4dd48afdbb6c82eab73fff28dea7a2079df726644')
+
+build() {
+  cmake -B build -S $pkgname \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 $pkgname/LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+}

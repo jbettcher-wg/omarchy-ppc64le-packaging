@@ -1,0 +1,23 @@
+pkgbase = ruby-mapping
+	pkgdesc = Map model objects based on their class to a given output model
+	pkgver = 1.1.3
+	pkgrel = 1
+	url = https://github.com/ioquatix/mapping
+	arch = any
+	license = MIT
+	checkdepends = ruby-bake
+	checkdepends = ruby-bake-test
+	checkdepends = ruby-bake-test-external
+	checkdepends = ruby-bundler
+	checkdepends = ruby-covered
+	checkdepends = ruby-decode
+	checkdepends = ruby-sus
+	makedepends = git
+	makedepends = ruby-rspec
+	depends = ruby
+	options = !emptydirs
+	source = git+https://github.com/ioquatix/mapping.git#tag=v1.1.3
+	sha512sums = 35633dc444bcee45380ce74c65b47617c17891544fb4bf3078e1c93c29ac08349ee485824b9815801e941e844f686a40a8cbbc86ab23013ba1a62f368bbe19e0
+	b2sums = 5b6e7078c7057cceda370e0a4c59ddc44c3add30ced479579a8ee4c57b00698c31856bb6ca0f39855efd8cdf06da053ede78d99b98648649734821ae9ca9316f
+
+pkgname = ruby-mapping

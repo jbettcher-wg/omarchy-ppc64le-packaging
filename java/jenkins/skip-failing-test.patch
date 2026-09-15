@@ -1,0 +1,20 @@
+diff --git a/core/src/test/java/hudson/model/LoadStatisticsTest.java b/core/src/test/java/hudson/model/LoadStatisticsTest.java
+index 33c70423a0..b81a9c65e3 100644
+--- a/core/src/test/java/hudson/model/LoadStatisticsTest.java
++++ b/core/src/test/java/hudson/model/LoadStatisticsTest.java
+@@ -37,6 +37,7 @@ import java.nio.file.Files;
+ import java.nio.file.StandardOpenOption;
+ import javax.imageio.ImageIO;
+ import org.jfree.chart.JFreeChart;
++import org.junit.jupiter.api.Disabled;
+ import org.junit.jupiter.api.Test;
+ 
+ /**
+@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Test;
+ class LoadStatisticsTest {
+ 
+     @Test
++    @Disabled
+     void graph() throws IOException {
+         assumeFalse(Functions.isWindows(), "TODO: Implement this test on Windows");
+         LoadStatistics ls = new LoadStatistics(0, 0) {

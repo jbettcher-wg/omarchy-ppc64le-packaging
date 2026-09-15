@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+
+pkgname=xorg-xwininfo
+pkgver=1.1.7
+pkgrel=1
+pkgdesc="Command-line utility to print information about windows on an X server"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://xorg.freedesktop.org/"
+license=('MIT')
+depends=('libxcb' 'glibc')
+makedepends=('xorg-util-macros' 'libx11')
+groups=('xorg-apps' 'xorg')
+source=(https://xorg.freedesktop.org/archive/individual/app/xwininfo-${pkgver}.tar.xz{,.sig})
+sha512sums=('116e53bdd5c40b6162e98057fc1c7981a4c4fb894adeb31197984d5408489195f9eb621635036e17194f4e50c7eed9e3624d044cab14b975988200f6883b9a66'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # "Alan Coopersmith <alan.coopersmith@oracle.com>"
+
+build() {
+  cd xwininfo-${pkgver}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd xwininfo-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  install -m755 -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: Eli Schwartz <eschwartz@archlinux.org>
+
+_pkgname=graphviz
+pkgname=python-graphviz
+pkgver=0.21
+pkgrel=2
+pkgdesc='Simple Python interface for Graphviz'
+arch=(any)
+url="https://github.com/xflr6/$_pkgname"
+license=(MIT)
+depends=(graphviz
+         python)
+makedepends=(python-{build,installer,wheel}
+             python-setuptools)
+checkdepends=(python-pytest
+              python-pytest-mock)
+#source=("https://files.pythonhosted.org/packages/source/${_pkgname:0:1}/${_pkgname}/${_pkgname}-${pkgver}.zip")
+_archive="$_pkgname-$pkgver"
+source=("$url/archive/$pkgver/$_archive.tar.gz")
+sha256sums=('ecebb8275fdd3eace1c16d11a6db976877ed976e6c3a228c2cf946c34ef9001c')
+
+prepare() {
+	cd "$_archive"
+	# do not run python-coverage in unittests :/
+	sed -i -e '/--cov/d' pyproject.toml
+}
+
+build(){
+	cd "$_archive"
+	python -m build -wn
+}
+
+check() {
+	cd "$_archive"
+	# Tests disabled because of a regression in pytest 8.1. This started
+	# failing with Python 3.11 but we need to be able to rebuild for
+	# Python 3.12, so disabling tests fro now.
+	# https://github.com/pytest-dev/pytest/issues/12123
+	# python -m pytest
+}
+
+package() {
+	cd "$_archive"
+	python -m installer -d "$pkgdir" dist/*.whl
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE.txt
+}

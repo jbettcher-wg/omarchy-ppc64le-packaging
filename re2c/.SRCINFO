@@ -1,0 +1,20 @@
+pkgbase = re2c
+	pkgdesc = A tool for generating C-based recognizers from regular expressions
+	pkgver = 4.5.1
+	pkgrel = 1
+	url = https://re2c.org
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LicenseRef-re2c
+	makedepends = cmake
+	makedepends = python
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	source = https://github.com/skvadrik/re2c/archive/4.5.1/re2c-4.5.1.tar.gz
+	b2sums = 0c054c4ad3e694a7784d8076e807a07f41c2315ba369fff8080911015b25e53c1164a2e8513d17be4a40e36eecb3d9de02fea377134a65ec206c67b691389ec8
+
+pkgname = re2c

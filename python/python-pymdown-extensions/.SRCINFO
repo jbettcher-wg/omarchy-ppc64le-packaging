@@ -1,0 +1,23 @@
+pkgbase = python-pymdown-extensions
+	pkgdesc = Extensions for Python Markdown
+	pkgver = 10.21.2
+	pkgrel = 1
+	url = https://github.com/facelessuser/pymdown-extensions
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-pygments
+	makedepends = python-build
+	makedepends = python-hatchling
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-markdown
+	depends = python-yaml
+	optdepends = python-pygments: for code highlighting
+	provides = pymdown-extensions
+	replaces = pymdown-extensions
+	source = https://github.com/facelessuser/pymdown-extensions/archive/10.21.2/python-pymdown-extensions-10.21.2.tar.gz
+	b2sums = d1b33b5a3405e2c0f24160d2a1c415ba23de38389f19310cb060063955c75f4222146eb72617b537e0f3a155acb65caba61fdb8c48d219aacfd532f9a80b02ba
+
+pkgname = python-pymdown-extensions

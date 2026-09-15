@@ -1,0 +1,27 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-gcp-devrel-py-tools
+pkgver=0.0.16
+_commit=dbc02f5ec965a6672d47a0e8963365970d96db17
+pkgrel=10
+pkgdesc='Tools for Cloud Platform Python libraries and samples'
+arch=(any)
+license=('Apache-2.0')
+url='https://github.com/GoogleCloudPlatform/python-repo-tools'
+depends=('python-setuptools' 'python-requests' 'python-retrying' 'python-packaging' 'python-pylint')
+makedepends=('git' 'python-build' 'python-installer' 'python-wheel')
+source=("git+https://github.com/GoogleCloudPlatform/python-repo-tools.git#commit=$_commit")
+sha512sums=('a2783ac210a652c4b8dcea0046fb6c344e2fce2d76df740abd61b62b1144e5c9d26d353e5c6ea55ef4bc065001d52399af18148f944e835959f3bad940a0d74d')
+
+build() {
+  cd python-repo-tools
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd python-repo-tools
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

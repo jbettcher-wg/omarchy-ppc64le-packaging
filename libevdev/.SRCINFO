@@ -1,0 +1,24 @@
+pkgbase = libevdev
+	pkgdesc = Wrapper library for evdev devices
+	pkgver = 1.13.6
+	pkgrel = 1
+	url = https://www.freedesktop.org/wiki/Software/libevdev/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = python
+	makedepends = check
+	makedepends = valgrind
+	makedepends = meson
+	depends = glibc
+	provides = libevdev.so
+	source = https://freedesktop.org/software/libevdev/libevdev-1.13.6.tar.xz
+	source = https://freedesktop.org/software/libevdev/libevdev-1.13.6.tar.xz.sig
+	validpgpkeys = 3C2C43D9447D5938EF4551EBE23B7E70B467F0BF
+	sha512sums = 367081bf587dd63845086714e0b51ec0f9eb107d4c32cc387cf60d3c41ad3cb31a64b1c74e25116b5bc900d6c34e82694697e942bb646f7161b0670b70d1b54d
+	sha512sums = SKIP
+
+pkgname = libevdev

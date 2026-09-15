@@ -1,0 +1,238 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Contributor: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Alexander Baldeck <alexander@archlinux.org>
+# Contributor: Dale Blount <dale@archlinux.org>
+# Contributor: Anders Bostrom <anders.bostrom@home.se>
+
+pkgbase=thunderbird
+pkgname=(thunderbird)
+pkgver=144.0.1
+pkgrel=1
+pkgdesc='Standalone mail and news reader from mozilla.org'
+url='https://www.thunderbird.net/'
+arch=(x86_64 powerpc64le powerpc64)
+license=('MPL-2.0' 'GPL-2.0-only' 'LGPL-2.1-only')
+depends=(
+  glibc
+  gtk3 libgdk-3.so libgtk-3.so
+  mime-types
+  dbus libdbus-1.so
+  dbus-glib
+  alsa-lib
+  nss
+  hunspell
+  sqlite
+  ttf-font
+  libvpx libvpx.so
+  zlib
+  bzip2 libbz2.so
+  botan2
+  libwebp libwebp.so libwebpdemux.so
+  libevent
+  libjpeg-turbo
+  libffi libffi.so
+  nspr
+  gcc-libs
+  libx11
+  libxrender
+  libxfixes
+  libxext
+  libxcomposite
+  libxdamage
+  pango libpango-1.0.so
+  cairo
+  gdk-pixbuf2
+  freetype2 libfreetype.so
+  fontconfig libfontconfig.so
+  glib2 libglib-2.0.so
+  pixman libpixman-1.so
+  gnupg
+  json-c
+  libcanberra
+  ffmpeg
+  #icu libicui18n.so libicuuc.so
+)
+makedepends=(
+  unzip zip diffutils python mesa libpulse libice libsm
+  rust clang llvm cbindgen lld
+  gawk perl findutils libotr wasi-compiler-rt wasi-libc wasi-libc++ wasi-libc++abi
+)
+makedepends_powerpc64le=(nodejs)
+makedepends_powerpc64=(nodejs)
+makedepends_riscv64=(nodejs-lts-iron)
+makedepends_x86_64=(nasm nodejs)
+options=(!emptydirs !makeflags !lto)
+source=(https://archive.mozilla.org/pub/thunderbird/releases/${pkgver}/source/thunderbird-${pkgver}.source.tar.xz{,.asc}
+        vendor-prefs.js
+        distribution.ini
+        mozconfig.cfg
+        metainfo.patch
+        org.mozilla.Thunderbird.desktop
+        0001-Install-under-remoting-name.patch
+        ffmpeg-cleanup.patch
+        hotfix-32bit.patch
+        hotfix-bigendian-no-fading.patch
+        hotfix-bigendian-skia.patch
+        hotfix-gcc14.patch
+        hotfix-no-pip-check.patch
+        hotfix-ppc-not-power8.patch
+        hotfix-ppc.patch
+        hotfix-simd-sse2.patch
+        jxl-enable.patch
+        jxl-register-ext.patch
+        sandbox-fonts.patch
+        sandbox-x11.patch
+)
+sha256sums=('62dd606308ee0c3298e052c05a8fce321df3a1012628511c7aacdf7ef6b7e965'
+            'SKIP'
+            'fa11b4736bbf53ec015f71cd42b1040b22d1a855c562b76927b3f0eccb925c85'
+            '4a3a61e119637000c563a194283ef741959756b75edf7be84e25b4253c4288c5'
+            '6a17155440ab11464a3742e992ce96cdf74cfe86c8cc76ff02aeac5a079898da'
+            '3390d127e5dd70a0ff60895bcb044ec4521dd528cd9d6efc27c4ba58df9cca5c'
+            'cc7c3ed80b8ff04d1edf97ddd977aab59fc2354526eb3835b3a91df09fa40d90'
+            '883ca2fa723a7572269d18559d5b82412782ad63e5dd3820eeb0540e3fe34314'
+            '15fdd2e1ffe314eaee6685ae5178c4089477837d4ed49ba7fc6458d8dedc6c08'
+            '6e7ed5f86d081e979713542594fb4b01b0a4f6ac9fdd84ed479dc88aa3bd0a2f'
+            '27d19a870bb62bef886732e19ccf6c905497e78c6c5741e91d73125061b95b78'
+            '4528c4ed8e3a9b5f4fc7edfcffee0b7ae223648c2559ecdd23298399ef108e37'
+            '57c58477a455bcb5ccff387d205321b7a9ff58ec25ae365e330993b428ba1a6a'
+            'c47c8b8856122bf6fa836f923eec9846330d3db49e90f6ff92619bce1fe3d768'
+            '0473ff417272be827c292f100f22bd42efdf03b10726962b1b81f40c968291c4'
+            'a5216cd5fba16d7a862577e0053bbd33c61b361404b4bc47b1c62079c3a7e81e'
+            'da744ca7087cb8d5cd8a2a5985c4169027ad7c151c4515ffe6d662c278def442'
+            '13ced6860b78e367a82cc2f8e3cec856f9b99da9e0ec01e250ad64d75545b201'
+            'f8c4883f6ebbde94a133a3abd83684868759966ede20c71bef2702a859044ff9'
+            'e8a6346e088d261e9c149667223f1612f664ce5f4a30f4bbe068115b72e59c38'
+            'bfce3e17dc39c536b0bd2a6be1a90985bf54d7fdf8c4141ba5410183ab894f9c')
+validpgpkeys=(
+  14F26682D0916CDD81E37B6D61B7B526D98F0353 # Mozilla Software Releases <release@mozilla.com>
+  4360FE2109C49763186F8E21EBE41E90F6F12F6D # Mozilla Software Releases <release@mozilla.com>
+)
+
+# Google API keys (see http://www.chromium.org/developers/how-tos/api-keys)
+# Note: These are for Arch POWER use ONLY. For your own distribution, please
+# get your own set of keys.
+_google_api_key=AIzaSyDgkw4O3LM0Jnr2N7Wq2NG7iUVzRU5sBaA
+
+# Mozilla API keys (see https://location.services.mozilla.com/api)
+# Note: These are for Arch POWER use ONLY. For your own distribution, please
+# get your own set of keys.
+_mozilla_api_key=de0473f2-d53f-46da-956c-6aff61bda3ab
+
+prepare() {
+  cd $pkgname-$pkgver
+
+  echo "${noextract[@]}"
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    echo "Applying patch $src..."
+    patch -Np1 < "../$src"
+  done
+  sed -e 's|73114a5c28472e77082ad259113ffafb418ed602c1741f26da3e10278b0bf93e|a88d6cc10ec1322b53a8f4c782b5133135ace0fdfcf03d1624b768788e17be0f|' \
+    -i third_party/rust/mp4parse/.cargo-checksum.json
+  sed -e 's|880c982df0843cbdff38b9f9c3829a2d863a224e4de2260c41c3ac69e9148ad4|239b3e4d20498f69ed5f94481ed932340bd58cb485b26c35b09517f249d20d11|' \
+    -i third_party/rust/bindgen/.cargo-checksum.json
+
+  # Make icon transparent
+  sed -i '/^<rect/d' comm/mail/branding/thunderbird/TB-symbolic.svg
+
+  printf "%s" "$_google_api_key" >google-api-key
+  printf "%s" "$_mozilla_api_key" >mozilla-api-key
+  cp ../mozconfig.cfg .mozconfig
+  sed "s|@PWD@|${PWD@Q}|g" -i .mozconfig
+
+  # malloc_usable_size is used in various parts of the codebase
+  CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  CFLAGS="${CFLAGS/-fexceptions/}"
+  CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  CXXFLAGS="${CXXFLAGS/-fexceptions/}"
+
+  CXXFLAGS="${CXXFLAGS} -Wno-error=format-security"
+
+  case "${CARCH}" in
+    powerpc64*)
+      echo "ac_add_options --disable-webrtc" >> .mozconfig
+      echo "export CC=${CHOST}-gcc" >> .mozconfig
+      echo "export CXX=${CHOST}-g++" >> .mozconfig
+      echo "ac_add_options --enable-optimize=\"${CXXFLAGS} -fpermissive\"" >> .mozconfig
+      echo 'ac_add_options --enable-linker=bfd' >> .mozconfig
+      echo 'ac_add_options --enable-lto=full' >> .mozconfig
+      echo 'ac_add_options --without-wasm-sandboxed-libraries' >> .mozconfig
+      echo 'ac_add_options --disable-sandbox' >> .mozconfig
+      echo 'ac_add_options --disable-jit' >> .mozconfig
+    ;;
+    x86_64)
+      echo "ac_add_options --disable-elf-hack" >> .mozconfig
+      # https://bugzilla.mozilla.org/show_bug.cgi?id=1423822
+      echo "ac_add_options --with-wasi-sysroot=/usr/share/wasi-sysroot" >> .mozconfig
+    ;;
+  esac
+}
+
+build() {
+  cd $pkgname-$pkgver
+  if [[ -n "${SOURCE_DATE_EPOCH}" ]]; then
+    export MOZ_BUILD_DATE=$(date --date "@${SOURCE_DATE_EPOCH}" "+%Y%m%d%H%M%S")
+  fi
+  export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=none
+  export MOZBUILD_STATE_PATH="${srcdir}/mozbuild"
+
+  # malloc_usable_size is used in various parts of the codebase
+  CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  CFLAGS="${CFLAGS/-fexceptions/}"
+  CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  CXXFLAGS="${CXXFLAGS/-fexceptions/}"
+
+  CXXFLAGS="${CXXFLAGS} -Wno-error=format-security"
+
+  python mach configure
+  python mach build
+  python mach buildsymbols
+}
+
+package_thunderbird() {
+  optdepends=(
+    'hunspell-en_us: Spell checking, American English'
+    'libotr: OTR support for active one-to-one chats'
+    'libnotify: Notification integration'
+  )
+
+  cd $pkgname-$pkgver
+  DESTDIR="$pkgdir" python mach install
+
+  install -Dm 644 ../vendor-prefs.js -t "$pkgdir/usr/lib/$pkgname/defaults/pref"
+  install -Dm 644 ../distribution.ini -t "$pkgdir/usr/lib/$pkgname/distribution"
+  install -Dm 644 ../org.mozilla.Thunderbird.desktop -t "$pkgdir/usr/share/applications"
+  install -Dm 644 comm/mail/branding/thunderbird/net.thunderbird.Thunderbird.appdata.xml \
+    "$pkgdir/usr/share/metainfo/net.thunderbird.Thunderbird.appdata.xml"
+
+  for i in 16 22 24 32 48 64 128 256; do
+    install -Dm644 comm/mail/branding/thunderbird/default${i}.png \
+      "$pkgdir/usr/share/icons/hicolor/${i}x${i}/apps/org.mozilla.Thunderbird.png"
+  done
+  install -Dm644 comm/mail/branding/thunderbird/TB-symbolic.svg \
+    "$pkgdir/usr/share/icons/hicolor/symbolic/apps/thunderbird-symbolic.svg"
+
+  # Use system-provided dictionaries
+  ln -Ts /usr/share/hunspell "$pkgdir/usr/lib/$pkgname/dictionaries"
+  ln -Ts /usr/share/hyphen "$pkgdir/usr/lib/$pkgname/hyphenation"
+
+  # Install a wrapper to avoid confusion about binary path
+  install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" <<END
+#!/bin/sh
+exec /usr/lib/$pkgname/thunderbird "\$@"
+END
+
+  # Replace duplicate binary with wrapper
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=658850
+  ln -srf "$pkgdir/usr/bin/$pkgname" \
+    "$pkgdir/usr/lib/$pkgname/thunderbird-bin"
+}
+
+# vim:set sw=2 et:

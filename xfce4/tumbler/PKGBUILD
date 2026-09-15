@@ -1,0 +1,49 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Andreas Radke <andyrtr@archlinux.org>
+# Contributor: Jan Jezek <honzin.jezek@gmail.com>
+
+pkgname=tumbler
+pkgver=4.20.2
+pkgrel=1
+pkgdesc="Thumbnail service implementing the thumbnail management D-Bus specification"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/xfce/tumbler/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4')
+depends=('libxfce4util' 'gdk-pixbuf2' 'hicolor-icon-theme')
+makedepends=('git' 'glib2-devel' 'python' 'ffmpegthumbnailer' 'poppler-glib'
+             'libgsf' 'libgepub' 'libopenraw' 'freetype2' 'xfce4-dev-tools')
+optdepends=('ffmpegthumbnailer: video thumbnails'
+            'poppler-glib: PDF thumbnails'
+            'libgsf: ODF thumbnails'
+            'libgepub: EPUB thumbnails'
+            'libopenraw: RAW thumbnails'
+            'freetype2: font thumbnails')
+backup=('etc/xdg/tumbler/tumbler.rc')
+source=("git+https://gitlab.xfce.org/xfce/tumbler.git#tag=$pkgname-$pkgver")
+sha256sums=('35be9343828acc0269ea2036276ae1087bcb0dd036e74c76a571f63d9b868ad3')
+
+prepare() {
+  cd $pkgname
+  NOCONFIGURE=1 ./autogen.sh
+}
+
+build() {
+  cd $pkgname
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --disable-debug \
+    --enable-gtk-doc \
+    --disable-gstreamer-thumbnailer
+  make
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set ts=2 sw=2 et:

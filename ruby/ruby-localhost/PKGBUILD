@@ -1,0 +1,80 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=ruby-localhost
+pkgver=1.6.0
+pkgrel=1
+pkgdesc='Manage a local certificate authority for self-signed localhost development servers'
+arch=(any)
+url='https://github.com/socketry/localhost'
+license=(MIT)
+depends=(
+  ruby
+)
+makedepends=(
+  git
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bake
+  ruby-bake-test
+  ruby-bake-test-external
+  ruby-bundler
+  ruby-covered
+  ruby-decode
+  ruby-io-endpoint
+  ruby-sus
+  ruby-sus-fixtures-async
+  ruby-sus-fixtures-async-http
+)
+options=(!emptydirs)
+source=(git+https://github.com/socketry/localhost.git#tag=v$pkgver)
+sha512sums=('33d03d3668f5031df2fcbd2190bf27ff8aa6c901fcaaf718305d0700b3269ee8237151fcf1966b5c8497db55dcf8ac7844d33c3cb8fcb11b37f0e75bc5fbe8f2')
+b2sums=('686cc8790a6ee80c1212e5c9cfcadb08aaa7474609a1fca483714d91df2955c2fd4c7625c0a8da61dddc56a1bb9594a8ce84b66d94b90f12e3e6e650ba5fec2f')
+
+prepare() {
+  cd localhost
+  sed -r -e 's|~>|>=|g' -e '/signing_key/d' -i localhost.gemspec
+
+  sed --in-place \
+    --expression '/group :maintenance/,/end/d' \
+    --expression '/rubocop/d' \
+    gems.rb
+}
+
+build() {
+  local _gemdir="$(gem env gemdir)"
+  cd localhost
+  gem build localhost.gemspec
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install/$_gemdir" \
+    --bindir "tmp_install/usr/bin" \
+    localhost-$pkgver.gem
+  find "tmp_install/$_gemdir/gems/" \
+    -type f \
+    \( \
+        -iname "*.o" -o \
+        -iname "*.c" -o \
+        -iname "*.so" -o \
+        -iname "*.time" -o \
+        -iname "gem.build_complete" -o \
+        -iname "Makefile" \
+    \) \
+    -delete
+  rm -r tmp_install/$_gemdir/cache
+}
+
+check() {
+  local _gemdir="$(gem env gemdir)"
+  cd localhost
+  GEM_HOME="tmp_install/$_gemdir" bake test
+}
+
+package() {
+  cd localhost
+  cp -a tmp_install/* "$pkgdir"/
+}

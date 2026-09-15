@@ -1,0 +1,24 @@
+pkgbase = python-invoke
+	pkgdesc = Pythonic task execution
+	pkgver = 3.0.3
+	pkgrel = 1
+	url = https://github.com/pyinvoke/invoke
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = python-icecream
+	checkdepends = python-pytest
+	checkdepends = python-pytest-relaxed
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-fluidity
+	depends = python-lexicon
+	depends = python-yaml
+	source = https://github.com/pyinvoke/invoke/archive/3.0.3/invoke-3.0.3.tar.gz
+	source = python-invoke-fix-mock-pty-ioctl-wrapping.patch
+	b2sums = bf88a6b7e327c612a0b424478498594dffdb072d55071c39d1f8571d95bd111dcdb3f070912a13363944099c4f21eb45b23b20c31a9e3654c45130f7ad15f98e
+	b2sums = 8e2ddc5c0a9c20cec6406621f02d74e52b3712bd8fc2015568540a0b3fec29f4faa0db3f1a3b720451ddce91776153d985fa185cd34eb9017dbcb8e7309663f2
+
+pkgname = python-invoke

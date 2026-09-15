@@ -1,0 +1,63 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Carl Smedstad <carsme@archlinux.org>
+# Contributor: Daniel Isenmann <daniel@archlinux.org>
+# Contributor: Sergej Pupykin <sergej@aur.archlinux.org>
+# Contributor: Douglas Soares de Andrade <dsandrade@gmail.com>
+
+pkgname=python-urwid
+pkgver=4.0.0
+pkgrel=1
+pkgdesc='Curses-based user interface library'
+arch=(x86_64 powerpc powerpc64 powerpc64le espresso)
+url='https://urwid.org/'
+license=('LGPL-2.1-only')
+depends=(
+  'glib2'
+  'python'
+  'python-wcwidth'
+)
+makedepends=(
+  'git'
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-setuptools-scm'
+  'python-wheel'
+)
+checkdepends=(
+  'python-gobject'
+  'python-pytest'
+  'python-pyzmq'
+  'python-tornado'
+  'python-trio'
+  'python-twisted'
+)
+optdepends=(
+  'python-gobject: for gobject integration'
+  'python-pyserial: for LCD and serial integration'
+  'python-pyzmq: for zmq integration'
+  'python-tornado: for tornado integration'
+  'python-trio: for trio integration'
+  'python-twisted: for twisted integration'
+)
+source=("git+https://github.com/urwid/urwid.git#tag=$pkgver")
+sha512sums=('fc751e3a28a6e21442e0aad8a868dfb6c80884b2b71d635a7c348f945a2248c0913c39ffc51aeda5f2aa7b56e644570fc3e62defc9fb79d7084b951b13167797')
+b2sums=('8cf2f88fd7fb9aa681368151688e8bbcdbab8d32eddaf045f986b5b277080118015c8535ddb545a5789ebbfe5a21b0d8f1127679b6055df59cd8085a898fff33')
+
+build() {
+  cd ${pkgname#python-}
+  export SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd ${pkgname#python-}
+  # Override addopts as they invoke coverage testing
+  pytest --override-ini="addopts=-vv --doctest-modules -s" tests
+}
+
+package() {
+  cd ${pkgname#python-}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

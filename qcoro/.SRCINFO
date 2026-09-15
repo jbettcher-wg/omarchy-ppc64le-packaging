@@ -1,0 +1,26 @@
+pkgbase = qcoro
+	pkgdesc = C++ Coroutines for Qt
+	pkgver = 0.13.0
+	pkgrel = 2
+	url = https://github.com/danvratil/qcoro
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = cmake
+	makedepends = git
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = qt6-base
+	depends = qt6-declarative
+	depends = qt6-websockets
+	provides = qcoro-qt6
+	conflicts = qcoro-qt6
+	replaces = qcoro-qt6
+	source = git+https://github.com/danvratil/qcoro#tag=v0.13.0
+	sha256sums = f6a2d1b8d85a7f9698385aacb0f11038e6b439450b88b51d8397280c6347c24b
+
+pkgname = qcoro

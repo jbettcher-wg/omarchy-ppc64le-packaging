@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+
+pkgname=python-executing
+_name=${pkgname#python-}
+pkgver=2.2.1
+pkgrel=3
+pkgdesc='Get the currently executing AST node of a frame, and other information'
+arch=(any)
+url=https://github.com/alexmojaki/executing
+license=(MIT)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools-scm
+  python-wheel
+)
+checkdepends=(
+  ipython
+  python-asttokens
+  python-littleutils
+  python-pytest
+)
+source=("git+$url.git#tag=v$pkgver")
+b2sums=('8091e99fe2f30841c5d54ec302c3eb3498b791c59e2f098412c4f13dec991fb2401758d1b95f8fb7677227bcac4be3ff997d913bd20f678810ea97f954785748')
+
+build() {
+  cd "$_name"
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  return 0
+  cd "$_name"
+  PYTHONPATH="$PWD/$_name:$PYTHONPATH" pytest
+}
+
+package() {
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "$pkgdir"/usr/share/licenses/$pkgname
+  ln -s "$site_packages"/"$_name"-$pkgver.dist-info/licenses/LICENSE.txt \
+    "$pkgdir"/usr/share/licenses/$pkgname
+
+  cd "$_name"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

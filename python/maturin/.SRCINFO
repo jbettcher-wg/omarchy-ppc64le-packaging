@@ -1,0 +1,40 @@
+pkgbase = maturin
+	pkgdesc = Build and publish crates with pyo3, rust-cpython and cffi bindings
+	pkgver = 1.12.6
+	pkgrel = 1
+	url = https://github.com/PyO3/maturin
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0 OR MIT
+	checkdepends = python-cffi
+	checkdepends = python-pycparser
+	checkdepends = python-virtualenv
+	makedepends = git
+	makedepends = glibc
+	makedepends = libgcc
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-setuptools-rust
+	makedepends = python-wheel
+	makedepends = rust
+	makedepends = xz
+	options = !lto
+	source = git+https://github.com/PyO3/maturin.git#tag=v1.12.6
+	sha512sums = 48b6883b4b06a6796699421386429d8b0778fa85a4083e12812fd98c7a5437d82ff88b450cc9ce8e8b710832b4e72397782a30b239d71a8e7189338e064980cd
+	b2sums = 5db672830e07cd8c776d20e8f385a94d4af743a562c9154769330925e273f11f84adaee238a47d2f0f3e8c25214224f14fc28be9d675da39416dc24dcf6fb469
+
+pkgname = maturin
+	depends = libgcc
+	depends = glibc
+	depends = rust
+	depends = xz
+
+pkgname = python-maturin
+	pkgdesc = Build and publish crates with pyo3, rust-cpython and cffi bindings - Python bindings
+	groups = python-build-backend
+	depends = maturin=1.12.6
+	depends = python

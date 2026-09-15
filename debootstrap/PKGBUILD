@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=debootstrap
+pkgver=1.0.144
+pkgrel=1
+pkgdesc="Bootstrap a basic Debian system"
+arch=(any)
+license=('MIT')
+url="https://tracker.debian.org/pkg/debootstrap"
+depends=('distro-info' 'perl' 'wget')
+makedepends=('git')
+source=(git+https://salsa.debian.org/installer-team/debootstrap.git#tag=$pkgver
+        arch-detect.patch)
+optdepends=('gnupg: check release signatures'
+            'debian-archive-keyring: check release signatures for Debian'
+            'debian-ports-archive-keyring: check release signatures for Debian Ports'
+            'ubuntu-keyring: check release signatures for Ubuntu')
+sha512sums=('0261b0b967e3f319e5e2b8ae7b3f7a7e35e6f8bc64110aa355de81050f098c362c139035bf5db1332532901706c6ab146488996d48e61765d6325ada1282dd64'
+            'fce304545bb9dd5fc024b836237588baaac64365c715c464b03fdc0077062dfc151184c6f575a5f64c332ea9396cc7bffbd0ffccee01804b4471391d0ea39b89')
+
+prepare() {
+  cd debootstrap
+
+  sed -i 's/sbin/bin/g' Makefile
+
+  # Debian defaults
+  sed -i 's|export PATH|export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|' debootstrap
+
+  # Detect Architecture
+  patch -p1 -i ../arch-detect.patch
+}
+
+package() {
+  cd debootstrap
+  make DESTDIR="$pkgdir" install
+
+  install -Dm644 debootstrap.8 "$pkgdir"/usr/share/man/man8/debootstrap.8
+}

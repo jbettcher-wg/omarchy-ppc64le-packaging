@@ -1,0 +1,22 @@
+pkgbase = libraqm
+	pkgdesc = A library that encapsulates the logic for complex text layout
+	pkgver = 0.10.5
+	pkgrel = 1
+	url = https://github.com/HOST-Oman/libraqm/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	makedepends = git
+	makedepends = gtk-doc
+	makedepends = meson
+	depends = freetype2
+	depends = fribidi
+	depends = glibc
+	depends = harfbuzz
+	source = git+https://github.com/HOST-Oman/libraqm#tag=v0.10.5
+	sha256sums = 778c71f6d4f8708d019a1da1ef666492b3c1e5dea4ba86663f47d5e21b431f61
+
+pkgname = libraqm

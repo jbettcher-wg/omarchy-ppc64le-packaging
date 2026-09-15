@@ -1,0 +1,16 @@
+pkgbase = perl-ppix-quotelike
+	pkgdesc = Parse Perl string literals and string-literal-like things
+	pkgver = 0.024
+	pkgrel = 1
+	url = https://metacpan.org/release/PPIx-QuoteLike
+	arch = any
+	license = Artistic-1.0-Perl
+	license = GPL-1.0-or-later
+	makedepends = perl-ppix-regexp
+	makedepends = perl-readonly
+	depends = perl-ppi
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/W/WY/WYANT/PPIx-QuoteLike-0.024.tar.gz
+	sha512sums = 8d40d6a9e7c0f0cda9dd167f0648998567876aeb66aec618e2581a18a9527cbd934ed7bfac9660a0bfa302465b7a11c22bb4bc5bff58e2f06593e292d96542a5
+
+pkgname = perl-ppix-quotelike

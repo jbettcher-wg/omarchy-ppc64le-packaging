@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+
+_pkg=pyogrio
+pkgname=python-${_pkg}
+pkgver=0.12.1
+pkgrel=1
+pkgdesc="Vectorized vector I/O using OGR"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://pyogrio.readthedocs.io/"
+license=(MIT)
+depends=(gdal python-certifi python-numpy)
+makedepends=(cython python-build python-installer python-setuptools python-versioneer python-wheel)
+checkdepends=(python-pytest)
+source=(https://files.pythonhosted.org/packages/source/${_pkg::1}/${_pkg}/${_pkg}-${pkgver}.tar.gz)
+sha256sums=('e548ab705bb3e5383693717de1e6c76da97f3762ab92522cb310f93128a75ff1')
+
+prepare() {
+  sed -e '/oldest-supported-numpy/d' -e '/versioneer\[toml\]==0.28/d' \
+    -i ${_pkg}-${pkgver}/pyproject.toml
+}
+
+build() {
+  cd ${_pkg}-${pkgver}
+  python -m build --wheel --no-isolation
+}
+
+# ModuleNotFoundError: No module named 'pyogrio._ogr' even when setting PYTHONPATH or using a venv
+#check() {
+#  cd ${_pkg}-${pkgver}
+#  pytest -vv --color=yes
+#}
+
+package() {
+  cd ${_pkg}-${pkgver}
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "${pkgdir}"/usr/share/licenses/${pkgname}
+}

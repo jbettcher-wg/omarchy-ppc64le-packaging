@@ -1,0 +1,19 @@
+pkgbase = python-aiofiles
+	pkgdesc = File support for asyncio
+	pkgver = 25.1.0
+	pkgrel = 2
+	url = https://github.com/Tinche/aiofiles
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-pytest-asyncio
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-hatch-vcs
+	makedepends = python-hatchling
+	makedepends = python-installer
+	depends = python
+	source = git+https://github.com/Tinche/aiofiles.git#tag=348f5ef6561c2b2c8a7497bd10487eab4102332f
+	b2sums = b9cf863194e5244d8570707720201c06338dc3dfe2a0042970fba1839ab702cd216f12b50b8bd5e5c02f14c8c5860692f97cbacc15e04548236fd92424dcd051
+
+pkgname = python-aiofiles

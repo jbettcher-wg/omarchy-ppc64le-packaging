@@ -1,0 +1,22 @@
+pkgbase = python-cftime
+	pkgdesc = Time-handling functionality from python-netcdf4
+	pkgver = 1.6.5
+	pkgrel = 1
+	url = https://unidata.github.io/cftime
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = MIT
+	checkdepends = python-pytest
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python-numpy
+	source = https://github.com/Unidata/cftime/archive/v1.6.5rel/python-cftime-1.6.5.tar.gz
+	sha256sums = 42c383aea81c121e82c1b2e651e42ad125b09bffcbcbc263ba3a7617260a907c
+
+pkgname = python-cftime

@@ -1,0 +1,29 @@
+pkgbase = liblas
+	pkgdesc = C/C++ library for reading and writing the very common LAS LiDAR format
+	pkgver = 1.8.1.r145+g33097f17
+	pkgrel = 2
+	url = https://liblas.org/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD
+	makedepends = cmake
+	makedepends = boost
+	makedepends = git
+	depends = boost-libs
+	depends = gdal
+	depends = laszip2
+	depends = libgeotiff
+	depends = proj
+	source = git+https://github.com/libLAS/libLAS.git#commit=33097f17e27b853ac7b9651025a70354ffb10cfc
+	source = liblas-gcc15.patch
+	source = gdal-3.13.patch
+	source = proj-private.patch
+	sha256sums = a61b2f53cf3cec4d20e4bf552fdaa431ed8a0eaacefd0f5e9e9a2c6f34aaa62e
+	sha256sums = b058d31eb27ad1fd454468337cb52c18e53761b6b64b4be86df9d5d21c76a03f
+	sha256sums = 86ddca94cff63442ce2ffa119346d731a309a206ee3ce7373c6af6b212595981
+	sha256sums = f15f3811533afb8c61223c753c0b264001dd4028e00f72faf2159606047d2449
+
+pkgname = liblas

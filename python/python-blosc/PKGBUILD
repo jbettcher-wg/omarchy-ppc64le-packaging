@@ -1,0 +1,68 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Andrzej Giniewicz <gginiu@gmail.com>
+
+pkgname=python-blosc
+pkgver=1.11.4
+pkgrel=1
+pkgdesc='Python wrapper for the extremely fast Blosc compression library'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://www.blosc.org/python-blosc/python-blosc.html'
+license=('BSD-3-Clause')
+depends=('python' 'blosc')
+makedepends=(
+  'git'
+  'cmake'
+  'ninja'
+  'python-build'
+  'python-installer'
+  'python-setuptools'
+  'python-wheel'
+  'python-scikit-build'
+  'python-py-cpuinfo'
+)
+checkdepends=('python-numpy' 'python-psutil')
+optdepends=('python-numpy: for tests and benchmarks')
+source=(
+  "$pkgname::git+https://github.com/Blosc/python-blosc#tag=v$pkgver"
+)
+sha512sums=('53f041a31e63b390e31b6c41dfeac8d2b60f65b189e78e9830b10ceb33c5393131f6020a52299e8896a742d7ab4787fe162c82e3f08a3efa9d1bd96304b4d0fb')
+b2sums=('f8ebbbadbac34a8dce8feae84af9b27d823cde6511e4ab7f7a5a59ddb0a5419287b141484428950fd937817222599810fe6db44fe498d1370049f15eb9ea9805')
+
+build() {
+  cd "${pkgname}"
+
+  # AVX2 disabled because Arch does not have x86_64_v3 yet.
+  # Snappy is also disabled by default for compatability with non-C++ systems.
+  export CMAKE_ARGS="\
+    -DCMAKE_C_FLAGS_INIT=-DNDEBUG \
+    -DCMAKE_BUILD_TYPE=None \
+    -DUSE_SYSTEM_BLOSC=ON \
+    -DDEACTIVATE_SNAPPY=OFF \
+    -DDEACTIVATE_AVX2=ON"
+
+  # skip unnecessary dependencies (ninja, cmake, etc)
+  python -m build --wheel --no-isolation --skip-dependency-check
+}
+
+check() {
+  case "${CARCH}" in
+    powerpc64) return 0 ;;
+  esac
+
+  cd "${pkgname}"
+
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m blosc.test
+}
+
+package() {
+  cd "${pkgname}"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.txt
+}

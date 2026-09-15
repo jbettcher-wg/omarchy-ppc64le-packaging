@@ -1,0 +1,22 @@
+pkgbase = ispell
+	pkgdesc = An interactive spell-checking program for Unix
+	pkgver = 3.4.06
+	pkgrel = 1
+	url = https://www.cs.hmc.edu/~geoff/ispell.html
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD
+	depends = ncurses
+	depends = sh
+	options = !makeflags
+	source = https://www.cs.hmc.edu/~geoff/tars/ispell-3.4.06.tar.gz
+	source = cflags-from-environment.patch
+	source = license.txt
+	sha256sums = 17c91633d4c8075acc503163a16463fc54ab1c7453280ad39cd3db75c783eba6
+	sha256sums = 280459d2cdb17846aab202d53089fd13469e6e59ae9e6da4a95b475597dd4603
+	sha256sums = 359eca8bfb77db63785c4c304ecd3568b26cdf736946388e509933fc8a3f66bd
+
+pkgname = ispell

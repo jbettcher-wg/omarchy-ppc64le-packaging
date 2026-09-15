@@ -1,0 +1,83 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Ronald van Haren <ronald.archlinux.org>
+# Contributor: damir <damir@archlinux.org>
+# Contributor: Tom Newsom <Jeepster@gmx.co.uk>
+
+pkgbase=gnuplot
+pkgname=(gnuplot
+         gnuplot-demos)
+pkgver=6.0.4
+pkgrel=2
+pkgdesc='Plotting package which outputs to X11, PostScript, PNG, GIF, and others' 
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='http://www.gnuplot.info'
+license=(LicenseRef-Gnuplot)
+depends=(cairo
+         gcc-libs
+         gd
+         glib2
+         glibc
+         gtk3
+         libcaca
+         libcerf
+         libwebp
+         libx11
+         lua
+         pango
+         qt6-5compat
+         qt6-base
+         qt6-svg
+         readline
+         wxwidgets-common
+         wxwidgets-gtk3) 
+makedepends=(emacs
+             git
+             qt6-tools
+             texlive-latexextra)
+source=(git+https://git.code.sf.net/p/gnuplot/gnuplot-main#tag=$pkgver
+        lua53_compat.patch
+        lua55_compat.patch)
+sha256sums=('e3b6c9564a58b86309acc35a5e77463cbdcb2d8c59bca9e6adfe7b80b338a0e7'
+            'bfd8a61abbf4491c74225cb9fd252619d4fc29751838bcb4c0639ffe05a00695'
+            '03e6f82798d8941e4215a7eb924debacf1e1b9e00755ede285c54c88b93c83c2')
+
+prepare() {
+  cd gnuplot-main
+
+  patch -p1 < ../lua53_compat.patch
+  patch -p1 < ../lua55_compat.patch
+  ./prepare
+}
+
+build() {
+  cd gnuplot-main
+
+  MAKEINFO=/usr/bin/makeinfo \
+  ./configure --prefix=/usr \
+              --libexecdir=/usr/bin \
+              --with-gihdir=/usr/share/gnuplot \
+              --with-readline=gnu \
+              --with-bitmap-terminals \
+              --with-wx-single-threaded \
+              --with-caca \
+              --with-texdir=/usr/share/texmf/tex/latex/gnuplot
+  make pkglibexecdir=/usr/bin
+}
+
+package_gnuplot() {
+  cd gnuplot-main
+  make pkglibexecdir=/usr/bin DESTDIR="$pkgdir" install
+  make DESTDIR="$pkgdir" install -C demo
+
+  install -Dm644 Copyright -t "$pkgdir"/usr/share/licenses/$pkgname
+
+  rm -f "$pkgdir"/usr/share/texmf-dist/ls-R
+}
+
+package_gnuplot-demos() {
+  pkgdesc='Demos for gnuplot'
+  depends=(gnuplot)
+
+  install -Dm644 gnuplot-main/demo/*.{dem,dat} -t "$pkgdir"/usr/share/gnuplot/demos
+}

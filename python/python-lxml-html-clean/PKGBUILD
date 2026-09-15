@@ -1,0 +1,59 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+
+pkgname=python-lxml-html-clean
+pkgver=0.4.4
+pkgrel=1
+pkgdesc='HTML cleaner from lxml project'
+arch=(any)
+url='https://lxml-html-clean.readthedocs.io/'
+license=(BSD-3-Clause)
+depends=(
+  python
+  python-lxml
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=("$pkgname::git+https://github.com/fedora-python/lxml_html_clean#tag=$pkgver")
+sha512sums=('8b56e98d71b4ba547ecbf2f1256ad0b108c11dc38442fd84dc18dd2c8595fe43979bb1e39a68a2c770a25d6f2f139bfb395a02a34152f6e70f1632805cfeb3e9')
+b2sums=('6d33442cf9fd8da12b4df6a0427169309d3c8d3e8b19eb8dafef713692ef4bfa1c14879b1ea079213e7555869c28388026df4f6bcf29f5fec4cee7609e2869a2')
+
+build() {
+  cd "$pkgname"
+
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  export PYTHONPATH=.
+
+  # https://github.com/fedora-python/lxml_html_clean/issues/24
+  local deselected=(
+    tests/test_autolink.txt::test_autolink.txt
+    tests/test_clean.py::CleanerTest::test_host_whitelist_invalid
+    tests/test_clean.py::CleanerTest::test_host_whitelist_sneaky_userinfo
+    tests/test_clean.py::CleanerTest::test_host_whitelist_valid
+    tests/test_clean.txt::test_clean.txt
+    tests/test_clean_embed.txt::test_clean_embed.txt
+  )
+
+  pytest -v ${deselected[@]/#/--deselect }
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.txt
+}

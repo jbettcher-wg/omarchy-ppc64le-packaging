@@ -1,0 +1,20 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+
+pkgname=avogadro-molecules
+pkgver=2.0.0
+pkgrel=1
+pkgdesc='Common molecule fragments for visualization in Avogadro'
+arch=(any)
+url='https://openchemistry.org/'
+license=(BSD-3-Clause)
+makedepends=(git)
+source=(git+https://github.com/OpenChemistry/molecules#tag=$pkgver)
+sha256sums=('e50ac0dbf5d1a37c81cf6822e57bca460050dee8f333f5dd7404edaccc50a6f5')
+
+package() {
+  mkdir -p "$pkgdir"/usr/share/avogadro2
+  cp -ar molecules "$pkgdir"/usr/share/avogadro2/molecules
+  rm -r "$pkgdir"/usr/share/avogadro2/molecules/.git
+  install -Dm644 molecules/LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname
+}

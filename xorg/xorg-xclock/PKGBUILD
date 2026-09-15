@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Andreas Radke <andyrtr@archlinux.org>
+
+pkgname=xorg-xclock
+pkgver=1.2.1
+pkgrel=1
+pkgdesc="X clock"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://gitlab.freedesktop.org/xorg/app/xclock"
+license=('MIT')
+depends=('libx11' 'libxmu' 'libxaw' 'libxrender' 'libxft' 'libxkbfile' 'libxt' 'glibc')
+makedepends=('xorg-util-macros')
+source=(https://xorg.freedesktop.org/archive/individual/app/xclock-${pkgver}.tar.xz{,.sig})
+sha512sums=('0e94fd7e6c1e1c9e914991f3a8e3bf44b055a93066a153b05ec25fa4f8b6ec2c3b836bb8e1e6bc98c38a8e55f2070f225d358e7a771a97d27e2df119e0511b41'
+            'SKIP')
+validpgpkeys=('3AB285232C46AE43D8E192F4DAB0F78EA6E7E2D2') # "Alan Coopersmith <alan.coopersmith@oracle.com>"
+
+build() {
+  cd "xclock-${pkgver}"
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd "xclock-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+  install -m755 -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  install -m644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/"
+}

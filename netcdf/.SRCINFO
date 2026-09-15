@@ -1,0 +1,29 @@
+pkgbase = netcdf
+	pkgdesc = network Common Data Form interface for array-oriented data access and corresponding library
+	pkgver = 4.9.3
+	pkgrel = 4
+	url = https://www.unidata.ucar.edu/software/netcdf/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = custom
+	checkdepends = unzip
+	makedepends = cmake
+	makedepends = git
+	depends = hdf5
+	depends = curl
+	depends = libxml2
+	depends = libaec
+	depends = blosc
+	depends = bzip2
+	depends = libzip
+	depends = zstd
+	optdepends = netcdf-fortran: fortran bindings
+	optdepends = netcdf-cxx: c++ bindings
+	options = !makeflags
+	source = git+https://github.com/Unidata/netcdf-c#tag=v4.9.3
+	sha256sums = 01e621bb0a556860bb6e580142e4c05ba1ca7ef46f115ec41f592fd1736423ab
+
+pkgname = netcdf

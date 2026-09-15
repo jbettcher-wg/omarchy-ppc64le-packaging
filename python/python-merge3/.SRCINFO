@@ -1,0 +1,18 @@
+pkgbase = python-merge3
+	pkgdesc = Python implementation of 3-way merge
+	pkgver = 0.0.16
+	pkgrel = 2
+	url = https://github.com/breezy-team/merge3
+	arch = any
+	license = GPL2
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	source = git+https://github.com/breezy-team/merge3.git#tag=6cc145d479cee3517ae47dc41f8ac66b731f520f
+	validpgpkeys = DC837EE14A7E37347E87061700806F2BD729A457
+	b2sums = f13afaf0f2015370bfd0eb95a3160b460506bde4b8b95254ce839ff5026b3d2e458280db0e8ad65e0edb5ff3d42ffb0debacfc92c2e82023b19e100703985c91
+
+pkgname = python-merge3

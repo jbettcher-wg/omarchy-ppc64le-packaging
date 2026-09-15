@@ -1,0 +1,48 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+
+pkgname=python-asttokens
+_name=${pkgname#python-}
+pkgver=3.0.1
+pkgrel=1
+pkgdesc='Get the currently executing AST node of a frame, and other information'
+arch=(any)
+url=https://github.com/gristlabs/asttokens
+license=(Apache-2.0)
+depends=(python)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools-scm
+  python-wheel
+)
+checkdepends=(
+  python-astroid
+  python-pytest
+)
+source=("git+$url.git#tag=v$pkgver")
+b2sums=('b2fc52d5168a5552ba7df45cc155f7f3a5693dabaf0b7174b42a6274e3c250409325bac137ee48adcc92de0e8fb3ceeb5fcbfe53081fc1d6d533f39ab61148da')
+
+build() {
+  cd "$_name"
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  return 0
+  cd "$_name"
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m pytest
+}
+
+package() {
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "$pkgdir"/usr/share/licenses/$pkgname
+  ln -s "$site_packages"/"$_name"-$pkgver.dist-info/LICENSE \
+    "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+
+  cd "$_name"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

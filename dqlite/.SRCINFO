@@ -1,0 +1,23 @@
+pkgbase = dqlite
+	pkgdesc = Distributed SQLite
+	pkgver = 1.18.7
+	pkgrel = 1
+	url = https://github.com/CanonicalLtd/dqlite
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-3.0-only
+	makedepends = tcl
+	makedepends = readline
+	makedepends = zlib
+	depends = glibc
+	depends = libuv
+	depends = sqlite
+	depends = lz4
+	options = strip
+	source = dqlite-1.18.7.tar.gz::https://github.com/canonical/dqlite/archive/v1.18.7.tar.gz
+	sha256sums = 7a9087460f3296313379e95a25761c88081c508ae0742bec6fb63e895eb807a9
+
+pkgname = dqlite

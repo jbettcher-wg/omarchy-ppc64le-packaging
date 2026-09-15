@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Andrew Simmons <andrew.simmons@gmail.com>
+
+pkgname=thunar-media-tags-plugin
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Adds special features for media files to the Thunar File Manager"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=('GPL-2.0-or-later')
+url="https://docs.xfce.org/xfce/thunar/media-tags"
+groups=('xfce4-goodies')
+depends=('taglib' 'thunar')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/thunar-plugins/thunar-media-tags-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('12fada2ddbf2d0614db5b53f9f9e8e065df559b7be7daef685e5a1c53f7611e4')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

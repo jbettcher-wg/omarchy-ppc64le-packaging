@@ -1,0 +1,42 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+pkgname=python-annotated-types
+_name=${pkgname#python-}
+pkgver=0.7.0
+pkgrel=3
+pkgdesc="Reusable constraint types to use with typing.Annotated"
+arch=(any)
+url="https://github.com/annotated-types/annotated-types"
+license=(MIT)
+depends=(python)
+makedepends=(
+  python-build
+  python-hatchling
+  python-installer
+)
+checkdepends=(
+  python-pytest
+  python-pytest-mock
+  python-pytest-sugar
+)
+source=($_name-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz)
+sha512sums=('1cd43119f9127bcf68929a53158a91cef94d16b7bae3647b830899089b05bb66070ca4ac052e2a0b2fadbe567bca01d7773006568382034b3fbe20678d5fdc9c')
+b2sums=('198587003482dc9169fa9bec586f64860ba69723e88dcbf38ae470b89484b37cc020ba8a810704361f286e56f3d05b8f0188547573137e705833a0b57d744ed1')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $_name-$pkgver
+  pytest -vv
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 644 README.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}

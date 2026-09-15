@@ -1,0 +1,4 @@
+[opensc]
+source = 'github'
+github = 'OpenSC/OpenSC'
+use_latest_release = true

@@ -1,0 +1,271 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Dudemanguy <dudemanguy@artixlinux.org>
+# Contributor: Luna Jernberg <droidbittin@gmail.com>
+# Contributor: Jonathon Fernyhough <jonathon+m2x+dev>
+# Contributor: Figue <ffigue@gmail.com>
+# Contributor: Dct Mei <dctxmei@yandex.com>
+# Contributor: Felix Golatofski <contact@xdfr.de>
+# Contributor: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Ionut Biru <ibiru@archlinux.org>
+# Contributor: Jakub Schmidtke <sjakub@gmail.com>
+
+pkgbase=firefox-esr
+pkgname=(firefox-esr)
+pkgver=128.11.0
+pkgrel=1
+pkgdesc="Standalone web browser from mozilla.org, Extended Support Release"
+arch=(x86_64 powerpc64le)
+license=(MPL GPL LGPL)
+url="https://www.mozilla.org/en-US/firefox/enterprise/"
+depends=(
+  dbus
+  ffmpeg
+  gtk3
+  libpulse
+  libxss
+  libxt
+  mime-types
+  nss
+  ttf-font
+)
+makedepends=(
+  cbindgen
+  clang
+  dbus-glib
+  diffutils
+  imake
+  inetutils
+  jack
+  llvm
+  mesa
+  nasm
+  nodejs-lts-iron
+  python311
+  rust
+  unzip
+  wasi-compiler-rt
+  wasi-libc
+  wasi-libc++
+  wasi-libc++abi
+  xorg-server-xvfb
+  zip
+)
+makedepends_powerpc64=(lld)
+makedepends_powerpc64le=(lld)
+makedepends_x86_64=(lld yasm)
+optdepends=('networkmanager: Location detection via available WiFi networks'
+            'libnotify: Notification integration'
+            'pulseaudio: Audio support'
+            'speech-dispatcher: Text-to-Speech'
+            'hunspell-en_US: Spell checking, American English'
+            'xdg-desktop-portal: Screensharing with Wayland')
+options=(!emptydirs !makeflags !strip !lto !debug)
+source=(https://archive.mozilla.org/pub/firefox/releases/${pkgver}esr/source/firefox-${pkgver}esr.source.tar.xz{,.asc}
+        $pkgname.desktop identity-icons-brand.svg
+        "classilla-firefox-esr-jit-patches.zip::https://github.com/user-attachments/files/17604310/patches.zip")
+
+validpgpkeys=('14F26682D0916CDD81E37B6D61B7B526D98F0353') # Mozilla Software Releases <release@mozilla.com>
+
+# Google API keys (see http://www.chromium.org/developers/how-tos/api-keys)
+# Note: These are for Arch POWER use ONLY. For your own distribution, please
+# get your own set of keys. Feel free to contact alex.bldck@gmail.com for
+# more information.
+_google_api_key=AIzaSyDgkw4O3LM0Jnr2N7Wq2NG7iUVzRU5sBaA
+
+# Mozilla API keys (see https://location.services.mozilla.com/api)
+# Note: These are for Arch POWER use ONLY. For your own distribution, please
+# get your own set of keys. Feel free to contact alex.bldck@gmail.com for
+# more information.
+_mozilla_api_key=de0473f2-d53f-46da-956c-6aff61bda3ab
+
+# Make sure the duplication between bin and lib is found
+COMPRESSZST+=(--long)
+
+prepare() {
+  # packed_simd no longer builds with 1.78.0
+  #rustup toolchain update --profile minimal 1.77.2
+  #rustup default 1.77.2
+
+  mkdir -p mozbuild
+  cd firefox-$pkgver
+
+  echo "${noextract[@]}"
+
+  echo -n "$_google_api_key" >google-api-key
+  echo -n "$_mozilla_api_key" >mozilla-api-key
+
+  # JIT enablement on powerpc64le provided for ESR by classilla
+  #  https://github.com/chmeeedalf/gecko-dev/issues/4
+  patch -Np1 -i ${srcdir}/patches/823454.diff
+  patch -Np1 -i ${srcdir}/patches/823455.diff
+  patch -Np1 -i ${srcdir}/patches/823456.diff
+  patch -Np1 -i ${srcdir}/patches/823457.diff
+  patch -Np1 -i ${srcdir}/patches/823458.diff
+  patch -Np1 -i ${srcdir}/patches/823459.diff
+  patch -Np1 -i ${srcdir}/patches/823460.diff
+  patch -Np1 -i ${srcdir}/patches/823461.diff
+
+  cat >../mozconfig <<END
+ac_add_options --enable-application=browser
+mk_add_options MOZ_OBJDIR=${PWD@Q}/obj
+
+ac_add_options --prefix=/usr
+ac_add_options --enable-release
+ac_add_options --enable-hardening
+ac_add_options --enable-optimize
+ac_add_options --enable-rust-simd
+ac_add_options --disable-bootstrap
+ac_add_options --disable-debug
+
+# Branding
+ac_add_options --enable-official-branding
+ac_add_options --enable-update-channel=release
+ac_add_options --with-distribution-id=org.archpower
+ac_add_options --with-unsigned-addon-scopes=app,system
+ac_add_options --allow-addon-sideload
+ac_add_options --with-app-name=$pkgname
+export MOZILLA_OFFICIAL=1
+export MOZ_APP_REMOTINGNAME=$pkgname
+export MOZ_APP_PROFILE="mozilla/firefox-esr"
+
+# Keys
+ac_add_options --with-google-location-service-api-keyfile=${PWD@Q}/google-api-key
+ac_add_options --with-google-safebrowsing-api-keyfile=${PWD@Q}/google-api-key
+ac_add_options --with-mozilla-api-keyfile=${PWD@Q}/mozilla-api-key
+
+# System libraries
+ac_add_options --with-system-nspr
+ac_add_options --with-system-nss
+
+# Features
+ac_add_options --enable-alsa
+ac_add_options --enable-jack
+ac_add_options --disable-crashreporter
+ac_add_options --disable-updater
+ac_add_options --disable-tests
+END
+
+ case "${CARCH}" in
+   powerpc64le)
+     echo "export CC=${CHOST}-gcc" >> ../mozconfig
+     echo "export CXX=${CHOST}-g++" >> ../mozconfig
+     echo "export CXXFLAGS='${CXXFLAGS/-fexceptions/}'" >> ../mozconfig
+     echo 'ac_add_options --enable-jit' >> ../mozconfig
+     echo 'ac_add_options --enable-linker=bfd' >> ../mozconfig
+     echo 'ac_add_options --enable-lto=full' >> ../mozconfig
+     echo 'ac_add_options --without-wasm-sandboxed-libraries' >> ../mozconfig
+     echo 'ac_add_options --disable-sandbox' >> ../mozconfig
+     #echo 'ac_add_options MOZ_PGO=1' >> ../mozconfig
+   ;;
+   x86_64)
+     echo 'ac_add_options --disable-elf-hack' >> ../mozconfig
+     echo 'ac_add_options --enable-linker=lld' >> ../mozconfig
+     echo 'ac_add_options --with-wasi-sysroot=/usr/share/wasi-sysroot' >> ../mozconfig
+   ;;
+ esac
+ cat ../mozconfig
+}
+
+build() {
+  cd firefox-$pkgver
+
+  export MOZCONFIG="$srcdir/mozconfig"
+  export MOZ_NOSPAM=1
+  export MOZBUILD_STATE_PATH="$srcdir/mozbuild"
+  export MOZ_ENABLE_FULL_SYMBOLS=1
+  export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=pip
+
+  export MOZ_BUILD_DATE=$(head -1 sourcestamp.txt)
+  export RUSTFLAGS="-C debuginfo=1"
+  export RUSTC_OPT_LEVEL=2
+
+  # LTO needs more open files
+  ulimit -n 4096
+
+  xvfb-run -s "-screen 0 1920x1080x24 -nolisten local" \
+  python3.11 ./mach build
+
+  #echo "Building symbol archive..."
+  #xvfb-run -s "-screen 0 1920x1080x24 -nolisten local" \
+  #./mach buildsymbols
+}
+
+package_firefox-esr() {
+  cd firefox-$pkgver
+  DESTDIR="$pkgdir" python3.11 ./mach install
+
+  local vendorjs="$pkgdir/usr/lib/$pkgname/browser/defaults/preferences/vendor.js"
+  install -Dvm644 /dev/stdin "$vendorjs" <<END
+// Use LANG environment variable to choose locale
+pref("intl.locale.requested", "");
+
+// Use system-provided dictionaries
+pref("spellchecker.dictionary_path", "/usr/share/hunspell");
+
+// Disable default browser checking.
+pref("browser.shell.checkDefaultBrowser", false);
+
+// Don't disable extensions in the application directory
+pref("extensions.autoDisableScopes", 11);
+END
+
+  local distini="$pkgdir/usr/lib/$pkgname/distribution/distribution.ini"
+  install -Dvm644 /dev/stdin "$distini" <<END
+[Global]
+id=archpower
+version=1.0
+about=Mozilla Firefox ESR for Arch POWER 
+
+[Preferences]
+app.distributor=archpower
+app.distributor.channel=$pkgname
+app.partner.archpower=archpower
+END
+
+  local i theme=official
+  for i in 16 22 24 32 48 64 128 256; do
+    install -Dvm644 browser/branding/$theme/default$i.png \
+      "$pkgdir/usr/share/icons/hicolor/${i}x${i}/apps/$pkgname.png"
+  done
+  install -Dvm644 browser/branding/$theme/content/about-logo.png \
+    "$pkgdir/usr/share/icons/hicolor/192x192/apps/$pkgname.png"
+  install -Dvm644 browser/branding/$theme/content/about-logo@2x.png \
+    "$pkgdir/usr/share/icons/hicolor/384x384/apps/$pkgname.png"
+  install -Dvm644 browser/branding/$theme/content/about-logo.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$pkgname.svg"
+  install -Dvm644 ../identity-icons-brand.svg \
+    "$pkgdir/usr/share/icons/hicolor/symbolic/apps/$pkgname-symbolic.svg"
+
+  install -Dvm644 ../$pkgname.desktop \
+    "$pkgdir/usr/share/applications/$pkgname.desktop"
+
+  # Install a wrapper to avoid confusion about binary path
+  install -Dvm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" <<END
+#!/bin/sh
+exec /usr/lib/$pkgname/firefox-esr "\$@"
+END
+
+  # Replace duplicate binary with wrapper
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=658850
+  ln -srfv "$pkgdir/usr/bin/$pkgname" "$pkgdir/usr/lib/$pkgname/firefox-bin"
+
+  # Use system certificates
+  local nssckbi="$pkgdir/usr/lib/$pkgname/libnssckbi.so"
+  if [[ -e $nssckbi ]]; then
+    ln -srfv "$pkgdir/usr/lib/libnssckbi.so" "$nssckbi"
+  fi
+
+  #export SOCORRO_SYMBOL_UPLOAD_TOKEN_FILE="$startdir/.crash-stats-api.token"
+  #if [[ -f $SOCORRO_SYMBOL_UPLOAD_TOKEN_FILE ]]; then
+  #  make -C obj uploadsymbols
+  #else
+  #  cp -fvt "$startdir" obj/dist/*crashreporter-symbols-full.tar.zst
+  #fi
+}
+
+# vim:set sw=2 et:
+sha256sums=('f2ed90374a670fe5eccfd5bf36d2e311affd955d1f3507861c738b9aa7a1ffec'
+            'SKIP'
+            'c798853574da42bc22b066acb4b0bfdd630dc05b22560fcf0db9235b4207e051'
+            'a9b8b4a0a1f4a7b4af77d5fc70c2686d624038909263c795ecc81e0aec7711e9'
+            'fae9fbe1fb82df3617732e39d8e0ddabaf99d5a3506b4a9f4cda041120c3a398')

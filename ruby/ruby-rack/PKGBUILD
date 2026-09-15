@@ -1,0 +1,101 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Alexsandr Pavlov <kidoz at mail dot ru>
+
+_gemname=rack
+pkgname=ruby-rack
+pkgver=3.2.4
+pkgrel=1
+pkgdesc='Minimal, modular, and adaptable interface for developing web applications'
+url='https://rack.github.io/'
+arch=(any)
+license=('MIT')
+depends=(
+  ruby
+  ruby-erb
+)
+makedepends=(
+  ruby-rdoc
+)
+checkdepends=(
+  ruby-bundler
+  ruby-minitest
+  ruby-minitest-global_expectations
+  ruby-rake
+)
+options=('!emptydirs')
+source=(
+  "https://github.com/rack/rack/archive/v${pkgver}/${pkgname}-${pkgver}.tar.gz"
+)
+sha512sums=('39aefa877f9c19886b9dced2d540fbf4fd90f3888fae509fbf28d312265449575c939d850e9265556bca8c4a6b3a6e6cd55a22ea5fbc383c1ba0ac17551964e1')
+b2sums=('ef8624c5f487b38648a804bd19776ac1a300ec7907a750201139f573f21b07c9db6059aba7234b1ebde3cb50eb1ae61aea6e765ff810d148d9107f64417ebc7f')
+
+prepare() {
+  cd "${_gemname}-${pkgver}"
+
+  # update gemspec/Gemfile to allow newer version of the dependencies
+  sed --in-place --regexp-extended 's|~>|>=|g' "${_gemname}.gemspec"
+}
+
+build() {
+  cd "${_gemname}-${pkgver}"
+
+  local _gemdir="$(gem env gemdir)"
+
+  gem build --verbose "${_gemname}.gemspec"
+
+  gem install \
+    --local \
+    --verbose \
+    --ignore-dependencies \
+    --no-user-install \
+    --install-dir "tmp_install${_gemdir}" \
+    --bindir "tmp_install/usr/bin" \
+    "${_gemname}-${pkgver}.gem"
+
+  # remove unrepreducible files
+  rm --force --recursive --verbose \
+    "tmp_install${_gemdir}/cache/" \
+    "tmp_install${_gemdir}/gems/${_gemname}-${pkgver}/vendor/" \
+    "tmp_install${_gemdir}/doc/${_gemname}-${pkgver}/ri/ext/"
+
+  find "tmp_install${_gemdir}/gems/" \
+    -type f \
+    \( \
+      -iname "*.o" -o \
+      -iname "*.c" -o \
+      -iname "*.so" -o \
+      -iname "*.time" -o \
+      -iname "gem.build_complete" -o \
+      -iname "Makefile" \
+    \) \
+    -delete
+
+  find "tmp_install${_gemdir}/extensions/" \
+    -type f \
+    \( \
+      -iname "mkmf.log" -o \
+      -iname "gem_make.out" \
+    \) \
+    -delete
+}
+
+check() {
+  cd "${_gemname}-${pkgver}"
+
+  local _gemdir="$(gem env gemdir)"
+
+  GEM_HOME="tmp_install${_gemdir}" rake test
+}
+
+package() {
+  cd "${_gemname}-${pkgver}"
+
+  cp --archive --verbose tmp_install/* "${pkgdir}"
+
+  install --verbose -D --mode=0644 MIT-LICENSE --target-directory "${pkgdir}/usr/share/licenses/${pkgname}"
+  install --verbose -D --mode=0644 *.md --target-directory "${pkgdir}/usr/share/doc/${pkgname}"
+}
+
+# vim: tabstop=2 shiftwidth=2 expandtab:

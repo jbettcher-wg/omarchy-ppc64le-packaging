@@ -1,0 +1,24 @@
+pkgbase = django
+	pkgdesc = A high-level Python Web framework that encourages rapid development and clean design
+	pkgver = 5.2.13
+	pkgrel = 1
+	url = http://www.djangoproject.com/
+	arch = any
+	license = BSD
+	checkdepends = python-pytest
+	checkdepends = python-tblib
+	makedepends = python
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-pytz
+	depends = python-sqlparse
+	depends = python-asgiref
+	optdepends = python-psycopg2: for PostgreSQL backend
+	optdepends = python-argon2-cffi: for Argon2 password hashing support
+	source = Django-5.2.13.tar.gz::https://www.djangoproject.com/download/5.2.13/tarball/
+	sha512sums = dfe3bcc9cf8cfcacf832e7968687605bb06590d1c77f89373bdf4228baefa857faa441e757a5bf1b7b8b75027daec86f88f5fd7a37d579f26918cdb54448581f
+
+pkgname = python-django

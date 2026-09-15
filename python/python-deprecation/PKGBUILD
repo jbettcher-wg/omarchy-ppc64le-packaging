@@ -1,0 +1,35 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-deprecation
+pkgver=2.1.0
+pkgrel=12
+pkgdesc="A library to handle automated deprecations"
+arch=(any)
+license=('Apache-2.0')
+url="https://deprecation.readthedocs.io"
+depends=('python' 'python-packaging')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("git+https://github.com/briancurtin/deprecation.git#tag=$pkgver")
+sha512sums=('8c348fcdd8e35632fd5084fdb3ad24ee372433b4d6fd5123146e43430f10b8e2af8c23777cd0164911c3aaa188922d78dc139650cf38f073f7fa9f36b41dead7')
+
+prepare() {
+  cd deprecation
+  # https://github.com/briancurtin/deprecation/pull/66
+  git cherry-pick -n 2e48c2c07e3fd38ccc957fc3b33af59fda03f1e8
+}
+
+build() {
+  cd deprecation
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd deprecation
+  python -m unittest discover
+}
+
+package() {
+  cd deprecation
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

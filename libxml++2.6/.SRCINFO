@@ -1,0 +1,31 @@
+pkgbase = libxmlpp2.6
+	pkgdesc = C++ bindings to libxml2
+	pkgver = 2.42.4
+	pkgrel = 1
+	url = https://libxmlplusplus.github.io/libxmlplusplus/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = LGPL-2.1-or-later
+	makedepends = git
+	makedepends = glibmm-docs
+	makedepends = meson
+	makedepends = mm-common
+	depends = libgcc
+	depends = libstdc++
+	depends = glibc
+	depends = glibmm
+	depends = libxml2
+	options = !emptydirs
+	source = git+https://github.com/libxmlplusplus/libxmlplusplus#tag=2.42.4
+	b2sums = 05908d35da4cdcded42e19d29deff415f34bff6ae6e1530b001080e296e170f5f694653e2ba5a35fde0a944e988af79d98badc80a0a33b327dc8942849786193
+
+pkgname = libxml++2.6
+	provides = libxml++-2.6.so
+
+pkgname = libxml++2.6-docs
+	pkgdesc = C++ bindings to libxml2 (documentation)
+	depends = 
+	options = !strip

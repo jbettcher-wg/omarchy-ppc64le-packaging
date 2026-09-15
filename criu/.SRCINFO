@@ -1,0 +1,37 @@
+pkgbase = criu
+	pkgdesc = Utilities to checkpoint and restore processes in userspace
+	pkgver = 4.2
+	pkgrel = 3
+	url = https://criu.org
+	arch = x86_64
+	arch = powerpc64le
+	license = GPL-2.0-only
+	license = LGPL-2.1-only
+	makedepends = asciidoc
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = xmlto
+	depends = glibc
+	depends = gnutls
+	depends = libbpf
+	depends = libbsd
+	depends = libdrm
+	depends = libgcc
+	depends = libnet
+	depends = libnl
+	depends = nftables
+	depends = protobuf-c
+	depends = python
+	depends = python-protobuf
+	depends = util-linux-libs
+	provides = libcompel.so
+	provides = libcriu.so
+	options = !lto
+	source = git+https://github.com/checkpoint-restore/criu#tag=v4.2
+	sha512sums = 23836d7a8103e8aa647716c48505ba023bfe1aebd625678986c0543634e3269f5c500cb9eb33eb006d94d78ded619a6ca4e9241b02ed120a3774371fd6e0176a
+	b2sums = b13f87a8f2978d1d7be94e39b3b5a02155fbf11473dae57ab1512fb49a0f683c00c09d840b8f817e585a5ae0603dfae5572e2247940e8c7371e106b0fec10999
+
+pkgname = criu

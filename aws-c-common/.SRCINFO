@@ -1,0 +1,17 @@
+pkgbase = aws-c-common
+	pkgdesc = Core c99 package for AWS SDK for C. Includes cross-platform primitives, configuration, data structures, and error handling
+	pkgver = 0.12.6
+	pkgrel = 1
+	url = https://github.com/awslabs/aws-c-common
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	makedepends = cmake
+	depends = glibc
+	source = aws-c-common-0.12.6.tar.gz::https://github.com/awslabs/aws-c-common/archive/v0.12.6.tar.gz
+	sha256sums = 138822ecdcaff1d702f37d4751f245847d088592724921cc6bf61c232b198d6b
+
+pkgname = aws-c-common

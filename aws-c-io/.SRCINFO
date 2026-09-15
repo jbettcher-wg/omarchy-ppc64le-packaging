@@ -1,0 +1,20 @@
+pkgbase = aws-c-io
+	pkgdesc = AWS SDK module to handle all IO and TLS work for application protocols
+	pkgver = 0.26.3
+	pkgrel = 1
+	url = https://github.com/awslabs/aws-c-io
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = Apache-2.0
+	makedepends = cmake
+	depends = aws-c-cal
+	depends = aws-c-common
+	depends = glibc
+	depends = s2n-tls
+	source = https://github.com/awslabs/aws-c-io/archive/v0.26.3/aws-c-io-0.26.3.tar.gz
+	b2sums = a4131ae6bc4ee023554144d6571088e225d1589d669b35c94a1b610f52251824ce367287fdd0bf10fc3ecfdd740a7992cefab6b7a08a44bec209eb5dcb3a9eea
+
+pkgname = aws-c-io

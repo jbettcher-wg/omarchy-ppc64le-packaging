@@ -1,0 +1,23 @@
+pkgbase = python-stestr
+	pkgdesc = A test runner runner similar to testrepository
+	pkgver = 4.2.1
+	pkgrel = 1
+	url = https://stestr.readthedocs.io/en/latest/
+	arch = any
+	license = Apache-2.0
+	checkdepends = python-ddt
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-flit-core
+	depends = python-cliff
+	depends = python-subunit
+	depends = python-fixtures
+	depends = python-testtools
+	depends = python-yaml
+	depends = python-voluptuous
+	depends = python-tomlkit
+	source = git+https://github.com/mtreinish/stestr.git#tag=4.2.1
+	sha512sums = 698d0585df0c3599ca89407e5950db9fadb425c325513f5659022bf7fc800786121bc7ec3510a1f55be5fb4af516c3c8302aae89961b7ece2f1c62575c664eaa
+
+pkgname = python-stestr

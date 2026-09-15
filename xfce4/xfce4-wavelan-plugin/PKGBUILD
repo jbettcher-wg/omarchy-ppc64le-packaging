@@ -1,0 +1,31 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Tobias Kieslich <tobias (at) archlinux.org>
+
+pkgname=xfce4-wavelan-plugin
+pkgver=0.7.0
+pkgrel=2
+pkgdesc="Plugin to monitor wifi connectivity for the Xfce4 panel"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/panel-plugins/xfce4-wavelan-plugin/start"
+license=('BSD-2-Clause')
+groups=('xfce4-goodies')
+depends=('xfce4-panel')
+makedepends=('git' 'meson' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/panel-plugins/xfce4-wavelan-plugin.git#tag=$pkgname-$pkgver")
+sha256sums=('ff9a131458759cbc45f1792b91eb24cc9c03a79797912e9011d0f9a9b3d24701')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 $pkgname/COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}
+
+# vim:set ts=2 sw=2 et:

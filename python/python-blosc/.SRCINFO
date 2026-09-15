@@ -1,0 +1,30 @@
+pkgbase = python-blosc
+	pkgdesc = Python wrapper for the extremely fast Blosc compression library
+	pkgver = 1.11.4
+	pkgrel = 1
+	url = https://www.blosc.org/python-blosc/python-blosc.html
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = BSD-3-Clause
+	checkdepends = python-numpy
+	checkdepends = python-psutil
+	makedepends = git
+	makedepends = cmake
+	makedepends = ninja
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	makedepends = python-scikit-build
+	makedepends = python-py-cpuinfo
+	depends = python
+	depends = blosc
+	optdepends = python-numpy: for tests and benchmarks
+	source = python-blosc::git+https://github.com/Blosc/python-blosc#tag=v1.11.4
+	sha512sums = 53f041a31e63b390e31b6c41dfeac8d2b60f65b189e78e9830b10ceb33c5393131f6020a52299e8896a742d7ab4787fe162c82e3f08a3efa9d1bd96304b4d0fb
+	b2sums = f8ebbbadbac34a8dce8feae84af9b27d823cde6511e4ab7f7a5a59ddb0a5419287b141484428950fd937817222599810fe6db44fe498d1370049f15eb9ea9805
+
+pkgname = python-blosc

@@ -1,0 +1,23 @@
+pkgbase = ruby-mini_portile2
+	pkgdesc = Simple autoconf builder for developers
+	pkgver = 2.8.9
+	pkgrel = 1
+	url = https://github.com/flavorjones/mini_portile
+	arch = any
+	license = MIT
+	checkdepends = cmake
+	checkdepends = ruby-bundler
+	checkdepends = ruby-minitar
+	checkdepends = ruby-minitest
+	checkdepends = ruby-minitest-hooks
+	checkdepends = ruby-net-ftp
+	checkdepends = ruby-rake
+	checkdepends = ruby-webrick
+	makedepends = ruby-rdoc
+	depends = ruby
+	options = !emptydirs
+	source = https://github.com/flavorjones/mini_portile/archive/v2.8.9/ruby-mini_portile2-2.8.9.tar.gz
+	sha512sums = 5433defe3dbbc5404c4e08b4b92689618123e1bd1625a47d8e9d186673451a25184e950a5a29b45310ce395677b41213a133d50e183a01669ecddf93727e630c
+	b2sums = 25381da54c21825ceb2cb8eb3fae5a9e2059516134623c8274e90a3d5b113e47cb80152ac77afd4185a5dcb86e9da57e993ae7afc3ba440bd227eff7e020fe72
+
+pkgname = ruby-mini_portile2

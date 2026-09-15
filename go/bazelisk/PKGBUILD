@@ -1,0 +1,62 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+pkgname=bazelisk
+pkgver=1.26.0
+# use (gcc-)go 1.18 compatible release on powerpc & powerpc64
+case "${CARCH}" in
+  powerpc|powerpc64) pkgver=1.20.0 ;;
+esac
+pkgrel=1
+pkgdesc='A user-friendly launcher for Bazel.'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://github.com/bazelbuild/bazelisk"
+license=('Apache-2.0')
+makedepends=(
+    'go'
+    'git'
+)
+makedepends_powerpc=(gcc-go)
+makedepends_powerpc64=(gcc-go)
+makedepends_powerpc64le=(go)
+makedepends_riscv64=(go)
+makedepends_x86_64=(go)
+depends=(
+    'glibc'
+)
+provides=('bazel')
+conflicts=('bazel')
+source=("git+https://github.com/bazelbuild/bazelisk#tag=v$pkgver")
+sha256sums=('a1695e7444831a9d3a6757fb27d49e97a24b8b5860c3cb3aa2ecfa290ced1b0d')
+case "${CARCH}" in
+  powerpc|powerpc64) sha256sums=(SKIP) ;;
+esac
+options=(!lto)
+
+prepare(){
+  cd "$pkgname"
+  mkdir -p build/
+
+  case "${CARCH}" in
+    powerpc64le)
+      # https://github.com/bazelbuild/bazelisk/issues/679
+      git cherry-pick -n de10a0b820c7d0cd8d1a4c278646b80794753f94
+    ;;
+  esac
+}
+
+build() {
+  cd "$pkgname"
+  export CGO_CPPFLAGS="${CPPFLAGS}"
+  export CGO_CFLAGS="${CFLAGS}"
+  export CGO_CXXFLAGS="${CXXFLAGS}"
+  export CGO_LDFLAGS="${LDFLAGS}"
+
+
+  export GOFLAGS="-buildmode=pie -trimpath -ldflags=-linkmode=external -mod=readonly -modcacherw"
+  go build -o build .
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 build/$pkgname "$pkgdir"/usr/bin/$pkgname
+  ln -s /usr/bin/bazelisk $pkgdir/usr/bin/bazel
+}

@@ -1,0 +1,38 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Maxime Gauduin <alucryd@archlinux.org>
+# Contributor: Andri Yngvason <andri@yngvason.is>
+
+pkgname=aml
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Another Main Loop'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url=https://github.com/any1/aml
+license=(ISC)
+depends=(glibc)
+makedepends=(
+  git
+  meson
+  ninja
+)
+provides=(libaml.so)
+_tag=685035c9830aa89df02a43df89b644690bd885f5
+source=(git+https://github.com/any1/aml.git#tag=${_tag})
+b2sums=('b5e646e2667d2a532883bc5867250947bcf192d002a14ef11eef18a1c3d497b532bc1658d051ada9072edc938404631b75d7a3d982283ce54b9d7f9346277d4b')
+
+pkgver() {
+  cd aml
+  git describe --tags | sed 's/^v//'
+}
+
+build() {
+  arch-meson aml build
+  meson compile -C build
+}
+
+package() {
+  DESTDIR="${pkgdir}" meson install -C build
+  install -Dm 644 aml/COPYING -t "${pkgdir}"/usr/share/licenses/aml
+}
+
+# vim: ts=2 sw=2 et:

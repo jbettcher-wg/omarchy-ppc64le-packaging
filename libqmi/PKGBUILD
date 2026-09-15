@@ -1,0 +1,72 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+
+pkgbase=libqmi
+pkgname=(
+  libqmi
+  libqmi-docs
+)
+pkgver=1.38.0
+pkgrel=1
+pkgdesc="QMI modem protocol helper library"
+url="https://www.freedesktop.org/wiki/Software/libqmi/"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+license=(GPL-2.0-or-later)
+depends=(
+  bash
+  gcc-libs
+  glib2
+  glibc
+  libgudev
+  libmbim
+  libqrtr-glib
+)
+makedepends=(
+  bash-completion
+  gi-docgen
+  git
+  gobject-introspection
+  help2man
+  meson
+)
+source=("git+https://gitlab.freedesktop.org/mobile-broadband/libqmi.git?signed#tag=${pkgver/[a-z]/-&}")
+b2sums=('fad36fd9a5b16ffd7d3ee7a3bbfe7aa14361a2526cdf7f7d12aeedd63f7b081cce3fbe3300238e300592de043c9612c47c8a0d7e77de7053e23f34f4fc0c54b1')
+validpgpkeys=(
+  A814D09B9C5BC01945A64308AECE0239C6606AD5 # Aleksander Morgado <aleksandermj@chromium.org>
+  3A948E16E8860C68CD68441D734614319E26A433 # Dan Williams <dan@ioncontrol.co>
+)
+
+prepare() {
+  cd libqmi
+}
+
+build() {
+  local meson_options=(
+    -D gtk_doc=true
+  )
+
+  arch-meson libqmi build "${meson_options[@]}"
+  meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
+}
+
+package_libqmi() {
+  provides=(libqmi-glib.so)
+
+  meson install -C build --destdir "$pkgdir"
+
+  mkdir -p doc/usr/share
+  mv {"$pkgdir",doc}/usr/share/doc
+}
+
+package_libqmi-docs() {
+  pkgdesc+=" (documentation)"
+  depends=()
+
+  mv doc/* "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

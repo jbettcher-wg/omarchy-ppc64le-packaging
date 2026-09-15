@@ -1,0 +1,25 @@
+pkgbase = python-pyspnego
+	pkgdesc = SPNEGO Authentication library
+	pkgver = 0.11.0
+	pkgrel = 1
+	url = https://github.com/jborean93/pyspnego
+	arch = any
+	license = MIT
+	checkdepends = cython
+	checkdepends = python-pytest
+	checkdepends = python-pytest-mock
+	checkdepends = python-gssapi
+	checkdepends = python-krb5
+	checkdepends = python-ruamel-yaml
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python-cryptography
+	optdepends = python-gssapi: Kerberos support
+	optdepends = python-krb5: Kerberos support
+	optdepends = python-ruamel-yaml: YAML configuration
+	source = https://github.com/jborean93/pyspnego/archive/v0.11.0/python-pyspnego-0.11.0.tar.gz
+	sha256sums = 6f92ae401a3515e41b40a7cff9bffd837ba8b4567f4a078335df8d24a1187bd9
+
+pkgname = python-pyspnego

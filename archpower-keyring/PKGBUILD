@@ -1,0 +1,29 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Pierre Schmitz <pierre@archlinux.de>
+# Maintainer: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+
+pkgname=archpower-keyring
+pkgver=20260408
+pkgrel=1
+pkgdesc='Arch POWER PGP keyring'
+arch=(any)
+url='https://archlinuxpower.org'
+license=(GPL)
+install=${pkgname}.install
+provides=(archlinux-keyring)
+conflicts=(archlinux-keyring)
+replaces=(archlinux-keyring)
+source=(archpower.gpg
+        archpower-revoked
+        archpower-trusted)
+sha256sums=('39effce3ffee236c7b46e610894e4c009d026e2ae95c3a496822ad45bff69547'
+            'b648a378b95cae4e2f2e8aef673e8bb3553152d6909967880a2286b72a49c6f3'
+            'f3c1e881e3409478d3d901499d8bb183fe2aa342ce44a00d5cccba1608528091')
+package() {
+  install -dm755 ${pkgdir}/usr/share/pacman/keyrings/
+  install -m0644 archpower.gpg ${pkgdir}/usr/share/pacman/keyrings/
+  install -m0644 archpower-trusted ${pkgdir}/usr/share/pacman/keyrings/
+  install -m0644 archpower-revoked ${pkgdir}/usr/share/pacman/keyrings/
+}
+
+

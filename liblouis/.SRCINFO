@@ -1,0 +1,25 @@
+pkgbase = liblouis
+	pkgdesc = Braille translator and back-translator library
+	pkgver = 3.38.0
+	pkgrel = 1
+	url = https://liblouis.io/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-3.0-or-later AND LGPL-2.1-or-later
+	makedepends = git
+	makedepends = help2man
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = glibc
+	depends = libyaml
+	optdepends = python: Python bindings
+	source = git+https://github.com/liblouis/liblouis.git#tag=v3.38.0
+	validpgpkeys = E9DDC8901A42F78B79CDC46042A55BD5EA40AB1A
+	b2sums = 28c9518f7796c4f5e1465a34a65a57f6b483a52cde16b27f3921576b07a0beb854690caf04d8942e20f49454c8ab5965d890071c764c145f81188d7c331458e3
+
+pkgname = liblouis

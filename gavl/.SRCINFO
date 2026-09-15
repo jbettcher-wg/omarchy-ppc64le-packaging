@@ -1,0 +1,24 @@
+pkgbase = gavl
+	pkgdesc = Low level library, upon which multimedia APIs can be built
+	pkgver = 2.0.1
+	pkgrel = 2.1
+	url = https://github.com/bplaum/gavl
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = doxygen
+	makedepends = libpng
+	depends = glibc
+	depends = nettle
+	depends = gnutls
+	depends = libdrm
+	depends = libgl
+	depends = libva
+	source = git+https://github.com/bplaum/gavl.git#tag=v2.0.1
+	b2sums = c47fa36b64bcf97f6453ec8cdb95a36eda04c2850afb8cd465db0d1c17e3905abe5f5a36e6a00ac5546daedd754238cec1841a09e91aed99ae4209fa0935003c
+
+pkgname = gavl

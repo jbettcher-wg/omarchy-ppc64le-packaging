@@ -1,0 +1,20 @@
+pkgbase = conmon
+	pkgdesc = OCI container runtime monitor
+	pkgver = 2.2.1
+	pkgrel = 1
+	epoch = 1
+	url = https://github.com/containers/conmon
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = APACHE
+	makedepends = git
+	depends = glibc
+	depends = glib2
+	depends = systemd
+	source = git+https://github.com/containers/conmon#commit=v2.2.1
+	b2sums = eeb41e92494d2464af1bc47c4c7fda14256336e0ad16ef7c708e302b2b8fbd0537b7584fbf451970d6cdf380b9b1461058c72b36cc058ecfc107626a962cf98b
+
+pkgname = conmon

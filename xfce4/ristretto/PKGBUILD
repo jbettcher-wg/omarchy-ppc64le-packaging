@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Evangelos Foutras <foutrelis@archlinux.org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Alexander F Rødseth <xyproto@archlinux.org>
+# Contributor: Bartłomiej Piotrowski
+# Contributor: AndyRTR <andyrtr@archlinux.org>
+# Contributor: Ronald van Haren <ronald.archlinux.org>
+
+pkgname=ristretto
+pkgver=0.14.0
+pkgrel=1
+pkgdesc="A fast and lightweight picture viewer for Xfce"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://docs.xfce.org/apps/ristretto/start"
+license=('GPL-2.0-or-later')
+groups=('xfce4-goodies')
+depends=('exo' 'libxfce4ui' 'xfconf' 'tumbler' 'libexif' 'file')
+makedepends=('git' 'glib2-devel' 'meson' 'python' 'xfce4-dev-tools')
+source=("git+https://gitlab.xfce.org/apps/ristretto.git#tag=$pkgname-$pkgver")
+sha256sums=('ea0a0a409db1bc4671cf9b3d14a81817c58204a3338b1e15cdd75ab1641b001b')
+
+build() {
+  arch-meson $pkgname build \
+    --localstatedir=/var
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
+
+# vim:set ts=2 sw=2 et:

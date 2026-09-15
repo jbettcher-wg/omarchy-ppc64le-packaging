@@ -1,0 +1,20 @@
+pkgbase = python-h2
+	pkgdesc = HTTP/2 State-Machine based protocol implementation
+	pkgver = 4.3.0
+	pkgrel = 3
+	url = https://hyper.rtfd.org
+	arch = any
+	license = MIT
+	checkdepends = python-pytest
+	checkdepends = python-hypothesis
+	makedepends = git
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python-hpack
+	depends = python-hyperframe
+	source = git+https://github.com/python-hyper/h2.git#tag=v4.3.0
+	sha512sums = 8d2ae5ec4b96cc60def583cc879f40717e611df1520fea01c1912f2b1bfd457b8c794e7c0708d365fa77348cea30eb8591352f3c27135d2d4a5c243c727695f4
+
+pkgname = python-h2

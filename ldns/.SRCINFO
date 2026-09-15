@@ -1,0 +1,23 @@
+pkgbase = ldns
+	pkgdesc = Fast DNS library supporting recent RFCs
+	pkgver = 1.9.0
+	pkgrel = 1
+	url = https://www.nlnetlabs.nl/projects/ldns/
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = custom:BSD
+	makedepends = git
+	makedepends = libpcap
+	depends = openssl
+	depends = dnssec-anchors
+	optdepends = libpcap: ldns-dpa tool
+	provides = drill
+	provides = libldns.so
+	source = git+https://github.com/NLnetLabs/ldns#tag=1.9.0?signed
+	validpgpkeys = DC34EE5DB2417BCC151E5100E5F8F8212F77A498
+	sha256sums = c2d7ff1a4a21a37f2e1ac38f3bb88c06907c1639ac524cbb6d82eedfe8caf420
+
+pkgname = ldns

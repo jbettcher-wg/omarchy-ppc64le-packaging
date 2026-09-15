@@ -1,0 +1,32 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Jelle van der Waa <jelle@archlinux.org>
+
+pkgname=python-asgiref
+pkgver=3.11.1
+pkgrel=1
+pkgdesc="Reference ASGI adapters and channel layers"
+arch=(any)
+url="http://github.com/django/asgiref"
+license=('BSD-3-Clause')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=(python-pytest python-pytest-asyncio)
+depends=('python')
+source=("https://pypi.io/packages/source/a/asgiref/asgiref-${pkgver}.tar.gz")
+sha256sums=('5f184dc43b7e763efe848065441eac62229c9f7b0475f41f80e207a114eda4ce')
+
+build() {
+    cd "asgiref-${pkgver}"
+    python -m build --wheel --no-isolation
+}
+
+check() {
+    cd "asgiref-${pkgver}"
+    PYTHONPATH=. pytest .
+}
+
+package() {
+    cd "asgiref-${pkgver}"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+
+    install -Dm 644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}

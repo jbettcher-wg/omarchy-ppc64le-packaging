@@ -1,0 +1,40 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+
+_name=cfgv
+pkgname=python-cfgv
+pkgver=3.5.0
+pkgrel=1
+pkgdesc="Validate configuration and produce human readable error messages"
+arch=(any)
+url="https://github.com/asottile/cfgv"
+license=(MIT)
+depends=(python)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(python-pytest)
+source=($_name-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz)
+sha512sums=('c3b6055f81157f1192fa0d86bebccd817e45c4587641f90f1a599ad8dc595ba71f9199a38068da2f375ed332fcd7d0346b7fef357e03639ae5972f90ee66b086')
+b2sums=('38a0b187b0931dfd058b699b520a092b088c520044ef8b897fe2361ee1757b629dc8ba76871623f6f90c8c49d91a817f23bf0e30a7fc5c8d1359b024f50f6ab9')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd $_name-$pkgver
+  export PYTHONPATH="build:$PYTHONPATH"
+  pytest -v
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 644 README.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}

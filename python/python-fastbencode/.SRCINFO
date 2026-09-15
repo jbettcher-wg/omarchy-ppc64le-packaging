@@ -1,0 +1,23 @@
+pkgbase = python-fastbencode
+	pkgdesc = Implementation of bencode with optional fast C extensions
+	pkgver = 0.3.10
+	pkgrel = 1
+	url = https://github.com/breezy-team/fastbencode
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-2.0-or-later
+	makedepends = cython
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools-rust
+	makedepends = python-wheel
+	depends = glibc
+	depends = libgcc
+	depends = python
+	source = https://github.com/breezy-team/fastbencode/archive/v0.3.10/python-fastbencode-0.3.10.tar.gz
+	b2sums = 6a403de8da01e347a7aa74fe19925c1ad0403e404979efc3ef7e38006dcf0bbda5f7bd91d6badc1a99b4383224e1a14f63a1a1c7c933ad65de5ff37200582154
+
+pkgname = python-fastbencode

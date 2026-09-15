@@ -1,0 +1,40 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dave@sleepmap.de>
+# Contributor: eolianoe <eolianoe At GoogleMAIL DoT com>
+# Contributor: kang <kang@insecure.ws>
+
+pkgname=python-sphinxcontrib-newsfeed
+_name=${pkgname#python-}
+pkgver=0.1.4
+pkgrel=17
+pkgdesc="News Feed extension for Sphinx"
+arch=(any)
+url="https://github.com/prometheusresearch/sphinxcontrib-newsfeed"
+license=(BSD-2-Clause)
+depends=(
+  python
+  python-docutils
+  python-sphinx
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+source=($_name-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz)
+sha512sums=('f1ebd654d8b12182443022e8d41d7d885503ab3bc516d1c90a0000cd8dee36e36100d7825145bf2f12b271870b3bc89feb3e581bf8aeec7f30a93495a4ec5a0c')
+b2sums=('9fe73107736ced32d5ffbd390f19a6f0756585fed0ba77d11c6c05bbb5290274058e78f4c8d56aed23c790994adda37f6c92593de8c2210e754280138a4343b2')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  # license
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -vDm 644 README -t "$pkgdir/usr/share/doc/$pkgname/"
+}

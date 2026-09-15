@@ -1,0 +1,22 @@
+pkgbase = nvtop
+	pkgdesc = GPUs process monitoring for AMD, Intel and NVIDIA
+	pkgver = 3.3.2
+	pkgrel = 1
+	url = https://github.com/Syllo/nvtop
+	arch = x86_64
+	arch = powerpc64le
+	arch = powerpc64
+	arch = powerpc
+	arch = espresso
+	license = GPL-3.0-or-later
+	checkdepends = gtest
+	makedepends = git
+	makedepends = cmake
+	makedepends = libdrm
+	makedepends = systemd
+	depends = ncurses
+	depends = systemd-libs
+	source = git+https://github.com/Syllo/nvtop.git#tag=3.3.2
+	sha512sums = 048da9d2569f32403559ecf683945aa33a1198f9abfc50a816469f9483aa51da1c0996bbba5310bb1e85f1f6388f36851bd74e570671400ff88416b7550f8795
+
+pkgname = nvtop

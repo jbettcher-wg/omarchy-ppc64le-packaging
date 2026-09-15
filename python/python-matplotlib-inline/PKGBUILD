@@ -1,0 +1,39 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Daniel M. Capella <polyzen@archlinux.org>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+
+pkgname=python-matplotlib-inline
+_name=${pkgname#python-}
+pkgver=0.2.2
+pkgrel=1
+pkgdesc='Inline Matplotlib backend for Jupyter'
+arch=(any)
+url=https://github.com/ipython/matplotlib-inline
+license=(BSD-3-Clause)
+depends=(python-traitlets)
+makedepends=(
+  git
+  python-build
+  python-flit-core
+  python-installer
+)
+optdepends=(python-matplotlib)
+source=("git+$url.git#tag=$pkgver")
+b2sums=('2ae70567474d2b78d6325106bd0fd9f542b79edecd52227a84ba3a344f7274eac16855231f00574dba7e39bdde20b148e0ff69adbea198632d4d41ae6d565045')
+
+build() {
+  cd "$_name"
+  python -m build --wheel --skip-dependency-check --no-isolation
+}
+
+package() {
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  install -d "$pkgdir"/usr/share/licenses/$pkgname
+  ln -s "$site_packages"/"${_name//-/_}"-$pkgver.dist-info/licenses/LICENSE \
+    "$pkgdir"/usr/share/licenses/$pkgname
+
+  cd "$_name"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
+
+# vim:set ts=2 sw=2 et:

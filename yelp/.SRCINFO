@@ -1,0 +1,35 @@
+pkgbase = yelp
+	pkgdesc = Get help with GNOME
+	pkgver = 49.1
+	pkgrel = 1
+	url = https://apps.gnome.org/Yelp
+	arch = x86_64
+	arch = powerpc
+	arch = powerpc64
+	arch = powerpc64le
+	arch = espresso
+	groups = gnome
+	license = GPL-2.0-or-later
+	makedepends = git
+	makedepends = glib2-devel
+	makedepends = itstool
+	makedepends = meson
+	depends = bzip2
+	depends = dconf
+	depends = glib2
+	depends = glibc
+	depends = gtk4
+	depends = hicolor-icon-theme
+	depends = libadwaita
+	depends = libxml2
+	depends = libxslt
+	depends = sqlite
+	depends = webkitgtk-6.0
+	depends = xz
+	depends = yelp-xsl
+	optdepends = man-db: View manual pages
+	provides = libyelp-1.so
+	source = git+https://gitlab.gnome.org/GNOME/yelp.git#tag=49.1
+	b2sums = 1adba81b0de5154b00b563ecc14a1802a822c8f256f4f948d1366069aa540a2541670a04c8c83e0e1416befe0ee78fc14be1c72b53364bab5bada3b3be45dca7
+
+pkgname = yelp

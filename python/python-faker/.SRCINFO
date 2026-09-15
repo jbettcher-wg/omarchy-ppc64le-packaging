@@ -1,0 +1,24 @@
+pkgbase = python-faker
+	pkgdesc = Faker generates fake data for you.
+	pkgver = 40.12.0
+	pkgrel = 1
+	url = https://faker.readthedocs.io/en/master/
+	arch = any
+	license = MIT
+	checkdepends = python-validators
+	checkdepends = python-ukpostcodeparser
+	checkdepends = python-freezegun
+	checkdepends = python-pillow
+	checkdepends = python-xmltodict
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-pytest
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	optdepends = python-xmltodict: for xml provider
+	source = git+https://github.com/joke2k/faker.git#tag=v40.12.0
+	sha512sums = b341156c53d66bbad6052370823509b892f33f534fbe652e4cdc3428633809d90ae723f1da84d3f08ade3ff36951a085329bfdaec3e5c806557b22bdc1b9d139
+
+pkgname = python-faker

@@ -1,0 +1,30 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=perl-ppix-utils
+pkgver=0.004
+pkgrel=3
+pkgdesc="Utility functions for PPI"
+arch=(any)
+license=('PerlArtistic')
+url="https://metacpan.org/release/PPIx-Utils"
+depends=('perl-b-keywords' 'perl-ppi')
+options=('!emptydirs')
+source=("https://cpan.metacpan.org/authors/id/D/DB/DBOOK/PPIx-Utils-$pkgver.tar.gz")
+sha512sums=('2245df7aff9b23dd478eb8d0242428e2f02a29cccc17217f141213745cc9c112b14ea047f7200bd7bcdd05260f5325981eb45cfc4c93f552fbc1ae25d5ddc158')
+
+build() {
+  cd PPIx-Utils-$pkgver
+  perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
+
+check() {
+  cd PPIx-Utils-$pkgver
+  make test
+}
+
+package() {
+  cd PPIx-Utils-$pkgver
+  make DESTDIR="$pkgdir" install
+}

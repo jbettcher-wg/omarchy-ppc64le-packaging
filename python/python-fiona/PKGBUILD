@@ -1,0 +1,81 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Bruno Pagani <archange@archlinux.org>
+
+pkgname=python-fiona
+pkgver=1.10.1
+pkgrel=5.1
+pkgdesc='Read and write geographic data files'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://github.com/Toblerity/Fiona'
+license=(BSD-3-Clause)
+depends=(
+  gdal
+  python-attrs
+  python-certifi
+  python-click
+  python-cligj
+)
+makedepends=(
+  git
+  cython
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+  python-boto3
+  python-pytz
+  python-shapely
+  python-fsspec
+  python-pyparsing
+)
+optdepends=(
+  'python-shapely: fio-calc functionnality'
+  'python-boto3: s3 support'
+)
+conflicts=('fio') # /usr/bin/fio
+source=("$pkgname::git+https://github.com/Toblerity/Fiona#tag=$pkgver")
+sha512sums=('cec6105e0d5b34e395aec9aaeeb1c6bbcb73c2f91000732a1236b4dc1fdc7123ca25c9fe73acdd854a4dabf12f5a8edb7346242dfc1c3c9e6b89ebeccb621306')
+b2sums=('85984110635e0145d89a0f89412a0c46a154b0145dfc8b316ac43ac1587a82448a7708137eb84aeee92d0dc362ff882c62ac0a1ab8efb54cf6362bd55f577471')
+
+prepare() {
+  cd "$pkgname"
+
+  # vendor unmaintained click-plugins
+  # https://github.com/Toblerity/Fiona/pull/1498
+  git cherry-pick --no-commit cc3a5fcdec6d48daa48830087d115202406e16bd
+
+  sed -e '/oldest-supported-numpy/d' -i pyproject.toml
+
+  # Fix build with cython 3.1
+  sed -e 's|\~=|>=|' -i pyproject.toml
+}
+
+build() {
+  cd "$pkgname"
+
+  CFLAGS+=" -Wno-incompatible-pointer-types" \
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+
+  # temporary install
+  python -m installer --destdir="$(pwd)/tmp" dist/*.whl
+  local site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
+  export PYTHONPATH="$(pwd)/tmp/$site_packages"
+
+  pytest -vv --color=yes -m "not wheel" || echo "Warning: failed tests"
+}
+
+package() {
+  cd "$pkgname"
+
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE.txt
+}

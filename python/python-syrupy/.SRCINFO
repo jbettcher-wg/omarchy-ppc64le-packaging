@@ -1,0 +1,16 @@
+pkgbase = python-syrupy
+	pkgdesc = Pytest Snapshot Test Utility
+	pkgver = 4.7.0
+	pkgrel = 1
+	url = https://github.com/tophat/syrupy
+	arch = any
+	license = Apache-2.0
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-poetry-core
+	depends = python-pytest
+	source = git+https://github.com/tophat/syrupy.git#tag=v4.7.0
+	sha512sums = bd2e58f5a49ecb64baab3bdbdf492f02b4a4b783ea48ec21a87fa7ab6c44ecf2866c3386ee35259a957253e589c7699fae1575bb3eb4e1b88d7f08ff048da350
+
+pkgname = python-syrupy

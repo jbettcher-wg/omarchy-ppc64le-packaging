@@ -1,0 +1,115 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: David Runge <dvzrv@archlinux.org>
+# Maintainer: Lukas Fleischer <lfleischer@archlinux.org>
+# Contributor: Ali H. Caliskan <ali.h.caliskan AT gmail DOT com>
+# Contributor: Ryan Coyner <rcoyner@gmail.com>
+# Contributor: Stefan Husmann <stefan-husmann@t-online.de>
+
+pkgname=mixxx
+pkgver=2.5.6
+pkgrel=5
+pkgdesc="Free, open source software for digital DJing"
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url="https://www.mixxx.org"
+_url="https://github.com/mixxxdj/mixxx"
+license=(GPL-2.0-or-later)
+groups=(pro-audio)
+# TODO: package libshout-idjc
+depends=(
+  glibc
+  hicolor-icon-theme
+  hidapi
+  lame
+  libebur128
+  libgcc
+  libkeyfinder
+  libmad
+  libmodplug
+  libstdc++
+  libx11
+  openssl
+  opus
+  opusfile
+  qt6-5compat
+  qt6-base
+  qt6-declarative
+  qt6-svg
+  qtkeychain-qt6
+  soundtouch
+  sqlite
+  taglib
+  upower
+  wavpack
+)
+makedepends=(
+  benchmark
+  chromaprint
+  cmake
+  faad2
+  ffmpeg
+  flac
+  glib2
+  glu
+  gperftools
+  gtest
+  libid3tag
+  libogg
+  libsndfile
+  libusb
+  libvorbis
+  lilv
+  lv2
+  microsoft-gsl
+  qt6-shadertools
+  qt6-tools
+  portaudio
+  portmidi
+  protobuf
+  rubberband
+)
+source=(
+  $_url/archive/$pkgver/$pkgname-$pkgver.tar.gz
+)
+sha512sums=('b1263d0942a7bf3f8f203f5d1a024615f05feb7874da5ed21679d7c26a457e91d372eac49ea03497436fe8a577b47ab424e0cca8fc99e43ec0d3d7ca0c6c6007')
+b2sums=('d51bb7ad13f138dda7d2910e60b6bb06a1e32b58c1f0d22f0b41577f3223fc3bf5b1c60f0e37c81dcd8667143b3107b586a964efc0e4e832233d2a82cd0e9309')
+
+build() {
+  local cmake_options=(
+    -B build
+    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -S $pkgname-$pkgver
+    -W no-dev
+  )
+
+  export PKG_CONFIG_PATH=/usr/lib/taglib1/pkgconfig
+  cmake "${cmake_options[@]}"
+  cmake --build build --verbose
+}
+
+check() {
+  ctest --test-dir build --output-on-failure
+}
+
+package() {
+  depends+=(
+    chromaprint libchromaprint.so
+    flac libFLAC.so
+    ffmpeg libavcodec.so libavformat.so libavutil.so
+    glib2 libgobject-2.0.so
+    libglvnd libOpenGL.so
+    libid3tag libid3tag.so
+    libogg libogg.so
+    libsndfile libsndfile.so
+    libusb libusb-1.0.so
+    libvorbis libvorbis.so libvorbisenc.so libvorbisfile.so
+    lilv liblilv-0.so
+    portaudio libportaudio.so
+    portmidi libportmidi.so
+    protobuf libprotobuf-lite.so
+    rubberband librubberband.so
+    zlib libz.so
+  )
+
+  DESTDIR="$pkgdir" cmake --install build
+}

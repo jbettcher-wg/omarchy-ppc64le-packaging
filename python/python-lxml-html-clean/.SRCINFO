@@ -1,0 +1,20 @@
+pkgbase = python-lxml-html-clean
+	pkgdesc = HTML cleaner from lxml project
+	pkgver = 0.4.4
+	pkgrel = 1
+	url = https://lxml-html-clean.readthedocs.io/
+	arch = any
+	license = BSD-3-Clause
+	checkdepends = python-pytest
+	makedepends = git
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = python
+	depends = python-lxml
+	source = python-lxml-html-clean::git+https://github.com/fedora-python/lxml_html_clean#tag=0.4.4
+	sha512sums = 8b56e98d71b4ba547ecbf2f1256ad0b108c11dc38442fd84dc18dd2c8595fe43979bb1e39a68a2c770a25d6f2f139bfb395a02a34152f6e70f1632805cfeb3e9
+	b2sums = 6d33442cf9fd8da12b4df6a0427169309d3c8d3e8b19eb8dafef713692ef4bfa1c14879b1ea079213e7555869c28388026df4f6bcf29f5fec4cee7609e2869a2
+
+pkgname = python-lxml-html-clean

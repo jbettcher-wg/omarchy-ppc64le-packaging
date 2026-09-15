@@ -1,0 +1,5 @@
+[ansible-core]
+source = "git"
+git = "https://github.com/ansible/ansible.git"
+prefix = "v"
+exclude_regex = ".*(pre|a|alpha|b|beta|r|rc).*"

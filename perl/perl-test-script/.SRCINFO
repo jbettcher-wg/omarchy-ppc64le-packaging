@@ -1,0 +1,14 @@
+pkgbase = perl-test-script
+	pkgdesc = Basic cross-platform tests for scripts
+	pkgver = 1.31
+	pkgrel = 2
+	url = https://metacpan.org/release/Test-Script
+	arch = any
+	license = PerlArtistic
+	depends = perl-capture-tiny
+	depends = perl-probe-perl
+	options = !emptydirs
+	source = https://cpan.metacpan.org/authors/id/P/PL/PLICEASE/Test-Script-1.31.tar.gz
+	sha512sums = 4ed8e89a4606f28e281e04ac4bc667915b4dc1422eaed407b2a792ea5c9428ee7901947e22cd425d48701b3b6e3c1419a7c52f83d92f8378ad14c49e03f8cf94
+
+pkgname = perl-test-script

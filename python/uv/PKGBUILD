@@ -1,0 +1,105 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Orhun Parmaksız <orhun@archlinux.org>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: MithicSpirit <rpc01234 at gmail dot com>
+# Contributor: David Runge <dvzrv@archlinux.org>
+# Contributor: Leonidas Spyropoulos <artafinde@archlinux.org>
+# Contributor: Daniel M. Capella <polyzen@archlinux.org>
+# Contributor: Guillaume Gauvrit <guillaume@gauvr.it>
+
+pkgbase=uv
+pkgname=("$pkgbase" "python-$pkgbase"{,-build})
+pkgver=0.9.17
+pkgrel=2
+pkgdesc='An extremely fast Python package installer and resolver written in Rust'
+arch=(powerpc espresso)
+url="https://github.com/astral-sh/uv"
+license=('MIT' 'Apache-2.0')
+depends=('gcc-libs' # 'libgcc_s.so'
+         'glibc' # 'libc.so' 'libm.so'
+         'zlib' # 'libz.so'
+         'bzip2' # 'libbz2.so'
+         )
+makedepends=('cargo' 'maturin' 'python-installer' 'cmake' 'git')
+checkdepends=('python' 'python-zstandard' 'libxcrypt-compat' 'clang')
+options=('!lto')
+case "${CARCH}" in
+  powerpc) options+=('!debug') ;;
+esac
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('06afa305f26830d202f8e2923bed468566f79bb5f7457f08ceb4974904373449')
+
+prepare() {
+  cd "$pkgbase"
+  # reduce memory usage during build enabling 32bit builds
+  sed -i -e '/lto/s:fat:thin:' Cargo.toml
+
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+  mkdir -p completions
+}
+
+# Note --frozen doesn't work here because cargo fetch didn't get everything
+# maturin ends up trying to use so we make do with --locked ...
+build() {
+  cd "$pkgbase"
+  local tripple="$(rustc -vV | sed -n 's/host: //p')"
+
+  case "${CARCH}" in
+    powerpc) RUSTFLAGS="-C link-args=-Wl,--no-keep-memory -C link-args=-Wl,--reduce-memory-overheads" ;;
+  esac
+
+  # Note: do not use --all-features as in enables a self-updater
+  maturin build --locked --release --target "$tripple" --strip --compatibility linux
+  maturin build --locked --release --target "$tripple" --strip --compatibility linux -m crates/uv-build/Cargo.toml
+  local compgen="target/$tripple/release/uv --generate-shell-completion"
+  $compgen bash > "completions/$pkgbase"
+  $compgen elvish > "completions/$pkgbase.elv"
+  $compgen fish > "completions/$pkgbase.fish"
+  $compgen zsh > "completions/_$pkgbase"
+}
+
+check() {
+  cd "$pkgbase"
+  # The upstream cargo tests are unit tests against a matrix of Python versions
+  # using vendored Python installs. Even collapsing the matrix to match our
+  # system Python version and patching around the path issues to use it,
+  # a majority of the unit tests are irrelevant.
+  local tripple="$(rustc -vV | sed -n 's/host: //p')"
+  local _target="target/$tripple/release/uv"
+  $_target -V | grep -F "$pkgname $pkgver"
+}
+
+_package_common() {
+  install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE-*
+  install -Dm0644 -t "$pkgdir/usr/share/doc/$pkgname/" README.md
+}
+
+package_uv() {
+  cd "$pkgbase"
+  _package_common
+  local _target="target/$(rustc -vV | sed -n 's/host: //p')/release/uv"
+  install -Dm0755 -t "$pkgdir/usr/bin/" "$_target"
+  install -Dm0755 -t "$pkgdir/usr/bin/" "${_target}x"
+  install -Dm 644 "completions/$pkgbase" -t "$pkgdir/usr/share/bash-completion/completions/"
+  install -Dm 644 "completions/$pkgbase.elv" -t "$pkgdir/usr/share/elvish/lib/"
+  install -Dm 644 "completions/$pkgbase.fish" -t "$pkgdir/usr/share/fish/vendor_completions.d/"
+  install -Dm 644 "completions/_$pkgbase" -t "$pkgdir/usr/share/zsh/site-functions/"
+}
+
+package_python-uv() {
+  desc+=' (python wrapper)'
+  cd "$pkgbase"
+  _package_common
+  depends=(python "$pkgbase=$pkgver")
+  python -m installer -d "$pkgdir" target/wheels/uv-$pkgver-*.whl
+  rm -rf "$pkgdir/usr/bin"
+}
+
+package_python-uv-build() {
+  desc+=' (python build backend)'
+  cd "$pkgbase"
+  _package_common
+  python -m installer -d "$pkgdir" target/wheels/uv_build-$pkgver-*.whl
+}
+
+# vim: ts=2 sw=2 et:

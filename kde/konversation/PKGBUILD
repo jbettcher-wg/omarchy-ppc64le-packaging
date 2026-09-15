@@ -1,0 +1,71 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Contributor: Tom Gundersen <teg@jklm.no>
+# Contributor: Stéphane Gaudreault <stephane@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: James Rayner <iphitus@gmail.com>
+# Contributor: Sergio Jovani Guzman <moret@paretux.org>
+
+pkgname=konversation
+pkgver=26.08.0
+pkgrel=1
+pkgdesc='A user-friendly and fully-featured IRC client'
+arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+url='https://apps.kde.org/konversation/'
+license=(GPL-2.0-or-later)
+depends=(glibc
+         karchive
+         kbookmarks
+         kcodecs
+         kcolorscheme
+         kcompletion
+         kconfig
+         kconfigwidgets
+         kcoreaddons
+         kcrash
+         kdbusaddons
+         kglobalaccel
+         ki18n
+         kidletime
+         kio
+         kitemviews
+         knewstuff
+         knotifications
+         knotifyconfig
+         kparts
+         kstatusnotifieritem
+         ktextwidgets
+         kwallet
+         kwidgetsaddons
+         kwindowsystem
+         kxmlgui
+         libstdc++
+         perl
+         qca-qt6
+         qt6-5compat
+         qt6-base
+         qt6-multimedia
+         qt6-tools
+         sh)
+optdepends=('keditbookmarks: for managing bookmarks'
+            'python: python scripting support')
+makedepends=(extra-cmake-modules
+             kdoctools)
+groups=(kde-applications
+        kde-network)
+source=(https://download.kde.org/stable/release-service/$pkgver/src/$pkgname-$pkgver.tar.xz{,.sig})
+sha256sums=('11e9f6bd368cf8eb59fb5ab6b83ae50903ab5792b935a0fc5ae37bdd15591bbf'
+            'SKIP')
+validpgpkeys=(CA262C6C83DE4D2FB28A332A3A6A4DB839EAA6D7  # Albert Astals Cid <aacid@kde.org>
+              F23275E4BF10AFC1DF6914A6DBD2CE893E2D1C87  # Christoph Feck <cfeck@kde.org>
+              D81C0CB38EB725EF6691C385BB463350D6EF31EF) # Heiko Becker <heiko.becker@kde.org>
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

@@ -1,0 +1,5 @@
+[deluge]
+source = "git"
+git = "https://git.deluge-torrent.org/deluge"
+include_regex = 'deluge-\d+(\.\d+)*'
+prefix = "deluge-"
