@@ -40,6 +40,14 @@
 !electron43/chromium-150-ppc64le-patches-r3.tar.gz
 !iana-etc/sources.tar.xz
 !opencore-amr/opencore-amr-0.1.5.tar.gz
+# The ppc64le port of bun and of its JavaScriptCore. Neither branch has been
+# pushed anywhere, so these tarballs are the only copy of that work outside
+# one machine's git directory -- if they are ignored, the recipes build on
+# nothing but that machine. ours/jsc and ours/bun carry the same WebKit
+# tarball (identical sha256) so each recipe is self-contained.
+!ours/jsc/webkit-ppc64le-r1.tar.gz
+!ours/bun/webkit-ppc64le-r1.tar.gz
+!ours/bun/bun-ppc64le-patches-r1.tar.gz
 
 # makepkg VCS mirrors, cloned next to the recipe when SRCDEST is unset.
 luajit/luajit-ppc64le/

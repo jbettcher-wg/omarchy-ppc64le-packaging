@@ -1,0 +1,205 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# jsc -- the JavaScriptCore shell from our ppc64le port of oven-sh/WebKit.
+#
+# Why this package exists:
+#
+#   The ppc64le JSC back end (offlineasm PPC64 backend, MacroAssemblerPPC64,
+#   the Baseline JIT, YARR JIT, bun:ffi via ELFv2, IPInt WebAssembly, the VSX
+#   SIMD set and the in-progress DFG) lives in one local branch and has never
+#   been installable.  The only built engine on this machine was a 269 MB
+#   binary under /var/tmp, which disappears with the next cleanup and can be
+#   reproduced by nobody else.  This recipe makes the engine a package: `jsc`
+#   on $PATH, testmasm and testFFI beside it, rebuildable from this tree plus
+#   a network connection.
+#
+#   It is also the cheap half of the port.  packages/ours/bun builds the same
+#   engine again as a static library inside bun, but that build additionally
+#   needs a pinned Rust nightly, node, npm and a bootstrap bun (see its
+#   header).  This one needs a C++ toolchain and nothing else, so the engine
+#   stays testable even while bun's prerequisites are unresolved.
+#
+# Where the source comes from, and why it is a squashed diff
+#
+#   source() clones oven-sh/WebKit at commit cf1b36ec87 and applies our port
+#   on top.  That base is not arbitrary: it is exactly the WEBKIT_VERSION
+#   that bun 1.4.3 pins in scripts/build/deps/webkit.ts, so the engine here
+#   and the engine inside bun are the same JSC.
+#
+#   webkit-ppc64le-r1.tar.gz carries ONE squashed diff rather than the 52
+#   commits, and that is a correctness requirement, not a convenience.  The
+#   branch contains a merge (86c69140d5, ppc64le-port into ppc64le-wasm)
+#   whose conflict resolution -- the CPU(PPC64LE) block of PlatformEnable.h
+#   and the WTF_CPU_PPC64LE branch of WebKitFeatures.cmake -- exists in no
+#   single commit.  A `git format-patch` series therefore does not replay:
+#   it fails at patch 0023 in date order and at 0022 in --topo-order, and
+#   neither result reaches the right tree.  The squashed diff does: applied
+#   to cf1b36ec87 it produces tree 293c8e571086b420429364113372abf3d8976ad2,
+#   which is the branch tip's tree, byte for byte.  prepare() re-checks that
+#   on every build rather than trusting this comment.
+#
+#   The per-commit history stays in the git branch (and is what any upstream
+#   submission would be built from); the tarball's job is only to reproduce
+#   the tree.  MANIFEST inside it records the base, tip, tree and the exact
+#   command that regenerates it.
+#
+# What is turned on, and what is not
+#
+#   The configuration below is the one the port was actually brought up and
+#   tested with (/var/tmp/jsc-dfg/run-configure.sh), with one change: ruby's
+#   erb comes from the ruby-erb package instead of a hand-set RUBYLIB.
+#
+#     ENABLE_JIT           on   -- the Baseline JIT executes JavaScript
+#     ENABLE_C_LOOP        off  -- the native LLInt runs; CLoop is the
+#                                  fallback we no longer need, and leaving it
+#                                  on would silently hide a broken LLInt
+#     ENABLE_DFG_JIT       off by default, see _enable_dfg below
+#     ENABLE_FTL_JIT       off  -- FTL needs a B3/Air lowering for PPC64 that
+#                                  does not exist yet.  A target, not a
+#                                  closure: it is also what keeps BBQ and OMG
+#                                  off, so WebAssembly is IPInt-only for now
+#     ENABLE_WEBASSEMBLY   on   -- interpreted by IPInt, with the VSX SIMD set
+#     SAMPLING_PROFILER    on   -- the MachineContext arm this port added
+#     USE_SYSTEM_MALLOC    on   -- bmalloc's libpas is gated to X86_64/ARM64
+#                                  (BPlatform.h #errors otherwise) and the
+#                                  mimalloc path expects bun to supply the
+#                                  allocator, which nothing does here
+#
+#   _enable_dfg=1 builds the DFG tier.  It is off by default because the DFG
+#   work is the newest part of the port and still has a known failure (the
+#   last measured stress run was 99 PASS / 1 FAIL of 100), and because bun's
+#   own webkit.ts pins ENABLE_DFG_JIT=OFF for ppc64le today.  Turn it on to
+#   work on that tier:  _enable_dfg=1 makepkg
+#
+#   Override per build, as elsewhere in this tree:
+#     _enable_dfg=1 makepkg
+
+pkgname=jsc
+# No upstream version number: oven-sh/WebKit is a rolling fork with no
+# release tags.  Date of our branch tip plus its short sha, so the version
+# both sorts forward and names the exact commit it was built from.
+pkgver=20260916.e11b216f
+pkgrel=1
+pkgdesc='JavaScriptCore shell from the ppc64le port of oven-sh/WebKit (Baseline JIT, YARR JIT, IPInt WebAssembly)'
+arch=('powerpc64le')
+url='https://github.com/oven-sh/WebKit'
+license=('LGPL-2.1-only' 'BSD-2-Clause')
+depends=('glibc' 'gcc-libs' 'icu')
+# perl (with JSON::PP, English, FindBin -- all core), python and ruby are
+# WebKit's code generators; WebKitCommon.cmake find_package()s all three and
+# fails configure without them.  ruby-erb is separate on Arch since ruby 3.4
+# unbundled erb, and WebKit's generators require it -- without it the build
+# dies in the LLInt generator, which is how the /var/tmp bring-up ended up
+# pointing RUBYLIB at a gem directory.
+# gperf is NOT needed: WebKitCommon only requires it when ENABLE_WEBCORE, and
+# the JSCOnly port does not build WebCore.
+makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'perl' 'python' 'ruby' 'ruby-erb')
+options=('!lto')
+
+# oven-sh/WebKit at bun 1.4.3's WEBKIT_VERSION pin.
+_webkit_commit=cf1b36ec8703d8e87436094d21d478d358c7d886
+# The tree the port must produce once the patch is applied.
+_webkit_tree=293c8e571086b420429364113372abf3d8976ad2
+
+_enable_dfg=${_enable_dfg:-0}
+
+source=("webkit::git+https://github.com/oven-sh/WebKit.git#commit=$_webkit_commit"
+        "webkit-ppc64le-r1.tar.gz")
+sha256sums=('SKIP'
+            '8e7f872ef3f99a8602d8128c63878721688a8fed00b8bc570fb11e438effd889')
+
+prepare() {
+  cd "$srcdir/webkit"
+
+  # --index so the result can be checked against the branch tip's tree.  A
+  # patch that applies but produces a different tree is the failure mode this
+  # guards against: the port is 52 commits of assembler back end, and "it
+  # applied with fuzz" is not good enough to run a JIT from.
+  git apply --index "$srcdir/webkit-ppc64le/0001-jsc-ppc64le-port.patch"
+
+  local _tree
+  _tree=$(git write-tree)
+  if [[ $_tree != "$_webkit_tree" ]]; then
+    echo "==> patched tree $_tree does not match the expected $_webkit_tree" >&2
+    echo "==> the patch and the base commit have drifted apart; regenerate" >&2
+    echo "==> webkit-ppc64le-r1.tar.gz (see MANIFEST inside it)" >&2
+    return 1
+  fi
+}
+
+build() {
+  # WebKit's cmake sets its own -O/-g/warning flags and conflicts with
+  # makepkg's CFLAGS wholesale, so forward only the ISA selection -- the same
+  # thing bun's own webkit.ts forwards, and the same pattern packages/zig0.15
+  # uses.  That is also what makes one recipe serve both pools: the POWER9
+  # repo's makepkg.conf says -mcpu=power9, the baseline pool's says power8,
+  # and no ISA is written into this file.  The port's sources are POWER8-legal
+  # either way; ISA 3.0 use inside the JIT is chosen at run time.
+  local _cpuflags=()
+  [[ $CFLAGS =~ (-mcpu=[a-z0-9]+) ]] && _cpuflags+=("${BASH_REMATCH[1]}")
+  [[ $CFLAGS =~ (-mtune=[a-z0-9]+) ]] && _cpuflags+=("${BASH_REMATCH[1]}")
+
+  local _dfg=OFF
+  (( _enable_dfg )) && _dfg=ON
+
+  local _cmakeflags=(
+    -G Ninja
+    -B "$srcdir/build"
+    -S "$srcdir/webkit"
+    -DPORT=JSCOnly
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    -DCMAKE_C_COMPILER=clang
+    -DCMAKE_CXX_COMPILER=clang++
+    -DCMAKE_C_FLAGS="${_cpuflags[*]}"
+    -DCMAKE_CXX_FLAGS="${_cpuflags[*]}"
+
+    # A single self-contained jsc binary rather than a shared JavaScriptCore:
+    # this package ships an engine to test with, not an ABI for other packages
+    # to link against.  JSCOnly's install rules assume the opposite
+    # (install(TARGETS JavaScriptCore) only fires for a SHARED library, and
+    # the jsc shell is installed only under SHOULD_INSTALL_JS_SHELL, which
+    # only the GTK port sets), so package() installs by hand below.
+    -DENABLE_STATIC_JSC=ON
+    -DUSE_THIN_ARCHIVES=ON
+
+    # oven-sh's additions to JSC, which the port's bun:ffi work targets, and
+    # which also declare the testFFI executable.
+    -DUSE_BUN_JSC_ADDITIONS=ON
+
+    -DENABLE_JIT=ON
+    -DENABLE_C_LOOP=OFF
+    -DENABLE_DFG_JIT=$_dfg
+    -DENABLE_FTL_JIT=OFF
+    -DENABLE_WEBASSEMBLY=ON
+    -DENABLE_SAMPLING_PROFILER=ON
+    -DUSE_SYSTEM_MALLOC=ON
+
+    # Builds testmasm, the assembler test suite the PPC64 MacroAssembler was
+    # brought up against (435 tests).  It is the most useful thing to hand
+    # somebody who wants to check this back end on their own machine.
+    -DDEVELOPER_MODE=ON
+  )
+
+  cmake "${_cmakeflags[@]}"
+  cmake --build "$srcdir/build" --target jsc testmasm testFFI
+}
+
+check() {
+  # Cheap and decisive: the LLInt, the Baseline JIT and the parser all have to
+  # work for this to print anything at all.  The full JSC suites are run from
+  # the source tree, not from a package build -- they take hours and need the
+  # WebKit test harness.
+  "$srcdir/build/bin/jsc" -e 'if (1 + 1 !== 2) throw new Error("arithmetic"); print("jsc ok")'
+}
+
+package() {
+  install -Dm755 "$srcdir/build/bin/jsc" "$pkgdir/usr/bin/jsc"
+
+  # The test binaries are tools, not commands: they take no arguments anybody
+  # would type by accident and would only clutter $PATH.
+  install -Dm755 "$srcdir/build/bin/testmasm" "$pkgdir/usr/lib/$pkgname/testmasm"
+  install -Dm755 "$srcdir/build/bin/testFFI" "$pkgdir/usr/lib/$pkgname/testFFI"
+
+  install -Dm644 "$srcdir/webkit/Source/JavaScriptCore/COPYING.LIB" \
+    "$pkgdir/usr/share/licenses/$pkgname/COPYING.LIB"
+}
