@@ -13,8 +13,9 @@ else — the patch series, the page-size variants, the split packages — is
 identical, and a change to one recipe usually belongs in the other.
 
 The CPU floor cannot be set from `makepkg.conf`: `arch/powerpc/Makefile` takes
-`-mcpu` from `CONFIG_TARGET_CPU`, so the config is the only place it lives. `PKGBUILD` here builds **both** kernels that
-this distro ships:
+`-mcpu` from `CONFIG_TARGET_CPU`, so the config is the only place it lives.
+
+`PKGBUILD` here builds **both** kernels that this distro ships:
 
 | `_pagesize` | pkgbase | pkgver | splits |
 |---|---|---|---|
