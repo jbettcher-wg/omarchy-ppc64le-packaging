@@ -96,6 +96,7 @@ source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kern
         0006-powerpc-eeh-fix-pci_rescan_remove_lock-self-deadlock-in-eeh_rmv_device.patch
         0007-powerpc-mm-do-not-grow-max_pfn-for-ZONE_DEVICE.patch
         0008-powerpc-rust-support.patch
+        0009-drm-amdkfd-map-gpu-numa-node-to-cpu-proximity-domain.patch
         # Both configs are listed whatever _pagesize is, so the sums below
         # are one fixed list and the two builds share a source cache.
         config.4k
@@ -110,7 +111,9 @@ sha256sums=('039aef84f2b0994aeda3f4fcfc3d02ec9d7a9bbb9020ea264c43f446c860f606'
             '4f24f8bdcbae70eee6098a5161989140c735e838c32a5aa64b17d60d8fbf27f5'
             '982294b4a32b8b2cedcc0cbfcf929c9f3252dc9a71aa3f546770e04caa876b62'
             'd55b1c0260e8c21964ceefeffbe5f51afd3780cde7351b59096c72ea3da2428d'
-            'b794707a262d09e1861b0009716e38bebdded22c75156b873abd042f2ecb18aa')
+            'b794707a262d09e1861b0009716e38bebdded22c75156b873abd042f2ecb18aa'
+            '71e86c5b38cb2171c021765c2cf976a61e1787a21f18894f5dcf5b58ddd31b59'
+)
 
 # Reproducible-ish build stamps.  The old flow inherited whatever the shell
 # had; name them so two builds of the same pkgrel differ only by timestamp.
