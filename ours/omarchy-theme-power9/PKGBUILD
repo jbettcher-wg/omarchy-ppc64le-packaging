@@ -1,7 +1,7 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 pkgname=omarchy-theme-power9
 pkgver=1.0
-pkgrel=4
+pkgrel=5
 pkgdesc='Omarchy themes for ppc64le: power9 (IBM Blue 60 and POWER9 green, ppc64le branding), powerpc-classic and powerpc-after-dark (1994 PowerPC manual dust jacket, light and dark)'
 arch=('any')
 url='https://omarchy.org'
