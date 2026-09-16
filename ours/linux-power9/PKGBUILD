@@ -51,7 +51,7 @@ for _p in "${_extra[@]}"; do pkgname+=("$pkgbase-$_p"); done
 # the 4K package had already reached 7.2.2-21 under the old flow and
 # repo-publish.sh refuses a same-version rebuild with different contents.
 # Bump it for every change to this directory -- README.md, "Versioning".
-pkgrel=1
+pkgrel=2
 pkgdesc='Upstream Linux'
 url='https://www.kernel.org/'
 arch=(powerpc64le)
