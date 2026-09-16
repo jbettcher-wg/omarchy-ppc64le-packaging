@@ -15,6 +15,17 @@ The distribution is two repositories.
 | **this one** | every build script the distribution builds from — 4,562 pkgbases, 199 of them ours |
 | [**omarchy-ppc64le**](https://github.com/jbettcher-wg/omarchy-ppc64le) | the installer and ISO, the build tooling, the repo databases, and the docs |
 
+These recipes feed **two package pools**, both built from this one tree. A
+build is named for what it runs on, not for what it was tuned for:
+
+| pool | built | runs on | role |
+|---|---|---|---|
+| **`omarchy-ppc64le`** | POWER8-legal (ISA 2.07) | POWER8 → POWER11, every ppc64le machine | the baseline, and the default everywhere |
+| `omarchy-power9` | `-mcpu=power9`, ISA 3.0 | POWER9 only | optimised opt-in, layered ahead of the baseline |
+
+A recipe that pins an ISA of its own needs a toggle so both pools can be built
+from it; `chromium`'s `_power8_compat` is the pattern.
+
 `tools/bq.py` over there builds from **this tree and nothing else**. Arch's
 GitLab and the AUR are import sources reached through its `tools/fetch.sh`,
 which places a fetched recipe in the right category *here*; neither is
