@@ -1,0 +1,53 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+pkgname=omarchy-theme-powerpc
+pkgver=1.0
+pkgrel=1
+pkgdesc='PowerPC themes for Omarchy: powerpc-classic (light) and powerpc-after-dark (dark), after the dust jacket of the 1994 PowerPC architecture manual'
+arch=('any')
+url='https://omarchy.org'
+license=('MIT')
+depends=('omarchy')
+
+# Split out of omarchy-theme-power9 at 1.0-5. That package carries OpenPOWER and
+# POWER9 branding -- the braille cube, the IBM Blue 60 palette -- and is a
+# generation-specific thing. These two are generic PowerPC themes and are what
+# the stock ISO ships, so they get their own package and their own name.
+#
+# Omarchy reads themes from $OMARCHY_PATH/themes/<name>/ and lists them with
+# `omarchy theme list`. colors.toml is the only colour source -- alacritty,
+# btop, hyprland, neovim, kitty, ghostty, foot, helix, chromium and vscode are
+# all generated from it by $OMARCHY_PATH/default/themed/*.tpl on `theme set`.
+# Do not ship generated files here; they would be overwritten anyway.
+#
+# Both themes keep their optional overrides under extras/ rather than in the
+# theme root, so the generator wins and there is no duplicated config to
+# maintain. Note that extras/icons.theme therefore does not apply: there is no
+# icons.theme.tpl, so a theme that does not ship one in its root sets no icon
+# theme. That is the authored intent, not an omission here.
+#
+# Neither ships unlock.png, so `omarchy-plymouth-set-by-theme` has no boot logo
+# for them; the desktop theme is unaffected. extras/logos/powerpc-lockup-*.png
+# is the source material if that is ever wanted (Plymouth wants 800x188).
+
+package() {
+  local root="$pkgdir/usr/share/omarchy/themes"
+  local t
+
+  for t in powerpc-classic powerpc-after-dark; do
+    install -dm755 "$root/$t"
+    cp -a "$srcdir/../$t/." "$root/$t/"
+
+    # Documentation and licences belong with the docs, not in the theme
+    # picker's directory -- `omarchy theme list` shows every directory here.
+    if [ -f "$root/$t/README.md" ]; then
+      install -Dm644 "$root/$t/README.md" \
+        "$pkgdir/usr/share/doc/$pkgname/$t/README.md"
+      rm -f "$root/$t/README.md"
+    fi
+    if [ -f "$root/$t/LICENSE" ]; then
+      install -Dm644 "$root/$t/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/$t/LICENSE"
+      rm -f "$root/$t/LICENSE"
+    fi
+  done
+}

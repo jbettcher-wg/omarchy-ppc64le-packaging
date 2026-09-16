@@ -1,8 +1,8 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 pkgname=omarchy-theme-power9
 pkgver=1.0
-pkgrel=5
-pkgdesc='Omarchy themes for ppc64le: power9 (IBM Blue 60 and POWER9 green, ppc64le branding), powerpc-classic and powerpc-after-dark (1994 PowerPC manual dust jacket, light and dark)'
+pkgrel=6
+pkgdesc='POWER9 theme for Omarchy: IBM Blue 60 and POWER9 green, with ppc64le branding'
 arch=('any')
 url='https://omarchy.org'
 license=('MIT')
@@ -46,7 +46,7 @@ package() {
   local root="$pkgdir/usr/share/omarchy/themes"
   local t
 
-  for t in power9 powerpc-classic powerpc-after-dark; do
+  for t in power9; do
     install -dm755 "$root/$t"
     cp -a "$srcdir/../$t/." "$root/$t/"
 
