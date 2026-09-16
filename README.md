@@ -63,9 +63,11 @@ pkgbases were resolved: [`PROVENANCE.md`](PROVENANCE.md).
   that needed real work visible.
 - **Endianness and word size are the usual culprits.** x86 assumptions show up
   as hardcoded `x86_64` triplets, SSE intrinsics, `-m64`, and little-endian
-  struct punning. POWER9 is little-endian, which removes a whole class of bugs
+  struct punning. POWER9 is bi-endian silicon; this distribution runs it in
+  little-endian mode (`ppc64le`, ELFv2), which removes a whole class of bugs
   the historic big-endian ppc64 ports hit — do not assume old ppc64 patches
-  apply unchanged.
+  apply unchanged, and do not assume a package that builds big-endian says
+  anything about this target.
 - **Bump `pkgrel` before rebuilding something already published.** pacman
   compares versions, not contents.
 
