@@ -1,11 +1,19 @@
-<!-- The POWER9-optimised sibling of this recipe is ours/linux-power9.
-     This one is the baseline: CONFIG_POWER8_CPU (ISA 2.07), so it runs on
-     POWER8 and every later ppc64le machine. Same patch series, same
-     configs otherwise; built for the pool that serves all ppc64le. -->
-
 # `linux-omarchy`
 
-The baseline ppc64le kernel, as a recipe. `PKGBUILD` here builds **both** kernels that
+The baseline ppc64le kernel, as a recipe.
+
+**This is the baseline kernel: `CONFIG_POWER8_CPU`, so `-mcpu=power8`
+(ISA 2.07).** It runs on POWER8 and every later ppc64le machine, which is why
+it carries no generation in its name. `ours/linux-power9` is the same recipe
+with `CONFIG_POWER9_CPU`, built for machines known to be POWER9.
+
+The two configs differ from that sibling in exactly two symbols,
+`CONFIG_POWER9_CPU`/`CONFIG_POWER8_CPU` and `CONFIG_TARGET_CPU`. Everything
+else — the patch series, the page-size variants, the split packages — is
+identical, and a change to one recipe usually belongs in the other.
+
+The CPU floor cannot be set from `makepkg.conf`: `arch/powerpc/Makefile` takes
+`-mcpu` from `CONFIG_TARGET_CPU`, so the config is the only place it lives. `PKGBUILD` here builds **both** kernels that
 this distro ships:
 
 | `_pagesize` | pkgbase | pkgver | splits |
