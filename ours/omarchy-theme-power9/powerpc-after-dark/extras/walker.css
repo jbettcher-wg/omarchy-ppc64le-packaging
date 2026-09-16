@@ -1,0 +1,13 @@
+/* powerpc-after-dark — launcher on ink, crimson selection. */
+
+#window { background: transparent; }
+#box {
+  background: #17120D;
+  border: 1px solid #3A2C1E;
+  border-radius: 8px;
+  overflow: hidden;
+  color: #E4D8C0;
+}
+#search { background: #1C1610; color: #F3EBDA; border-bottom: 1px solid #3A2C1E; }
+#item:selected { background: #C3325A; color: #FFFDF7; }
+#activationlabel { color: #BE9E64; }

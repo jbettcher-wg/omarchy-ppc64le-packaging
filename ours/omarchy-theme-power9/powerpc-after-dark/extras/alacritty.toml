@@ -1,0 +1,34 @@
+# Local override — stripped from git-installed themes, regenerated from
+# colors.toml. Kept for a local copy.
+
+[colors.primary]
+background = "#17120D"
+foreground = "#E4D8C0"
+
+[colors.cursor]
+text   = "#17120D"
+cursor = "#C3325A"
+
+[colors.selection]
+background = "#3A2C1E"
+foreground = "#F3EBDA"
+
+[colors.normal]
+black   = "#17120D"
+red     = "#C3325A"
+green   = "#4E9C7A"
+yellow  = "#D2AE62"
+blue    = "#7BA0C4"
+magenta = "#BE90AC"
+cyan    = "#59A9A0"
+white   = "#E4D8C0"
+
+[colors.bright]
+black   = "#6B5940"
+red     = "#E4567C"
+green   = "#6FBE99"
+yellow  = "#E8CB8A"
+blue    = "#9FBEDC"
+magenta = "#D7AEC6"
+cyan    = "#7FC8C0"
+white   = "#FFFDF7"

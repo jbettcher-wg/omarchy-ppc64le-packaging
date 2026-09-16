@@ -1,8 +1,8 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 pkgname=omarchy-theme-power9
 pkgver=1.0
-pkgrel=3
-pkgdesc='POWER9 theme for Omarchy: IBM Blue 60 and POWER9 green, with ppc64le branding'
+pkgrel=4
+pkgdesc='Omarchy themes for ppc64le: power9 (IBM Blue 60 and POWER9 green, ppc64le branding), powerpc-classic and powerpc-after-dark (1994 PowerPC manual dust jacket, light and dark)'
 arch=('any')
 url='https://omarchy.org'
 license=('MIT')
@@ -16,7 +16,17 @@ sha256sums=('SKIP')
 # all generated from it by $OMARCHY_PATH/default/themed/*.tpl on `theme set`.
 # Do not ship generated files here; they would be overwritten anyway.
 #
-# The theme ships two things that are NOT part of the theme spec:
+# One package carries every theme we author. A theme is arch=any, so this same
+# package serves both pools; it belongs in the ppc64le baseline, and POWER9
+# machines find it there because they have both repos enabled.
+#
+# The two powerpc themes keep their optional overrides under extras/ rather
+# than in the theme root, so the generator wins and there is no duplicated
+# config to maintain. Note that extras/icons.theme therefore does not apply:
+# there is no icons.theme.tpl, so a theme that does not ship one in its root
+# sets no icon theme. That is the authored intent, not an omission here.
+#
+# power9 additionally ships three things that are NOT part of the theme spec:
 #
 #   ascii/      banner, issue, motd, splash, die, chip. Branding, not theming.
 #               The ISO profile installs issue/motd/banner onto the live medium
@@ -30,16 +40,31 @@ sha256sums=('SKIP')
 #               with the Omarchy swirl on every face. Applied to accounts
 #               p9-install creates; an account that already exists applies it
 #               with omarchy-theme-power9-branding. No screensaver.txt: the
-#               screensaver keeps Omarchy's own logo (1.0-3 dropped the POWER9
-#               wordmark there).
-#
-# Both are installed under the theme directory so `omarchy theme set power9`
-# keeps them together with the colours they match, and so a user can find them.
+#               screensaver keeps Omarchy's own logo.
 
 package() {
-  local themedir="$pkgdir/usr/share/omarchy/themes/power9"
-  install -dm755 "$themedir"
-  cp -a "$srcdir/../power9/." "$themedir/"
+  local root="$pkgdir/usr/share/omarchy/themes"
+  local t
+
+  for t in power9 powerpc-classic powerpc-after-dark; do
+    install -dm755 "$root/$t"
+    cp -a "$srcdir/../$t/." "$root/$t/"
+
+    # Documentation and licences belong with the docs, not in the theme
+    # picker's directory -- `omarchy theme list` shows every directory here.
+    if [ -f "$root/$t/README.md" ]; then
+      install -Dm644 "$root/$t/README.md" \
+        "$pkgdir/usr/share/doc/$pkgname/$t/README.md"
+      rm -f "$root/$t/README.md"
+    fi
+    if [ -f "$root/$t/LICENSE" ]; then
+      install -Dm644 "$root/$t/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/$t/LICENSE"
+      rm -f "$root/$t/LICENSE"
+    fi
+  done
+
+  local themedir="$root/power9"
 
   # The shipped fastfetch config points at ~/.config/omarchy/themes/, which was
   # the Omarchy 3 theme location. Nothing reads this file, but leaving a path
@@ -47,27 +72,13 @@ package() {
   sed -i 's#~/.config/omarchy/themes/power9#/usr/share/omarchy/themes/power9#' \
     "$themedir/fastfetch/config.jsonc"
 
-  # Documentation belongs with the docs, not in the theme picker's directory.
-  install -Dm644 "$themedir/README.md" \
-    "$pkgdir/usr/share/doc/$pkgname/README.md"
-  rm -f "$themedir/README.md"
-
-  install -Dm644 "$pkgdir/usr/share/omarchy/themes/power9/ascii/banner.txt" \
+  install -Dm644 "$themedir/ascii/banner.txt" \
     "$pkgdir/usr/share/doc/$pkgname/banner.txt"
 
-  # Branding, sized to the slot Omarchy reads.
-  #
-  #   about.txt       26 rows x 54 cols budget -- omarchy-launch-about measures
-  #                   the logo and sizes the window to it, so an oversized file
-  #                   does not crop, it opens a window wider than the screen.
-  #                   die.txt is 12x44.
-  #
-  # fastfetch/logo-cube.txt is 32x111 and does not fit; it stays a splash asset.
   # btop.theme is kept. omarchy-theme-set-templates only renders a template
   # when the theme does not already ship that file (`[[ ! -f $output_path ]]`),
-  # so this hand-written btop theme wins over btop.theme.tpl, and it survives
-  # `omarchy theme install` from git too. (1.0-1 deleted it on the wrong belief
-  # that the generator overwrites it.)
+  # so a hand-written btop theme wins over btop.theme.tpl, and it survives
+  # `omarchy theme install` from git too.
 
   # obsidian/ is an optional standalone Obsidian theme, not part of the Omarchy
   # theme spec: Omarchy already generates Obsidian colours from colors.toml via
@@ -85,11 +96,6 @@ package() {
   # Omarchy's own icon, so it costs nothing to use. Do not widen past 54: the
   # window is sized to the logo, so an over-wide logo opens an over-wide window
   # rather than cropping.
-  #
-  # The -50 variant carries its own ANSI colour, so /etc/fastfetch/config.jsonc's
-  # "color": { "1": "green" } does not repaint it -- that mapping only recolours
-  # art that has no colour of its own. Measure this file with the escapes
-  # stripped; raw `wc -L` reports 105 and is meaningless here.
   install -m644 "$themedir/fastfetch/logo-cube-50.txt" "$themedir/branding/about.txt"
 
   # For accounts that already exist; p9-install handles the ones it creates.

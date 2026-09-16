@@ -1,0 +1,38 @@
+mode = "light"
+
+# powerpc-classic — from the jacket of "The PowerPC Architecture" (IBM, 1994).
+# Cream paper and 90s beige carry the surface; forest green is structure,
+# crimson is action and focus, gold is rule-work and annotation.
+
+accent = "#9E2044"
+selection = "#E4D7BE"
+muted = "#B3A488"
+
+background = "#EFE6D4"
+dark_background = "#E4D7BE"
+darker_background = "#D8C8AA"
+lighter_background = "#F6F0E3"
+
+foreground = "#3B3229"
+dark_foreground = "#5A4E40"
+light_foreground = "#6B5940"
+bright_foreground = "#241E18"
+
+hyprland_active_border = "rgba(9E2044ff) rgba(2A5D4Cff) 45deg"
+hyprland_inactive_border = "rgba(CDBB9Ccc)"
+
+red = "#9E2044"
+yellow = "#B07D2A"
+orange = "#C05E28"
+green = "#2A5D4C"
+cyan = "#3F7F78"
+blue = "#3A628C"
+magenta = "#8E5A78"
+brown = "#6B5940"
+
+bright_red = "#C9556F"
+bright_yellow = "#D2AE62"
+bright_green = "#5E8F72"
+bright_cyan = "#6FA9A2"
+bright_blue = "#6D91B5"
+bright_magenta = "#B285A0"

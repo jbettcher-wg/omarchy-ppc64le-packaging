@@ -1,0 +1,38 @@
+mode = "dark"
+
+# powerpc-after-dark — the jacket at night. Same book, polarized: near-black
+# board stock, gold drafting lines, crimson pushed brighter so it still reads
+# as action against ink, forest lifted so it stops disappearing.
+
+accent = "#C3325A"
+selection = "#3A2C1E"
+muted = "#6B5940"
+
+background = "#17120D"
+dark_background = "#0E0B08"
+darker_background = "#080605"
+lighter_background = "#241C14"
+
+foreground = "#E4D8C0"
+dark_foreground = "#A98C5F"
+light_foreground = "#F3EBDA"
+bright_foreground = "#FFFDF7"
+
+hyprland_active_border = "rgba(C3325Aff) rgba(BE9E64ff) 45deg"
+hyprland_inactive_border = "rgba(3A2C1Ecc)"
+
+red = "#C3325A"
+yellow = "#D2AE62"
+orange = "#D9773C"
+green = "#4E9C7A"
+cyan = "#59A9A0"
+blue = "#7BA0C4"
+magenta = "#BE90AC"
+brown = "#A98C5F"
+
+bright_red = "#E4567C"
+bright_yellow = "#E8CB8A"
+bright_green = "#6FBE99"
+bright_cyan = "#7FC8C0"
+bright_blue = "#9FBEDC"
+bright_magenta = "#D7AEC6"

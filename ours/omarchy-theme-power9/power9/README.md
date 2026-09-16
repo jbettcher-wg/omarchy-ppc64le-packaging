@@ -144,7 +144,7 @@ It is a standalone Obsidian theme, installed the Obsidian way:
 
 ```bash
 mkdir -p /path/to/vault/.obsidian/themes/power9
-cp /usr/share/doc/omarchy-theme-power9/obsidian/* /path/to/vault/.obsidian/themes/power9/
+cp obsidian/* /path/to/vault/.obsidian/themes/power9/
 ```
 
 Then Settings → Appearance → Themes → **power9**. Per-vault, so repeat it for
@@ -164,7 +164,7 @@ If you would rather layer on top of your current theme than replace it, use it
 as a snippet instead:
 
 ```bash
-cp /usr/share/doc/omarchy-theme-power9/obsidian/theme.css /path/to/vault/.obsidian/snippets/power9.css
+cp obsidian/theme.css /path/to/vault/.obsidian/snippets/power9.css
 ```
 
 Enable under Settings → Appearance → CSS snippets.
@@ -221,13 +221,9 @@ gtk-decoration-layout=:close
 
 and the same key in `~/.config/gtk-4.0/settings.ini`.
 
-**Electron apps** (Obsidian, VS Code, Discord) draw their own title bars, and
-there is no theme or GTK setting that hides just the minimize button there.
-Obsidian's own title bar (the default, **Native frame** off) always shows
-minimize, maximize and close. Under Hyprland, pressing minimize leaves the
-window frozen on screen, because Hyprland has no minimize state to return
-from. Avoid the button until Electron treats minimize as a no-op on
-compositors that don't advertise it.
+**Electron apps** (Obsidian, VS Code, Discord) each have their own setting.
+Obsidian: Settings → Appearance → **Native frame** off, which hands the
+titlebar to Obsidian's own minimal chrome.
 
 Checked against Omarchy's theming docs: there is no window-control key in the
 theme spec at any level. The full list a theme may ship is `colors.toml`,

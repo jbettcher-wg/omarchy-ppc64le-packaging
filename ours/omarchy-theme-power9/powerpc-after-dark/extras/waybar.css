@@ -1,0 +1,21 @@
+/* powerpc-after-dark — ink bar, gold hairline, crimson active. */
+
+* { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+
+window#waybar {
+  background: #1C1610;
+  color: #C0B296;
+  border-bottom: 1px solid #3A2C1E;
+}
+
+#workspaces button { color: #6B5940; padding: 0 10px; border-radius: 4px; }
+#workspaces button.active { background: #C3325A; color: #FFFDF7; }
+#workspaces button.urgent { background: #D2AE62; color: #17120D; }
+
+#clock { color: #F3EBDA; font-weight: 600; }
+#cpu { color: #9FBEDC; }
+#memory { color: #E8CB8A; }
+#pulseaudio { color: #6FBE99; }
+#battery.warning { color: #D9773C; }
+#battery.critical { color: #E4567C; }
+#tray { border-left: 1px solid #3A2C1E; padding-left: 10px; }

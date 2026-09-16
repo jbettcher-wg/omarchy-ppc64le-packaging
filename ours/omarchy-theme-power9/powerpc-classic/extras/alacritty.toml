@@ -1,0 +1,35 @@
+# Local override. Omarchy generates its own alacritty colours from
+# colors.toml, and STRIPS this file from git-installed themes — it is here
+# for a local copy in ~/.config/omarchy/themes/powerpc-classic/ only.
+
+[colors.primary]
+background = "#EFE6D4"
+foreground = "#3B3229"
+
+[colors.cursor]
+text   = "#EFE6D4"
+cursor = "#9E2044"
+
+[colors.selection]
+background = "#E4D7BE"
+foreground = "#241E18"
+
+[colors.normal]
+black   = "#3B3229"
+red     = "#9E2044"
+green   = "#2A5D4C"
+yellow  = "#B07D2A"
+blue    = "#3A628C"
+magenta = "#8E5A78"
+cyan    = "#3F7F78"
+white   = "#EFE6D4"
+
+[colors.bright]
+black   = "#6B5E4E"
+red     = "#C9556F"
+green   = "#5E8F72"
+yellow  = "#D2AE62"
+blue    = "#6D91B5"
+magenta = "#B285A0"
+cyan    = "#6FA9A2"
+white   = "#FBF6EA"

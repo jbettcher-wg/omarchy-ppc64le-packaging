@@ -1,0 +1,13 @@
+/* powerpc-classic — launcher on paper, crimson selection. */
+
+#window { background: transparent; }
+#box {
+  background: #EFE6D4;
+  border: 1px solid #CDBB9C;
+  border-radius: 8px;
+  color: #3B3229;
+}
+#box { overflow: hidden; }
+#search { background: #E7DAC2; color: #3B3229; border-bottom: 1px solid #CDBB9C; }
+#item:selected { background: #9E2044; color: #EFE6D4; }
+#activationlabel { color: #BE9E64; }

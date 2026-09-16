@@ -1,0 +1,23 @@
+/* powerpc-classic — paper bar, crimson active, forest confirmations.
+   Omarchy regenerates waybar colours from colors.toml; this is the local
+   override if you want the ruled-paper look with the gold hairline. */
+
+* { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+
+window#waybar {
+  background: #E7DAC2;
+  color: #5A4E40;
+  border-bottom: 1px solid #CDBB9C;
+}
+
+#workspaces button { color: #8A7A66; padding: 0 10px; border-radius: 4px; }
+#workspaces button.active { background: #9E2044; color: #EFE6D4; }
+#workspaces button.urgent { background: #B07D2A; color: #241E18; }
+
+#clock { color: #3B3229; font-weight: 600; }
+#cpu { color: #3A628C; }
+#memory { color: #5F5226; }
+#pulseaudio { color: #2A5D4C; }
+#battery.warning { color: #C05E28; }
+#battery.critical { color: #9E2044; }
+#tray { border-left: 1px solid #CDBB9C; padding-left: 10px; }
