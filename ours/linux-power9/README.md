@@ -234,3 +234,24 @@ declares `arch=(powerpc64le)` itself, and `CARCH` comes from
 - **No signature check.** kernel.org publishes a detached `.sign` for the
   tarball; this recipe pins the sha256 instead, because `validpgpkeys` needs
   the signing keys in the builder's keyring and `bq` builds without one.
+
+## 0009: sparse NUMA and amdkfd
+
+`0009-drm-amdkfd-map-gpu-numa-node-to-cpu-proximity-domain.patch` is not a
+POWER8 fix or a single-machine fix, even though it surfaced on an 8335-GCA
+with two Radeon Pro V620s. It applies to any machine whose NUMA node ids are
+sparse.
+
+`kfd_create_vcrat_image_cpu()` numbers CPU proximity domains sequentially as
+it walks the online nodes, while `kfd_fill_gpu_direct_io_link_to_cpu()` stored
+the GPU's raw `numa_node`. On a box with nodes 0 and 8, a GPU on node 8 points
+its IO link at proximity domain 8, which does not exist, so
+`kfd_parse_subtype_iolink()` returns `-ENODEV` and the device is dropped:
+
+    kfd kfd: device 1002:73a1 NOT added due to errors
+
+**Both AC922s here have nodes 0 and 8**, so the bug is latent on this hardware
+too. It is invisible only because no GPU currently needs KFD enumeration on
+the second node; an Instinct card on the other PHB would bring it straight
+back. That is why the patch sits in the shared series and both kernels carry
+it.
