@@ -11,7 +11,7 @@ pkgname=(
   libnautilus-extension-docs
 )
 pkgver=50.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Default file manager for GNOME"
 url="https://apps.gnome.org/Nautilus/"
 arch=(x86_64 powerpc64le)
@@ -61,8 +61,10 @@ checkdepends=(
 )
 source=(
   "git+https://gitlab.gnome.org/GNOME/nautilus.git#tag=${pkgver/[a-z]/.&}"
+  0001-image-properties-make-the-tag-arrays-static.patch
 )
-b2sums=('1bf6f3862aa2bba55b387135f49e537a9444447d97998d0cd125ef6c285e31aa9c328a69dd691d640e651810082cee85309241376a7145270c7deba01028a1cc')
+b2sums=('1bf6f3862aa2bba55b387135f49e537a9444447d97998d0cd125ef6c285e31aa9c328a69dd691d640e651810082cee85309241376a7145270c7deba01028a1cc'
+        '26c902cc9acd270aa01b3a9d7cf458a82c5773208bd48876cb4bfc803cf7401f5ef169f2c19240a635448f22940af8c735373a484243c3f56bb1ad29413c56a6')
 validpgpkeys=(
   6B211753AC950672287226800538577822AE4B17 # António Fernandes <antoniof@gnome.org>
   550660707A6F40376B9B9F8D504A78811E6160CC # Corey Berla <corey@berla.me>
@@ -70,6 +72,9 @@ validpgpkeys=(
 
 prepare() {
   cd nautilus
+  # Upstream's image-properties tag arrays are non-static, so libncursesw's
+  # flash() gets read as a tag-name array and Properties on an image crashes.
+  patch -Np1 -i ../0001-image-properties-make-the-tag-arrays-static.patch
 }
 
 build() {
