@@ -1,10 +1,9 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Morten Linderud <foxboron@archlinux.org>
 # Maintainer: Christian Heusel <gromit@archlinux.org>
 # Contributor: Joakim Saario <saario.joakim@gmail.com>
 
 pkgname=docker-buildx
-pkgver=0.23.0
+pkgver=0.37.1
 pkgrel=1
 pkgdesc="Docker CLI plugin for extended build capabilities with BuildKit"
 arch=(x86_64 powerpc64le powerpc64)
@@ -14,7 +13,7 @@ makedepends=('go' 'git')
 depends=('glibc')
 options=(!lto)
 source=("git+https://github.com/docker/buildx.git#tag=v${pkgver}")
-sha512sums=('481f6a4960d7dcde0406de4875a8849fa15e4639eb1661fbb41a94c6d81c964e5a06302f74e52d141bab5a69ef1e1d95d70d84e1e9c18e9c13ab60a178d7d858')
+sha512sums=('e9a52f06962bdf883c15370b5c052b66b51f61b8c764b43433142bb22068d9dc34eef63d2de81a3ffcb159caa73334abb6c884f8a2451f46dcbe00f335b775e3')
 
 build() {
   cd "buildx"
@@ -22,12 +21,7 @@ build() {
   export CGO_CFLAGS="${CFLAGS}"
   export CGO_CXXFLAGS="${CXXFLAGS}"
   export CGO_LDFLAGS="${LDFLAGS}"
-  case "${CARCH}" in
-    powerpc64) BUILDMODE="" ;;
-    *)         BUILDMODE="-buildmode=pie" ;;
-  esac
-
-  export GOFLAGS="${BUILDMODE} -trimpath -mod=readonly -modcacherw"
+  export GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
   _buildx_r=github.com/docker/buildx
   go build -mod=vendor -o docker-buildx -ldflags "-linkmode=external \
     -compressdwarf=false \
