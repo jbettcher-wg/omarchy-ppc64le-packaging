@@ -1,0 +1,49 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# omarchy-nx-gzip -- unprivileged access to POWER9's NX gzip accelerator.
+#
+# The accelerator is reached two ways and they are not the same thing:
+#
+#   * the crypto API's 842 algorithm, from nx-compress-powernv.ko, which udev
+#     autoloads off the device-tree vas@... node. Kernel consumers (zswap,
+#     zram) ask for "842" and get it; userspace never opens a device.
+#   * /dev/crypto/nx-gzip, the VAS window interface (CONFIG_PPC_VAS, built in,
+#     no module), which is what userspace gzip/zlib acceleration -- libnxz,
+#     IBM's power-gzip -- opens directly. Root-only out of the box.
+#
+# This package is about the second one. It ships the two files that make the
+# device usable without sudo, and nothing else:
+#
+#   * a udev rule with TAG+="uaccess", so logind puts an ACL on the node for
+#     whoever is logged in on the seat. That covers the desktop case with no
+#     group membership and no re-login.
+#   * the same rule sets GROUP="nxgzip" MODE="0660", because uaccess only
+#     covers an interactive session: a build account over ssh or a system
+#     service gets nothing from it. sysusers.d creates the group at install
+#     time rather than a groupadd in a scriptlet.
+#
+# SUBSYSTEM=="nx-gzip" is what udevadm reports for /devices/virtual/nx-gzip,
+# so the match is tighter than KERNEL== alone.
+#
+# 4K kernels: linux-power9's config.4k has no CONFIG_PPC_VAS, so the device
+# does not exist there and these files sit inert. config.64k has it.
+
+pkgname=omarchy-nx-gzip
+pkgver=1.0
+pkgrel=1
+pkgdesc="Unprivileged access to the POWER9 NX gzip accelerator (/dev/crypto/nx-gzip)"
+arch=(any)
+url='https://github.com/jbettcher-wg/omarchy-ppc64le'
+license=(MIT)
+depends=(systemd)
+source=(90-nx-gzip.rules
+        nx-gzip.sysusers)
+sha256sums=('SKIP'
+            'SKIP')
+
+package() {
+  install -Dm644 "$srcdir/90-nx-gzip.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/90-nx-gzip.rules"
+  install -Dm644 "$srcdir/nx-gzip.sysusers" \
+    "$pkgdir/usr/lib/sysusers.d/nx-gzip.conf"
+}

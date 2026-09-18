@@ -1,0 +1,2 @@
+# Group for /dev/crypto/nx-gzip; see /usr/lib/udev/rules.d/90-nx-gzip.rules.
+g nxgzip -

@@ -1,0 +1,8 @@
+# POWER9 NX gzip accelerator (VAS window interface, CONFIG_PPC_VAS).
+#
+# uaccess: logind ACLs the node for the user logged in on the seat, so the
+# desktop case needs no group and no re-login.
+# GROUP/MODE: uaccess covers only an interactive session, so keep a group for
+# ssh build accounts and system services. omarchy-nx-gzip's sysusers.d entry
+# creates it.
+SUBSYSTEM=="nx-gzip", KERNEL=="nx-gzip", GROUP="nxgzip", MODE="0660", TAG+="uaccess"
