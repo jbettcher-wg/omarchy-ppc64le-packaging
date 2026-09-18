@@ -60,7 +60,7 @@ case ${CARCH} in
 esac
 pkgver=16.1.1+r346+g4e03491b401d
 _commit=4e03491b401dce0658543dd90524ddb92063836e
-pkgrel=1
+pkgrel=2
 pkgdesc='The GNU Compiler Collection'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 license=(
@@ -208,6 +208,23 @@ build() {
              --disable-multilib
              --with-abi=elfv2
          )
+          # Pin the compiler's default CPU to the one this build is compiling
+          # for. Without it the target libraries take gcc's built-in default,
+          # which is how libgcc.a ends up with ISA 3.0 encodings in a POWER8
+          # build: libgcc/config/rs6000/t-linux compiles _fixunstfdi.o (and the
+          # rest of IBM128_OBJS) with -mabi=ibmlongdouble and no -mcpu, so the
+          # default decides. __fixunstfdi is linked into anything converting a
+          # long double to an integer -- flock, waitpid, scriptreplay -- and on
+          # a real POWER8 those die with SIGILL, which is also what breaks
+          # uwsm-app's flock lock and every app launch after it.
+          _mcpu=${CFLAGS##*-mcpu=}; _mcpu=${_mcpu%% *}
+          case "$_mcpu" in
+            power*)
+              msg2 "configuring gcc for --with-cpu=$_mcpu (from CFLAGS)"
+              _confflags+=(--with-cpu="$_mcpu" --with-tune="$_mcpu")
+              ;;
+            *) error "no -mcpu=power* in CFLAGS; refusing to build a gcc whose target libraries have an unknown ISA level"; return 1 ;;
+          esac
     ;;
   esac
 
