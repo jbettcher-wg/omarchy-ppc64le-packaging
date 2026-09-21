@@ -1,0 +1,206 @@
+#!/usr/bin/python3
+# omarchy:summary=Print the Antigravity usage record as JSON
+# omarchy:args=[--force] [--limits-only]
+# omarchy:hidden=true
+"""Collect Antigravity usage into one display-ready JSON record for Omarchy bar."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import glob
+import json
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Collect Antigravity usage record")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--limits-only", action="store_true")
+    args = parser.parse_args()
+
+    home = Path.home()
+    gemini_dir = home / ".gemini" / "antigravity-cli"
+    history_file = gemini_dir / "history.jsonl"
+    db_file = gemini_dir / "conversation_summaries.db"
+    settings_file = gemini_dir / "settings.json"
+    brain_dir = gemini_dir / "brain"
+
+    now_utc = dt.datetime.now(dt.timezone.utc)
+    today_local = dt.datetime.now().date()
+    today_str = today_local.strftime("%Y-%m-%d")
+
+    # Determine configured model
+    tier_label = "Gemini 3.8 Flash"
+    if settings_file.exists():
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                if "model" in settings and settings["model"]:
+                    tier_label = settings["model"]
+        except Exception:
+            pass
+
+    # Model identifier
+    model_id = "gemini-3.8-flash"
+    if "pro" in tier_label.lower():
+        model_id = "gemini-3.8-pro"
+
+    # Analyze history.jsonl
+    prompts_by_date: dict[str, int] = {}
+    total_prompts = 0
+    today_prompts = 0
+
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        total_prompts += 1
+                        ts = entry.get("timestamp")
+                        if ts:
+                            d = dt.datetime.fromtimestamp(ts / 1000.0).strftime("%Y-%m-%d")
+                            prompts_by_date[d] = prompts_by_date.get(d, 0) + 1
+                            if d == today_str:
+                                today_prompts += 1
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    active_dates = sorted(prompts_by_date.keys())
+    active_days = len(active_dates)
+
+    # 7-day recentDays array ending today
+    recent_days = []
+    for i in range(6, -1, -1):
+        day = (today_local - dt.timedelta(days=i)).strftime("%Y-%m-%d")
+        recent_days.append({
+            "date": day,
+            "messageCount": prompts_by_date.get(day, 0)
+        })
+
+    # Analyze conversation_summaries.db
+    total_sessions = 0
+    today_sessions = 0
+    if db_file.exists():
+        try:
+            conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+            cur = conn.cursor()
+            cur.execute("SELECT count(*) FROM conversation_summaries")
+            total_sessions = cur.fetchone()[0] or 0
+
+            cur.execute(
+                "SELECT count(*) FROM conversation_summaries "
+                "WHERE date(last_modified_time, 'localtime') = ? OR date(last_user_input_time, 'localtime') = ?",
+                (today_str, today_str),
+            )
+            today_sessions = cur.fetchone()[0] or 0
+            conn.close()
+        except Exception:
+            pass
+
+    # Token counting from transcripts
+    total_input_chars = 0
+    total_output_chars = 0
+    today_input_chars = 0
+    today_output_chars = 0
+
+    if brain_dir.exists():
+        for tpath in brain_dir.glob("*/.system_generated/logs/transcript.jsonl"):
+            try:
+                with open(tpath, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            item = json.loads(line)
+                            source = item.get("source")
+                            content = item.get("content", "") or ""
+                            thinking = item.get("thinking", "") or ""
+                            created_at = item.get("created_at", "")
+
+                            is_today = False
+                            if created_at:
+                                try:
+                                    c_dt = dt.datetime.fromisoformat(created_at.replace("Z", "+00:00")).astimezone()
+                                    if c_dt.date() == today_local:
+                                        is_today = True
+                                except Exception:
+                                    pass
+
+                            if source in ("USER_EXPLICIT", "USER_INPUT"):
+                                c_len = len(content)
+                                total_input_chars += c_len
+                                if is_today:
+                                    today_input_chars += c_len
+                            elif source == "MODEL":
+                                c_len = len(content) + len(thinking)
+                                total_output_chars += c_len
+                                if is_today:
+                                    today_output_chars += c_len
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
+    # Approximate ~4 characters per token
+    total_input_tokens = total_input_chars // 4
+    total_output_tokens = total_output_chars // 4
+    total_tokens = total_input_tokens + total_output_tokens
+
+    today_input_tokens = today_input_chars // 4
+    today_output_tokens = today_output_chars // 4
+    today_total_tokens = today_input_tokens + today_output_tokens
+
+    model_usage = {
+        model_id: {
+            "inputTokens": total_input_tokens,
+            "outputTokens": total_output_tokens,
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "totalTokens": total_tokens
+        }
+    }
+
+    today_tokens_by_model = {
+        model_id: today_total_tokens
+    }
+
+    record = {
+        "schemaVersion": 1,
+        "id": "agy",
+        "name": "Antigravity",
+        "updatedAt": now_utc.isoformat(),
+        "ready": True,
+        "hasLocalStats": True,
+        "hasPromptStats": True,
+        "tierLabel": tier_label,
+        "usageStatusText": "",
+        "authHelpText": "",
+        "todayPrompts": today_prompts,
+        "todaySessions": today_sessions,
+        "todayTotalTokens": today_total_tokens,
+        "todayTokensByModel": today_tokens_by_model,
+        "recentDays": recent_days,
+        "totalPrompts": total_prompts,
+        "totalSessions": total_sessions,
+        "activeDays": active_days,
+        "activeDates": active_dates,
+        "modelUsage": model_usage,
+        "limits": []
+    }
+
+    print(json.dumps(record))
+
+
+if __name__ == "__main__":
+    main()

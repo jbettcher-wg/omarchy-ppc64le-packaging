@@ -32,7 +32,7 @@
 pkgname=omarchy
 pkgver=4.0.3
 # pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.3-1.
-pkgrel=5
+pkgrel=6
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -102,11 +102,13 @@ conflicts=(omarchy-dev)
 _upstream_arch=x86_64
 _srcpkg="${pkgname}-${pkgver}-1-${_upstream_arch}.pkg.tar.zst"
 source=("https://pkgs.omarchy.org/x86_64/${_srcpkg}"
-        omarchy-pkg-aur-precheck)
+        omarchy-pkg-aur-precheck
+        omarchy-agent-usage-agy)
 noextract=("${_srcpkg}")
 # From %SHA256SUM% in the upstream omarchy.db, not computed from a local copy.
 sha256sums=('665e0a63d2fa4943c20dac70f71a7e9f8c315e8f2f321797880bf822428522a5'
-            '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b')
+            '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
+            'dad725d0264ed48f70f89c374c0e4d0d40ac4790baede9d76543b3899226d5f0')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -271,4 +273,8 @@ fi
   bash -n "$_aur"
   grep -qF 'omarchy-pkg-aur-precheck $pkg_names' "$_aur" ||
     { echo "omarchy: precheck hook did not apply" >&2; return 1; }
+
+  # ppc64le: ship omarchy-agent-usage-agy for the agents panel
+  install -Dm755 "${srcdir}/omarchy-agent-usage-agy" "${pkgdir}/usr/bin/omarchy-agent-usage-agy"
+  ln -sf /usr/bin/omarchy-agent-usage-agy "${pkgdir}/usr/share/omarchy/bin/omarchy-agent-usage-agy"
 }
