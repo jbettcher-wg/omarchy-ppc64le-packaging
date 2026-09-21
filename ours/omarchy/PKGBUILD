@@ -19,7 +19,8 @@
 # dependency here that could never be satisfied by porting harder.
 #
 # Changes to the shipped tree are each justified at the point they are made in
-# package(), including the AUR install precheck added in 4.0.3-4.  Everything else ships byte-for-byte as upstream built it.
+# package(), including the AUR install precheck added in 4.0.3-4, and Antigravity
+# (agy) backport in 4.0.3-5.  Everything else ships byte-for-byte as upstream built it.
 #
 # Upstream publishes no PKGBUILD -- the Omarchy repo distributes built packages
 # only -- so the source *is* the upstream package, exactly as for omarchy-nvim.
@@ -31,7 +32,7 @@
 pkgname=omarchy
 pkgver=4.0.3
 # pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.3-1.
-pkgrel=4
+pkgrel=5
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -200,6 +201,24 @@ package() {
   sed -i \
     's#^mkdir -p "\$(dirname "\$agent_file")"#if [[ $agent == claude ]]; then\n  _cc=$(mise where "$agent_package" 2>/dev/null) \&\& [[ -d $_cc/vendor/ripgrep ]] \&\&\n    mkdir -p "$_cc/vendor/ripgrep/ppc64-linux" \&\&\n    ln -sf "$(command -v rg)" "$_cc/vendor/ripgrep/ppc64-linux/rg"\nfi\nmkdir -p "$(dirname "$agent_file")"#' \
     "${pkgdir}/usr/bin/omarchy-default-agent"
+
+  # ppc64le: backport Antigravity (agy) coding agent from upstream quattro (commit ed7bae4ac5).
+  # Upstream replaced Gemini with Antigravity across omarchy-default-agent, omarchy-agent,
+  # and the shell menu.
+  sed -i \
+    -e 's@omarchy:args=\[pi|omp|opencode|claude|codex|grok|gemini|@omarchy:args=[pi|omp|opencode|claude|codex|grok|agy|@' \
+    -e 's@gemini | gemini-cli) agent="gemini"; name="Gemini" ;;@agy | antigravity | antigravity-cli | gemini | gemini-cli) agent="agy"; name="Antigravity"; agent_package="antigravity-cli" ;;@' \
+    -e 's@Usage: omarchy-default-agent <pi|omp|opencode|claude|codex|grok|gemini|@Usage: omarchy-default-agent <pi|omp|opencode|claude|codex|grok|agy|@' \
+    "${pkgdir}/usr/bin/omarchy-default-agent"
+  grep -q 'agent="agy"' "${pkgdir}/usr/bin/omarchy-default-agent" ||
+    { echo "omarchy: failed to patch agy into omarchy-default-agent" >&2; return 1; }
+
+  sed -i \
+    -e 's#^gemini)#agy | gemini)#' \
+    -e 's#command=(gemini --yolo)#command=(agy --dangerously-skip-permissions)#' \
+    "${pkgdir}/usr/bin/omarchy-agent"
+  grep -q 'command=(agy --dangerously-skip-permissions)' "${pkgdir}/usr/bin/omarchy-agent" ||
+    { echo "omarchy: failed to patch agy into omarchy-agent" >&2; return 1; }
 
   # ppc64le: report the omarchy-power* repo as the stable channel.
   #

@@ -28,8 +28,8 @@
 
 pkgname=omarchy-settings
 pkgver=4.0.3
-# pkgrel 2 marks this as locally modified: upstream's own build is 4.0.3-1.
-pkgrel=2
+# pkgrel 3 marks this as locally modified: upstream's own build is 4.0.3-1.
+pkgrel=3
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers (ppc64le: no destructive /etc overrides, no mkinitcpio drop-in)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -170,6 +170,20 @@ package() {
   #                            -- kept as *files*.  What changed is that they
   #                               are no longer applied automatically; see
   #                               omarchy-settings.install.
+
+  # ppc64le: backport Antigravity (agy) coding agent from upstream quattro (commit ed7bae4ac5).
+  # Upstream replaced Gemini with Antigravity in the shell menu.
+  local _menu="${pkgdir}/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc"
+  if [ -f "$_menu" ]; then
+    sed -i \
+      -e 's#setup\.default\.agent\.gemini#setup.default.agent.agy#g' \
+      -e 's#"label":"Gemini"#"label":"Antigravity"#g' \
+      -e 's#== \\"gemini\\"#== \\"agy\\"#g' \
+      -e 's#omarchy-default-agent gemini#omarchy-default-agent agy#g' \
+      "$_menu"
+    grep -q 'setup.default.agent.agy' "$_menu" ||
+      { echo "omarchy-settings: failed to patch agy into omarchy-menu.jsonc" >&2; return 1; }
+  fi
 
   "${ELF_PATHGUARD:-$startdir/../../tools/elf-pathguard.sh}" "$pkgdir"
 }
