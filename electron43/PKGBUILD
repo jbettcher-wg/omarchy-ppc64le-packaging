@@ -174,7 +174,8 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         electron-apply-patches.py
         chromium-150-ppc64le-patches-r3.tar.gz
         swiftshader-ppc-xcoff-baseclasses.patch
-        ppc64le-seccomp-scv-return-abi.patch)
+        ppc64le-seccomp-scv-return-abi.patch
+        ppc64le-v8-power8-loadpc.patch)
 sha256sums=('aa9f3f042c6ab77b0586c829d30af6e08cc485193c134772414187d8a42fc1d0'
             '0148032452067146437cbdc0316b054bf51afbde7882876f7eb35e4de9b2d75a'
             'a00e45375fe01977235ddb81ab6ac12f2f90161077cfbc2f77b8aaea4f75f8f9'
@@ -201,7 +202,8 @@ sha256sums=('aa9f3f042c6ab77b0586c829d30af6e08cc485193c134772414187d8a42fc1d0'
             '762c7f5eb525cba1f51f6f5f95a2d42809f7128aa4d8f920a261726ee646e4b8'
             '981236f9e9ee379d27b210b43937bd6710f3de55439845f76051e8158b88d3ef'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
-            '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15')
+            '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
+            '0ea9c09ecbd9849bddba0a122d224a5f8d65bfa76079cdb54e6867b7fd43a3a0')
 
 # Possible replacements are listed in build/linux/unbundle/replace_gn_files.py
 # Keys are the names in the above script; values are the dependencies in Arch.
@@ -391,6 +393,11 @@ EOF
     # cleanly; see docs/chromium-software-raster-crash.md.
     msg2 "Applying ppc64le patch: ppc64le-seccomp-scv-return-abi.patch"
     patch -Np1 -i "$srcdir/ppc64le-seccomp-scv-return-abi.patch"
+
+    # Upstream V8 unconditionally emits addpcis (ISA 3.0 / POWER9) in LoadPC,
+    # causing an illegal instruction crash in builtin prologues on real POWER8.
+    msg2 "Applying ppc64le patch: ppc64le-v8-power8-loadpc.patch"
+    patch -Np1 -i "$srcdir/ppc64le-v8-power8-loadpc.patch"
 
     # skia-vsx-instructions.patch hardcodes -mcpu=power9 -mtune=power9 into
     # all of skia; pin it back for the POWER8 build.

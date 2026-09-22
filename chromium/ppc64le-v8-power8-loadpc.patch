@@ -1,0 +1,53 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc: use ISA 2.07 (POWER8) compatible PC load when targeting POWER8
+
+Upstream V8 unconditionally emits `addpcis` (Power ISA 3.0 / POWER9, opcode
+0x4F800004 `lnia`) in `MacroAssembler::LoadPC` to load the instruction address
+following the PC-load sequence. In V8, `LoadPC` is called in the prologue of
+every builtin via `LoadConstantPoolPointerRegister` (3,936 occurrences in
+Chromium, 3,995 in Electron), causing an immediate `illegal instruction (4)`
+crash on real POWER8 hardware.
+
+On POWER8 (ISA 2.07), PC is obtained via the standard branch-and-link sequence:
+  bcl 20, 31, $+4
+  mflr dst
+  addi dst, dst, 8
+
+This sequence loads CIA + 12 (the address of the instruction immediately
+following the sequence) into `dst`, preserving the exact invariant of
+`addpcis(dst, 0)` (which loads CIA + 4). `kPcLoadDelta` is adjusted
+accordingly from 4 to 12 bytes when `_ARCH_PWR9` is not defined.
+
+When compiling for POWER9 (`_ARCH_PWR9` defined), the single-instruction
+`addpcis` sequence and `kPcLoadDelta = 4` remain active.
+
+--- a/v8/src/codegen/ppc/constants-ppc.h
++++ b/v8/src/codegen/ppc/constants-ppc.h
+@@ -3065,7 +3065,11 @@ enum BOfield {        // Bits 25-21
+ 
+ constexpr uint8_t kInstrSize = 4;
+ constexpr uint8_t kInstrSizeLog2 = 2;
++#if defined(_ARCH_PWR9)
+ constexpr uint8_t kPcLoadDelta = 4;
++#else
++constexpr uint8_t kPcLoadDelta = 12;
++#endif
+ 
+ class Instruction {
+  public:
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
+@@ -1144,7 +1144,13 @@ void MacroAssembler::LoadConstantPoolPointerRegisterFromCodeTargetAddress(
+ }
+ 
+ void MacroAssembler::LoadPC(Register dst) {
++#if defined(_ARCH_PWR9)
+   addpcis(dst, Operand(0));
++#else
++  bc(4, BA, 0, SetLK);
++  mflr(dst);
++  addi(dst, dst, Operand(8));
++#endif
+ }
+ 
+ void MacroAssembler::ComputeCodeStartAddress(Register dst) {
