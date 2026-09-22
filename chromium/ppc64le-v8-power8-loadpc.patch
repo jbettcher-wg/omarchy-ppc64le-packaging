@@ -1,25 +1,20 @@
 From: Jordan Bettcher <thebettcher@gmail.com>
-Subject: v8: ppc: use ISA 2.07 (POWER8) compatible PC load when targeting POWER8
+Subject: v8: ppc: ensure ISA 2.07 (POWER8) compatibility across JIT codegen
 
-Upstream V8 unconditionally emits `addpcis` (Power ISA 3.0 / POWER9, opcode
-0x4F800004 `lnia`) in `MacroAssembler::LoadPC` to load the instruction address
-following the PC-load sequence. In V8, `LoadPC` is called in the prologue of
-every builtin via `LoadConstantPoolPointerRegister` (3,936 occurrences in
-Chromium, 3,995 in Electron), causing an immediate `illegal instruction (4)`
-crash on real POWER8 hardware.
+Upstream V8 unconditionally emits several Power ISA 3.0 (POWER9) instructions:
+1. `addpcis` (lnia) in `MacroAssembler::LoadPC`
+2. `mcrxrx` in `MacroAssembler::MoveToCrFromXer`
+3. `cnttzw` / `cnttzd` in `MacroAssembler::CountTrailingZerosU32/U64`
+4. `modsw` / `modsd` / `moduw` / `modud` in Turbofan `code-generator-ppc.cc` and `MacroAssembler::Mod*`
 
-On POWER8 (ISA 2.07), PC is obtained via the standard branch-and-link sequence:
-  bcl 20, 31, $+4
-  mflr dst
-  addi dst, dst, 8
+On real POWER8 hardware or in POWER8 compatibility mode, these instructions
+cause immediate `illegal instruction (4)` crashes.
 
-This sequence loads CIA + 12 (the address of the instruction immediately
-following the sequence) into `dst`, preserving the exact invariant of
-`addpcis(dst, 0)` (which loads CIA + 4). `kPcLoadDelta` is adjusted
-accordingly from 4 to 12 bytes when `_ARCH_PWR9` is not defined.
-
-When compiling for POWER9 (`_ARCH_PWR9` defined), the single-instruction
-`addpcis` sequence and `kPcLoadDelta = 4` remain active.
+This patch:
+- Replaces `addpcis` with a `bcl`/`mflr`/`addi` sequence and adjusts `kPcLoadDelta` when not compiling for POWER9.
+- Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` on POWER8.
+- Synthesizes `CountTrailingZeros` via `subfic/andc/cntlz` on POWER8.
+- Routes Turbofan modulo opcodes through `MacroAssembler::Mod*` and implements `div/mul/sub` fallbacks on POWER8.
 
 --- a/v8/src/codegen/ppc/constants-ppc.h
 +++ b/v8/src/codegen/ppc/constants-ppc.h
@@ -35,9 +30,23 @@ When compiling for POWER9 (`_ARCH_PWR9` defined), the single-instruction
  
  class Instruction {
   public:
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.h
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.h
+@@ -987,7 +987,11 @@
+   // Usage: call the appropriate arithmetic function and then call one of the
+   // flow control functions with the corresponding label.
+   void MoveToCrFromXer(CRegister cr) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       mcrxrx(cr);
++    } else {
++      mcrxr(cr);
++    }
+   }
+ 
+   // Performs a truncating conversion of a floating point number as used by
 --- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
 +++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
-@@ -1144,7 +1144,13 @@ void MacroAssembler::LoadConstantPoolPointerRegisterFromCodeTargetAddress(
+@@ -1186,7 +1186,13 @@
  }
  
  void MacroAssembler::LoadPC(Register dst) {
@@ -51,3 +60,101 @@ When compiling for POWER9 (`_ARCH_PWR9` defined), the single-instruction
  }
  
  void MacroAssembler::ComputeCodeStartAddress(Register dst) {
+@@ -2602,19 +2608,43 @@
+ }
+ 
+ void MacroAssembler::ModS64(Register dst, Register src, Register value) {
+-  modsd(dst, src, value);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    modsd(dst, src, value);
++  } else {
++    divd(r0, src, value);
++    mulld(r0, r0, value);
++    sub(dst, src, r0);
++  }
+ }
+ 
+ void MacroAssembler::ModU64(Register dst, Register src, Register value) {
+-  modud(dst, src, value);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    modud(dst, src, value);
++  } else {
++    divdu(r0, src, value);
++    mulld(r0, r0, value);
++    sub(dst, src, r0);
++  }
+ }
+ 
+ void MacroAssembler::ModS32(Register dst, Register src, Register value) {
+-  modsw(dst, src, value);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    modsw(dst, src, value);
++  } else {
++    divw(r0, src, value);
++    mullw(r0, r0, value);
++    sub(dst, src, r0);
++  }
+   extsw(dst, dst);
+ }
+ void MacroAssembler::ModU32(Register dst, Register src, Register value) {
+-  moduw(dst, src, value);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    moduw(dst, src, value);
++  } else {
++    divwu(r0, src, value);
++    mullw(r0, r0, value);
++    sub(dst, src, r0);
++  }
+   ZeroExtWord32(dst, dst);
+ }
+ 
+@@ -4931,12 +4961,26 @@
+ 
+ void MacroAssembler::CountTrailingZerosU32(Register dst, Register src,
+                                            RCBit r) {
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+     cnttzw(dst, src, r);
++  } else {
++    addi(r0, src, Operand(-1));
++    andc(dst, r0, src);
++    cntlzw(dst, dst, r);
++    subfic(dst, dst, Operand(32));
++  }
+ }
+ 
+ void MacroAssembler::CountTrailingZerosU64(Register dst, Register src,
+                                            RCBit r) {
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+     cnttzd(dst, src, r);
++  } else {
++    addi(r0, src, Operand(-1));
++    andc(dst, r0, src);
++    cntlzd(dst, dst, r);
++    subfic(dst, dst, Operand(64));
++  }
+ }
+ 
+ void MacroAssembler::ClearByteU64(Register dst, int byte_idx) {
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -1527,16 +1527,16 @@
+       ASSEMBLE_FLOAT_BINOP_RC(fdiv, MiscField::decode(instr->opcode()));
+       break;
+     case kPPC_Mod32:
+-      __ modsw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++      __ ModS32(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
+       break;
+     case kPPC_Mod64:
+-      __ modsd(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++      __ ModS64(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
+       break;
+     case kPPC_ModU32:
+-      __ moduw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++      __ ModU32(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
+       break;
+     case kPPC_ModU64:
+-      __ modud(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++      __ ModU64(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
+       break;
+     case kPPC_ModDouble:
+       // TODO(bmeurer): We should really get rid of this special instruction,
