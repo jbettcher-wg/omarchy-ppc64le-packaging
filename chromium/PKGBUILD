@@ -565,7 +565,8 @@ build() {
   local _gn="$srcdir/gn/out/gn"
 
   "$_gn" gen out/Release --args="${_flags[*]}"
-  ninja -C out/Release chrome chrome_sandbox chromedriver.unstripped
+  # NINJAFLAGS carries the -j bq was given; ninja otherwise takes every CPU.
+  ninja ${NINJAFLAGS:-} -C out/Release chrome chrome_sandbox chromedriver.unstripped
 }
 
 package() {
