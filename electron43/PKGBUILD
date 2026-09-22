@@ -396,8 +396,10 @@ EOF
 
     # Upstream V8 unconditionally emits addpcis (ISA 3.0 / POWER9) in LoadPC,
     # causing an illegal instruction crash in builtin prologues on real POWER8.
-    msg2 "Applying ppc64le patch: ppc64le-v8-power8-loadpc.patch"
-    patch -Np1 -i "$srcdir/ppc64le-v8-power8-loadpc.patch"
+    if (( _power8_compat )); then
+      msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-power8-loadpc.patch"
+      patch -Np1 -i "$srcdir/ppc64le-v8-power8-loadpc.patch"
+    fi
 
     # skia-vsx-instructions.patch hardcodes -mcpu=power9 -mtune=power9 into
     # all of skia; pin it back for the POWER8 build.
