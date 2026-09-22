@@ -6,6 +6,7 @@ Upstream V8 unconditionally emits several Power ISA 3.0 (POWER9) instructions:
 2. `mcrxrx` in `MacroAssembler::MoveToCrFromXer`
 3. `cnttzw` / `cnttzd` in `MacroAssembler::CountTrailingZerosU32/U64`
 4. `modsw` / `modsd` / `moduw` / `modud` in Turbofan `code-generator-ppc.cc` and `MacroAssembler::Mod*`
+5. `stxvx` / `lxvx` in `MacroAssembler::MultiPushV128` / `MultiPopV128`
 
 On real POWER8 hardware or in POWER8 compatibility mode, these instructions
 cause immediate `illegal instruction (4)` crashes.
@@ -15,10 +16,27 @@ This patch:
 - Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` on POWER8.
 - Synthesizes `CountTrailingZeros` via `subfic/andc/cntlz` on POWER8.
 - Routes Turbofan modulo opcodes through `MacroAssembler::Mod*` and implements `div/mul/sub` fallbacks on POWER8.
+- Gating SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
 
---- a/v8/src/codegen/ppc/constants-ppc.h
-+++ b/v8/src/codegen/ppc/constants-ppc.h
-@@ -3065,7 +3065,11 @@ enum BOfield {        // Bits 25-21
+diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc mod-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc
+--- a/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 15:27:38.755245157 -0600
++++ b/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 15:29:15.226877967 -0600
+@@ -58,9 +58,8 @@
+ }
+ 
+ bool CpuFeatures::SupportsSimd128() {
+-#if V8_ENABLE_SIMD128
+-  DCHECK(CpuFeatures::IsSupported(PPC_9_PLUS));
+-  return true;
++#if V8_ENABLE_SIMD128 && defined(_ARCH_PWR9)
++  return CpuFeatures::IsSupported(PPC_9_PLUS);
+ #else
+   return false;
+ #endif  // V8_ENABLE_SIMD128
+diff -uNr clean-test-electron43/v8/src/codegen/ppc/constants-ppc.h mod-test-electron43/v8/src/codegen/ppc/constants-ppc.h
+--- a/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 15:27:29.697614200 -0600
++++ b/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 15:29:15.226773963 -0600
+@@ -3065,7 +3065,11 @@
  
  constexpr uint8_t kInstrSize = 4;
  constexpr uint8_t kInstrSizeLog2 = 2;
@@ -30,23 +48,82 @@ This patch:
  
  class Instruction {
   public:
---- a/v8/src/codegen/ppc/macro-assembler-ppc.h
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.h
-@@ -987,7 +987,11 @@
-   // Usage: call the appropriate arithmetic function and then call one of the
-   // flow control functions with the corresponding label.
-   void MoveToCrFromXer(CRegister cr) {
-+    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-       mcrxrx(cr);
-+    } else {
-+      mcrxr(cr);
-+    }
-   }
+diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 15:27:56.709513654 -0600
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 15:29:15.227359058 -0600
+@@ -570,6 +570,7 @@
+   int16_t stack_offset = num_to_push * kSimd128Size;
  
-   // Performs a truncating conversion of a floating point number as used by
---- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
-@@ -1186,7 +1186,13 @@
+   subi(location, location, Operand(stack_offset));
++#if defined(_ARCH_PWR9)
+   for (int16_t i = Simd128Register::kNumRegisters - 1; i >= 0; i--) {
+     if ((simd_regs.bits() & (1 << i)) != 0) {
+       Simd128Register simd_reg = Simd128Register::from_code(i);
+@@ -577,6 +578,7 @@
+       StoreSimd128(simd_reg, MemOperand(location, stack_offset), scratch);
+     }
+   }
++#endif
+ }
+ 
+ void MacroAssembler::MultiPopDoubles(DoubleRegList dregs, Register location) {
+@@ -596,6 +598,7 @@
+                                   Register location) {
+   int16_t stack_offset = 0;
+ 
++#if defined(_ARCH_PWR9)
+   for (int16_t i = 0; i < Simd128Register::kNumRegisters; i++) {
+     if ((simd_regs.bits() & (1 << i)) != 0) {
+       Simd128Register simd_reg = Simd128Register::from_code(i);
+@@ -603,6 +606,9 @@
+       stack_offset += kSimd128Size;
+     }
+   }
++#else
++  stack_offset = simd_regs.Count() * kSimd128Size;
++#endif
+   addi(location, location, Operand(stack_offset));
+ }
+ 
+@@ -611,7 +617,7 @@
+                                          Register scratch1, Register scratch2,
+                                          Register location) {
+   MultiPushDoubles(dregs);
+-#if V8_ENABLE_WEBASSEMBLY
++#if V8_ENABLE_WEBASSEMBLY && defined(_ARCH_PWR9)
+   bool generating_builtins =
+       isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
+   if (generating_builtins) {
+@@ -640,6 +646,9 @@
+            Operand(-static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
+     }
+   }
++#elif V8_ENABLE_WEBASSEMBLY
++  addi(sp, sp,
++       Operand(-static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
+ #endif
+ }
+ 
+@@ -647,7 +656,7 @@
+                                         Simd128RegList simd_regs,
+                                         Register scratch1, Register scratch2,
+                                         Register location) {
+-#if V8_ENABLE_WEBASSEMBLY
++#if V8_ENABLE_WEBASSEMBLY && defined(_ARCH_PWR9)
+   bool generating_builtins =
+       isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
+   if (generating_builtins) {
+@@ -670,6 +679,9 @@
+            Operand(static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
+     }
+   }
++#elif V8_ENABLE_WEBASSEMBLY
++  addi(sp, sp,
++       Operand(static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
+ #endif
+   MultiPopDoubles(dregs);
+ }
+@@ -1186,7 +1198,13 @@
  }
  
  void MacroAssembler::LoadPC(Register dst) {
@@ -60,7 +137,7 @@ This patch:
  }
  
  void MacroAssembler::ComputeCodeStartAddress(Register dst) {
-@@ -2602,19 +2608,43 @@
+@@ -2602,19 +2620,43 @@
  }
  
  void MacroAssembler::ModS64(Register dst, Register src, Register value) {
@@ -108,7 +185,7 @@ This patch:
    ZeroExtWord32(dst, dst);
  }
  
-@@ -4931,12 +4961,26 @@
+@@ -4931,12 +4973,26 @@
  
  void MacroAssembler::CountTrailingZerosU32(Register dst, Register src,
                                             RCBit r) {
@@ -135,8 +212,24 @@ This patch:
  }
  
  void MacroAssembler::ClearByteU64(Register dst, int byte_idx) {
---- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
-+++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 15:27:47.697880807 -0600
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 15:29:15.226996940 -0600
+@@ -987,7 +987,11 @@
+   // Usage: call the appropriate arithmetic function and then call one of the
+   // flow control functions with the corresponding label.
+   void MoveToCrFromXer(CRegister cr) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       mcrxrx(cr);
++    } else {
++      mcrxr(cr);
++    }
+   }
+ 
+   // Performs a truncating conversion of a floating point number as used by
+diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.cc mod-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 15:28:05.467156856 -0600
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 15:29:15.227515093 -0600
 @@ -1527,16 +1527,16 @@
        ASSEMBLE_FLOAT_BINOP_RC(fdiv, MiscField::decode(instr->opcode()));
        break;

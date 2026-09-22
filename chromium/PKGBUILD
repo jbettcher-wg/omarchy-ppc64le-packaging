@@ -19,7 +19,7 @@
 
 pkgname=chromium
 pkgver=151.0.7922.108
-pkgrel=5
+pkgrel=6
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -148,7 +148,7 @@ sha256sums=('3f13338d12db5c6e17464b3be28eca2a07d64c7c58634268fa76924e3c5243aa'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
             'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
             '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
-            'ae106591c342c3d2549f0e1f8d63377e2dbdae4fc1cb12ed96f58da28aa95576'
+            'd1962cf3ac84f22589444f37e6441cff1bbc6bde41f391b41244c016b587c526'
             'SKIP')  # pinned via #commit= — git verifies
 
 if (( _manual_clone )); then
