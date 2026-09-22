@@ -222,7 +222,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-
    // Performs a truncating conversion of a floating point number as used by
 diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc mod-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc
 --- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 17:36:10.540188125 -0600
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 17:56:06.357165781 -0600
 @@ -1402,14 +1402,33 @@
      case kPPC_Add32:
      case kPPC_Add64:
@@ -253,8 +253,8 @@ diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc 
 +          }
 +          __ add(r0, i.InputRegister(0), right);
 +          __ xor_(scratch, i.InputRegister(0), r0);
-+          __ eqv(scratch2, i.InputRegister(0), right);
-+          __ and_(scratch, scratch, scratch2);
++          __ xor_(scratch2, i.InputRegister(0), right);
++          __ andc(scratch, scratch, scratch2);
 +          __ srwi(scratch, scratch, Operand(1));
 +          __ mtcrf(scratch, 0x80);
 +          __ mr(i.OutputRegister(), r0);

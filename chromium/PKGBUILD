@@ -148,7 +148,7 @@ sha256sums=('3f13338d12db5c6e17464b3be28eca2a07d64c7c58634268fa76924e3c5243aa'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
             'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
             '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
-            '005aa7933b916970e04de03d6004696c77a773d86e414bd3151ec0cfc7cf1d4a'
+            '27d92e0609206f148d865fd9028694d4112410e46ec8072feca4a3e867096e17'
             'SKIP')  # pinned via #commit= — git verifies
 
 if (( _manual_clone )); then
