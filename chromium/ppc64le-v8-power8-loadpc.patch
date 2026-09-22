@@ -13,14 +13,15 @@ cause immediate `illegal instruction (4)` crashes.
 
 This patch:
 - Replaces `addpcis` with a `bcl`/`mflr`/`addi` sequence and adjusts `kPcLoadDelta` when not compiling for POWER9.
-- Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` on POWER8.
+- Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` + `cror` on POWER8, copying OV into CR_OV so 64-bit overflow tests OV rather than SO.
+- Synthesizes 32-bit signed overflow detection for Add32/Sub32/Neg32 on POWER8, writing directly into CR0[CR_OV32].
 - Synthesizes `CountTrailingZeros` via `subfic/andc/cntlz` on POWER8.
 - Routes Turbofan modulo opcodes through `MacroAssembler::Mod*` and implements `div/mul/sub` fallbacks on POWER8.
-- Gating SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
+- Gates SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
 
 diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.cc mod-test-chromium/v8/src/codegen/ppc/assembler-ppc.cc
---- a/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 15:25:49.912680394 -0600
-+++ b/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 15:27:11.389054111 -0600
+--- a/v8/src/codegen/ppc/assembler-ppc.cc	2026-08-05 14:17:42.000000000 -0600
++++ b/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 17:34:35.553383475 -0600
 @@ -58,9 +58,8 @@
  }
  
@@ -33,9 +34,31 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.cc mod-test-chrom
  #else
    return false;
  #endif  // V8_ENABLE_SIMD128
+@@ -1519,6 +1518,10 @@
+   emit(EXT1 | CRXOR | bt * B21 | ba * B16 | bb * B11);
+ }
+ 
++void Assembler::cror(int bt, int ba, int bb) {
++  emit(EXT1 | CROR | bt * B21 | ba * B16 | bb * B11);
++}
++
+ void Assembler::creqv(int bt, int ba, int bb) {
+   emit(EXT1 | CREQV | bt * B21 | ba * B16 | bb * B11);
+ }
+diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.h mod-test-chromium/v8/src/codegen/ppc/assembler-ppc.h
+--- a/v8/src/codegen/ppc/assembler-ppc.h	2026-08-05 14:17:42.000000000 -0600
++++ b/v8/src/codegen/ppc/assembler-ppc.h	2026-09-22 17:34:28.770683873 -0600
+@@ -1077,6 +1077,7 @@
+ 
+   // Special register access
+   void crxor(int bt, int ba, int bb);
++  void cror(int bt, int ba, int bb);
+   void crclr(int bt) { crxor(bt, bt, bt); }
+   void creqv(int bt, int ba, int bb);
+   void crset(int bt) { creqv(bt, bt, bt); }
 diff -uNr clean-test-chromium/v8/src/codegen/ppc/constants-ppc.h mod-test-chromium/v8/src/codegen/ppc/constants-ppc.h
---- a/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 15:25:41.654016981 -0600
-+++ b/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 15:27:11.388949262 -0600
+--- a/v8/src/codegen/ppc/constants-ppc.h	2026-08-05 14:17:42.000000000 -0600
++++ b/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 17:34:38.802239628 -0600
 @@ -3065,7 +3065,11 @@
  
  constexpr uint8_t kInstrSize = 4;
@@ -49,9 +72,15 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/constants-ppc.h mod-test-chromi
  class Instruction {
   public:
 diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc
---- a/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 15:26:05.201057327 -0600
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 15:27:11.389466583 -0600
-@@ -582,6 +582,7 @@
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-08-05 14:17:42.000000000 -0600
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 17:35:38.839585988 -0600
+@@ -577,11 +577,12 @@
+ }
+ 
+ void MacroAssembler::MultiPushV128(Simd128RegList simd_regs,
+-                                   Register location) {
++                                    Register location) {
+   int16_t num_to_push = simd_regs.Count();
    int16_t stack_offset = num_to_push * kSimd128Size;
  
    subi(location, location, Operand(stack_offset));
@@ -175,9 +204,9 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
  
  void MacroAssembler::ClearByteU64(Register dst, int byte_idx) {
 diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h
---- a/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 15:25:57.524370182 -0600
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 15:27:11.389165171 -0600
-@@ -961,7 +961,11 @@
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-08-05 14:17:42.000000000 -0600
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 17:35:04.541100931 -0600
+@@ -961,7 +961,13 @@
    // Usage: call the appropriate arithmetic function and then call one of the
    // flow control functions with the corresponding label.
    void MoveToCrFromXer(CRegister cr) {
@@ -185,14 +214,96 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-
        mcrxrx(cr);
 +    } else {
 +      mcrxr(cr);
++      int cr_base = cr.code() * 4;
++      cror(cr_base + CR_OV, cr_base + 1, cr_base + 1);
 +    }
    }
  
    // Performs a truncating conversion of a floating point number as used by
 diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc mod-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc
---- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 15:26:12.846745743 -0600
-+++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 15:27:11.389610460 -0600
-@@ -1517,16 +1517,16 @@
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-08-05 14:17:42.000000000 -0600
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 17:36:10.540188125 -0600
+@@ -1402,14 +1402,33 @@
+     case kPPC_Add32:
+     case kPPC_Add64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        if (HasRegisterInput(instr, 1)) {
+-          __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
++        if (instr->arch_opcode() == kPPC_Add64 ||
++            CpuFeatures::IsSupported(PPC_9_PLUS)) {
++          if (HasRegisterInput(instr, 1)) {
++            __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
++                   SetOE);
++          } else {
++            __ mov(r0, i.InputImmediate(1));
++            __ add(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          }
++          __ MoveToCrFromXer(cr0);
+         } else {
+-          __ mov(r0, i.InputImmediate(1));
+-          __ add(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          UseScratchRegisterScope temps(masm());
++          Register scratch = temps.Acquire();
++          Register scratch2 = temps.Acquire();
++          Register right =
++              HasRegisterInput(instr, 1) ? i.InputRegister(1) : scratch2;
++          if (!HasRegisterInput(instr, 1)) {
++            __ mov(scratch2, i.InputImmediate(1));
++          }
++          __ add(r0, i.InputRegister(0), right);
++          __ xor_(scratch, i.InputRegister(0), r0);
++          __ eqv(scratch2, i.InputRegister(0), right);
++          __ and_(scratch, scratch, scratch2);
++          __ srwi(scratch, scratch, Operand(1));
++          __ mtcrf(scratch, 0x80);
++          __ mr(i.OutputRegister(), r0);
+         }
+-        __ MoveToCrFromXer(cr0);
+       } else {
+         if (HasRegisterInput(instr, 1)) {
+           __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+@@ -1429,14 +1448,33 @@
+     case kPPC_Sub32:
+     case kPPC_Sub64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        if (HasRegisterInput(instr, 1)) {
+-          __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
++        if (instr->arch_opcode() == kPPC_Sub64 ||
++            CpuFeatures::IsSupported(PPC_9_PLUS)) {
++          if (HasRegisterInput(instr, 1)) {
++            __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
++                   SetOE);
++          } else {
++            __ mov(r0, i.InputImmediate(1));
++            __ sub(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          }
++          __ MoveToCrFromXer(cr0);
+         } else {
+-          __ mov(r0, i.InputImmediate(1));
+-          __ sub(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          UseScratchRegisterScope temps(masm());
++          Register scratch = temps.Acquire();
++          Register scratch2 = temps.Acquire();
++          Register right =
++              HasRegisterInput(instr, 1) ? i.InputRegister(1) : scratch2;
++          if (!HasRegisterInput(instr, 1)) {
++            __ mov(scratch2, i.InputImmediate(1));
++          }
++          __ sub(r0, i.InputRegister(0), right);
++          __ xor_(scratch, i.InputRegister(0), r0);
++          __ xor_(scratch2, i.InputRegister(0), right);
++          __ and_(scratch, scratch, scratch2);
++          __ srwi(scratch, scratch, Operand(1));
++          __ mtcrf(scratch, 0x80);
++          __ mr(i.OutputRegister(), r0);
+         }
+-        __ MoveToCrFromXer(cr0);
+       } else {
+         if (HasRegisterInput(instr, 1)) {
+           __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+@@ -1517,16 +1555,16 @@
        ASSEMBLE_FLOAT_BINOP_RC(fdiv, MiscField::decode(instr->opcode()));
        break;
      case kPPC_Mod32:
@@ -213,3 +324,25 @@ diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc 
        break;
      case kPPC_ModDouble:
        // TODO(bmeurer): We should really get rid of this special instruction,
+@@ -1599,8 +1637,19 @@
+     case kPPC_Neg32:
+     case kPPC_Neg64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        __ neg(i.OutputRegister(), i.InputRegister(0), SetOE);
+-        __ MoveToCrFromXer(cr0);
++        if (instr->arch_opcode() == kPPC_Neg64 ||
++            CpuFeatures::IsSupported(PPC_9_PLUS)) {
++          __ neg(i.OutputRegister(), i.InputRegister(0), SetOE);
++          __ MoveToCrFromXer(cr0);
++        } else {
++          UseScratchRegisterScope temps(masm());
++          Register scratch = temps.Acquire();
++          __ neg(r0, i.InputRegister(0));
++          __ and_(scratch, i.InputRegister(0), r0);
++          __ srwi(scratch, scratch, Operand(1));
++          __ mtcrf(scratch, 0x80);
++          __ mr(i.OutputRegister(), r0);
++        }
+       } else {
+         __ neg(i.OutputRegister(), i.InputRegister(0), LeaveOE,
+                i.OutputRCBit());
