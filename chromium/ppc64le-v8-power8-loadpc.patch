@@ -14,7 +14,7 @@ cause immediate `illegal instruction (4)` crashes.
 This patch:
 - Replaces `addpcis` with a `bcl`/`mflr`/`addi` sequence and adjusts `kPcLoadDelta` when not compiling for POWER9.
 - Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` + `cror` on POWER8, copying OV into CR_OV so 64-bit overflow tests OV rather than SO.
-- Synthesizes 32-bit signed overflow detection for Add32/Sub32/Neg32 on POWER8, writing directly into CR0[CR_OV32].
+- Synthesizes 32-bit signed overflow detection for Add32/Sub32/Neg32 in Turbofan and across Maglev arithmetic (Neg, Abs, Inc, Dec, Add, Sub) and Smi operations (TrySmiTagInt32, SmiAddConstant, SmiSubConstant) on POWER8, writing directly into CR0[CR_OV32].
 - Synthesizes `CountTrailingZeros` via `subfic/andc/cntlz` on POWER8.
 - Routes Turbofan modulo opcodes through `MacroAssembler::Mod*` and implements `div/mul/sub` fallbacks on POWER8.
 - Gates SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
@@ -346,3 +346,212 @@ diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc 
        } else {
          __ neg(i.OutputRegister(), i.InputRegister(0), LeaveOE,
                 i.OutputRCBit());
+diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+--- a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
++++ b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+@@ -216,9 +216,17 @@
+ // Returns the condition code for the no overflow flag.
+ inline Condition MaglevAssembler::TrySmiTagInt32(Register dst, Register src) {
+   if (SmiValuesAre31Bits()) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       add(dst, src, src, SetOE);
+       MoveToCrFromXer(cr0);
+-      return nooverflow32;
++    } else {
++      add(r0, src, src);
++      xor_(r0, src, r0);
++      srwi(r0, r0, Operand(1));
++      mtcrf(r0, 0x80);
++      add(dst, src, src);
++    }
++    return nooverflow32;
+   } else {
+     SmiTag(dst, src);
+   }
+@@ -248,9 +256,20 @@
+ 
+   Move(scratch, Smi::FromInt(value));
+   if (SmiValuesAre31Bits()) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       add(dst, src, scratch, SetOE);
+       MoveToCrFromXer(cr0);
+       JumpIf(overflow32, fail);
++    } else {
++      add(r0, src, scratch);
++      xor_(scratch, src, scratch);
++      xor_(dst, src, r0);
++      andc(dst, dst, scratch);
++      srwi(dst, dst, Operand(1));
++      mtcrf(dst, 0x80);
++      mr(dst, r0);
++      JumpIf(overflow32, fail);
++    }
+   } else {
+     AddS64(dst, src, scratch, SetOE, SetRC);
+     JumpIf(kOverflow, fail, distance);
+@@ -270,9 +289,20 @@
+ 
+   Move(scratch, Smi::FromInt(value));
+   if (SmiValuesAre31Bits()) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       sub(dst, src, scratch, SetOE);
+       MoveToCrFromXer(cr0);
+       JumpIf(overflow32, fail);
++    } else {
++      sub(r0, src, scratch);
++      xor_(scratch, src, scratch);
++      xor_(dst, src, r0);
++      and_(dst, dst, scratch);
++      srwi(dst, dst, Operand(1));
++      mtcrf(dst, 0x80);
++      mr(dst, r0);
++      JumpIf(overflow32, fail);
++    }
+   } else {
+     SubS64(dst, src, scratch, SetOE, SetRC);
+     JumpIf(kOverflow, fail, distance);
+diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc
+--- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
++++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
+@@ -32,8 +32,15 @@
+   __ CmpS32(value, Operand::Zero());
+   __ EmitEagerDeoptIf(eq, DeoptimizeReason::kOverflow, this);
+ 
+-    __ neg(out, value, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ neg(out, value, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      __ neg(out, value);
++      __ and_(r0, value, out);
++      __ srwi(r0, r0, Operand(1));
++      __ mtcrf(r0, 0x80);
++    }
+     // Output register must not be a register input into the eager deopt info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+                          GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+@@ -50,8 +57,14 @@
+   __ CmpS32(out, Operand::Zero());
+   __ bge(&done);
+ 
+-  __ neg(out, out, SetOE);
+-  __ MoveToCrFromXer(cr0);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    __ neg(out, out, SetOE);
++    __ MoveToCrFromXer(cr0);
++  } else {
++    __ neg(out, out);
++    __ srwi(r0, out, Operand(1));
++    __ mtcrf(r0, 0x80);
++  }
+   DCHECK_REGLIST_EMPTY(RegList{out} &
+                        GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+   __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
+@@ -93,9 +106,17 @@
+                                               const ProcessingState& state) {
+   Register value = ToRegister(ValueInput());
+   Register out = ToRegister(result());
+-    __ li(r0, Operand(1));
+-    __ add(out, value, r0, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ li(r0, Operand(1));
++      __ add(out, value, r0, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      __ addi(r0, value, Operand(1));
++      __ andc(r0, r0, value);
++      __ srwi(r0, r0, Operand(1));
++      __ mtcrf(r0, 0x80);
++      __ addi(out, value, Operand(1));
++    }
+ 
+     // Output register must not be a register input into the eager deopt info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -114,9 +135,17 @@
+                                               const ProcessingState& state) {
+   Register value = ToRegister(ValueInput());
+   Register out = ToRegister(result());
+-    __ li(r0, Operand(-1));
+-    __ add(out, value, r0, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ li(r0, Operand(-1));
++      __ add(out, value, r0, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      __ addi(r0, value, Operand(-1));
++      __ andc(r0, value, r0);
++      __ srwi(r0, r0, Operand(1));
++      __ mtcrf(r0, 0x80);
++      __ addi(out, value, Operand(-1));
++    }
+ 
+     // Output register must not be a register input into the eager deopt info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -369,6 +398,9 @@
+   UseRegister(LeftInput());
+   UseRegister(RightInput());
+   DefineAsRegister(this);
++  if (!CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    set_temporaries_needed(1);
++  }
+ }
+ 
+ void Int32AddWithOverflow::GenerateCode(MaglevAssembler* masm,
+@@ -376,8 +408,20 @@
+   Register left = ToRegister(LeftInput());
+   Register right = ToRegister(RightInput());
+   Register out = ToRegister(result());
+-    __ add(out, left, right, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ add(out, left, right, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      MaglevAssembler::TemporaryRegisterScope temps(masm);
++      Register scratch = temps.AcquireScratch();
++      __ add(r0, left, right);
++      __ xor_(scratch, left, r0);
++      __ xor_(r0, left, right);
++      __ andc(scratch, scratch, r0);
++      __ srwi(scratch, scratch, Operand(1));
++      __ mtcrf(scratch, 0x80);
++      __ add(out, left, right);
++    }
+     // The output register shouldn't be a register input into the eager deopt
+     // info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -390,14 +434,29 @@
+   UseRegister(LeftInput());
+   UseRegister(RightInput());
+   DefineAsRegister(this);
++  if (!CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    set_temporaries_needed(1);
++  }
+ }
+ void Int32SubtractWithOverflow::GenerateCode(MaglevAssembler* masm,
+                                              const ProcessingState& state) {
+   Register left = ToRegister(LeftInput());
+   Register right = ToRegister(RightInput());
+   Register out = ToRegister(result());
+-    __ sub(out, left, right, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ sub(out, left, right, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      MaglevAssembler::TemporaryRegisterScope temps(masm);
++      Register scratch = temps.AcquireScratch();
++      __ sub(r0, left, right);
++      __ xor_(scratch, left, r0);
++      __ xor_(r0, left, right);
++      __ and_(scratch, scratch, r0);
++      __ srwi(scratch, scratch, Operand(1));
++      __ mtcrf(scratch, 0x80);
++      __ sub(out, left, right);
++    }
+     // The output register shouldn't be a register input into the eager deopt
+     // info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
