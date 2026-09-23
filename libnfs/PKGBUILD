@@ -23,7 +23,13 @@ sha512sums=('539790ab98aac7b2f25755b745d1f5e016518f1adb3748b8c58df187048bc31e091
 build() {
     cd "$pkgname-$pkgname-$pkgver"
 
+    # CMake keeps the build tree on the utils' RUNPATH through install, so
+    # nfs-cat/ls/cp/stat ship pointing at $BUILDDIR/build/lib and bq's
+    # elf-pathguard refuses the package. They link libnfs.so, which installs to
+    # /usr/lib and is already on the default search path, so no RUNPATH is
+    # wanted here at all.
     cmake \
+        -DCMAKE_SKIP_INSTALL_RPATH=ON \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DENABLE_DOCUMENTATION=ON \
         -DENABLE_UTILS=ON \
