@@ -16,7 +16,11 @@ depends=('alsa-lib' 'curl' 'faad2' 'ffmpeg' 'flac' 'fluidsynth'
          'libmtp' 'libpulse' 'libnotify' 'libsamplerate' 'libsidplayfp'
          'libvorbis' 'lirc' 'mpg123' 'neon' 'wavpack' 'libbs2b' 'libopenmpt'
          'libcddb' 'opusfile' 'libpipewire')
-makedepends=("audacious>=$pkgver" 'meson' 'glib2-devel')
+# opusfile installs /usr/include/opus/opusfile.h -- the same directory the
+# opus package owns. A build that stages opus into the sysroot shadows the
+# host's copy of that directory, taking opusfile.h with it, so src/opus
+# fails on a header the host has. Declaring it stages both into one layer.
+makedepends=("audacious>=$pkgver" 'meson' 'glib2-devel' 'opusfile')
 source=(https://distfiles.audacious-media-player.org/$pkgname-$pkgver.tar.bz2
         sidplay-rom-paths.patch)
 sha256sums=('f4feedc32776acfa9d24701d3b794fc97822f76da6991e91e627e70e561fdd3b'
