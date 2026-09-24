@@ -13,14 +13,15 @@ cause immediate `illegal instruction (4)` crashes.
 
 This patch:
 - Replaces `addpcis` with a `bcl`/`mflr`/`addi` sequence and adjusts `kPcLoadDelta` when not compiling for POWER9.
-- Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` on POWER8.
+- Dispatches `MoveToCrFromXer` dynamically: uses `mcrxrx` on POWER9+ and `mcrxr` + `cror` on POWER8, copying OV into CR_OV so 64-bit overflow tests OV rather than SO.
+- Synthesizes 32-bit signed overflow detection for Add32/Sub32/Neg32 in Turbofan and across Maglev arithmetic (Neg, Abs, Inc, Dec, Add, Sub) and Smi operations (TrySmiTagInt32, SmiAddConstant, SmiSubConstant) on POWER8, writing directly into CR0[CR_OV32].
 - Synthesizes `CountTrailingZeros` via `subfic/andc/cntlz` on POWER8.
 - Routes Turbofan modulo opcodes through `MacroAssembler::Mod*` and implements `div/mul/sub` fallbacks on POWER8.
-- Gating SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
+- Gates SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
 
 diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc mod-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc
---- a/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 15:27:38.755245157 -0600
-+++ b/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 15:29:15.226877967 -0600
+--- a/v8/src/codegen/ppc/assembler-ppc.cc
++++ b/v8/src/codegen/ppc/assembler-ppc.cc
 @@ -58,9 +58,8 @@
  }
  
@@ -33,9 +34,31 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc mod-test-ele
  #else
    return false;
  #endif  // V8_ENABLE_SIMD128
+@@ -1521,6 +1520,10 @@
+   emit(EXT1 | CRXOR | bt * B21 | ba * B16 | bb * B11);
+ }
+ 
++void Assembler::cror(int bt, int ba, int bb) {
++  emit(EXT1 | CROR | bt * B21 | ba * B16 | bb * B11);
++}
++
+ void Assembler::creqv(int bt, int ba, int bb) {
+   emit(EXT1 | CREQV | bt * B21 | ba * B16 | bb * B11);
+ }
+diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.h mod-test-electron43/v8/src/codegen/ppc/assembler-ppc.h
+--- a/v8/src/codegen/ppc/assembler-ppc.h
++++ b/v8/src/codegen/ppc/assembler-ppc.h
+@@ -1070,6 +1070,7 @@
+ 
+   // Special register access
+   void crxor(int bt, int ba, int bb);
++  void cror(int bt, int ba, int bb);
+   void crclr(int bt) { crxor(bt, bt, bt); }
+   void creqv(int bt, int ba, int bb);
+   void crset(int bt) { creqv(bt, bt, bt); }
 diff -uNr clean-test-electron43/v8/src/codegen/ppc/constants-ppc.h mod-test-electron43/v8/src/codegen/ppc/constants-ppc.h
---- a/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 15:27:29.697614200 -0600
-+++ b/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 15:29:15.226773963 -0600
+--- a/v8/src/codegen/ppc/constants-ppc.h
++++ b/v8/src/codegen/ppc/constants-ppc.h
 @@ -3065,7 +3065,11 @@
  
  constexpr uint8_t kInstrSize = 4;
@@ -49,8 +72,8 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/constants-ppc.h mod-test-elec
  class Instruction {
   public:
 diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc
---- a/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 15:27:56.709513654 -0600
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 15:29:15.227359058 -0600
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
 @@ -570,6 +570,7 @@
    int16_t stack_offset = num_to_push * kSimd128Size;
  
@@ -213,9 +236,9 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
  
  void MacroAssembler::ClearByteU64(Register dst, int byte_idx) {
 diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h
---- a/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 15:27:47.697880807 -0600
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 15:29:15.226996940 -0600
-@@ -987,7 +987,11 @@
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.h
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.h
+@@ -987,7 +987,13 @@
    // Usage: call the appropriate arithmetic function and then call one of the
    // flow control functions with the corresponding label.
    void MoveToCrFromXer(CRegister cr) {
@@ -223,14 +246,96 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h mod-tes
        mcrxrx(cr);
 +    } else {
 +      mcrxr(cr);
++      int cr_base = cr.code() * 4;
++      cror(cr_base + CR_OV, cr_base + 1, cr_base + 1);
 +    }
    }
  
    // Performs a truncating conversion of a floating point number as used by
 diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.cc mod-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.cc
---- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 15:28:05.467156856 -0600
-+++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 15:29:15.227515093 -0600
-@@ -1527,16 +1527,16 @@
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -1412,14 +1412,33 @@
+     case kPPC_Add32:
+     case kPPC_Add64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        if (HasRegisterInput(instr, 1)) {
+-          __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
++        if (instr->arch_opcode() == kPPC_Add64 ||
++            CpuFeatures::IsSupported(PPC_9_PLUS)) {
++          if (HasRegisterInput(instr, 1)) {
++            __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
++                   SetOE);
++          } else {
++            __ mov(r0, i.InputImmediate(1));
++            __ add(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          }
++          __ MoveToCrFromXer(cr0);
+         } else {
+-          __ mov(r0, i.InputImmediate(1));
+-          __ add(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          UseScratchRegisterScope temps(masm());
++          Register scratch = temps.Acquire();
++          Register scratch2 = temps.Acquire();
++          Register right =
++              HasRegisterInput(instr, 1) ? i.InputRegister(1) : scratch2;
++          if (!HasRegisterInput(instr, 1)) {
++            __ mov(scratch2, i.InputImmediate(1));
++          }
++          __ add(r0, i.InputRegister(0), right);
++          __ xor_(scratch, i.InputRegister(0), r0);
++          __ xor_(scratch2, i.InputRegister(0), right);
++          __ andc(scratch, scratch, scratch2);
++          __ srwi(scratch, scratch, Operand(1));
++          __ mtcrf(scratch, 0x80);
++          __ mr(i.OutputRegister(), r0);
+         }
+-        __ MoveToCrFromXer(cr0);
+       } else {
+         if (HasRegisterInput(instr, 1)) {
+           __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+@@ -1439,14 +1458,33 @@
+     case kPPC_Sub32:
+     case kPPC_Sub64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        if (HasRegisterInput(instr, 1)) {
+-          __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
++        if (instr->arch_opcode() == kPPC_Sub64 ||
++            CpuFeatures::IsSupported(PPC_9_PLUS)) {
++          if (HasRegisterInput(instr, 1)) {
++            __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
++                   SetOE);
++          } else {
++            __ mov(r0, i.InputImmediate(1));
++            __ sub(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          }
++          __ MoveToCrFromXer(cr0);
+         } else {
+-          __ mov(r0, i.InputImmediate(1));
+-          __ sub(i.OutputRegister(), i.InputRegister(0), r0, SetOE);
++          UseScratchRegisterScope temps(masm());
++          Register scratch = temps.Acquire();
++          Register scratch2 = temps.Acquire();
++          Register right =
++              HasRegisterInput(instr, 1) ? i.InputRegister(1) : scratch2;
++          if (!HasRegisterInput(instr, 1)) {
++            __ mov(scratch2, i.InputImmediate(1));
++          }
++          __ sub(r0, i.InputRegister(0), right);
++          __ xor_(scratch, i.InputRegister(0), r0);
++          __ xor_(scratch2, i.InputRegister(0), right);
++          __ and_(scratch, scratch, scratch2);
++          __ srwi(scratch, scratch, Operand(1));
++          __ mtcrf(scratch, 0x80);
++          __ mr(i.OutputRegister(), r0);
+         }
+-        __ MoveToCrFromXer(cr0);
+       } else {
+         if (HasRegisterInput(instr, 1)) {
+           __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+@@ -1527,16 +1565,16 @@
        ASSEMBLE_FLOAT_BINOP_RC(fdiv, MiscField::decode(instr->opcode()));
        break;
      case kPPC_Mod32:
@@ -251,3 +356,234 @@ diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.c
        break;
      case kPPC_ModDouble:
        // TODO(bmeurer): We should really get rid of this special instruction,
+@@ -1609,8 +1647,19 @@
+     case kPPC_Neg32:
+     case kPPC_Neg64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        __ neg(i.OutputRegister(), i.InputRegister(0), SetOE);
+-        __ MoveToCrFromXer(cr0);
++        if (instr->arch_opcode() == kPPC_Neg64 ||
++            CpuFeatures::IsSupported(PPC_9_PLUS)) {
++          __ neg(i.OutputRegister(), i.InputRegister(0), SetOE);
++          __ MoveToCrFromXer(cr0);
++        } else {
++          UseScratchRegisterScope temps(masm());
++          Register scratch = temps.Acquire();
++          __ neg(r0, i.InputRegister(0));
++          __ and_(scratch, i.InputRegister(0), r0);
++          __ srwi(scratch, scratch, Operand(1));
++          __ mtcrf(scratch, 0x80);
++          __ mr(i.OutputRegister(), r0);
++        }
+       } else {
+         __ neg(i.OutputRegister(), i.InputRegister(0), LeaveOE,
+                i.OutputRCBit());
+diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+--- a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
++++ b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+@@ -216,9 +216,17 @@
+ // Returns the condition code for the no overflow flag.
+ inline Condition MaglevAssembler::TrySmiTagInt32(Register dst, Register src) {
+   if (SmiValuesAre31Bits()) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       add(dst, src, src, SetOE);
+       MoveToCrFromXer(cr0);
+-      return nooverflow32;
++    } else {
++      add(r0, src, src);
++      xor_(r0, src, r0);
++      srwi(r0, r0, Operand(1));
++      mtcrf(r0, 0x80);
++      add(dst, src, src);
++    }
++    return nooverflow32;
+   } else {
+     SmiTag(dst, src);
+   }
+@@ -248,9 +256,20 @@
+ 
+   Move(scratch, Smi::FromInt(value));
+   if (SmiValuesAre31Bits()) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       add(dst, src, scratch, SetOE);
+       MoveToCrFromXer(cr0);
+       JumpIf(overflow32, fail);
++    } else {
++      add(r0, src, scratch);
++      xor_(scratch, src, scratch);
++      xor_(dst, src, r0);
++      andc(dst, dst, scratch);
++      srwi(dst, dst, Operand(1));
++      mtcrf(dst, 0x80);
++      mr(dst, r0);
++      JumpIf(overflow32, fail);
++    }
+   } else {
+     AddS64(dst, src, scratch, SetOE, SetRC);
+     JumpIf(kOverflow, fail, distance);
+@@ -270,9 +289,20 @@
+ 
+   Move(scratch, Smi::FromInt(value));
+   if (SmiValuesAre31Bits()) {
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
+       sub(dst, src, scratch, SetOE);
+       MoveToCrFromXer(cr0);
+       JumpIf(overflow32, fail);
++    } else {
++      sub(r0, src, scratch);
++      xor_(scratch, src, scratch);
++      xor_(dst, src, r0);
++      and_(dst, dst, scratch);
++      srwi(dst, dst, Operand(1));
++      mtcrf(dst, 0x80);
++      mr(dst, r0);
++      JumpIf(overflow32, fail);
++    }
+   } else {
+     SubS64(dst, src, scratch, SetOE, SetRC);
+     JumpIf(kOverflow, fail, distance);
+diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc
+--- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
++++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
+@@ -32,8 +32,15 @@
+   __ CmpS32(value, Operand::Zero(), r0);
+   __ EmitEagerDeoptIf(eq, DeoptimizeReason::kOverflow, this);
+ 
+-    __ neg(out, value, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ neg(out, value, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      __ neg(out, value);
++      __ and_(r0, value, out);
++      __ srwi(r0, r0, Operand(1));
++      __ mtcrf(r0, 0x80);
++    }
+     // Output register must not be a register input into the eager deopt info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+                          GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+@@ -50,8 +57,14 @@
+   __ CmpS32(out, Operand::Zero(), r0);
+   __ bge(&done);
+ 
+-  __ neg(out, out, SetOE);
+-  __ MoveToCrFromXer(cr0);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    __ neg(out, out, SetOE);
++    __ MoveToCrFromXer(cr0);
++  } else {
++    __ neg(out, out);
++    __ srwi(r0, out, Operand(1));
++    __ mtcrf(r0, 0x80);
++  }
+   DCHECK_REGLIST_EMPTY(RegList{out} &
+                        GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+   __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
+@@ -93,9 +106,17 @@
+                                               const ProcessingState& state) {
+   Register value = ToRegister(ValueInput());
+   Register out = ToRegister(result());
+-    __ li(r0, Operand(1));
+-    __ add(out, value, r0, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ li(r0, Operand(1));
++      __ add(out, value, r0, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      __ addi(r0, value, Operand(1));
++      __ andc(r0, r0, value);
++      __ srwi(r0, r0, Operand(1));
++      __ mtcrf(r0, 0x80);
++      __ addi(out, value, Operand(1));
++    }
+ 
+     // Output register must not be a register input into the eager deopt info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -114,9 +135,17 @@
+                                               const ProcessingState& state) {
+   Register value = ToRegister(ValueInput());
+   Register out = ToRegister(result());
+-    __ li(r0, Operand(-1));
+-    __ add(out, value, r0, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ li(r0, Operand(-1));
++      __ add(out, value, r0, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      __ addi(r0, value, Operand(-1));
++      __ andc(r0, value, r0);
++      __ srwi(r0, r0, Operand(1));
++      __ mtcrf(r0, 0x80);
++      __ addi(out, value, Operand(-1));
++    }
+ 
+     // Output register must not be a register input into the eager deopt info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -370,6 +399,9 @@
+   UseRegister(LeftInput());
+   UseRegister(RightInput());
+   DefineAsRegister(this);
++  if (!CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    set_temporaries_needed(1);
++  }
+ }
+ 
+ void Int32AddWithOverflow::GenerateCode(MaglevAssembler* masm,
+@@ -377,8 +409,20 @@
+   Register left = ToRegister(LeftInput());
+   Register right = ToRegister(RightInput());
+   Register out = ToRegister(result());
+-    __ add(out, left, right, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ add(out, left, right, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      MaglevAssembler::TemporaryRegisterScope temps(masm);
++      Register scratch = temps.AcquireScratch();
++      __ add(r0, left, right);
++      __ xor_(scratch, left, r0);
++      __ xor_(r0, left, right);
++      __ andc(scratch, scratch, r0);
++      __ srwi(scratch, scratch, Operand(1));
++      __ mtcrf(scratch, 0x80);
++      __ add(out, left, right);
++    }
+     // The output register shouldn't be a register input into the eager deopt
+     // info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -391,14 +435,29 @@
+   UseRegister(LeftInput());
+   UseRegister(RightInput());
+   DefineAsRegister(this);
++  if (!CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    set_temporaries_needed(1);
++  }
+ }
+ void Int32SubtractWithOverflow::GenerateCode(MaglevAssembler* masm,
+                                              const ProcessingState& state) {
+   Register left = ToRegister(LeftInput());
+   Register right = ToRegister(RightInput());
+   Register out = ToRegister(result());
+-    __ sub(out, left, right, SetOE);
+-    __ MoveToCrFromXer(cr0);
++    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++      __ sub(out, left, right, SetOE);
++      __ MoveToCrFromXer(cr0);
++    } else {
++      MaglevAssembler::TemporaryRegisterScope temps(masm);
++      Register scratch = temps.AcquireScratch();
++      __ sub(r0, left, right);
++      __ xor_(scratch, left, r0);
++      __ xor_(r0, left, right);
++      __ and_(scratch, scratch, r0);
++      __ srwi(scratch, scratch, Operand(1));
++      __ mtcrf(scratch, 0x80);
++      __ sub(out, left, right);
++    }
+     // The output register shouldn't be a register input into the eager deopt
+     // info.
+     DCHECK_REGLIST_EMPTY(RegList{out} &
