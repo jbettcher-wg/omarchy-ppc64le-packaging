@@ -16,11 +16,17 @@ makedepends=('vulkan-headers')
 optdepends=('libva-intel-driver: hardware acceleration for Intel GPUs GMA 4500 (2008) up to Coffee Lake (2017)'
   'intel-media-driver: hardware acceleration for Intel GPUs starting from Broadwell (2014) and newer (e.g. Intel Arc)')
 source=("https://github.com/moonlight-stream/${pkgname}/releases/download/v${pkgver}/MoonlightSrc-${pkgver}.tar.gz"
-        https://github.com/moonlight-stream/moonlight-qt/commit/13880353d8741ae331bf13433c5ad80071d5f44f.patch
-        https://github.com/moonlight-stream/moonlight-qt/commit/6ce02616f04fb83cd7c5d1492b03367f2220ac46.patch)
+        13880353d8741ae331bf13433c5ad80071d5f44f.patch
+        6ce02616f04fb83cd7c5d1492b03367f2220ac46.patch)
+# The two ffmpeg 9 fixes were fetched from GitHub's generated
+# /commit/<sha>.patch endpoint, whose bytes are not stable: the recorded
+# sha512sums stopped matching what GitHub serves, failing the build on a
+# recipe that had not changed. Vendored here so the package builds from the
+# exact bytes it was tested against. Content is unchanged -- these are the
+# same two upstream commits, byte-for-byte what that endpoint serves today.
 sha512sums=('390fe3f686c86a52dd0ff4b67e8e8beb6edcb175ddf92bc5de11d92ffdaf0b6a8d76be781c483b685626c705e63f07e156506112923c848a4a798ba703254829'
-            '3b35d9a5af2169ec6e0a08f11c29f24d03088a7281f70c0fcb93ad56d20a9ed3264bc15c2d83084c7b6b542640d6eed916654f321b61a2719b6eda876446935d'
-            'cb33a2bf6e0d427de7d36c69b9e1a5b87e947c4961971640d77f8b5a1c01330ab9c51269530b451daabbcba9c88132d20e6a097d688747575d3b18ab12834bed')
+            'c96ba9a45941c091395f4f29949fbe7ff2063dfebf6270c5b3433f6b5e67d681b9238ad959d6852366facd44bc2948bfffcf6703d78cdff5127d561b0f9ea19e'
+            'c16343c518a138ac50cbce4d491590804413985ef28f63801bbfe792074730cc151c9e84e70369a6435d2637f8ef7a4a3320ba937ecaeb05799efb5e10553987')
 
 prepare() {
   # Fix compilation with ffmpeg 9
