@@ -44,7 +44,7 @@ case "${CARCH}" in
 esac
 pkgver=26.2.2
 _pkgver=${pkgver/[a-z]/-&}
-pkgrel=2
+pkgrel=3
 epoch=1
 pkgdesc="Open-source OpenGL drivers"
 url="https://www.mesa3d.org/"
@@ -118,6 +118,7 @@ source=(
   "https://archive.mesa3d.org/mesa-$_pkgver.tar.xz"{,.sig}
   0002-big-endian-flipping.patch
   mesa-gcc16-missing-includes.patch
+  mesa-radv-vm-pad-host-page-size.patch
 )
 validpgpkeys=(
   946D09B5E4C9845E63075FF1D961C596A7203456 # Andres Gomez <tanty@igalia.com>
@@ -181,6 +182,7 @@ sha256sums=('eeb29ca7e56cfaa8e8a79538dcf834e3b18e501c31bef5145e959ea437cc4216'
             'SKIP'
             '0a8f2792dfd0469bc41540884fe2a1dbf4f0fd92f53bad5b9db831ac1e59dd11'
             'SKIP'
+            'b45e84fc2a60a87703ca4d7a88af4c93047af08f6160e798bf3f79dc951231fd'
             'b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a'
             '67914ab451f3bfd2e69e5e9d2ef3858484e7074d63f204fd166ec391b54de21d'
             'ed646292ffc8188ef8ea4d1e0e0150fb15a5c2e12ad9b8fc191ae7a8a7f3c4b9'
@@ -215,6 +217,7 @@ b2sums=('a9924a7cbac5dbdb4d93ba8499c49a6be51edd8ec5b258f2986a5690b04f6898012389d
         'SKIP'
         'c28718783873be25fa2d6c0f43fae900f93e2f20df1c11a40ec86622112b7be7e7f50c3b77e52849fec9288fb8da3744d8bc2027df941ffd0b8c558fe3a927ba'
         'SKIP'
+        '1ea9d83f59bfa794a3727aa1532790edd508d4a653164ac5cd078fc90e6b9be63c5f394c2fb35510b58f8c6a202c3811065e89bd1ee9ffe4da96b975896352b1'
         '5fed0ea98fea7b72e9d015bddbc5337d936eb3a07f358e29421d081e76bf927bc270be5ef98e38b969b0a59a362c5b330554b446f81627821f52b2fbea0bb12c'
         '431439d31632d177aeb15f910b4f546efa76d54fc74fc8e140399dc5e54eca33fd606f11dbfb48fa83067c8474ee512e62751895d5948367b65ab08b984284e5'
         'a6d47c903be6094423d89b8ec3ca899d0a84df6dbd6e76632bb6c9b9f40ad9c216f8fa400310753d392f85072756b43ac3892e0a2c4d55f87ab6463002554823'
