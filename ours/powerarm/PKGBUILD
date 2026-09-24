@@ -1,0 +1,396 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# powerarm -- POWERarm, AArch64 emulation for 64-bit POWER.
+#
+# The compatibility layer for this distribution: desktop software increasingly
+# ships an arm64 build and no ppc64le one (the Claude Code CLI is a Bun single
+# binary for x64/arm64 only; VS Code is arm64 Electron), and POWERarm is how
+# those run here.  It emulates AArch64 rather than x86 on purpose -- AArch64 is
+# weakly ordered like POWER, so guest fences lower only where the guest asked
+# for them, where x86's TSO costs a barrier on nearly every access.  fastppcx86
+# covers x86 at that price; the two install side by side and claim different
+# ELF machine types.
+#
+# What this package is FOR, in one line: it puts the binaries in /usr and
+# registers binfmt_misc correctly.  It does NOT ship a guest root filesystem,
+# and without one the emulator has nothing to run -- see "The rootfs" below and
+# the message in powerarm.install.
+#
+# ---------------------------------------------------------------------------
+# binfmt_misc, and why an upgrade MUST re-register
+#
+# The build installs /usr/lib/binfmt.d/POWERarm-aarch64.conf with the flags
+# POCF.  The F ("fix binary") flag makes the kernel open the interpreter AT
+# REGISTRATION TIME and hold that inode for the life of the entry.  It is what
+# makes the registration work inside mount namespaces and after a chroot, and
+# it is also a loaded gun:
+#
+#   * The entry keeps PRINTING the path string it was registered with, and the
+#     kernel passes that string as argv[0], so nothing in /proc/sys/fs/
+#     binfmt_misc/POWERarm-aarch64, in `ps`, or in the process's own argv shows
+#     which binary is really executing.
+#   * `pacman -U` replaces /usr/bin/POWERarm with a NEW inode.  The old inode
+#     stays pinned and alive (unlinked but still open by the kernel), so every
+#     aarch64 exec on the machine keeps running the PREVIOUS emulator until the
+#     entry is torn down and rebuilt.  A user who upgrades to get a fix and
+#     does not re-register gets the bug, silently, with no diagnostic anywhere.
+#
+# So powerarm.install restarts systemd-binfmt.service on post_install,
+# post_upgrade AND post_remove.  `restart` and not `start`: the unit's ExecStop
+# is `systemd-binfmt --unregister`, and only that teardown drops the pinned
+# inode.  A bare `systemd-binfmt` (ExecStart alone) sees an entry of that name
+# already registered, gets EEXIST from the kernel, warns, and leaves the stale
+# one in place -- which is the exact failure this is meant to prevent.
+#
+# There is no ALPM hook for usr/lib/binfmt.d on Arch POWER (checked: no file in
+# /usr/share/libalpm/hooks matches), so the .install scriptlet is the only
+# thing that does this.  It is not belt-and-braces.
+#
+# ---------------------------------------------------------------------------
+# The rootfs: deliberately not shipped
+#
+# POWERarm resolves guest absolute paths inside an AArch64 root filesystem.
+# With no rootfs, or with a configured rootfs name that does not resolve, the
+# lookup falls back to AT_FDCWD -- the HOST tree -- without a word
+# (FileManager::FileManager, FileManagement.cpp).  The guest then opens the
+# host's ppc64le /lib/ld-linux... and dies confusingly.  That silence is why
+# the post-install message exists.
+#
+# The rootfs is a ~600 MB pinned tree of Arch Linux ARM packages, it is rebuilt
+# from a manifest rather than downloaded as an image, and it belongs to the
+# user's ~/.local/share, not to pacman.  So the package ships the BUILDER
+# instead of the artefact: Scripts/powerarm/rootfs/ goes to
+# /usr/share/powerarm/rootfs/, and `build-alarm-sysroot.sh` there fetches,
+# sha256- and signature-verifies and extracts the tree, needing no root.
+#
+# Two things in the tree are deliberately NOT shipped:
+#
+#   * packaging/rootfs/mkrootfs.sh -- it is fastppcx86's script, unmodified.
+#     It builds an x86_64 Arch rootfs from Arch's x86_64 bootstrap tarball,
+#     which POWERarm cannot use.  Shipping it would point users at an image of
+#     the wrong architecture.
+#   * POWERarmRootFSFetcher is installed (the build installs it and removing a
+#     binary the build system produces only confuses the next reader), but the
+#     documentation never recommends it: it is FEX's fetcher with the names
+#     swapped and still downloads from rootfs.fex-emu.gg, which serves x86_64
+#     and i386 images for FEX.  See README.md.
+#
+# ---------------------------------------------------------------------------
+# Coexisting with a development install
+#
+# The development workflow registers binfmt by hand against
+# ~/.local/opt/powerarm-stable/Bin/POWERarm, via
+# ~/Development/register-powerarm-binfmt.sh, writing
+# /etc/binfmt.d/POWERarm-aarch64.conf.  That file has the SAME NAME as the one
+# this package installs under /usr/lib/binfmt.d.
+#
+# That is not a clash to fear, it is the drop-in mechanism working: binfmt.d is
+# read with systemd's usual precedence (/etc > /run > /usr/local/lib >
+# /usr/lib) and a file in /etc MASKS the same-named file in /usr entirely.  So
+# on a development machine the hand-registered stable build keeps winning after
+# this package is installed, which is what a developer wants.  Deleting
+# /etc/binfmt.d/POWERarm-aarch64.conf hands control to the package;
+# `ln -s /dev/null /etc/binfmt.d/POWERarm-aarch64.conf` disables both.  What
+# you must not do is assume: run
+# Scripts/powerarm/check-binfmt-inode.sh, which starts a real aarch64 process
+# and reads the emulator's path out of /proc/<pid>/maps.
+
+pkgname=powerarm
+# No release tags yet (m1/m2 are milestone tags, not versions), so the usual
+# commit-count + short-hash form.  pkgver() below recomputes it at build time;
+# the committed value tracks the last metadata refresh.
+pkgver=r15751.ae33e9beb
+pkgrel=1
+pkgdesc='AArch64 emulation for 64-bit POWER'
+arch=('powerpc64le')
+url='https://github.com/jbettcher-wg/POWERarm'
+license=('MIT')
+
+# fmt and xxhash are linked as system shared libraries (the build prefers them
+# over the External/ submodules); the Qt6 bits are POWERarmConfig's GUI
+# (find_package(Qt6 COMPONENTS Qml Quick Widgets) in Source/Tools).
+#
+# No dlopen'd thunk libraries are listed here, unlike fastppcx86's recipe:
+# this package builds with BUILD_THUNKS=OFF (see build()), so there is no host
+# thunk to dlopen a GL, Vulkan, wayland or drm library.  If thunks are ever
+# turned on, that whole list comes back and comes back as hard depends --
+# thunkgen emits fexldr_init_<lib>, nothing is DT_NEEDED, namcap cannot see any
+# of it, and a missing library makes the thunk fail silently rather than fail.
+depends=(
+  'gcc-libs'
+  'glibc'
+  'fmt'
+  'xxhash'
+  'qt6-base'
+  'qt6-declarative'
+)
+makedepends=(
+  'clang'    # FEX refuses to build with GCC -- FATAL_ERROR in CMakeLists.txt:90
+  'cmake'
+  'gdb'      # jit-reader.h, for ENABLE_GDB_SYMBOLS
+  'git'
+  'lld'      # the LTO link wants the LLVM linker
+  'llvm'
+  'ninja'
+  'python'
+  'range-v3' # optional: found, it avoids compiling the bundled copy
+)
+optdepends=(
+  'python: build a guest rootfs with /usr/share/powerarm/rootfs/build-alarm-sysroot.sh'
+  'gnupg: signature verification of the rootfs packages (gpg and gpgv)'
+  'zstd: zstd-compressed packages in the rootfs manifest'
+  'curl: downloading rootfs packages and the M2 source tarballs'
+  'bubblewrap: run-in-sysroot.sh, the native-side rootfs runner'
+  'erofs-utils: pack a built rootfs for a 4K KVM guest'
+  'squashfs-tools: likewise, as squashfs'
+)
+# makepkg's own LTO would add -flto=auto on top of the build's
+# CMAKE_INTERPROCEDURAL_OPTIMIZATION (ENABLE_LTO, on by default and on in the
+# validated build).  Two -flto flavours fighting over one link is not something
+# to leave to whichever comes last on the command line; let the build own it.
+options=('!lto')
+install="$pkgname.install"
+
+_repourl="${POWERARM_GIT_URL:-https://github.com/jbettcher-wg/POWERarm.git}"
+# Pinned explicitly rather than relying on the remote HEAD symref, so a change
+# to the repository's default branch cannot silently change what is packaged.
+# The local development branch is `powerarm`; it tracks origin/main, and main
+# is what ships.  Point both at a local checkout to package work in progress:
+#   POWERARM_GIT_URL='file:///home/jbettcher/Development/POWERarm' \
+#   POWERARM_GIT_BRANCH=powerarm makepkg -s
+_repobranch="${POWERARM_GIT_BRANCH:-main}"
+
+# Optional: build the AArch64 guest libraries (libVDSO-a64-guest.so).  OFF by
+# default and that is a correctness decision, not laziness -- see build().
+#   _guest_rootfs=~/.local/share/powerarm/RootFS/ArchLinuxARM-m2 makepkg -s
+_guest_rootfs="${_guest_rootfs:-}"
+
+# The bundled third-party trees are git submodules, listed as real makepkg
+# sources so the download phase stays in makepkg's hands and prepare() needs no
+# network.  Only the submodules this configuration compiles are here: Catch2
+# (BUILD_TESTING), vixl (disassembler/simulator), tracy (profiler),
+# Vulkan-Headers and drm-headers (thunks) are all skipped.  The URLs are the
+# ones .gitmodules pins -- note jemalloc_glibc is daedalao's fork, not
+# FEX-Emu's, and the pinned commit exists only there.
+source=(
+  "$pkgname::git+$_repourl#branch=$_repobranch"
+  'fmt::git+https://github.com/fmtlib/fmt.git'
+  'xxhash::git+https://github.com/Cyan4973/xxHash.git'
+  'range-v3::git+https://github.com/ericniebler/range-v3.git'
+  'unordered_dense::git+https://github.com/martinus/unordered_dense.git'
+  'jemalloc_glibc::git+https://github.com/daedalao/jemalloc.git'
+  'rpmalloc::git+https://github.com/FEX-Emu/rpmalloc.git'
+  'cpp-optparse::git+https://github.com/Sonicadvance1/cpp-optparse.git'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+# Submodule name -> source directory -> path.  The name is not always the path
+# (cpp-optparse is registered as External/cpp-optparse but lives in
+# Source/Common/).
+_submodules=(
+  'External/fmt:fmt:External/fmt'
+  'External/xxhash:xxhash:External/xxhash'
+  'External/range-v3:range-v3:External/range-v3'
+  'External/unordered_dense:unordered_dense:External/unordered_dense'
+  'External/jemalloc_glibc:jemalloc_glibc:External/jemalloc_glibc'
+  'External/rpmalloc:rpmalloc:External/rpmalloc'
+  'External/cpp-optparse:cpp-optparse:Source/Common/cpp-optparse'
+)
+
+pkgver() {
+  cd "$srcdir/$pkgname"
+  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=9 HEAD)"
+}
+
+prepare() {
+  cd "$srcdir/$pkgname"
+
+  local _entry _name _src _path _paths=()
+  for _entry in "${_submodules[@]}"; do
+    IFS=: read -r _name _src _path <<<"$_entry"
+    git submodule init -- "$_path"
+    git config "submodule.$_name.url" "$srcdir/$_src"
+    _paths+=("$_path")
+  done
+
+  # protocol.file.allow: git refuses file:// submodules by default
+  # (CVE-2022-39253).  These are makepkg's own checkouts.
+  git -c protocol.file.allow=always submodule update -- "${_paths[@]}"
+}
+
+build() {
+  local _hash
+  _hash="$(git -C "$srcdir/$pkgname" rev-parse HEAD)"
+
+  local _guest_thunks=OFF
+  if [[ -n $_guest_rootfs ]]; then
+    _guest_thunks=ON
+  fi
+
+  # CMAKE_INSTALL_PREFIX has to be /usr HERE, at configure time, and cannot be
+  # corrected later with `cmake --install --prefix`.  Data/binfmts/CMakeLists.txt
+  # both installs to ${CMAKE_INSTALL_PREFIX}/lib/binfmt.d -- an absolute
+  # DESTINATION, which --prefix does not move -- and configure_file()s the
+  # interpreter path into the .conf.  Configure with the wrong prefix and the
+  # package quietly ships a binfmt entry naming /usr/local/bin/POWERarm under
+  # /usr/local/lib/binfmt.d, where systemd will read it and where the file it
+  # names does not exist.  check() below asserts the result.
+  #
+  # TUNE_CPU: the upstream default is "native", which appends -march=native.
+  # Built on the POWER9 AC922 that bakes ISA 3.0 into the emulator's own host
+  # code, and the package then SIGILLs on its first instruction on a POWER8
+  # machine -- including the POWER8 VM this is tested on.  "none" leaves the
+  # ISA floor to /etc/makepkg.conf (-mcpu=power8 -mtune=power8), which is the
+  # pool's baseline.  Do not set it to power9 or native here; a machine-tuned
+  # rebuild can, and only for a machine-local package.
+  #
+  # This is about HOST code only.  The JIT chooses ISA 3.0 against ISA 2.07
+  # sequences at run time from CTX->HostFeatures.SupportsISA30, so the code it
+  # emits for the guest adapts to the machine it is running on by itself.
+  # POWERARM_HOSTFEATURES=disableisa30 forces the 2.07 paths for testing.
+  #
+  # BUILD_GUEST_THUNKS is OFF because turning it on makes the build depend on
+  # the BUILDER'S HOME DIRECTORY: CMakeLists.txt reads ~/.config/powerarm/
+  # Config.json for a RootFS name, requires an AArch64 rootfs with gcc and
+  # glibc headers, and then compiles the guest library by running that rootfs's
+  # gcc under the POWERarm it has just built.  On a machine without a rootfs it
+  # prints a warning and silently turns itself off, so the same recipe would
+  # produce two different packages depending on who built it.  The cost of
+  # leaving it off is that libVDSO-a64-guest.so is absent, so no AT_SYSINFO_EHDR
+  # is handed to the guest and guest libcs make real clock syscalls instead of
+  # vDSO calls (VDSO_Emulation.cpp:671).  Slower, correct.  _guest_rootfs=<path>
+  # opts in on a machine that has a rootfs.
+  local _cmakeflags=(
+    -S "$srcdir/$pkgname"
+    -B build
+    -G Ninja
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_INSTALL_PREFIX=/usr
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DCMAKE_C_COMPILER=clang
+    -DCMAKE_CXX_COMPILER=clang++
+    -DBUILD_TESTING=OFF
+    -DBUILD_THUNKS=OFF
+    -DBUILD_GUEST_THUNKS=$_guest_thunks
+    -DBUILD_FEXCONFIG=ON
+    -DENABLE_LTO=ON
+    -DENABLE_CCACHE=OFF
+    -DENABLE_ASSERTIONS=OFF
+    -DENABLE_FEX_ALLOCATOR=ON
+    -DENABLE_JEMALLOC_GLIBC_ALLOC=ON
+    -DENABLE_GDB_SYMBOLS=ON
+    -DENABLE_OFFLINE_TELEMETRY=ON
+    -DUSE_LEGACY_BINFMTMISC=OFF
+    -DTUNE_CPU=none
+    -DTUNE_ARCH=generic
+    -DOVERRIDE_VERSION="$pkgver"
+    -DOVERRIDE_HASH="$_hash"
+    -Wno-dev
+  )
+  if [[ -n $_guest_rootfs ]]; then
+    _cmakeflags+=(-DGUEST_ROOTFS="$_guest_rootfs")
+  fi
+
+  cmake "${_cmakeflags[@]}"
+  cmake --build build
+}
+
+check() {
+  # Not a test suite -- one assertion, about the single thing in this package
+  # that fails silently and invisibly.  If the generated binfmt entry names any
+  # interpreter other than /usr/bin/POWERarm, systemd registers a handler for
+  # every aarch64 ELF on the machine that points at a file which is not there.
+  local _conf="$srcdir/build/Data/binfmts/POWERarm-aarch64.conf"
+  local _interp
+  _interp=$(cut -d: -f7 "$_conf")
+  if [[ $_interp != /usr/bin/POWERarm ]]; then
+    echo "==> binfmt interpreter is '$_interp', expected /usr/bin/POWERarm" >&2
+    echo "==> the build was configured with the wrong CMAKE_INSTALL_PREFIX" >&2
+    return 1
+  fi
+  # POCF, and F above all: see the header.
+  local _flags
+  _flags=$(cut -d: -f8 "$_conf")
+  if [[ $_flags != *F* ]]; then
+    echo "==> binfmt flags '$_flags' have lost F; the .install hook's" >&2
+    echo "==> re-registration assumes inode pinning" >&2
+    return 1
+  fi
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  cd "$srcdir/$pkgname"
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # Guest libraries, when _guest_rootfs asked for them.  This is done by hand
+  # because the upstream install rule cannot do it from inside fakeroot: it is
+  # an install(CODE) that re-runs `cmake --build --target install` in
+  # build/Guest, that build drives the rootfs's gcc through the POWERarm just
+  # built, and the emulator does not survive fakeroot's LD_PRELOAD.  The
+  # execute_process() has no RESULT_VARIABLE and no COMMAND_ERROR_IS_FATAL, so
+  # the failure is SILENT -- makepkg prints "-- Installing: guest-libs",
+  # everything exits 0, and the package simply comes out without the library.
+  # Measured: with the rule alone the .so is absent from the package while
+  # build/Guest/libVDSO-a64-guest.so exists on disk.
+  #
+  # So install the artefact build() already produced, and let install(1) fail
+  # the build if it is not there.
+  if [[ -n $_guest_rootfs ]]; then
+    install -Dm755 "$srcdir/build/Guest/libVDSO-a64-guest.so" \
+      "$pkgdir/usr/share/powerarm/GuestThunks/libVDSO-a64-guest.so"
+  fi
+
+  # POWERarmInterpreter is installed as a second, byte-identical 3.9 MB copy of
+  # POWERarm (it is the legacy binfmt entry point; upstream installs both from
+  # one target).  A symlink is the same thing without the duplicate -- and note
+  # it is safe to make one precisely because the binfmt entry names
+  # /usr/bin/POWERarm directly, so nothing resolves the emulator through this
+  # name any more.
+  if [[ -f $pkgdir/usr/bin/POWERarmInterpreter && -f $pkgdir/usr/bin/POWERarm ]]; then
+    ln -sf POWERarm "$pkgdir/usr/bin/POWERarmInterpreter"
+  fi
+
+  # The rootfs builder.  build-alarm-sysroot.sh finds alarm_sysroot.py and the
+  # manifests next to itself, so the directory installs as a unit and runs from
+  # /usr/share unchanged.  It writes only to $XDG_DATA_HOME and $XDG_CACHE_HOME
+  # and never needs root.
+  install -dm755 "$pkgdir/usr/share/powerarm/rootfs"
+  install -m644 Scripts/powerarm/rootfs/*.manifest "$pkgdir/usr/share/powerarm/rootfs/"
+  install -m644 Scripts/powerarm/rootfs/README.md "$pkgdir/usr/share/powerarm/rootfs/"
+  install -m755 Scripts/powerarm/rootfs/*.sh Scripts/powerarm/rootfs/*.py \
+    "$pkgdir/usr/share/powerarm/rootfs/"
+
+  # Answers "which emulator is actually running my binaries?" from the process
+  # itself rather than from the registration, which lies by construction under
+  # the F flag.  Anybody who has both this package and a development install
+  # will need it.
+  install -m755 Scripts/powerarm/check-binfmt-inode.sh \
+    "$pkgdir/usr/share/powerarm/check-binfmt-inode.sh"
+
+  # System-wide default configuration: the LOWEST config layer
+  # (LAYER_GLOBAL_MAIN, added before the user's ~/.config/powerarm/Config.json,
+  # which overrides it).  It names the rootfs that
+  # build-alarm-sysroot.sh builds at its default --dest, so a user who follows
+  # the post-install message ends up with a working guest and no file to edit.
+  #
+  # A name that does not resolve behaves exactly as no RootFS at all does --
+  # host paths, silently -- so this cannot make the no-rootfs case worse, only
+  # the with-rootfs case automatic.
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/powerarm/Config.json" <<'EOF'
+{
+  "Config": {
+    "RootFS": "ArchLinuxARM-m2"
+  }
+}
+EOF
+
+  local _doc
+  for _doc in README.md docs/ENV_REFERENCE.md docs/DEPENDENCIES.md; do
+    if [[ -f $_doc ]]; then
+      install -Dm644 "$_doc" "$pkgdir/usr/share/doc/$pkgname/${_doc##*/}"
+    fi
+  done
+}

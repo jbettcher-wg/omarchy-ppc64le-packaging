@@ -1,0 +1,107 @@
+# powerarm.install -- binfmt_misc re-registration, and the first-run message.
+#
+# THE IMPORTANT PART IS _powerarm_rebind, AND IT RUNS ON UPGRADE TOO.
+#
+# /usr/lib/binfmt.d/POWERarm-aarch64.conf registers with the flags POCF.  F
+# ("fix binary") makes the kernel open /usr/bin/POWERarm when the entry is
+# registered and hold THAT INODE for the life of the entry.  An upgrade writes
+# a new /usr/bin/POWERarm at a new inode; the old one stays pinned and open, so
+# without a re-registration every aarch64 process on the machine keeps running
+# the emulator from BEFORE the upgrade.  The entry still prints
+# "interpreter /usr/bin/POWERarm", and the kernel passes that same string as
+# argv[0], so neither the registration, nor `ps`, nor the process's own argv
+# gives any sign of it.  Somebody upgrades to get a fix, does not get the fix,
+# and has nothing to look at.
+#
+# `systemctl restart` and not `start`: the unit's ExecStop is
+# `systemd-binfmt --unregister`, and only that teardown releases the pinned
+# inode.  ExecStart on its own hits EEXIST on an entry of the same name, logs a
+# warning, and leaves the stale registration exactly where it was.
+#
+# post_remove restarts it as well, so the entry disappears with the package
+# rather than outliving it as a handler for a file that is no longer there.
+
+_powerarm_rebind() {
+  systemctl restart systemd-binfmt.service 2>/dev/null || {
+    cat <<'EOF'
+powerarm: could not restart systemd-binfmt.service.
+
+  The AArch64 binfmt_misc handler is stale or absent until it is re-registered:
+
+    sudo systemctl restart systemd-binfmt.service
+
+  Do not use `start`: only the unit's stop step unregisters the old entry, and
+  the old entry pins the OLD emulator's inode.
+EOF
+  }
+}
+
+post_install() {
+  _powerarm_rebind
+  cat <<'EOF'
+
+POWERarm installed.  aarch64 binaries now run directly, through binfmt_misc.
+
+  NEXT STEP -- you do not have a guest root filesystem yet, and without one
+  nothing useful runs.  POWERarm resolves guest paths inside an AArch64 rootfs;
+  with none, lookups fall back to the host tree silently and a guest binary
+  dies on the host's ppc64le loader with no useful error.
+
+  Build one (no root needed, ~600 MB installed, ~120 MB downloaded, needs
+  network, python, gpg/gpgv and zstd):
+
+    /usr/share/powerarm/rootfs/build-alarm-sysroot.sh
+
+  It fetches pinned Arch Linux ARM packages, checks every sha256 and every
+  signature against the pinned Arch Linux ARM key, and extracts them to
+  ~/.local/share/powerarm/RootFS/ArchLinuxARM-m2 -- which is the rootfs this
+  package's /usr/share/powerarm/Config.json already selects.  Nothing to edit.
+
+  Then:
+
+    POWERarm /usr/bin/uname -m           # prints aarch64
+    ~/.local/share/powerarm/RootFS/ArchLinuxARM-m2/usr/bin/uname -m
+                                         # the same, via binfmt_misc
+
+  Do NOT use POWERarmRootFSFetcher: it is inherited from FEX and downloads
+  x86_64/i386 images, which are useless here.
+
+  Per-user settings live in ~/.config/powerarm/Config.json (POWERarmConfig is
+  the GUI for it) and override the system defaults.
+
+  If you also run a development build from ~/.local/opt/powerarm-stable, read
+  /usr/share/doc/powerarm/README.md: /etc/binfmt.d masks /usr/lib/binfmt.d, so
+  the hand-registered one keeps winning.  To see which emulator really handles
+  your binaries:
+
+    bash /usr/share/powerarm/check-binfmt-inode.sh
+
+EOF
+}
+
+post_upgrade() {
+  _powerarm_rebind
+  cat <<'EOF'
+
+POWERarm upgraded, and the binfmt_misc entry was re-registered against the new
+binary.  If the restart above failed, every aarch64 process is still running
+the PREVIOUS emulator; nothing will say so.  Confirm with:
+
+  bash /usr/share/powerarm/check-binfmt-inode.sh
+
+Long-running guests started before the upgrade keep the old emulator until they
+exit -- that is the pinned inode, and it is fine.  Restart them to pick this up.
+
+EOF
+}
+
+post_remove() {
+  _powerarm_rebind
+  cat <<'EOF'
+
+POWERarm removed and its binfmt_misc entry unregistered.  Guest root
+filesystems under ~/.local/share/powerarm/ are left alone; delete them by hand
+if you want the space back.
+
+EOF
+}
