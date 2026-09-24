@@ -1,0 +1,13 @@
+diff --git a/tools/resources/ar.py b/tools/resources/ar.py
+index fe62384..637741e 100644
+--- a/tools/resources/ar.py
++++ b/tools/resources/ar.py
+@@ -57,7 +57,7 @@ def _IterThinPaths(path):
+       if entry_name[0:1] == b'/':
+         # Name is specified as location in name table.
+         # E.g.: /123
+-        name_offset = int(entry_name[1:])
++        name_offset = int(entry_name[1:].rstrip(b'/'))
+         # String table enties are delimited by \n (e.g. "browser.o/\n").
+         end_idx = name_list.index(b'\n', name_offset)
+         entry_name = name_list[name_offset:end_idx]
