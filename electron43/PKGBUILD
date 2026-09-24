@@ -82,7 +82,7 @@
 # Contributor: kxxt <rsworktech@outlook.com>
 
 pkgver=43.7.0
-pkgrel=4
+pkgrel=5
 _major_ver=${pkgver%%.*}
 pkgname="electron${_major_ver}"
 
@@ -203,7 +203,7 @@ sha256sums=('aa9f3f042c6ab77b0586c829d30af6e08cc485193c134772414187d8a42fc1d0'
             '981236f9e9ee379d27b210b43937bd6710f3de55439845f76051e8158b88d3ef'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
             '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
-            '40d5e526f66d78231dec94ed6e837cfbcd29c7847c66a1cf545c478a2524f7a7')
+            'e88254979d8d5689a412c0cd1abfc2c335342496d6a1281ae95c16d0e4edb9e0')
 
 # Possible replacements are listed in build/linux/unbundle/replace_gn_files.py
 # Keys are the names in the above script; values are the dependencies in Arch.

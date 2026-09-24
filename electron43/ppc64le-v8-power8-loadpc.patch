@@ -20,9 +20,11 @@ This patch:
 - Gates SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
 
 diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc mod-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc
---- a/v8/src/codegen/ppc/assembler-ppc.cc
-+++ b/v8/src/codegen/ppc/assembler-ppc.cc
-@@ -58,9 +58,8 @@
+diff --git i/v8/src/codegen/ppc/assembler-ppc.cc w/v8/src/codegen/ppc/assembler-ppc.cc
+index d652db4..96bd4cc 100644
+--- i/v8/src/codegen/ppc/assembler-ppc.cc
++++ w/v8/src/codegen/ppc/assembler-ppc.cc
+@@ -58,9 +58,8 @@ static CpuFeatureSet CpuFeaturesImpliedByCompiler() {
  }
  
  bool CpuFeatures::SupportsSimd128() {
@@ -34,7 +36,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc mod-test-ele
  #else
    return false;
  #endif  // V8_ENABLE_SIMD128
-@@ -1521,6 +1520,10 @@
+@@ -1521,6 +1520,10 @@ void Assembler::crxor(int bt, int ba, int bb) {
    emit(EXT1 | CRXOR | bt * B21 | ba * B16 | bb * B11);
  }
  
@@ -45,10 +47,11 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.cc mod-test-ele
  void Assembler::creqv(int bt, int ba, int bb) {
    emit(EXT1 | CREQV | bt * B21 | ba * B16 | bb * B11);
  }
-diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.h mod-test-electron43/v8/src/codegen/ppc/assembler-ppc.h
---- a/v8/src/codegen/ppc/assembler-ppc.h
-+++ b/v8/src/codegen/ppc/assembler-ppc.h
-@@ -1070,6 +1070,7 @@
+diff --git i/v8/src/codegen/ppc/assembler-ppc.h w/v8/src/codegen/ppc/assembler-ppc.h
+index 00e5959..4c5018e 100644
+--- i/v8/src/codegen/ppc/assembler-ppc.h
++++ w/v8/src/codegen/ppc/assembler-ppc.h
+@@ -1070,6 +1070,7 @@ class Assembler : public AssemblerBase {
  
    // Special register access
    void crxor(int bt, int ba, int bb);
@@ -56,10 +59,11 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/assembler-ppc.h mod-test-elec
    void crclr(int bt) { crxor(bt, bt, bt); }
    void creqv(int bt, int ba, int bb);
    void crset(int bt) { creqv(bt, bt, bt); }
-diff -uNr clean-test-electron43/v8/src/codegen/ppc/constants-ppc.h mod-test-electron43/v8/src/codegen/ppc/constants-ppc.h
---- a/v8/src/codegen/ppc/constants-ppc.h
-+++ b/v8/src/codegen/ppc/constants-ppc.h
-@@ -3065,7 +3065,11 @@
+diff --git i/v8/src/codegen/ppc/constants-ppc.h w/v8/src/codegen/ppc/constants-ppc.h
+index 858feba..573c000 100644
+--- i/v8/src/codegen/ppc/constants-ppc.h
++++ w/v8/src/codegen/ppc/constants-ppc.h
+@@ -3065,7 +3065,11 @@ const Instr rtCallRedirInstr = TWI;
  
  constexpr uint8_t kInstrSize = 4;
  constexpr uint8_t kInstrSizeLog2 = 2;
@@ -71,10 +75,11 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/constants-ppc.h mod-test-elec
  
  class Instruction {
   public:
-diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc
---- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
-@@ -570,6 +570,7 @@
+diff --git i/v8/src/codegen/ppc/macro-assembler-ppc.cc w/v8/src/codegen/ppc/macro-assembler-ppc.cc
+index 1357c6f..e794337 100644
+--- i/v8/src/codegen/ppc/macro-assembler-ppc.cc
++++ w/v8/src/codegen/ppc/macro-assembler-ppc.cc
+@@ -570,6 +570,7 @@ void MacroAssembler::MultiPushV128(Simd128RegList simd_regs, Register scratch,
    int16_t stack_offset = num_to_push * kSimd128Size;
  
    subi(location, location, Operand(stack_offset));
@@ -82,7 +87,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
    for (int16_t i = Simd128Register::kNumRegisters - 1; i >= 0; i--) {
      if ((simd_regs.bits() & (1 << i)) != 0) {
        Simd128Register simd_reg = Simd128Register::from_code(i);
-@@ -577,6 +578,7 @@
+@@ -577,6 +578,7 @@ void MacroAssembler::MultiPushV128(Simd128RegList simd_regs, Register scratch,
        StoreSimd128(simd_reg, MemOperand(location, stack_offset), scratch);
      }
    }
@@ -90,7 +95,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
  }
  
  void MacroAssembler::MultiPopDoubles(DoubleRegList dregs, Register location) {
-@@ -596,6 +598,7 @@
+@@ -596,6 +598,7 @@ void MacroAssembler::MultiPopV128(Simd128RegList simd_regs, Register scratch,
                                    Register location) {
    int16_t stack_offset = 0;
  
@@ -98,7 +103,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
    for (int16_t i = 0; i < Simd128Register::kNumRegisters; i++) {
      if ((simd_regs.bits() & (1 << i)) != 0) {
        Simd128Register simd_reg = Simd128Register::from_code(i);
-@@ -603,6 +606,9 @@
+@@ -603,6 +606,9 @@ void MacroAssembler::MultiPopV128(Simd128RegList simd_regs, Register scratch,
        stack_offset += kSimd128Size;
      }
    }
@@ -108,45 +113,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
    addi(location, location, Operand(stack_offset));
  }
  
-@@ -611,7 +617,7 @@
-                                          Register scratch1, Register scratch2,
-                                          Register location) {
-   MultiPushDoubles(dregs);
--#if V8_ENABLE_WEBASSEMBLY
-+#if V8_ENABLE_WEBASSEMBLY && defined(_ARCH_PWR9)
-   bool generating_builtins =
-       isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
-   if (generating_builtins) {
-@@ -640,6 +646,9 @@
-            Operand(-static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
-     }
-   }
-+#elif V8_ENABLE_WEBASSEMBLY
-+  addi(sp, sp,
-+       Operand(-static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
- #endif
- }
- 
-@@ -647,7 +656,7 @@
-                                         Simd128RegList simd_regs,
-                                         Register scratch1, Register scratch2,
-                                         Register location) {
--#if V8_ENABLE_WEBASSEMBLY
-+#if V8_ENABLE_WEBASSEMBLY && defined(_ARCH_PWR9)
-   bool generating_builtins =
-       isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
-   if (generating_builtins) {
-@@ -670,6 +679,9 @@
-            Operand(static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
-     }
-   }
-+#elif V8_ENABLE_WEBASSEMBLY
-+  addi(sp, sp,
-+       Operand(static_cast<int8_t>(simd_regs.Count()) * kSimd128Size));
- #endif
-   MultiPopDoubles(dregs);
- }
-@@ -1186,7 +1198,13 @@
+@@ -1186,7 +1192,13 @@ void MacroAssembler::LoadConstantPoolPointerRegisterFromCodeTargetAddress(
  }
  
  void MacroAssembler::LoadPC(Register dst) {
@@ -160,7 +127,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
  }
  
  void MacroAssembler::ComputeCodeStartAddress(Register dst) {
-@@ -2602,19 +2620,43 @@
+@@ -2602,19 +2614,43 @@ void MacroAssembler::DivU32(Register dst, Register src, Register value, OEBit s,
  }
  
  void MacroAssembler::ModS64(Register dst, Register src, Register value) {
@@ -208,7 +175,7 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
    ZeroExtWord32(dst, dst);
  }
  
-@@ -4931,12 +4973,26 @@
+@@ -4931,12 +4967,26 @@ void MacroAssembler::CountLeadingZerosU64(Register dst, Register src, RCBit r) {
  
  void MacroAssembler::CountTrailingZerosU32(Register dst, Register src,
                                             RCBit r) {
@@ -235,10 +202,11 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-te
  }
  
  void MacroAssembler::ClearByteU64(Register dst, int byte_idx) {
-diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h
---- a/v8/src/codegen/ppc/macro-assembler-ppc.h
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.h
-@@ -987,7 +987,13 @@
+diff --git i/v8/src/codegen/ppc/macro-assembler-ppc.h w/v8/src/codegen/ppc/macro-assembler-ppc.h
+index a2ed3bb..62fb8c7 100644
+--- i/v8/src/codegen/ppc/macro-assembler-ppc.h
++++ w/v8/src/codegen/ppc/macro-assembler-ppc.h
+@@ -987,7 +987,13 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
    // Usage: call the appropriate arithmetic function and then call one of the
    // flow control functions with the corresponding label.
    void MoveToCrFromXer(CRegister cr) {
@@ -252,10 +220,11 @@ diff -uNr clean-test-electron43/v8/src/codegen/ppc/macro-assembler-ppc.h mod-tes
    }
  
    // Performs a truncating conversion of a floating point number as used by
-diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.cc mod-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.cc
---- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
-+++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
-@@ -1412,14 +1412,33 @@
+diff --git i/v8/src/compiler/backend/ppc/code-generator-ppc.cc w/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+index bc7a04f..5d7861b 100644
+--- i/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ w/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -1412,14 +1412,33 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
      case kPPC_Add32:
      case kPPC_Add64:
        if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
@@ -295,7 +264,7 @@ diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.c
        } else {
          if (HasRegisterInput(instr, 1)) {
            __ add(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
-@@ -1439,14 +1458,33 @@
+@@ -1439,14 +1458,33 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
      case kPPC_Sub32:
      case kPPC_Sub64:
        if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
@@ -335,7 +304,7 @@ diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.c
        } else {
          if (HasRegisterInput(instr, 1)) {
            __ sub(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
-@@ -1527,16 +1565,16 @@
+@@ -1527,16 +1565,16 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
        ASSEMBLE_FLOAT_BINOP_RC(fdiv, MiscField::decode(instr->opcode()));
        break;
      case kPPC_Mod32:
@@ -356,7 +325,7 @@ diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.c
        break;
      case kPPC_ModDouble:
        // TODO(bmeurer): We should really get rid of this special instruction,
-@@ -1609,8 +1647,19 @@
+@@ -1609,8 +1647,19 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
      case kPPC_Neg32:
      case kPPC_Neg64:
        if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
@@ -378,10 +347,11 @@ diff -uNr clean-test-electron43/v8/src/compiler/backend/ppc/code-generator-ppc.c
        } else {
          __ neg(i.OutputRegister(), i.InputRegister(0), LeaveOE,
                 i.OutputRCBit());
-diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
---- a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
-+++ b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
-@@ -216,9 +216,17 @@
+diff --git i/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h w/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+index 5f53e15..042c4d1 100644
+--- i/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
++++ w/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+@@ -216,9 +216,17 @@ inline void MaglevAssembler::BindBlock(BasicBlock* block) {
  // Returns the condition code for the no overflow flag.
  inline Condition MaglevAssembler::TrySmiTagInt32(Register dst, Register src) {
    if (SmiValuesAre31Bits()) {
@@ -400,7 +370,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod
    } else {
      SmiTag(dst, src);
    }
-@@ -248,9 +256,20 @@
+@@ -248,9 +256,20 @@ inline void MaglevAssembler::SmiAddConstant(Register dst, Register src,
  
    Move(scratch, Smi::FromInt(value));
    if (SmiValuesAre31Bits()) {
@@ -421,7 +391,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod
    } else {
      AddS64(dst, src, scratch, SetOE, SetRC);
      JumpIf(kOverflow, fail, distance);
-@@ -270,9 +289,20 @@
+@@ -270,9 +289,20 @@ inline void MaglevAssembler::SmiSubConstant(Register dst, Register src,
  
    Move(scratch, Smi::FromInt(value));
    if (SmiValuesAre31Bits()) {
@@ -442,10 +412,11 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod
    } else {
      SubS64(dst, src, scratch, SetOE, SetRC);
      JumpIf(kOverflow, fail, distance);
-diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc
---- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
-+++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
-@@ -32,8 +32,15 @@
+diff --git i/v8/src/maglev/ppc/maglev-ir-ppc.cc w/v8/src/maglev/ppc/maglev-ir-ppc.cc
+index 01460dc..a7d59a2 100644
+--- i/v8/src/maglev/ppc/maglev-ir-ppc.cc
++++ w/v8/src/maglev/ppc/maglev-ir-ppc.cc
+@@ -32,8 +32,15 @@ void Int32NegateWithOverflow::GenerateCode(MaglevAssembler* masm,
    __ CmpS32(value, Operand::Zero(), r0);
    __ EmitEagerDeoptIf(eq, DeoptimizeReason::kOverflow, this);
  
@@ -463,7 +434,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-elec
      // Output register must not be a register input into the eager deopt info.
      DCHECK_REGLIST_EMPTY(RegList{out} &
                           GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
-@@ -50,8 +57,14 @@
+@@ -50,8 +57,14 @@ void Int32AbsWithOverflow::GenerateCode(MaglevAssembler* masm,
    __ CmpS32(out, Operand::Zero(), r0);
    __ bge(&done);
  
@@ -480,7 +451,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-elec
    DCHECK_REGLIST_EMPTY(RegList{out} &
                         GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
    __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
-@@ -93,9 +106,17 @@
+@@ -93,9 +106,17 @@ void Int32IncrementWithOverflow::GenerateCode(MaglevAssembler* masm,
                                                const ProcessingState& state) {
    Register value = ToRegister(ValueInput());
    Register out = ToRegister(result());
@@ -501,7 +472,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-elec
  
      // Output register must not be a register input into the eager deopt info.
      DCHECK_REGLIST_EMPTY(RegList{out} &
-@@ -114,9 +135,17 @@
+@@ -114,9 +135,17 @@ void Int32DecrementWithOverflow::GenerateCode(MaglevAssembler* masm,
                                                const ProcessingState& state) {
    Register value = ToRegister(ValueInput());
    Register out = ToRegister(result());
@@ -522,7 +493,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-elec
  
      // Output register must not be a register input into the eager deopt info.
      DCHECK_REGLIST_EMPTY(RegList{out} &
-@@ -370,6 +399,9 @@
+@@ -370,6 +399,9 @@ void Int32AddWithOverflow::SetValueLocationConstraints() {
    UseRegister(LeftInput());
    UseRegister(RightInput());
    DefineAsRegister(this);
@@ -532,7 +503,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-elec
  }
  
  void Int32AddWithOverflow::GenerateCode(MaglevAssembler* masm,
-@@ -377,8 +409,20 @@
+@@ -377,8 +409,20 @@ void Int32AddWithOverflow::GenerateCode(MaglevAssembler* masm,
    Register left = ToRegister(LeftInput());
    Register right = ToRegister(RightInput());
    Register out = ToRegister(result());
@@ -555,7 +526,7 @@ diff -uNr clean-test-electron43/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-elec
      // The output register shouldn't be a register input into the eager deopt
      // info.
      DCHECK_REGLIST_EMPTY(RegList{out} &
-@@ -391,14 +435,29 @@
+@@ -391,14 +435,29 @@ void Int32SubtractWithOverflow::SetValueLocationConstraints() {
    UseRegister(LeftInput());
    UseRegister(RightInput());
    DefineAsRegister(this);
