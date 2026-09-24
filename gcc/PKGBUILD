@@ -60,7 +60,7 @@ case ${CARCH} in
 esac
 pkgver=16.1.1+r346+g4e03491b401d
 _commit=4e03491b401dce0658543dd90524ddb92063836e
-pkgrel=2
+pkgrel=3
 pkgdesc='The GNU Compiler Collection'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 license=(
@@ -245,7 +245,20 @@ build() {
   # Bootstrap disabled: this toolchain is already verified on this host and the
   # 3-stage rebuild is pure wall clock. Drop the `bootstrap` target with it --
   # it does not exist under --disable-bootstrap.
-  make -O STAGE1_CFLAGS="-O2" \
+  #
+  # STAGE1_CFLAGS carries $CFLAGS, and that is load-bearing under
+  # --disable-bootstrap. BOOT_CFLAGS only applies to bootstrap stages 2 and 3,
+  # which do not exist here, so the shipped cc1/cc1plus/gcc ARE stage 1 and take
+  # STAGE1_CFLAGS alone. With a bare -O2 the host compiler's built-in default
+  # CPU decided, and on this POWER9 builder that put ISA 3.0 into the compiler
+  # itself: 126 instructions in the gcc driver, 262 in cc1/cc1plus, among them
+  # `xxspltib`. Every one of them SIGILLs on a real POWER8, so the baseline pool
+  # shipped a compiler that could not compile on the hardware the pool targets.
+  #
+  # --with-cpu (above) governs what gcc EMITS, which is why libgcc.a and
+  # libgcc_s.so.1 scan clean. It says nothing about what gcc is BUILT as. Both
+  # are needed, and a POWER9 host will not reveal the difference.
+  make -O STAGE1_CFLAGS="$CFLAGS" \
           BOOT_CFLAGS="$CFLAGS" \
           BOOT_LDFLAGS="$LDFLAGS" \
           LDFLAGS_FOR_TARGET="$LDFLAGS"
