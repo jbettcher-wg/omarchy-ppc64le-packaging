@@ -18,6 +18,13 @@ makedepends=(
 source=("https://github.com/google/highway/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz")
 sha256sums=('e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c')
 
+# check() below skips ctest on powerpc64le, so the test binaries are never
+# run -- but upstream wires every one of them to gtest_discover_tests with
+# DISCOVERY_TIMEOUT 60, which executes the freshly linked binary during
+# build() to enumerate its cases. On a loaded builder the largest of them
+# (table_test) overruns that budget, discovery returns nothing, and CMake
+# fails parsing the empty JSON. Building tests we do not run is waste; not
+# building them removes the failure and the waste together.
 build() {
     cmake -B build -S "${pkgname}-${pkgver}" \
         -G 'Unix Makefiles' \
@@ -25,6 +32,7 @@ build() {
         -DCMAKE_INSTALL_PREFIX:PATH='/usr' \
         -DBUILD_SHARED_LIBS:BOOL='ON' \
         -DHWY_SYSTEM_GTEST:BOOL='ON' \
+        -DHWY_ENABLE_TESTS:BOOL='OFF' \
         -Wno-dev #${_cmake_options[@]}
     cmake --build build
 }
