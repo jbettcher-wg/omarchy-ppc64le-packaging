@@ -1,15 +1,14 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
 # Contributor: David Runge <dvzrv@archlinux.org>
 # Contributor: Stijn Segers <francesco dot borromini at gmail dot com>
 
 pkgname=freerdp
-pkgver=3.30.0
+pkgver=3.32.0
 _libver=${pkgver/.*/}
-pkgrel=2
+pkgrel=1
 epoch=2
 pkgdesc="Free implementation of the Remote Desktop Protocol (RDP)"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(powerpc64le)
 url="https://www.freerdp.com/"
 license=(Apache-2.0)
 depends=(
@@ -70,8 +69,8 @@ provides=(
 source=(
   "git+https://github.com/$pkgname/$pkgname#tag=$pkgver"
 )
-sha512sums=('4f1c791780f95c3deb6010caff28d0013e22262823074955627bcc2ae7b5ce4dcaff95194033e0935394d5c225728f9f99e42be1d1100f31850c4ebdbb89d577')
-b2sums=('e4a339aa2f3d629a84ac709ce636bcc1c93aaeb19283d50094476137d44d0af43548c0ad79a6437be41c6fd0da79a9e2bae359dc046fff3b5e9ddecd2ff9e613')
+sha512sums=('3804842514e39c4fa09d5e6348a08ac37e5c6f8d95e62a721ed141fb3b3cfced6eeedf9c06cf04c6af9066343b77e11c0fbde22d7caeaf4dee7adbbfaedc089b')
+b2sums=('fdc25bcf8ba9f3714e092a10ca856a59c1604b2a6ced2304bf05f7fcc5a80963f1587b52c75e8439eb8d80573653c8ad0ba101af305efcc392989cd63ac1ff84')
 
 build() {
   # gcc14 buildfix

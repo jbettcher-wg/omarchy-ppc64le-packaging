@@ -1,16 +1,11 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Bruno Pagani <archange@archlinux.org>
 # Maintainer: Jakub Klinkovský <lahwaacz at archlinux dot org>
 
-# LTO passes may not produce any output for quite some time
-# especially on slower systems
-apb_output_timeout=7200
-
 pkgname=mgard
 pkgver=1.6.0
-pkgrel=9
+pkgrel=12
 pkgdesc="MultiGrid Adaptive Reduction of Data"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(powerpc64le)
 url="https://github.com/CODARcode/MGARD"
 license=(Apache-2.0)
 depends=(
@@ -53,22 +48,13 @@ build() {
     -DMGARD_ENABLE_OPENMP=ON
     -DMGARD_ENABLE_MDR=ON
     #-DMGARD_ENABLE_CLI=ON  requires tclap 1.4
+    -DBUILD_TESTING=ON
   )
-
-  case "${CARCH}" in
-    powerpc|powerpc64) cmake_options+=(-DBUILD_TESTING=OFF) ;;
-    *)                 cmake_options+=(-DBUILD_TESTING=ON) ;;
-  esac
-
   cmake "${cmake_options[@]}"
   cmake --build build
 }
 
 check() {
-  case "${CARCH}" in
-    powerpc|powerpc64) return 0 ;;
-  esac
-
   # Upstream is missing the integration with ctest
   OMP_NUM_THREADS=4 ./build/bin/tests
 }

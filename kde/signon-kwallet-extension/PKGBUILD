@@ -1,12 +1,11 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Antonio Rojas <arojas@archlinux.org>
 # Contributor: anex <assassin.anex[@]gmail.com
 
 pkgname=signon-kwallet-extension
-pkgver=26.08.0
+pkgver=26.08.1
 pkgrel=1
 pkgdesc='KWallet integration for signon framework'
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(powerpc64le)
 url='https://www.kde.org'
 license=(LGPL-2.0-or-later)
 depends=(glibc
@@ -19,7 +18,7 @@ makedepends=(extra-cmake-modules)
 groups=(kde-applications
         kde-network)
 source=(https://download.kde.org/stable/release-service/$pkgver/src/$pkgname-$pkgver.tar.xz{,.sig})
-sha256sums=('ad8ea5a4e40ce7f2481c694ff44822b89ab572746c4a6a552a0039041e2ea9d7'
+sha256sums=('d50f42b725e5d1bcb7c9e3caff77c2b9c835715567427e544c3824e484776ced'
             'SKIP')
 validpgpkeys=(CA262C6C83DE4D2FB28A332A3A6A4DB839EAA6D7  # Albert Astals Cid <aacid@kde.org>
               F23275E4BF10AFC1DF6914A6DBD2CE893E2D1C87  # Christoph Feck <cfeck@kde.org>
