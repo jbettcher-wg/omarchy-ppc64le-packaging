@@ -28,7 +28,17 @@ build() {
     # elf-pathguard refuses the package. They link libnfs.so, which installs to
     # /usr/lib and is already on the default search path, so no RUNPATH is
     # wanted here at all.
+    #
+    # SKIP_INSTALL_RPATH alone does not do it. It only stops CMake *adding* an
+    # install RPATH; it does not strip one the binary already carries, and
+    # CMake rewrites at install only when it is replacing an rpath with
+    # another. The build-tree entry therefore rides through untouched --
+    # verified by staging with and without it. SKIP_BUILD_RPATH stops the entry
+    # being added in the first place, which leaves the utils with no RUNPATH at
+    # all. Upstream's own BUILD_RPATH/INSTALL_RPATH of ${INSTALL_LIB_DIR} is
+    # /usr/lib here and is redundant with the default search path.
     cmake \
+        -DCMAKE_SKIP_BUILD_RPATH=ON \
         -DCMAKE_SKIP_INSTALL_RPATH=ON \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DENABLE_DOCUMENTATION=ON \
