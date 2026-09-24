@@ -1,0 +1,61 @@
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Grey Christoforo
+
+pkgname=python-pivy
+pkgver=0.6.11
+pkgrel=2
+epoch=1
+pkgdesc='Python bindings to Coin3D'
+arch=(powerpc64le)
+url='https://github.com/coin3d/pivy'
+license=(ISC)
+depends=(
+  glibc
+  libgcc
+  libstdc++
+  coin
+  python
+  pyside6
+  python-numpy
+  qt6-base
+  soqt
+)
+makedepends=(
+  git
+  cmake
+  glu
+  swig
+)
+source=("$pkgname::git+$url#tag=$pkgver")
+sha512sums=('870157cb85fbac12ba9a2563ca37527047869662e6f3673e63ae653139886991c90cf4181d815713978d67202a33930a1d867076f6289563551c813e5ee3068e')
+b2sums=('e6de880fd52a9ba6795bd3949b8fc89baf4391ba0317e9ec8178121a3eb562c4126ed9eea8a159d351141b332cb17b745c0b0f3092564e6c27f9294de88b61f0')
+
+build() {
+  cd "$pkgname"
+
+  # NOTE: out-of-tree build broken: https://github.com/coin3d/pivy/issues/72
+  local cmake_options=(
+    -B build
+    -D CMAKE_BUILD_TYPE=None
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D CMAKE_POLICY_VERSION_MINIMUM=3.5
+    -D PIVY_USE_QT6=ON
+    -W no-dev
+  )
+  cmake "${cmake_options[@]}"
+  cmake --build build
+}
+
+package() {
+  cd "$pkgname"
+
+  DESTDIR="$pkgdir" cmake --install build
+
+  # compile Python bytecode as cmake does not do that for us
+  python -m compileall -d /usr/lib "$pkgdir/usr/lib"
+  python -O -m compileall -d /usr/lib "$pkgdir/usr/lib"
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

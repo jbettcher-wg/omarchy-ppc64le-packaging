@@ -1,0 +1,78 @@
+# Maintainer: George Rawlinson <grawlinson@archlinux.org>
+# Contributor: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: Gabriel Souza Franco
+# Contributor: Florian Pritz
+# Contributor: Christian Hesse <mail@eworm.de>
+# Contributor: Thomas Dziedzic <gostrc@gmail.com>
+# Contributor: Mickele
+# Contributor: Marcus Fritzsch <fritschy@googlemail.com>
+
+pkgname=soqt
+pkgver=1.6.4
+pkgrel=2
+pkgdesc='The glue between Coin and Qt'
+arch=(powerpc64le)
+url='https://github.com/coin3d/soqt'
+license=(BSD-3-Clause)
+depends=(
+  glibc
+  libgcc
+  libstdc++
+  libglvnd
+  libx11
+  coin
+  qt6-base
+)
+makedepends=(
+  git
+  cmake
+  mesa
+  doxygen
+)
+source=(
+  "$pkgname::git+$url#tag=v$pkgver"
+  'github.com-coin3d-soanydata::git+https://github.com/coin3d/soanydata'
+  'github.com-coin3d-sogui::git+https://github.com/coin3d/sogui'
+)
+sha512sums=('ff6ef014dbbdb197f729be6d9bc7ae5fcecc17cf87a078a3e94f9ff758caa64c6889703a703016f36b34515fae31dc33871210caa1883a1450daf01f58f0b28a'
+            'SKIP'
+            'SKIP')
+b2sums=('ae8d716416124703e8b63d631308529b7d2d84b41e88ba19f6a4b76e803dceea1c07040a36d390017dc0d75ad3a04e122059c6a2e68b3538a5eecd6b8b2fa2e5'
+        'SKIP'
+        'SKIP')
+
+prepare() {
+  cd "$pkgname"
+
+  # Skip cpack
+  mkdir -p cpack.d
+  touch cpack.d/CMakeLists.txt
+
+  # setup git submodules
+  git submodule init data src/Inventor/Qt/common
+  git config submodule.data.url "$srcdir/github.com-coin3d-soanydata"
+  git config submodule.src/Inventor/Qt/common.url "$srcdir/github.com-coin3d-sogui"
+  git -c protocol.file.allow=always submodule update
+}
+
+build() {
+  local cmake_options=(
+    -B build
+    -S "$pkgname"
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D SOQT_BUILD_DOC_MAN=ON
+    -D SOQT_BUILD_DOC_CHM=OFF
+    -D CMAKE_POLICY_VERSION_MINIMUM=3.5
+  )
+
+  cmake "${cmake_options[@]}"
+
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  # license
+  install -vDm644 -t "$pkgdir/usr/share/licenses/$pkgname" "$pkgname/COPYING"
+}
