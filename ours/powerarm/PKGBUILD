@@ -99,7 +99,7 @@ pkgname=powerarm
 # No release tags yet (m1/m2 are milestone tags, not versions), so the usual
 # commit-count + short-hash form.  pkgver() below recomputes it at build time;
 # the committed value tracks the last metadata refresh.
-pkgver=r15751.ae33e9beb
+pkgver=r15760.f2d48270d
 pkgrel=1
 pkgdesc='AArch64 emulation for 64-bit POWER'
 arch=('powerpc64le')
