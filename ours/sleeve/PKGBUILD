@@ -1,0 +1,89 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# sleeve -- manager for emulated applications. It records an app, generates the
+# command-line and desktop-menu wrappers that launch it under an emulator, and
+# presents them in a terminal UI. Pairs with powerarm: powerarm runs aarch64
+# binaries, sleeve is what makes one look like an installed program.
+#
+# Upstream is CMake with two git submodules. Only ftxui is fetched here, as a
+# real makepkg source so the download phase stays in makepkg's hands.
+#
+# Catch2 comes from the distro instead. CMakeLists.txt calls
+# add_subdirectory(unittests) unconditionally with no option to turn it off, so
+# catch_discover_tests must exist at configure time or the build fails outright
+# -- BUILD_TESTING=OFF does nothing here. Upstream falls back to the
+# External/Catch2 submodule when find_package sees none; a packaged catch2
+# satisfies find_package(Catch2 3) directly and keeps one fewer bundled tree in
+# the build. The test binary is still compiled; --nocheck skips running it. The submodule is a real makepkg source rather than a network
+# fetch in prepare(), the same way ours/powerarm does it, so the download phase
+# stays in makepkgs hands and prepare() needs no network.
+
+pkgname=sleeve
+_repourl=https://github.com/jbettcher-wg/sleeve.git
+_repobranch=main
+pkgver=r13.b32e42063
+pkgrel=1
+pkgdesc="Manager and launcher generator for emulated applications"
+arch=('powerpc64le')
+url="https://github.com/jbettcher-wg/sleeve"
+license=('MIT')
+depends=(
+  'gcc-libs'
+  'glibc'
+)
+makedepends=(
+  'catch2'   # find_package(Catch2 3); provides catch_discover_tests
+  'cmake'
+  'git'
+  'ninja'
+)
+optdepends=(
+  "powerarm: run aarch64 applications, the emulator sleeve generates wrappers for"
+)
+
+source=(
+  "$pkgname::git+$_repourl#branch=$_repobranch"
+  "ftxui::git+https://github.com/ArthurSonzogni/FTXUI.git"
+)
+sha256sums=('SKIP' 'SKIP')
+
+# Submodule name -> source directory -> path in the tree.
+_submodules=(
+  "External/ftxui:ftxui:External/ftxui"
+)
+
+pkgver() {
+  cd "$srcdir/$pkgname"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=9 HEAD)"
+}
+
+prepare() {
+  cd "$srcdir/$pkgname"
+
+  local _entry _name _src _path _paths=()
+  for _entry in "${_submodules[@]}"; do
+    IFS=: read -r _name _src _path <<<"$_entry"
+    git submodule init -- "$_path"
+    git config "submodule.$_name.url" "$srcdir/$_src"
+    _paths+=("$_path")
+  done
+  git -c protocol.file.allow=always submodule update --checkout -- "${_paths[@]}"
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+
+  # CMAKE_BUILD_TYPE=None so makepkg CFLAGS/CXXFLAGS decide the ISA level rather
+  # than a CMake default -- on this distro that is what keeps the build POWER8.
+  cmake -B build -S . -G Ninja \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -Wno-dev
+  cmake --build build
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
