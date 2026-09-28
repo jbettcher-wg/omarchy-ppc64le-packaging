@@ -131,6 +131,7 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         chromium-ppc64le-patches-r4.tar.gz
         swiftshader-ppc-xcoff-baseclasses.patch
         chromium-151-dawn-cipd-add-ppc64le.patch
+        debian-disable-lint.patch
         ppc64le-seccomp-scv-return-abi.patch
         ppc64le-v8-power8-loadpc.patch)
 sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
@@ -158,6 +159,7 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             'dd2a0f9273761cd9cdf67cb690b29ea0cd421b2f2abd9e2a9167ef136623eac0'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
             'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
+            '6bf93ab62f409b2c89996dfbd5b28b47986c0b09c828f44e84b024988dc2ec8b'
             '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
             '5bd6fb6e45c7e02de205ca59e9375dcba80166c3d4e9bd176e24eb526c43f7d5')
 
@@ -388,6 +390,28 @@ prepare() {
     # broker call reads back as success (e.g. -ENOENT as fd 2), which crashes
     # the GPU process on --disable-gpu. Standalone so it reads and upstreams
     # cleanly; see docs/chromium-software-raster-crash.md.
+    # Debian's disable/lint.patch. The WebUI eslint/stylelint steps shell out to
+    # the hermetic-node path, which prepare() symlinks to the system node. On
+    # ppc64le that node (26.4.0) dies inside its own V8 running the eslint
+    # loader:
+    #
+    #   # Fatal error in , line 0
+    #   # Check failed: trampoline_pc >= 0.
+    #   exit=-5
+    #
+    # It killed the build at [43841/55987] on gen/chrome/browser/resources/
+    # webui_toolbar/eslint.config.mjs. These are lint steps -- they validate
+    # TypeScript and produce nothing that ships -- so Debian replaces both
+    # scripts with a build/touch.py that creates the expected outputs and exits,
+    # which satisfies ninja without running node at all. Debian applies it on
+    # every architecture ("implemented in Node.js code that breaks on older
+    # systems"); we need it specifically because of the ppc64le V8 fault.
+    #
+    # The underlying node/V8 ppc64le bug is untouched by this and will bite
+    # anything else that drives node hard.
+    msg2 "Applying patch: debian-disable-lint.patch"
+    patch -Np1 -i "$srcdir/debian-disable-lint.patch"
+
     msg2 "Applying ppc64le patch: ppc64le-seccomp-scv-return-abi.patch"
     patch -Np1 -i "$srcdir/ppc64le-seccomp-scv-return-abi.patch"
 
