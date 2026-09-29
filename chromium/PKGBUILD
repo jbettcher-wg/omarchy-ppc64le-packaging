@@ -2,10 +2,10 @@
 #
 # Copied into this tree from ~/Development/repo/archpower/chromium, which is
 # a checkout of somebody else's git repository.  The ppc64le work in it --
-# the _power8_compat toggle below, and the r2 patch series -- existed there
-# only as an *uncommitted modification*, with power9-toggle.patch beside this
-# file as its only tracked record, and that patch had already drifted out of
-# date against the working copy it described.  RULES.md #3: only what is
+# the _power8_compat toggle below, and the Debian patch series -- existed
+# there only as an *uncommitted modification*, with power9-toggle.patch beside
+# this file as its only tracked record, and that patch had already drifted out
+# of date against the working copy it described.  RULES.md #3: only what is
 # tracked survives, and one `git checkout` in that tree would have taken it.
 # packages/ has priority over archpower in bq's source order, so this is now
 # the recipe bq builds.  README.md in this directory explains the toggle and
@@ -18,8 +18,8 @@
 # Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
 
 pkgname=chromium
-pkgver=151.0.7922.108
-pkgrel=8
+pkgver=153.0.8010.52
+pkgrel=1
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -91,11 +91,13 @@ makedepends=(
   'lld'
   'ninja'
   'nodejs'
+  'opus'
   'pipewire'
   'python'
   'qt6-base'
-  'rust-bindgen'
   'rust'
+  'rust-bindgen'
+  'typescript'
 )
 optdepends=('pipewire: WebRTC desktop sharing under Wayland'
             'kdialog: support for native dialogs in Plasma'
@@ -111,45 +113,55 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         chromium-147-revert-clang-no-lifetime-dse-flag.patch
         chromium-147-rust-1.95-bytemuck.patch
         chromium-149-drop-unknown-clang-flag.patch
-        chromium-149-unbundle-minizip-undo-unicode.patch
         chromium-149-use-of-undeclared-identifier-ERROR.patch
         chromium-149-build-with-wasm-rollup.patch
         chromium-150-revert-avx-flag-change.patch
-        chromium-151-dont-depends-on-histograms.xml-if-it-is-not-git-checkout.patch
+        chromium-152-fix-gn-no-public_inputs.patch
+        chromium-152-unbundle-minizip-undo-unicode.patch
+        chromium-152-unbundle-opus-devtools.patch
+        chromium-153-hermetic-python.patch
+        chromium-153-iamf-tools-unbundled-opus.patch
+        chromium-153-typescript.patch
+        chromium-153-crubit.patch
         compiler-rt-adjust-paths.patch
         increase-fortify-level.patch
         enable-widevine-arm64.patch
         use-oauth2-client-switches-as-default.patch
         glibc-2.42-baud-rate-fix.patch
-        chromium-ppc64le-patches-r2.tar.gz
+        chromium-ppc64le-patches-r4.tar.gz
         swiftshader-ppc-xcoff-baseclasses.patch
         chromium-151-dawn-cipd-add-ppc64le.patch
+        debian-disable-lint.patch
         ppc64le-seccomp-scv-return-abi.patch
-        ppc64le-v8-power8-loadpc.patch
-        git+https://gn.googlesource.com/gn#commit=1d86777e7f2562a86ecea77d1809ac4f82bb5bfe)
-sha256sums=('3f13338d12db5c6e17464b3be28eca2a07d64c7c58634268fa76924e3c5243aa'
+        ppc64le-v8-power8-loadpc.patch)
+sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
             '4fc040a0656a0a524dd8ad090cd129fc5b6cb21adcc66be82080165789e8c13e'
             'c382830318c5b37826ecf44f3ba9def6be8affdad1bce819ecb83f3222ff4b3a'
             'b9e6339221efe03540ffb360c161d93604a1fc93a5a1c53e5e9849066f987d05'
-            'e25cf8fb60f5958127053c515b8decc2b45acceebf9a57654066d093df11f8e9'
-            'c22338d13f12772cdbcb5cfc1ace94438b9f9c72353cdb165a3ff3ef3d677c78'
+            '1b5190fa030850cf30a97dc90e35b31f3097243c88743fbfaedbd64ea80f1327'
             '951514535be65f0e2f84e82305d96292be1da353c1427ba1048ea24be70003c4'
             'c4df27d25d298ac95d85e6f06b558b73bb67de5110a19a0228cb7f8519291ea5'
             '5f6ccb7b945c8a13c690493723bad816b36f2f25792d47e677b56f8200907e60'
-            '552ddcef0cf139927f54c9c728c68b0e385600107e5166449b29de75e5dfcd7f'
+            '50115642099ac131f40c419cbd12ed72e352538002d4bdc11ab657335891d03b'
+            '890e5d98088ef1c7c075a551442f03385d1db266cad8a65576704a22720683f9'
+            '3276453f2ce655b6286476f48d4df837be952d9447afa46583f79ec71f2288c3'
+            'ebf74154266d0b6d6cc957c413f845052c5fcfce7745befb8821595cdf3f7d49'
+            '2ab9fbe653829ce692f83ee780aad07e8c83a6686e51ab9459ad736cfa2850ee'
+            '44c86a7c26d726559d5bd06a64f81e6bcced7ab4dc949c899e4fd2c64ff37a16'
+            'a20e615fa03713e464fc3f2966c84e2130b6d942a4c8b5919ba0bf8320d39ed4'
             'ec8e49b7114e2fa2d359155c9ef722ff1ba5fe2c518fa48e30863d71d3b82863'
             'd634d2ce1fc63da7ac41f432b1e84c59b7cceabf19d510848a7cff40c8025342'
-            '33d1650e183a86cc2d0e9b0fcc08a5da76c7354d25a419921e9d2dc02b8b3854'
+            '5ee4bb69379ac0cea7946c9f8f4ca9e20e0a9e4ee2ee9121eb0ebbb94dd7e928'
             '9343afa1a4308a7cfb3317229f5aff7778688debcc03c4a74a85908aa1d0cc3a'
             '1c1898f263eaacbc069a8e1a3e732852350350d1dad4cb1a6bba430e3b796cd0'
-            '3276d4bf11881a4bff4c01898ad9bfb629900a4c83de50751424ad14e2912a88'
+            'dd2a0f9273761cd9cdf67cb690b29ea0cd421b2f2abd9e2a9167ef136623eac0'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
             'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
+            '6bf93ab62f409b2c89996dfbd5b28b47986c0b09c828f44e84b024988dc2ec8b'
             '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
-            '5bd6fb6e45c7e02de205ca59e9375dcba80166c3d4e9bd176e24eb526c43f7d5'
-            'SKIP')  # pinned via #commit= — git verifies
+            '5bd6fb6e45c7e02de205ca59e9375dcba80166c3d4e9bd176e24eb526c43f7d5')
 
 if (( _manual_clone )); then
   source[0]=fetch-chromium-release
@@ -167,6 +179,7 @@ declare -gA _system_libs=(
   [fontconfig]=fontconfig
   [freetype]=freetype2
   [harfbuzz]=harfbuzz
+  [highway]=highway
   #[icu]=icu
   #[jsoncpp]=jsoncpp  # needs libstdc++
   #[libaom]=aom
@@ -205,31 +218,6 @@ prepare() {
   if (( _manual_clone )); then
     ./fetch-chromium-release $pkgver
   fi
-
-  # Build a fresh gn — chromium 151 uses gn dotfile/tool attributes newer
-  # than what's in Arch POWER's `gn` package (0.2324). We pin to the exact
-  # commit chromium 151's DEPS references. Small repo, ~1 min build.
-  # This step + the local override in build() can be dropped once the
-  # `gn` package is refreshed.
-  msg2 "Building gn..."
-  pushd "$srcdir/gn" >/dev/null
-  python3 build/gen.py --no-last-commit-position
-  # gn's build/gen.py declines to emit last_commit_position.h when the flag
-  # above is set, but the source still #includes it. Provide a stub.
-  cat > out/last_commit_position.h <<EOF
-#ifndef OUT_LAST_COMMIT_POSITION_H_
-#define OUT_LAST_COMMIT_POSITION_H_
-#define LAST_COMMIT_POSITION_NUM 1
-#define LAST_COMMIT_POSITION "1 (arch-power-local)"
-#endif
-EOF
-  # gn's build.ninja hardcodes -Werror, which trips on GCC 16 warnings gn
-  # hasn't caught up to yet (multi-line comments, false-positive array-bounds
-  # in libstdc++). Strip to let warnings stay as warnings.
-  sed -i 's/-Werror//g' out/build.ninja
-  ninja -C out gn
-  popd >/dev/null
-
   cd chromium-$pkgver
 
   # Allow building against system libraries in official builds
@@ -283,62 +271,116 @@ EOF
   # https://crbug.com/456677057
   patch -Np1 -i ../glibc-2.42-baud-rate-fix.patch
 
-  # Chromium bundles a patched minizip with extra features.
-  patch -Np1 -i ../chromium-149-unbundle-minizip-undo-unicode.patch
-
   patch -Np1 -i ../chromium-149-use-of-undeclared-identifier-ERROR.patch
 
   # Fix issue about missing AVX functions
   # Credit: https://github.com/ungoogled-software/ungoogled-chromium/pull/3837
   patch -Np1 -i ../chromium-150-revert-avx-flag-change.patch
 
-  # Credit: https://github.com/ungoogled-software/ungoogled-chromium/pull/3883
-  patch -Np1 -i ../chromium-151-dont-depends-on-histograms.xml-if-it-is-not-git-checkout.patch
+  # Just the reverted commit 8dab8b761385b7946588232e4e2a8c116f9293c3
+  patch -Np1 -i "$srcdir/chromium-152-fix-gn-no-public_inputs.patch" -d third_party/devtools-frontend/src
 
-  # swiftshader bundles a stripped LLVM 10.0. Its PPC target compiles
-  # PPCXCOFFObjectWriter.cpp and PPCMCAsmInfo.cpp, which subclass
-  # MC{XCOFFObjectTargetWriter,AsmInfoXCOFF} — but the base-class .cpp files
-  # are not in the source set, producing undefined symbols at link time.
-  # Linux ppc64le uses ELF, but the vtables still need to resolve.
+  # Chromium bundles a patched minizip with extra features.
+  patch -Np1 -i ../chromium-152-unbundle-minizip-undo-unicode.patch
+
+  patch -Np1 -i ../chromium-152-unbundle-opus-devtools.patch
+
+  # Use system python3 instead of the hermetic cpython3 interpreter
+  # https://github.com/ungoogled-software/ungoogled-chromium/pull/3946
+  patch -Np1 -i ../chromium-153-hermetic-python.patch
+
+  # third_party/iamf_tools includes vendored Opus via relative "include/opus.h"
+  # paths that only resolve against a real bundled Opus checkout; fix them up
+  # for the unbundled system Opus build
+  patch -Np1 -i ../chromium-153-iamf-tools-unbundled-opus.patch
+
+  # Work around TypeScript becoming a build dependency: disable tsgo for the
+  # WebUI and point devtools at the system tsc binary
+  # https://github.com/ungoogled-software/ungoogled-chromium/pull/3946
+  patch -Np1 -i ../chromium-153-typescript.patch
+
+  patch -Np1 -i ../chromium-153-crubit.patch
+
   if [[ $CARCH == powerpc64le ]]; then
+    # swiftshader bundles a stripped LLVM 10.0 (src/Reactor/BUILD.gn pins
+    # llvm_dir to third_party/llvm-10.0; the llvm-16.0 tree beside it is never
+    # loaded). Its PPC target compiles PPCXCOFFObjectWriter.cpp and
+    # PPCMCAsmInfo.cpp, which subclass MC{XCOFFObjectTargetWriter,AsmInfoXCOFF}
+    # -- but the base-class .cpp files are not in the source set, producing
+    # undefined symbols at link time. Linux ppc64le uses ELF, but the vtables
+    # still need to resolve. Debian's third_party/0001-swiftshader-fix-build
+    # patches llvm-16.0/BUILD.gn instead, because Debian also carries
+    # debianization/swiftshader-use-llvm-16.patch; without that it is a no-op,
+    # so it is skipped below and this one applied.
     patch -Np1 -i ../swiftshader-ppc-xcoff-baseclasses.patch
 
     # Teach dawn's cipd_deps helper about ppc64le so tint's generate_sources
-    # action can locate our go symlink (see linker of go binary above).
+    # action can locate our go symlink (see linking of go binary below). Not
+    # the same fix as Debian's dawn-fix-ppc64le-detection.patch, which orders
+    # the __PPC__/__PPC64__ tests in src/utils/platform.h so the pointer-width
+    # block does not hit #error; both are needed.
     patch -Np1 -i ../chromium-151-dawn-cipd-add-ppc64le.patch
   fi
 
-  # ppc64le patches (Debian chromium-team, series-ordered). Refreshed from
-  # https://salsa.debian.org/chromium-team/chromium debian/patches/ppc64le,
-  # tracking the same upstream Chromium release as this PKGBUILD.
+  # ppc64le patches (Debian chromium-team, series-ordered). r4 is
+  # debian/patches/ppc64le at tag debian/153.0.8010.52-1 of
+  # https://salsa.debian.org/chromium-team/chromium -- the exact upload Debian
+  # built for this release on ppc64el -- with debian-series being that tag's
+  # `ppc64le/` series entries. Refresh from the tag matching pkgver, not
+  # master: master tracks the next major, and its regenerated xnnpack and
+  # ffmpeg configs and rust-linking rebase did not apply to this one.
   if [[ $CARCH == powerpc64le ]]; then
-    local _p
+    # Series entries this recipe does not apply, with the reason. Each was
+    # checked against this release's tree, not taken on faith.
+    local -A _skip=(
+      # Edits swiftshader's llvm-16.0/BUILD.gn, which stock chromium does not
+      # build (see swiftshader-ppc-xcoff-baseclasses.patch above).
+      [third_party/0001-swiftshader-fix-build.patch]='stock builds swiftshader against llvm-10.0'
+      # Stock rtc_base/system/arch.h already has an `#elif defined(__PPC__)`
+      # branch that sets 64_BITS and LITTLE_ENDIAN from __PPC64__ and
+      # __LITTLE_ENDIAN__ (both defined by clang on ppc64le). The Debian hunk
+      # lands inside the MIPS-only `#if defined(__MIPSEL__)` block, so it is
+      # dead preprocessor text on every arch, and WEBRTC_ARCH_PPC_FAMILY has
+      # no users anywhere in third_party/webrtc.
+      [webrtc/Rtc_base-system-arch.h-PPC.patch]='stock arch.h already handles __PPC__; hunk is dead code'
+    )
+    # POWER9 build: skip the patch that pins v8's GN toolchain config to
+    # -mcpu=power8 -maltivec -mvsx. Stock v8/BUILD.gn already sets
+    # -mcpu=pwr9 for non-simulator ppc64, and the command-line -mcpu set in
+    # build() lands last anyway.
+    if (( ! _power8_compat )); then
+      _skip[third_party/0001-Force-baseline-POWER8-AltiVec-VSX-CPU-features-when-.patch]='POWER9 build'
+    fi
+
+    local _p _rel
     while IFS= read -r _p; do
       [[ -z $_p || $_p == \#* ]] && continue
       [[ $_p == ppc64le/* ]] || continue
+      _rel=${_p#ppc64le/}
 
-      # POWER9 build: skip the patch that pins v8's GN toolchain config to
-      # -mcpu=power8 -maltivec -mvsx, so v8 follows the command-line -mcpu.
-      if (( ! _power8_compat )) && [[ $_p == *Force-baseline-POWER8-AltiVec-VSX* ]]; then
-        msg2 "Skipping (POWER9 build): $_p"
+      if [[ -n ${_skip[$_rel]+set} ]]; then
+        msg2 "Skipping ppc64le patch (${_skip[$_rel]}): $_rel"
         continue
       fi
 
-      msg2 "Applying ppc64le patch: $_p"
-      patch -Np1 -i "$srcdir/ppc64le-patches/${_p#ppc64le/}"
+      msg2 "Applying ppc64le patch: $_rel"
+      patch -Np1 -i "$srcdir/ppc64le-patches/$_rel"
     done < "$srcdir/ppc64le-patches/debian-series"
 
     # core/baseline-isa-3-0.patch is commented out of debian-series because it
-    # is POWER9-only (build/config/compiler_cpu_abi.gn, v8, libvpx). Apply it
-    # explicitly for the POWER9 build.
+    # is POWER9-only. Apply it explicitly for the POWER9 build. Since r3 it
+    # raises build/config/compiler_cpu_abi.gn, libvpx and the three skia
+    # -mcpu=power8 sites that skia-vsx-instructions.patch inserts to power9,
+    # and switches on the ISA 3.0 half-float conversions (xvcvhpsp/xvcvsphp)
+    # in skia's raster pipeline that the same patch adds behind `#elif 0`.
     if (( ! _power8_compat )); then
       msg2 "Applying ppc64le patch (POWER9 build): core/baseline-isa-3-0.patch"
       # Drop the v8/BUILD.gn hunk. It rewrites the "-mcpu=power8" line that
       # Force-baseline-POWER8-AltiVec-VSX *inserts*, so with that patch skipped
-      # there is nothing for it to match -- and stock chromium 151 already
-      # carries cflags += [ "-mcpu=pwr9" ] for Linux ppc64 in v8, so the hunk is
-      # not needed either. The other two hunks (compiler_cpu_abi.gn, libvpx) do
-      # apply to stock and are what actually raise the baseline.
+      # there is nothing for it to match -- and stock v8/BUILD.gn already
+      # carries cflags += [ "-mcpu=pwr9" ] for non-simulator ppc64, so the
+      # hunk is not needed either. Every other hunk applies to what the
+      # series left behind and is what actually raises the baseline.
       awk '/^Index: /{skip = ($0 ~ /v8\/BUILD\.gn/)} !skip' \
         "$srcdir/ppc64le-patches/core/baseline-isa-3-0.patch" | patch -Np1
     fi
@@ -348,6 +390,28 @@ EOF
     # broker call reads back as success (e.g. -ENOENT as fd 2), which crashes
     # the GPU process on --disable-gpu. Standalone so it reads and upstreams
     # cleanly; see docs/chromium-software-raster-crash.md.
+    # Debian's disable/lint.patch. The WebUI eslint/stylelint steps shell out to
+    # the hermetic-node path, which prepare() symlinks to the system node. On
+    # ppc64le that node (26.4.0) dies inside its own V8 running the eslint
+    # loader:
+    #
+    #   # Fatal error in , line 0
+    #   # Check failed: trampoline_pc >= 0.
+    #   exit=-5
+    #
+    # It killed the build at [43841/55987] on gen/chrome/browser/resources/
+    # webui_toolbar/eslint.config.mjs. These are lint steps -- they validate
+    # TypeScript and produce nothing that ships -- so Debian replaces both
+    # scripts with a build/touch.py that creates the expected outputs and exits,
+    # which satisfies ninja without running node at all. Debian applies it on
+    # every architecture ("implemented in Node.js code that breaks on older
+    # systems"); we need it specifically because of the ppc64le V8 fault.
+    #
+    # The underlying node/V8 ppc64le bug is untouched by this and will bite
+    # anything else that drives node hard.
+    msg2 "Applying patch: debian-disable-lint.patch"
+    patch -Np1 -i "$srcdir/debian-disable-lint.patch"
+
     msg2 "Applying ppc64le patch: ppc64le-seccomp-scv-return-abi.patch"
     patch -Np1 -i "$srcdir/ppc64le-seccomp-scv-return-abi.patch"
 
@@ -358,14 +422,15 @@ EOF
       patch -Np1 -i "$srcdir/ppc64le-v8-power8-loadpc.patch"
     fi
 
-    # skia-vsx-instructions.patch hardcodes -mcpu=power9 -mtune=power9 into
-    # skia's config("default") -- all of skia, not just the vsx TU. Undo that
-    # for the POWER8 build so POWER8-legality does not silently depend on what
-    # the build host's makepkg.conf happens to set.
+    # skia-vsx-instructions.patch hardcodes an -mcpu/-mtune into skia's
+    # config("default") -- all of skia, not just the vsx TU. r2 wrote power9
+    # there; r3+ write power8 and leave the bump to baseline-isa-3-0, which
+    # the POWER8 build does not apply, so this is now a safety net: make sure
+    # POWER8-legality never depends on what the series happens to say.
     if (( _power8_compat )); then
       msg2 "Pinning skia back to POWER8 (_power8_compat=1)"
       sed -i -e 's/-mcpu=power9/-mcpu=power8/g' -e 's/-mtune=power9/-mtune=power8/g' \
-        third_party/skia/gn/skia/BUILD.gn third_party/skia/BUILD.gn
+        skia/BUILD.gn third_party/skia/gn/skia/BUILD.gn third_party/skia/BUILD.gn
     fi
   fi
 
@@ -557,14 +622,7 @@ build() {
     msg2 "ppc64le ISA level: _power8_compat=$_power8_compat"
   fi
 
-  # Arch POWER's packaged gn (0.2324) doesn't support several dotfile/tool
-  # attributes chromium 151 uses (expand_directory_allowlist,
-  # expand_directory(), inputs= on rust_* tools, c_additional_outputs).
-  # We built a fresh gn in prepare() — use it. Drop this when Arch POWER's
-  # gn package is refreshed.
-  local _gn="$srcdir/gn/out/gn"
-
-  "$_gn" gen out/Release --args="${_flags[*]}"
+  gn gen out/Release --args="${_flags[*]}"
   # NINJAFLAGS carries the -j bq was given; ninja otherwise takes every CPU.
   ninja ${NINJAFLAGS:-} -C out/Release chrome chrome_sandbox chromedriver.unstripped
 }

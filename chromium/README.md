@@ -1,85 +1,186 @@
-# chromium on ppc64le: POWER8 / POWER9 build toggle
+# chromium 153 on ppc64le: POWER8 / POWER9 build toggle
 
-`power9-toggle.patch` applies to the chromium PKGBUILD that Arch POWER ships
-(`~/Development/repo/archpower/chromium/PKGBUILD`, jbettcher's own work) and
-adds a single `_power8_compat` switch, so one recipe produces both artifacts
-instead of two divergent forks. **The default in this tree is `0` (POWER9)** --
-this tree only targets POWER9 hardware, and the POWER8-legal build is already
-carried upstream, so defaulting to the compat build only risks shipping it by
-forgetting a flag. An upstream submission must pass `_power8_compat=1`:
+**Status: POWER9 build verified working (2026-09-28).** Built and launched on the
+AC922. `55987/55987`, zero failures, 2798s with a warm ccache (76.5% hits on the
+retry). 38 Debian series patches + 3 local ppc64le patches + Arch's 20 apply with
+55 hunks at offset and **0 fuzz, 0 FAILED, 0 `.rej`**. The resulting binary
+carries 58,166 ISA 3.0 instructions against 63,689 ISA 2.07, which is the
+positive check that `baseline-isa-3-0.patch` applied and `Force-baseline-POWER8`
+was correctly skipped.
+
+**The POWER8 build (`_power8_compat=1`) is unproven at 153.** It is the next
+piece of work, and it belongs in the POWER8 VM, not here.
+
+This was developed as a separate pkgbase (`chromium-153`) so the tested 151
+recipe kept shipping, then promoted in place once it ran. bq derives pkgbase from
+the *directory name* (`tools/closure.py:discover_recipes`) and refuses when two
+directories claim one name, which is what made the parallel recipe possible; no
+install path uses `$pkgname`, so the promotion moved nothing on disk.
+
+## The toggle
+
+`_power8_compat` produces both artifacts from one recipe instead of two
+divergent forks. **The default in this tree is `0` (POWER9).**
 
 ```sh
-makepkg -e                       # POWER9 / ISA 3.0 (default here) -- runs on the AC922
-_power8_compat=1 makepkg -e      # POWER8-legal -- what goes upstream
+makepkg -e                       # POWER9 / ISA 3.0 (default here)
+_power8_compat=1 makepkg -e      # POWER8-legal
 ```
 
-The policy it implements: **source stays POWER8-compliant either way.** No
-POWER9-only instruction is written into any source file. The difference is
-compiler flags and which build-system feature gates get set -- the LuaJIT model
-of a POWER8 ISA floor with ISA 3.0 selected at build or runtime.
+The policy: **source stays POWER8-compliant either way.** No POWER9-only
+instruction is written into any source file. The difference is compiler flags
+and which build-system feature gates get set — a POWER8 ISA floor with ISA 3.0
+selected at build or runtime, the LuaJIT model.
 
-## Why this was needed: the shipped recipe is not actually POWER8-legal
+## Which side is the well-trodden one — this inverted at 153
 
-Two findings from auditing the 151 PKGBUILD and all 41 applied ppc64le patches:
+Both Debian and Fedora build ppc64le chromium at a **POWER8 baseline**: both
+apply `third_party/0001-Force-baseline-POWER8-AltiVec-VSX-CPU-features-when-.patch`.
+Fedora rawhide carries chromium 154 with `ExclusiveArch: x86_64 aarch64
+ppc64le`, so ppc64le is a first-class build arch there, not a side port.
 
-1. **The `-mcpu`/`-mtune` strip was deleted in the 150 -> 151 rebase.** The 150
-   PKGBUILD stripped `-mcpu=`/`-mtune=` from `CFLAGS`/`CXXFLAGS` on ppc64le
-   (matching the aarch64/riscv64 pattern); 151 has only the aarch64/riscv64
-   branch. GN's unbundle toolchain (`custom_toolchain=//build/toolchain/linux/unbundle:default`)
-   passes `$CFLAGS`/`$CXXFLAGS` through verbatim and appends them *after* GN's
-   own config flags, so the last `-mcpu` wins. A build host whose makepkg.conf
-   sets `-mcpu=power9` -- as this one does -- silently emits ISA 3.0 from the
-   "POWER8-legal" recipe. That is why the locally installed
-   chromium 151.0.7922.108-1 is full of ISA 3.0 instructions.
+Nobody appears to ship a POWER9-baseline chromium. That means
+`_power8_compat=1` is now the **upstream-identical** configuration, and our
+default `_power8_compat=0` is the divergence. Scrutiny belongs on the POWER9
+path, not on the Debian patches — those are load-bearing in two distributions'
+production builds.
 
-2. **`skia-vsx-instructions.patch` hardcodes `-mcpu=power9 -mtune=power9`** into
-   skia's `config("default")` -- all of skia, not just the `opts("vsx")` TU --
-   and it is applied unconditionally in both r1 and r2. POWER8-legality of the
-   upstream submission currently depends on the build host's config file.
+## Patch provenance: use the tag, not master
 
-The toggle fixes both: it sets `-mcpu` explicitly per branch rather than
-inheriting it, and rewrites skia's flags back to power8 when
-`_power8_compat=1`.
+`chromium-ppc64le-patches-r4.tar.gz` is `debian/patches/ppc64le` at salsa tag
+**`debian/153.0.8010.52-1`** — the exact upload Debian built on ppc64el. Refresh
+from the tag matching `pkgver`, **never from master**: master tracks the next
+release and does not apply. Verified — three patches from master (154-era) fail
+against 153:
 
-`README-archpower.md` in the archpower tree is stale on this point -- it still
-describes the deleted strip as present. Worth correcting there.
+- `third_party/0002-regenerate-xnn-buildgn.patch` — hunks 2 and 6 FAILED
+  (143k-line regenerated file; 154's xnnpack layout)
+- `fixes/fix-rust-linking.patch` — hunk 2 FAILED (154 renamed
+  `command`→`link_command` in both solink templates; 153's `solink_module` is
+  still `command`)
+- `third_party/0003-third_party-ffmpeg-Add-ppc64-generated-config.patch` —
+  applies, but is 154's config
 
-## Patch classification (all 41 applied ppc64le patches audited)
+Reproducing the tarball:
 
-`prepare()` walks `ppc64le-patches/debian-series` and applies every uncommented
-`ppc64le/*` line, in series order. Only three ISA-pinning sites exist in the
-whole applied set. There is no `_ARCH_PWR8`/`_ARCH_PWR9` gating, no
-`-mpower8-vector`, no `-mno-power9-vector`, and no `target("cpu=power8")`
-attribute anywhere.
+```sh
+curl -L "https://salsa.debian.org/chromium-team/chromium/-/archive/debian/153.0.8010.52-1/chromium-debian-153.0.8010.52-1.tar.gz?path=debian/patches/ppc64le"
+# extract -> ppc64le-patches/, add debian-series = grep '^ppc64le/' series from the same tag
+tar --sort=name --mtime='2026-09-18 00:00:00Z' --owner=0 --group=0 --numeric-owner \
+    -cf - ppc64le-patches | gzip -n -9
+```
 
-| Patch | Classification | Toggle behaviour |
-|---|---|---|
-| `third_party/0001-Force-baseline-POWER8-AltiVec-VSX-CPU-features-when-.patch` | **POWER8 accommodation.** Appends `-mcpu=power8 -maltivec -mvsx` to v8's GN `config("toolchain")`. Six added lines, v8 only. It does *not* define or clear `__POWER8_VECTOR__`/`__POWER9_VECTOR__`/`_ARCH_PWR9`, does not edit any `#if` guard, and does not touch skia, boringssl, ffmpeg or libvpx. | applied when `=1`, skipped when `=0` |
-| `core/baseline-isa-3-0.patch` | **POWER9 baseline.** Raises `build/config/compiler_cpu_abi.gn`, `v8/BUILD.gn`, `third_party/libvpx/BUILD.gn` to ISA 3.0. Commented out of `debian-series` upstream ("will not work on POWER8"), so it is **not applied today**. Flags, not sources -- policy-compliant. | skipped when `=1`, applied when `=0` |
-| `third_party/skia-vsx-instructions.patch` | **Portability fix that overreaches.** The bulk is ppc64 SSE-compat wrappers, correctly floored on `__POWER8_VECTOR__` (which is true under `-mcpu=power9` too -- leave that guard alone). But it also injects `-mcpu=power9` into all of skia. | flags rewritten to power8 when `=1` |
-| `third_party/0001-Add-PPC64-support-for-boringssl.patch` | **Required for correctness, and already exactly the target policy** -- `.machine "any"` asm with a runtime `getauxval(AT_HWCAP2)` / `PPC_FEATURE2_HAS_VCRYPTO` gate. The LuaJIT pattern. Do not touch. | always applied |
-| `third_party/0003-third_party-ffmpeg-Add-ppc64-generated-config.patch` | **Generic, not a POWER8 cap.** `HAVE_POWER8 1` is FFmpeg's *top* ppc tier; upstream has no POWER9 tier, so there is nothing to unlock. The `_INLINE`/`_EXTERNAL 0` settings disable inline/external asm -- a portability decision. | always applied |
-| `third_party/0001-third_party-libvpx-Disable-vsx-on-ppc64.patch` | **Required for correctness.** Upstream libvpx VSX causes VP9 artifacting. Not an ISA-level accommodation. | always applied |
-| `third_party/0004-third_party-libvpx-work-around-ambiguous-vsx.patch` | **Required for correctness** (intrinsic ambiguity). Uses `stxvd2x`, ISA 2.06, already POWER8-compliant. Dead code while VSX is off. | always applied |
-| `workarounds/HACK-third_party-libvpx-use-generic-gnu.patch` | **Workaround, keep for now.** libvpx *does* have a real `ppc64le-linux-gcc` target, and the disable-vsx patch already applies `--disable-vsx` to it -- so the `generic-gnu` substitution is belt-and-braces. But the blocker is the VSX bug, not the target string: removing the HACK gets you `ppc64le-linux-gcc --disable-vsx`, functionally the same unoptimized C. Low value, non-zero risk. | always applied; its `-mcpu=power8` hunk is overridden by the explicit `-mcpu` in `build()` |
+Note r4's `debian-series` is pre-filtered to `ppc64le/` lines, unlike r1/r2
+which carried Debian's entire series and relied on `prepare()` to filter.
 
-**Do `baseline-isa-3-0` and `Force-baseline-POWER8` conflict?** Not in
-practice -- `baseline-isa-3-0` is commented out of the series and never
-applied, so the POWER8 forcing is what the series alone would give you. They touch overlapping files
-(`v8/BUILD.gn`, `third_party/libvpx/BUILD.gn`), so the toggle applies exactly
-one of them, never both.
+## Our patches kept alongside Debian's
 
-## Is a rebuild warranted?
+Debian now ships patches that look like duplicates of two we carry. They are
+not — both were verified against the extracted 153 tree and both are kept:
 
-**Not for performance.** All three `-mcpu` sites are either already `power9`
-(skia) or already overridden by the environment flags that land later on the
-command line (v8, libvpx). Removing them is a no-op for codegen on this host,
-which already builds with `-mcpu=power9`. There is no dormant hand-tuned
-POWER9 path being suppressed: the only hand-written ppc assembly in the applied
-set is boringssl's, which is `.machine "any"` with a runtime `AT_HWCAP2` gate
-and already dispatches to vcrypto here.
+- **`swiftshader-ppc-xcoff-baseclasses.patch` — kept; Debian's is a no-op
+  here.** Debian's `third_party/0001-swiftshader-fix-build.patch` edits
+  `third_party/swiftshader/third_party/llvm-16.0/BUILD.gn`. Stock 153
+  `src/Reactor/BUILD.gn:310` hardcodes `llvm_dir = "../../third_party/llvm-10.0"`,
+  so llvm-16.0 is never loaded — Debian reaches it only because their non-ppc
+  series carries `debianization/swiftshader-use-llvm-16.patch`. llvm-10.0's
+  `swiftshader_llvm_ppc` still lacks `MCAsmInfoXCOFF.cpp`. Debian's is skipped.
+- **`chromium-151-dawn-cipd-add-ppc64le.patch` — kept; different failure.**
+  Debian's `dawn-fix-ppc64le-detection.patch` reorders `__PPC__`/`__PPC64__` in
+  `src/utils/platform.h`. Ours fixes `tools/python/cipd_deps.py`, which in stock
+  153 still raises `ValueError('Unable to determine architecture')` on ppc64le
+  and is called by `tools/generate-sources-gn.py` to locate go. Both apply.
 
-**Yes for correctness**, but fold it into the next routine rebuild rather than
-spending ~1h40m now. The change that actually matters is making the *upstream*
-(`_power8_compat=1`) artifact genuinely POWER8-legal again, which is a
-regression against a real contribution others depend on.
+## Deliberate skips
+
+Recorded in a `_skip` array in `prepare()`, with the reason printed at apply time.
+
+| Patch | Why |
+|---|---|
+| `third_party/0001-Force-baseline-POWER8-AltiVec-VSX-...` | POWER9 build; applied when `_power8_compat=1` |
+| `third_party/0001-swiftshader-fix-build.patch` | stock builds swiftshader against llvm-10.0, not llvm-16.0 |
+| `webrtc/Rtc_base-system-arch.h-PPC.patch` | **dead code.** Stock 153 `rtc_base/system/arch.h` already has an `#elif defined(__PPC__)` branch deriving 64-bit/endianness from `__PPC64__`/`__LITTLE_ENDIAN__` (both clang-defined, checked with `-dM`). Debian's hunk lands *inside* the `#if defined(__MIPSEL__)` block, unreachable on every arch, and `WEBRTC_ARCH_PPC_FAMILY` has zero users in `third_party/webrtc` |
+
+## Patches that are required, contrary to appearances
+
+- **`workarounds/HACK-debian-clang-disable-{base,pa}-musttail.patch` — required,
+  and not Debian-specific.** Tested on Arch clang 22.1.8 / ppc64le:
+  `[[clang::musttail]]` is a hard error — "external calls cannot be tail called
+  on PPC", "indirect calls cannot be tail called on PPC" — at -O0 and -O2, with
+  and without `-fPIC`, with and without `-mcpu=power9`.
+  `allocator_shim_default_dispatch_to_partition_alloc.cc` has 20+
+  `PA_MUSTTAIL return delegate->fn(...)` indirect calls, so the build fails
+  without these. Fedora ships them too. Skia's `SK_HAS_MUSTTAIL` already
+  excludes `SK_CPU_PPC` on its own.
+- **`v8/0001-Enable-ppc64-pointer-compression.patch` — kept.** Sets only the
+  `v8_enable_pointer_compression` default in `v8/gni/v8.gni`; touches no ISA
+  flag. 153's `v8/BUILD.gn` asserts ppc64 is a supported shared-cage arch. The
+  shipped 151 browser was built with this heap layout, so *removing* it would be
+  the behavioural change. Debian and Fedora both ship it.
+
+## Dropped upstream: v8 trap instructions
+
+`v8/0002-Add-ppc64-trap-instructions.patch` was in r1/r2 and is gone from r4.
+Not a regression — V8 absorbed it. Stock 153
+`v8/src/base/immediate-crash.h:78` has `#elif V8_HOST_ARCH_PPC64` with AIX and
+non-AIX trap encodings. Without either, the `#else` fallback is
+`__builtin_trap()`, which still crashes correctly but with less precise reports.
+
+## The POWER9 divergence, re-verified for 153
+
+- **The awk hunk-strip on `baseline-isa-3-0.patch` is still correct and still
+  necessary.** `v8/BUILD.gn:1752` reads
+  `} else if (!v8_target_is_simulator) { cflags += [ "-mcpu=pwr9" ] }`. The
+  `if (current_os == "linux") { "-mcpu=power8" ...` context that the patch's v8
+  hunk edits exists *only* if Force-baseline inserted it, so with Force-baseline
+  skipped the hunk has nothing to match. After patching, the ppc64 block holds
+  only `-mcpu=power5+` (aix) and `-mcpu=pwr9`.
+- **Nothing else depends on Force-baseline's hunks.** Only three series patches
+  touch `v8/BUILD.gn` or `v8/gni`: Force-baseline, pointer-compression
+  (different file), and baseline-isa-3-0 (hunk stripped). No other patch has
+  `-mcpu=power8` in its context.
+- **`baseline-isa-3-0` grew from 3 hunks to 7, and the skia layout moved.**
+  `skia-vsx-instructions.patch` now writes `-mcpu=power8` at *three* sites —
+  `skia/BUILD.gn` (new `skia_opts_vsx`), `third_party/skia/BUILD.gn`
+  (`opts("vsx")`), and `third_party/skia/gn/skia/BUILD.gn` (`config("default")`)
+  — and adds skia's `xvcvhpsp`/`xvcvsphp` half-float paths behind `#elif 0`.
+  `baseline-isa-3-0` bumps all three to power9 and enables the half-float block.
+  Both intrinsics were run on this POWER9 under clang `-mcpu=power9`: correct
+  results, real `xvcvhpsp`/`xvcvsphp` emitted. The `_power8_compat=1` skia sed
+  now covers `skia/BUILD.gn` as well — the 151 version missed it, which is how
+  POWER8-legality came to depend on the build host's makepkg.conf.
+- **POWER8 machinery confirmed gated off in the default build**, by inspecting
+  the tree makepkg produced: no `-mcpu=power8` in any GN file except
+  `build/config/aix`; Force-baseline skipped; loadpc not applied (reverse dry-run
+  fails); skia sed not run; six `-mcpu=power9` sites present.
+
+## gn: the git-gn step is gone
+
+The 151 recipe built gn from a pinned commit because Arch POWER's gn was 0.2324.
+Dropped: 153's `DEPS` pins gn `e8a8e093` (2026-08-13) and the pool's
+`gn 0.2484.27a549cc` (2026-07-21) is a direct ancestor 33 commits behind — all
+starlark, `gn edit` and test-framework work. `gn gen` with the pool gn succeeds
+against the full `build()` flag set.
+
+## Traps
+
+- **`LC_ALL` must be set when running makepkg by hand over ssh.** ssh sessions
+  have `LANG` unset, and 153 ships
+  `third_party/vulkan-loader/src/tests/framework/icd/export_definitions/🌋.def`,
+  so extraction dies with `bsdtar: Pathname can't be converted from UTF-8 to
+  current locale`. bq exports `LANG`/`LC_ALL=C.UTF-8` (`tools/bq.py`), so builds
+  through bq are unaffected.
+- Arch generates its sha256sums with `_manual_clone=1`, so their `array[0]` is
+  the `fetch-chromium-release` script's hash. We keep `_manual_clone=0` (the
+  153 lite tarball exists, 1.7 GiB, sha
+  `ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a`, verified
+  against Google's published `.hashes`) and keep Arch's value only inside the
+  `_manual_clone` override.
+
+## Unproven
+
+Not compiled. Areas checked only statically: xnnpack ppc64 (all 274 `_ppc64`
+targets and 982 source references exist in 153), the highway unbundle on
+ppc64le (`build/linux/unbundle/highway.gn` present; system 1.4.0 matches
+bundled 1.4.0), and Arch's crubit/iamf/typescript patches, which Arch has only
+tested on x86.
