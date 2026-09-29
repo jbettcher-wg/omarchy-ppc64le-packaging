@@ -84,7 +84,6 @@ makedepends=(
   'clang'
   'compiler-rt'
   'git'
-  'gn'
   'go'
   'gperf'
   'java-runtime-headless'
@@ -97,7 +96,17 @@ makedepends=(
   'qt6-base'
   'rust'
   'rust-bindgen'
-  'typescript'
+  # Versioned deliberately. 153's devtools needs TypeScript 6.x: with 5.8.3 the
+  # build gets ~20 minutes in and then fails on TS2345 (AllowSharedBufferSource)
+  # and TS4113 (Map override modifiers), both 5.x->6.x lib typing changes. Bare
+  # 'typescript' is satisfied by 5.8.3, so the constraint is what turns a long
+  # build failure into a plan-time one. Not a runtime dep -- chromium does not
+  # need tsc to run, only to build.
+  'typescript>=6.0.0'
+  # Likewise: the git-gn step this recipe used to carry was dropped because the
+  # pool's gn is new enough for 153's DEPS (which pins e8a8e093). Arch POWER's
+  # base gn 0.2324 is not, and would fail at `gn gen`.
+  'gn>=0.2484'
 )
 optdepends=('pipewire: WebRTC desktop sharing under Wayland'
             'kdialog: support for native dialogs in Plasma'

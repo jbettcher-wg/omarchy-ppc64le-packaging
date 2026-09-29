@@ -9,7 +9,6 @@ pkgbase = chromium
 	makedepends = clang
 	makedepends = compiler-rt
 	makedepends = git
-	makedepends = gn
 	makedepends = go
 	makedepends = gperf
 	makedepends = java-runtime-headless
@@ -22,7 +21,8 @@ pkgbase = chromium
 	makedepends = qt6-base
 	makedepends = rust
 	makedepends = rust-bindgen
-	makedepends = typescript
+	makedepends = typescript>=6.0.0
+	makedepends = gn>=0.2484
 	depends = alsa-lib
 	depends = at-spi2-core
 	depends = cairo
