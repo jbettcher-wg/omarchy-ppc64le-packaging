@@ -707,6 +707,24 @@ package() {
   done
 
   install -Dvm644 LICENSE "$pkgdir/usr/share/licenses/chromium/LICENSE"
+
+  # Which ISA variant this package is. The POWER9 and POWER8 builds come out of
+  # one recipe with identical pkgname, pkgver and pkgrel, so the *only* thing
+  # distinguishing the two files is which pool they were put in -- and a POWER9
+  # build misfiled into the baseline pool installs happily and then SIGILLs.
+  #
+  # This records intent and is greppable without objdump. It is NOT the check:
+  # a toggle that silently failed to apply would still write the right value
+  # here. The check is an ISA scan of usr/lib/chromium/chromium -- the POWER9
+  # build carries ~58k ISA 3.0 instructions, the POWER8 build must carry none
+  # beyond the benign runtime-dispatch and jump-table classes. Verify the
+  # artifact, not the marker; see README.md.
+  if [[ $CARCH == powerpc64le ]]; then
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/doc/chromium/ISA-LEVEL" <<EOF
+_power8_compat=$_power8_compat
+isa=$( (( _power8_compat )) && echo "2.07 (POWER8-legal)" || echo "3.0 (POWER9)" )
+EOF
+  fi
 }
 
 # vim:set ts=2 sw=2 et:
