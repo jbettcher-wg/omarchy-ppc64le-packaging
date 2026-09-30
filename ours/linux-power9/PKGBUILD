@@ -51,7 +51,7 @@ for _p in "${_extra[@]}"; do pkgname+=("$pkgbase-$_p"); done
 # the 4K package had already reached 7.2.2-21 under the old flow and
 # repo-publish.sh refuses a same-version rebuild with different contents.
 # Bump it for every change to this directory -- README.md, "Versioning".
-pkgrel=2
+pkgrel=3
 pkgdesc='Upstream Linux'
 url='https://www.kernel.org/'
 arch=(powerpc64le)
@@ -111,8 +111,8 @@ sha256sums=('039aef84f2b0994aeda3f4fcfc3d02ec9d7a9bbb9020ea264c43f446c860f606'
             '4f24f8bdcbae70eee6098a5161989140c735e838c32a5aa64b17d60d8fbf27f5'
             '982294b4a32b8b2cedcc0cbfcf929c9f3252dc9a71aa3f546770e04caa876b62'
             '71e86c5b38cb2171c021765c2cf976a61e1787a21f18894f5dcf5b58ddd31b59'
-            'd55b1c0260e8c21964ceefeffbe5f51afd3780cde7351b59096c72ea3da2428d'
-            'b794707a262d09e1861b0009716e38bebdded22c75156b873abd042f2ecb18aa'
+            '3e4b59e5b4fccebb781ff0d1aa07b802824c1d16af19489043ac596a067370cf'
+            'e3d82b54bb9cfe50924e7ab33be0cc1d2b2f4455065d1ab472bae1c1ed65e3ed'
 )
 
 # Reproducible-ish build stamps.  The old flow inherited whatever the shell
