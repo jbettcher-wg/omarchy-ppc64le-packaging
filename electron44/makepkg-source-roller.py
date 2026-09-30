@@ -1,6 +1,7 @@
 import base64
 import os
 import re
+import subprocess
 import sys
 from collections import OrderedDict
 from hashlib import sha1
@@ -16,12 +17,29 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-def fetch_deps(url, rev):
-    # Get the DEPS file from the given URL and revision
+def fetch_deps(url, rev, local_dir=None):
+    # Get the DEPS file from the given URL and revision. Run from prepare(),
+    # makepkg has already checked the repository out next to us, so read it
+    # from there first: Gitiles throttles anonymous clients (503).
+    if local_dir and os.path.isdir(local_dir):
+        try:
+            deps = subprocess.run(
+                ["git", "-C", local_dir, "show", f"{rev}:DEPS"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            eprint(f"  Reading DEPS from {local_dir} at {rev}")
+            return deps
+        except subprocess.CalledProcessError:
+            pass
     if "googlesource.com" in url:
         deps_url = f"{url}/+/{rev}/DEPS?format=text"
         eprint(f"  Fetching {deps_url}")
         response = requests.get(deps_url)
+        if not response.ok and url in preferred_url_map:
+            # Gitiles throttles anonymous clients (503). The GitHub mirror we
+            # clone from anyway serves the same DEPS at the same revision.
+            eprint(f"  {deps_url}: HTTP {response.status_code}, trying the mirror")
+            return fetch_deps(preferred_url_map[url], rev)
         response.raise_for_status()
         return base64.b64decode(response.text).decode("utf-8")
     elif url.startswith("https://github.com/"):
@@ -195,7 +213,12 @@ def parse_deps(path, prefix="", is_src=False, vars=None, reverse_map=None):
                 eprint(f"Skipping recursive DEP {dep} as it's not found in deps dict")
                 continue
             eprint(f"Fetching recursedep {dep}")
-            deps_text = fetch_deps(*real_deps[dep])
+            # The flattened directory name makepkg extracted this repo to
+            # (same rule as get_source_path, without deduplication).
+            local_dir = re.sub(
+                "^src", "chromium-mirror", format_path(dep).replace("/", "_")
+            )
+            deps_text = fetch_deps(*real_deps[dep], local_dir=local_dir)
             with NamedTemporaryFile(mode="w", delete=True) as f:
                 f.write(deps_text)
                 f.flush()
