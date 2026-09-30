@@ -10,11 +10,11 @@
 
 pkgver=44.4.5
 _gcc_patches=152
-pkgrel=1
+pkgrel=2
 _major_ver=${pkgver%%.*}
 pkgname="electron${_major_ver}"
 pkgdesc='Build cross platform desktop apps with web technologies'
-arch=(x86_64)
+arch=(x86_64 powerpc64le)
 url='https://electronjs.org'
 license=(MIT BSD-3-Clause)
 depends=(c-ares
@@ -39,9 +39,11 @@ makedepends=(clang
              lld
              llvm
              ninja
-             # Electron ships a vendored nodejs. Meanwhile the npm dependency pulls in nodejs which is Arch's freshest version.
-             # Pinning the closest LTS here makes the build environment more consistent with the vendored copy.
-             nodejs-lts-krypton
+             # Arch pins nodejs-lts-krypton to stay close to the vendored node;
+             # our pools carry only nodejs. yarn is not a makedepend: Electron
+             # pins its own (yarnPath in .yarnrc.yml) and prepare() runs it
+             # through node.
+             nodejs
              npm
              patchutils
              pciutils
@@ -52,8 +54,7 @@ makedepends=(clang
              rsync
              rust
              rust-bindgen
-             wget
-             yarn)
+             wget)
 optdepends=('kde-cli-tools: file deletion support (kioclient)'
             'pipewire: WebRTC desktop sharing under Wayland'
             'gtk4: for --gtk-version=4 (GTK4 IME might work better on Wayland)'
@@ -85,6 +86,14 @@ source=("git+https://github.com/electron/electron.git#tag=v$pkgver"
         jinja-python-3.10.patch
         use-system-libraries-in-node.patch
         makepkg-source-roller.py
+        # ppc64le: Debian's series for chromium 152 (salsa tag
+        # debian/152.0.7977.82-1, the closest to the 152.0.7977.130 Electron
+        # pins), plus Debian's disable/lint.patch.
+        chromium-152-ppc64le-patches-r5.tar.gz
+        debian-disable-lint.patch
+        chromium-151-dawn-cipd-add-ppc64le.patch
+        swiftshader-ppc-xcoff-baseclasses.patch
+        ppc64le-seccomp-scv-return-abi.patch
         # BEGIN managed sources
         chromium-mirror::git+https://github.com/chromium/chromium.git#tag=152.0.7977.130
         chromium-mirror_third_party_nan::git+https://github.com/nodejs/nan.git#commit=675cefebca42410733da8a454c8d9391fcebfbc2
@@ -273,7 +282,12 @@ sha256sums=('752aee8f5e21adb2a752da2bc53dba0c04be712b0d1ba4a5f347b3f6e8c167d1'
             '13fcf26193f4417fd5dfbc82a3f24e5c7a1cce82f729f6a73f1b1d3a7b580b34'
             '55dbe71dbc1f3ab60bf1fa79f7aea7ef1fe76436b1d7df48728a1f8227d2134e'
             '963192cfaae24fbdb07c07aae9d2c301a56ebd1f946b3e56f02f7d0d42f22a2b'
-            '6f2b41696dee139d4f538c24a0da7399626a28d0d1fd307b780773669d37b254'
+            'da17a65c0fe847df5f62ca6278d63ea288b434ba7aa6967b12f7c4fe2cb5815c'
+            '5714c501e8d0640ae4a9cc9950af85567b9930ca5677fc51c2549627628443e4'
+            '6bf93ab62f409b2c89996dfbd5b28b47986c0b09c828f44e84b024988dc2ec8b'
+            'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
+            '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
+            '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
             'de7e222a35127607bff19abc9bf9bd7bf2f462a121a857ec372baee5b148c238'
             '609bc1e61871d917be64ed793584119e0414761a5d577af21abaf4e4f1474f09'
             '589c3817298490b5a91d11051668590ade663db72281b1ec149df2d56d8b7ce7'
@@ -487,6 +501,13 @@ prepare() {
   echo "Putting together electron sources"
   # Generate gclient gn args file and prepare-electron-source-tree.sh
   python makepkg-source-roller.py generate electron/DEPS $pkgname
+  if [[ $CARCH == powerpc64le ]]; then
+    # The generated script's only cipd call fetches a prebuilt esbuild for
+    # devtools-frontend. cipd has nothing for ppc64le (and the script would ask
+    # for linux-powerpc64le, which is not even a Go platform name), so the call
+    # can only fail. Drop it; everything else is assembled from the git sources.
+    sed -i '/^cipd install /d' prepare-electron-source-tree.sh
+  fi
   rbash prepare-electron-source-tree.sh "$CARCH"
   mv electron src/electron
 
@@ -500,8 +521,17 @@ prepare() {
     -s src/third_party/skia --header src/skia/ext/skia_commit_hash.h
   src/build/util/lastchange.py \
     -s src/third_party/dawn --revision src/gpu/webgpu/DAWN_VERSION
-  src/tools/update_pgo_profiles.py --target=linux update \
-    --gs-url-base=chromium-optimization-profiles/pgo_profiles
+  # PGO profiles are published for x86_64 and arm64 only, so this aborts on
+  # ppc64le with: RuntimeError: gsutil failed to download
+  # "gs://chromium-optimization-profiles/pgo_profiles/chrome-linux-7977-...".
+  # Nothing consumes it either way -- build() sets chrome_pgo_phase=0 (see the
+  # note there about clang being too old to read the bundled profile) and
+  # v8_builtins_profiling_log_file="", so the download is dead weight on every
+  # architecture and merely fatal on this one.
+  if [[ $CARCH != powerpc64le ]]; then
+    src/tools/update_pgo_profiles.py --target=linux update \
+      --gs-url-base=chromium-optimization-profiles/pgo_profiles
+  fi
 
   # https://gitlab.archlinux.org/archlinux/packaging/packages/electron32/-/issues/1
   src/third_party/node/update_npm_deps
@@ -514,7 +544,13 @@ prepare() {
 
   pushd src
   pushd electron
-  yarn install --frozen-lockfile
+  # Electron pins its yarn (yarnPath in .yarnrc.yml); run that one through node
+  # rather than requiring a system yarn. --mode=skip-build: package.json opts
+  # @sentry/cli back into install scripts (dependenciesMeta) and its
+  # postinstall downloads a binary that has no ppc64le build (HTTP 403).
+  # Nothing script-built is used by the build.
+  YARN_CACHE_FOLDER="$srcdir/yarn-cache" YARN_GLOBAL_FOLDER="$srcdir/yarn-global" \
+    node "$(sed -n 's/^yarnPath: //p' .yarnrc.yml)" install --immutable --mode=skip-build
   popd
 
   echo "Applying local patches..."
@@ -580,18 +616,101 @@ prepare() {
   # some thin archive members ("/43/"); the helper chokes on it.
   patch -Np1 -i ../chromium-152-fix-resource-allowlist-parse.patch
 
-  # Link to system tools required by the build
+  if [[ $CARCH == powerpc64le ]]; then
+    # Debian's ppc64le series for chromium 152, in series order, after
+    # Electron's own stack and Arch's chromium patches. No ISA toggle: this
+    # one recipe is built twice in different environments. On the host,
+    # /etc/makepkg.conf supplies -mcpu=power9 and the result goes to repo/;
+    # in the POWER8 VM the environment supplies -mcpu=power8 and the result
+    # goes to repo-ppc64le/. The ISA level of the C++ comes entirely from
+    # that environment, never from here. Two components are pinned to POWER8
+    # by the series itself regardless of environment -- V8 (Force-baseline-
+    # POWER8-AltiVec-VSX) and skia (skia-vsx-instructions) -- so the host
+    # build is POWER9 C++ around a POWER8-safe V8 and skia.
+    # core/baseline-isa-3-0.patch is POWER9-only and stays out, as in Debian.
+    local _p
+    while IFS= read -r _p; do
+      [[ -z $_p || $_p == \#* ]] && continue
+      [[ $_p == ppc64le/* ]] || continue
+      msg2 "Applying ppc64le patch: $_p"
+      patch -Np1 -i "$srcdir/ppc64le-patches/${_p#ppc64le/}"
+    done < "$srcdir/ppc64le-patches/debian-series"
+
+    # The WebUI eslint/stylelint steps run the system node, and node 26.4.0
+    # on ppc64le dies inside its own V8 ("Check failed: trampoline_pc >= 0")
+    # on eslint's --experimental-loader path. Debian's disable/lint.patch
+    # swaps both scripts for a build/touch.py that creates the expected
+    # outputs and exits; lint steps ship nothing.
+    msg2 "Applying ppc64le patch: debian-disable-lint.patch"
+    patch -Np1 -i "$srcdir/debian-disable-lint.patch"
+
+    # Debian's dawn-fix-ppc64le-detection.patch fixes src/utils/platform.h; this
+    # fixes tools/python/cipd_deps.py, which is a different failure and is not
+    # covered by their series. Without it the build dies at
+    # generate-sources-gn.py with:
+    #   File ".../dawn/tools/python/cipd_deps.py", line 78, in
+    #   get_cipd_compatible_current_arch
+    #     raise ValueError('Unable to determine architecture')
+    # Pure build-system arch detection -- no ISA-level content, so it does not
+    # affect the POWER8-safe design. Named for 151; cipd_deps.py is unchanged
+    # through 152 and 153, and packages/chromium carries the same patch.
+    msg2 "Applying ppc64le patch: chromium-151-dawn-cipd-add-ppc64le.patch"
+    patch -Np1 -i "$srcdir/chromium-151-dawn-cipd-add-ppc64le.patch"
+
+    # Debian's 0001-swiftshader-fix-build.patch adds the XCOFF sources to
+    # third_party/swiftshader/third_party/llvm-16.0/BUILD.gn -- but
+    # src/Reactor/BUILD.gn:310 hardcodes llvm_dir = "../../third_party/llvm-10.0",
+    # so llvm-16.0 is never built and their patch is a no-op here. (Debian reaches
+    # llvm-16.0 only because their non-ppc series carries
+    # debianization/swiftshader-use-llvm-16.patch, which we do not apply.) Both
+    # llvm trees ship the sources; it is llvm-10.0's BUILD.gn that omits them, so
+    # the link fails with:
+    #   ld.lld: error: undefined symbol:
+    #     llvm::MCAsmInfoXCOFF::isAcceptableChar(char) const
+    #     referenced by vtable for llvm::PPCXCOFFMCAsmInfo
+    # packages/chromium keeps this patch for exactly the same reason.
+    msg2 "Applying ppc64le patch: swiftshader-ppc-xcoff-baseclasses.patch"
+    patch -Np1 -i "$srcdir/swiftshader-ppc-xcoff-baseclasses.patch"
+
+    # Debian's sandbox/0001-sandbox-Enable-seccomp_bpf-for-ppc64.patch writes an
+    # emulated syscall's result back with the `sc` convention only. glibc uses
+    # `scv` on POWER9, so a DENIED broker call reads back as SUCCESS -- e.g.
+    # -ENOENT arriving as fd 2 -- and the GPU process then trips a CHECK on the
+    # bogus value. Their series has no scv handling; this is ours.
+    #
+    # Measured, not theorised: without it, obsidian's GPU process aborted on
+    # 2026-09-29 under --use-gl=disabled with SIGTRAP at a V8 IMMEDIATE_CRASH
+    # `trap`, r3=r4=0x69c679f9a8519000, on Chrome_ChildIOT. It is a runtime
+    # failure, so no amount of building surfaces it -- only running with the GPU
+    # disabled does. packages/chromium carries the same patch.
+    msg2 "Applying ppc64le patch: ppc64le-seccomp-scv-return-abi.patch"
+    patch -Np1 -i "$srcdir/ppc64le-seccomp-scv-return-abi.patch"
+  fi
+
+  # Link to system tools required by the build. Go lives under a CIPD-arch
+  # directory that dawn's cipd_deps.get_cipd_platform() looks up at build time,
+  # so the directory name has to match what that returns. Upstream hardcodes
+  # linux-amd64; once chromium-151-dawn-cipd-add-ppc64le.patch teaches cipd_deps
+  # about this architecture it returns ppc64le instead, and dawn then looks for
+  # go under linux-ppc64le. Leaving the symlink at linux-amd64 fails the tint
+  # generate-sources-gn.py step with:
+  #   FileNotFoundError: [Errno 2] No such file or directory:
+  #   '.../third_party/dawn/tools/golang/linux-ppc64le/bin/go'
+  # packages/chromium carries the same two lines for the same reason.
+  local _cipd_arch=linux-amd64
+  [[ $CARCH == powerpc64le ]] && _cipd_arch=linux-ppc64le
+
   mkdir -p third_party/node/linux/node-linux-x64/bin \
            third_party/rust-toolchain/bin \
            third_party/jdk/current/bin \
            third_party/gperf/cipd/bin \
-           third_party/dawn/tools/golang/linux-amd64/bin
+           "third_party/dawn/tools/golang/$_cipd_arch/bin"
 
   ln -s /usr/bin/node third_party/node/linux/node-linux-x64/bin/
   ln -s /usr/bin/rustc third_party/rust-toolchain/bin/
   ln -s /usr/bin/java third_party/jdk/current/bin/
   ln -s /usr/bin/gperf third_party/gperf/cipd/bin/
-  ln -s /usr/bin/go third_party/dawn/tools/golang/linux-amd64/bin/
+  ln -s /usr/bin/go "third_party/dawn/tools/golang/$_cipd_arch/bin/"
 
   # Electron specific fixes
   #  fix: use GTK UI theme for Linux message boxes #52238

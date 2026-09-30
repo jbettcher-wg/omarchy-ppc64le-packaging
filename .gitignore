@@ -39,6 +39,7 @@
 !chromium/chromium-ppc64le-patches-r2.tar.gz
 !electron43/chromium-150-ppc64le-patches-r3.tar.gz
 !chromium/chromium-ppc64le-patches-r4.tar.gz
+!electron44/chromium-152-ppc64le-patches-r5.tar.gz
 !iana-etc/sources.tar.xz
 !opencore-amr/opencore-amr-0.1.5.tar.gz
 # The ppc64le port of bun and of its JavaScriptCore. Neither branch has been
