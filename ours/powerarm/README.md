@@ -195,15 +195,15 @@ cd ours/powerarm
 makepkg -s
 ```
 
-Point it at a local checkout or another branch:
+The source is the upstream release tag named by `pkgver` (`0.10.0`; the tags
+are bare, no `v`, so the tag, `git describe`, `pkgver` and the binary's own
+version string are identical). Point it at a local checkout to package work in
+progress -- the checkout must carry that tag, so tag the commit you want, or
+bump `pkgver` to a new tag:
 
 ```sh
-POWERARM_GIT_URL='file:///home/jbettcher/Development/POWERarm' \
-POWERARM_GIT_BRANCH=powerarm makepkg -s
+POWERARM_GIT_URL='file:///home/jbettcher/Development/POWERarm' makepkg -s
 ```
-
-`main` is what ships; the local development branch is `powerarm` and tracks
-`origin/main`.
 
 On a shared machine, keep it polite — the build is a few thousand heavy C++
 translation units:

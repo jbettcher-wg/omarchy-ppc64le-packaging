@@ -96,10 +96,13 @@
 # and reads the emulator's path out of /proc/<pid>/maps.
 
 pkgname=powerarm
-# No release tags yet (m1/m2 are milestone tags, not versions), so the usual
-# commit-count + short-hash form.  pkgver() below recomputes it at build time;
-# the committed value tracks the last metadata refresh.
-pkgver=r15760.f2d48270d
+# Upstream releases are tagged bare -- 0.10.0, no `v` -- so the tag, `git
+# describe`, this pkgver and the version string the binary reports
+# (OVERRIDE_VERSION in build()) are byte-identical.  The source line checks out
+# #tag=$pkgver, so bumping this one value moves the package to the next
+# release; there is deliberately no pkgver() to recompute it at build time.
+# The older m1/m2 tags were milestones, not versions, and are obsolete.
+pkgver=0.10.0
 pkgrel=1
 pkgdesc='AArch64 emulation for 64-bit POWER'
 arch=('powerpc64le')
@@ -152,13 +155,12 @@ options=('!lto')
 install="$pkgname.install"
 
 _repourl="${POWERARM_GIT_URL:-https://github.com/jbettcher-wg/POWERarm.git}"
-# Pinned explicitly rather than relying on the remote HEAD symref, so a change
-# to the repository's default branch cannot silently change what is packaged.
-# The local development branch is `powerarm`; it tracks origin/main, and main
-# is what ships.  Point both at a local checkout to package work in progress:
-#   POWERARM_GIT_URL='file:///home/jbettcher/Development/POWERarm' \
-#   POWERARM_GIT_BRANCH=powerarm makepkg -s
-_repobranch="${POWERARM_GIT_BRANCH:-main}"
+# The source is the release tag named by pkgver, so neither a change to the
+# repository's default branch nor new commits on it can change what is
+# packaged.  Point the URL at a local checkout to package work in progress; the
+# checkout must carry the tag, so tag the commit you want (and bump pkgver if
+# it is not the release):
+#   POWERARM_GIT_URL='file:///home/jbettcher/Development/POWERarm' makepkg -s
 
 # Optional: build the AArch64 guest libraries (libVDSO-a64-guest.so).  OFF by
 # default and that is a correctness decision, not laziness -- see build().
@@ -173,7 +175,7 @@ _guest_rootfs="${_guest_rootfs:-}"
 # ones .gitmodules pins -- note jemalloc_glibc is daedalao's fork, not
 # FEX-Emu's, and the pinned commit exists only there.
 source=(
-  "$pkgname::git+$_repourl#branch=$_repobranch"
+  "$pkgname::git+$_repourl#tag=$pkgver"
   'fmt::git+https://github.com/fmtlib/fmt.git'
   'xxhash::git+https://github.com/Cyan4973/xxHash.git'
   'range-v3::git+https://github.com/ericniebler/range-v3.git'
@@ -196,11 +198,6 @@ _submodules=(
   'External/rpmalloc:rpmalloc:External/rpmalloc'
   'External/cpp-optparse:cpp-optparse:Source/Common/cpp-optparse'
 )
-
-pkgver() {
-  cd "$srcdir/$pkgname"
-  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=9 HEAD)"
-}
 
 prepare() {
   cd "$srcdir/$pkgname"
