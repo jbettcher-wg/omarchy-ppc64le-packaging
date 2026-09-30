@@ -21,13 +21,13 @@
 
 pkgname=obsidian
 pkgver=1.13.7
-pkgrel=1
-_electron_ver=43.7.0   # electron43's version; its node headers build the modules
+pkgrel=2
+_electron_ver=44.4.5   # electron44's version; its node headers build the modules
 pkgdesc="A powerful knowledge base that works on top of a local folder of plain text Markdown files"
 arch=('powerpc64le')
 url="https://obsidian.md"
 license=('LicenseRef-Obsidian')
-depends=('fontconfig' 'bash' 'zlib' 'hicolor-icon-theme' 'electron43' 'glibc')
+depends=('fontconfig' 'bash' 'zlib' 'hicolor-icon-theme' 'electron44' 'glibc')
 makedepends=('file' 'node-gyp' 'nodejs' 'python')
 install=obsidian.install
 options=(!strip)
@@ -47,7 +47,7 @@ sha256sums=('0df6f2b28187a84917eaf33e089abe980a407fd4b195d69eab1f2a70ad2234ca'
             '99c075af3f34cb358d6e93565686792c45562b17f8002fce0e8a63b83cbbe786'
             'd9fdc14f9c2fb95bb38310281268fdad413c1b49fa93213df3184f9b0ca1175c'
             'd3cbe375cbfa4024db1910b98191649f4134c5c48aee5e60b6e7713987dcdb28'
-            'b82c12cc4cc09794e3c0ddc7609f2738f3e927207809d4198296b9e8618043bf'
+            '3f050434f3d15188caf71606e4cd3f7dd86547f66a72e947a2d05b39828851f6'
             'f7d0a9599465b6c5a45c1d38af95de71c8666cc0938b7b75d0d9b1e6f5297f64'
             '01743e8241cc6a81a131b18a584a6c8d9d3c3392b58aa62d44d2113916ab835f'
             '16a4d09457a4e2855ee97c424aade215f7bfbdcaa3c1bdb506f0282125be7782'
@@ -71,6 +71,19 @@ package() {
 
     # Install executable file
     install -Dm755 "$pkgname".sh "$pkgdir"/usr/bin/obsidian
+
+    # obsidian.sh hardcodes an electron major in its exec line, and upstream
+    # bumps that by hand. Derive it from _electron_ver instead, so the launcher,
+    # the depends entry and the node headers can never disagree -- they did once:
+    # depends said electron44 while the installed launcher still ran electron43,
+    # which only shows up as a runtime failure (or silently runs the wrong
+    # electron if the old one is still installed).
+    sed -i "s/\belectron[0-9][0-9]*\b/electron${_electron_ver%%.*}/g" \
+      "$pkgdir"/usr/bin/obsidian
+    grep -q "electron${_electron_ver%%.*} " "$pkgdir"/usr/bin/obsidian || {
+      echo "launcher does not reference electron${_electron_ver%%.*}" >&2
+      return 1
+    }
 
     # Install desktop file
     install -Dm644 "$pkgname".desktop -t "$pkgdir"/usr/share/applications/
