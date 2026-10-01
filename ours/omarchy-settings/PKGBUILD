@@ -27,9 +27,9 @@
 # arch=(any) was correct as it stood.  No architecture change was needed.
 
 pkgname=omarchy-settings
-pkgver=4.0.3
-# pkgrel 3 marks this as locally modified: upstream's own build is 4.0.3-1.
-pkgrel=3
+pkgver=4.0.4
+# pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.4-1.
+pkgrel=2
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers (ppc64le: no destructive /etc overrides, no mkinitcpio drop-in)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -60,19 +60,27 @@ conflicts=(omarchy-settings-dev)
 install="${pkgname}.install"
 
 # Upstream's published artifact. From 4.0.3 upstream labels it arch=x86_64
-# (4.0.2 shipped as -any), but the content did not change class: verified for
-# 4.0.3-1 -- sha256 matches omarchy.db, 426 files, zero ELF or object files,
-# identical depends -- and the upstream tree has no packaging or compiled-source
-# change between v4.0.2 and v4.0.3. The relabel is in their build pipeline, not
-# the source. check() keeps enforcing zero machine code, so this stays arch=(any);
-# if upstream ever ships a real binary here, the build fails instead of trusting
-# the label.
+# (4.0.2 shipped as -any), but the content did not change class: re-verified for
+# 4.0.4-1 -- sha256 matches omarchy.db, 426 files (unchanged count), zero ELF or
+# object files.
+#
+# 4.0.3 -> 4.0.4 changed 38 files here and they are almost entirely cosmetic: 36
+# are app icon PNGs under usr/share/icons/hicolor (both 48x48 and 256x256 of the
+# same 18 apps), plus etc/limine-entry-tool.d/omarchy-defaults.conf (which
+# package() deletes anyway, since limine cannot exist on POWER9) and
+# usr/share/omarchy/etc-overrides/os-release (the version string).  Every file
+# package() and check() reference was verified present in the 4.0.4 tree before
+# this bump, including both mkinitcpio drop-ins and neovim.lua.tpl.
+#
+# The relabel is in their build pipeline, not the source. check() keeps enforcing
+# zero machine code, so this stays arch=(any); if upstream ever ships a real
+# binary here, the build fails instead of trusting the label.
 _upstream_arch=x86_64
 _srcpkg="${pkgname}-${pkgver}-1-${_upstream_arch}.pkg.tar.zst"
 source=("https://pkgs.omarchy.org/x86_64/${_srcpkg}"
         "${pkgname}.install")
 noextract=("${_srcpkg}")
-sha256sums=('bd30d7320a1bb8ee158a2c86608a599522ac56f06d5e5bebc5c55b8918ea95cf'
+sha256sums=('748c2ee7edc3c67f8c09bdfa9f0930837684297c7107b8a3a87540f8dfe1d100'
             'SKIP')
 
 _unpack() {
