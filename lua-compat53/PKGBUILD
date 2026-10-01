@@ -1,0 +1,61 @@
+# ppc64le: added powerpc64le to arch(), and stopped deriving the binary rock's
+# filename from CARCH. Imported with tools/fetch.sh lua-compat53; Arch POWER does
+# not carry this pkgbase.
+#
+# Why this is needed at all: both pools ship lua51-luarocks and lua52-luarocks,
+# which depend on lua51-compat53 and lua52-compat53, and nothing provided them --
+# `pacman -Sp lua51-luarocks` failed with "could not satisfy dependencies" in the
+# POWER9 pool. This pkgbase is the only source of those two names.
+#
+# Maintainer: Daurnimator <daurnimator@archlinux.org>
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+
+pkgbase=lua-compat53
+_rockname=${pkgbase##lua-}
+pkgname=(lua52-$_rockname lua51-$_rockname)
+pkgver=0.15.1
+pkgrel=1
+_rockrel=1
+pkgdesc='Compatibility module providing Lua-5.3-style APIs'
+arch=(x86_64 powerpc64le)
+url='https://github.com/lunarmodules/lua-compat-5.3'
+license=(MIT)
+depends=(glibc)
+makedepends=(lua51
+             lua52
+             luarocks)
+_archive="${url##*/}-$pkgver"
+_rockspec="$_rockname-$pkgver-$_rockrel"
+# luarocks names a binary rock from ITS OWN arch string, which is not CARCH: on
+# this architecture it writes linux-ppc64le while CARCH is powerpc64le, so a
+# literal "linux-$CARCH" names a file that does not exist and install(1) fails.
+# Ask luarocks rather than guessing. Resolved at call time because luarocks is a
+# makedepend and is not present while the PKGBUILD is first sourced.
+_rock_file() { printf '%s.%s.rock\n' "$_rockspec" "$(luarocks config arch)"; }
+source=("$url/archive/v$pkgver/$_archive.tar.gz")
+sha256sums=('16c4bd7b72a156e3b575ce2b5ebe2ec00611a14c485dd15dc3814647a589c7f8')
+
+build() {
+	cd "$_archive"
+	for LUAVER in 5.{1,2}; do
+		luarocks --lua-version "$LUAVER" \
+			make --pack-binary-rock --deps-mode none -- "rockspecs/$_rockspec.rockspec"
+		install -Dm0644 -t "lua-$LUAVER/" "$(_rock_file)"
+	done
+}
+
+_package() {
+	cd "$_archive"
+	pkgdesc+=" for Lua $1"
+	luarocks --lua-version "$1" --tree "$pkgdir/usr/" \
+		install --deps-mode none --no-manifest -- "lua-$1/$(_rock_file)"
+	install -Dm0664 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}
+
+package_lua51-compat53() {
+	_package 5.1
+}
+
+package_lua52-compat53() {
+	_package 5.2
+}
