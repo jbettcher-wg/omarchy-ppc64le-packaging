@@ -1,0 +1,11 @@
+# Arch's config, kept verbatim. The apt source is deliberate: tailscale tags a
+# release on GitHub before publishing it, so a git-tag source would report
+# versions that cannot be built yet. This tracks what upstream has actually
+# published, which is what the "check if the version has been published"
+# comment in the PKGBUILD is asking for.
+[tailscale]
+source = "apt"
+mirror = "https://pkgs.tailscale.com/stable/debian"
+pkg = "tailscale"
+suite = "sid"
+repo = "main"
