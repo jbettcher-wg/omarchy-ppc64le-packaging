@@ -29,7 +29,7 @@
 pkgname=omarchy-settings
 pkgver=4.0.4
 # pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.4-1.
-pkgrel=2
+pkgrel=3
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers (ppc64le: no destructive /etc overrides, no mkinitcpio drop-in)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -191,6 +191,49 @@ package() {
       "$_menu"
     grep -q 'setup.default.agent.agy' "$_menu" ||
       { echo "omarchy-settings: failed to patch agy into omarchy-menu.jsonc" >&2; return 1; }
+
+    # ppc64le: cull the browser menu to the browsers that exist here.
+    #
+    # Three lists mention browsers: install.browser.*, setup.default.browser.*
+    # and remove.browser.*. The install ones are what do harm: they offer
+    # google-chrome, microsoft-edge-stable-bin, brave-bin, brave-origin-bin and
+    # zen-browser-bin, every one an x86-64 binary package with no ppc64le build,
+    # so the menu invites an install that cannot succeed. Dropping the matching
+    # setup.default.browser.* entries is tidiness rather than a fix: those are
+    # already gated on `when: omarchy-cmd-present <binary>`, and remove.* on
+    # `omarchy-pkg-present`, so neither appears unless the browser is somehow
+    # installed anyway. They go for coherence: a Remove entry for a browser that
+    # is no longer offered in Install makes no sense.
+    #
+    # Chromium is not in the install list upstream either -- it comes from our own
+    # repo -- so afterwards Install offers Firefox alone, and Default Browser
+    # offers Chromium and Firefox.
+    #
+    # Each entry is one line ending in "}," and the parent keys do not enumerate
+    # their children (they are found by key prefix), so deleting whole lines
+    # cannot unbalance the file. The '":' in each pattern is what stops .brave
+    # from also matching .brave-origin -- and the key prefixes are what stop
+    # "edge" from matching update.channel.edge, which is the release channel and
+    # has nothing to do with Microsoft Edge. A bare /edge/d would break it.
+    #
+    # Revisit when the webkit work lands: Brave and the other Chromium forks
+    # become candidates then, and this block is where to re-add them.
+    local _b _k
+    for _b in chrome brave brave-origin edge zen; do
+      sed -i -E "/\"(setup\.default\.browser|install\.browser|remove\.browser)\.${_b}\":/d" "$_menu"
+    done
+    for _b in chrome brave brave-origin edge zen; do
+      ! grep -q "browser\.${_b}\"" "$_menu" ||
+        { echo "omarchy-settings: browser cull left $_b behind in the menu" >&2; return 1; }
+    done
+    for _b in chromium firefox; do
+      grep -q "setup\.default\.browser\.${_b}\"" "$_menu" ||
+        { echo "omarchy-settings: browser cull removed $_b, which must stay" >&2; return 1; }
+    done
+    for _k in 'install\.browser\.firefox' 'remove\.browser\.firefox' 'update\.channel\.edge'; do
+      grep -q "\"$_k\"" "$_menu" ||
+        { echo "omarchy-settings: browser cull removed $_k, which must stay" >&2; return 1; }
+    done
   fi
 
   "${ELF_PATHGUARD:-$startdir/../../tools/elf-pathguard.sh}" "$pkgdir"
