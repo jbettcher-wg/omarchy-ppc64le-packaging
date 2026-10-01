@@ -1,0 +1,144 @@
+#!/bin/bash
+# omarchy-install-claude-powerarm -- install Claude Code's native AArch64 build
+# and let POWERarm run it.
+#
+# WHY THIS EXISTS
+#
+# Claude Code publishes prebuilt per-platform binaries and no source that can be
+# built for powerpc64le.  From 2.1.113 the npm package is a thin wrapper that
+# execs one of eight @anthropic-ai/claude-code-<platform> natives, none of them
+# ppc64le; 2.1.112 was the last pure-JavaScript release.  This package used to
+# pin mise to 2.1.112, which worked but froze the agent a few hundred releases
+# behind upstream and silently stopped getting fixes -- not a defensible default
+# on a daily driver.
+#
+# So install the real linux-arm64 build instead and let binfmt_misc run it
+# through POWERarm.  The result is current, and self-updating: Claude Code
+# replaces its own binary under ~/.local/share/claude/versions, so this script
+# runs once and the agent keeps itself up to date afterwards.
+#
+# This implements the agent_installer contract omarchy-default-agent already
+# uses for openclaw and hermes:
+#
+#   --check   exit 0 if it is installed
+#   --now     install it
+#
+# Upstreamable in spirit but not in form: the same shape would serve Omarchy on
+# any architecture whose agents only ship foreign binaries.
+
+set -uo pipefail
+
+AGENT=claude
+BIN="$HOME/.local/bin/$AGENT"
+INSTALLER_URL=${CLAUDE_INSTALLER_URL:-https://claude.ai/install.sh}
+HANDLER=/proc/sys/fs/binfmt_misc/POWERarm-aarch64
+
+die()  { printf '%s: %s\n' "${0##*/}" "$*" >&2; exit 1; }
+note() { printf '==> %s\n' "$*"; }
+
+# Deliberately does NOT exec the agent.  agent_present() is called on the menu
+# path, and the installed binary is a ~240 MB AArch64 executable: starting it
+# under emulation just to read a version string would make the menu feel hung.
+# Presence plus a live handler is the honest fast answer -- the handler is the
+# thing that makes the binary runnable at all.
+check() {
+  [[ -x $BIN ]] || return 1
+  [[ -e $HANDLER ]] || return 1
+}
+
+need_powerarm() {
+  command -v POWERarm >/dev/null && return 0
+  note "POWERarm is not installed -- it is what runs the AArch64 build."
+  sudo pacman -S --needed powerarm || die "could not install powerarm"
+}
+
+need_binfmt() {
+  [[ -e $HANDLER ]] && return 0
+  note "registering the AArch64 binfmt_misc handler"
+  # restart, not start.  The registration carries the F ("fix binary") flag, so
+  # the kernel pins the emulator's inode for the life of the entry; only the
+  # unit's stop step unregisters it.  `start` alone hits EEXIST on an entry of
+  # the same name and leaves a stale one in place.
+  sudo systemctl restart systemd-binfmt.service ||
+    die "could not register the handler: sudo systemctl restart systemd-binfmt.service"
+  [[ -e $HANDLER ]] || die "systemd-binfmt ran but $HANDLER is still absent"
+}
+
+need_rootfs() {
+  POWERarmRootFSFetcher check >/dev/null 2>&1 && return 0
+  note "building the AArch64 guest rootfs -- downloads a few hundred MB, no root needed"
+  # The default manifest (vk) is the shape this project tests against, and the
+  # default mirror order is POWERarm's own pinned snapshot before upstream ALARM.
+  # Both defaults are what we want; do not second-guess them here.
+  POWERarmRootFSFetcher build --assume-yes || die "rootfs build failed"
+  POWERarmRootFSFetcher check >/dev/null 2>&1 ||
+    die "rootfs built but still reports unusable"
+}
+
+install_now() {
+  need_powerarm
+  need_binfmt
+  need_rootfs
+
+  # The installer picks its artifact from `uname -m` and exits on anything it
+  # does not recognise:
+  #
+  #     case "$(uname -m)" in
+  #         x86_64|amd64) arch="x64" ;;
+  #         arm64|aarch64) arch="arm64" ;;
+  #         *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  #     esac
+  #
+  # There is no override environment variable, so report the guest architecture
+  # for the length of the install.  Everything after that case statement is
+  # architecture-agnostic -- curl, jq, unpack into ~/.local/share/claude/versions,
+  # symlink into ~/.local/bin -- so a uname on PATH is the whole of the change,
+  # and it leaves upstream's script unforked and free to change.
+  local shim
+  shim=$(mktemp -d) || die "mktemp failed"
+  trap 'rm -rf "$shim"' EXIT
+
+  cat >"$shim/uname" <<'SHIM'
+#!/bin/sh
+# Report the guest architecture: the binary this selects is AArch64, and
+# binfmt_misc runs it through POWERarm.
+m=0 s=0
+for a in "$@"; do
+  case $a in
+    --machine)     m=1 ;;
+    --kernel-name) s=1 ;;
+    -*)            case $a in *m*) m=1 ;; esac
+                   case $a in *s*) s=1 ;; esac ;;
+  esac
+done
+[ "$m" = 1 ] && [ "$s" = 1 ] && { echo "Linux aarch64"; exit 0; }
+[ "$m" = 1 ] && { echo aarch64; exit 0; }
+exec /usr/bin/uname "$@"
+SHIM
+  chmod 755 "$shim/uname"
+
+  note "installing Claude Code (linux-arm64, run through POWERarm)"
+  curl -fsSL "$INSTALLER_URL" -o "$shim/install.sh" ||
+    die "could not fetch the installer from $INSTALLER_URL"
+  PATH="$shim:$PATH" bash "$shim/install.sh" || die "the installer failed"
+
+  [[ -x $BIN ]] || die "the installer finished but $BIN is not there"
+
+  # Now it is worth paying for one real run: this is the first time anything
+  # proves the emulated binary actually executes, and a missing or wrong rootfs
+  # shows up here rather than the next time the user opens the agent.
+  local v
+  if v=$("$BIN" --version 2>&1); then
+    note "installed: $v"
+  else
+    die "installed, but '$BIN --version' failed:
+$v
+  Check the rootfs with: POWERarmRootFSFetcher check"
+  fi
+}
+
+case ${1:-} in
+  --check) check ;;
+  --now)   install_now ;;
+  *) printf 'Usage: %s --check | --now\n' "${0##*/}" >&2; exit 2 ;;
+esac
