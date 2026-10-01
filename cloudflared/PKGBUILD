@@ -1,0 +1,116 @@
+# ppc64le: added powerpc64le to arch(), and pinned the ISA floor to POWER8 in
+# build(). Imported with tools/fetch.sh cloudflared; Arch POWER does not carry
+# this pkgbase, so it lands at the top level where Arch's flat namespace maps.
+#
+# Cloudflare publishes no ppc64le binary (their releases are 386, amd64, arm,
+# arm64 and armhf), so building from source is the only way to have this on
+# POWER at all -- there is no -bin recipe to fall back to.
+#
+# The ISA pin matches the tailscale recipe in this tree, for the same reason:
+# this tree's go toolchain bakes in power9 as its own default (`go env GOPPC64`
+# answers power9), so an unpinned Go build emits ISA 3.0 silently wherever the
+# baseline pool's power8 drop-in is not loaded, and takes an illegal
+# instruction on POWER8 -- the gum 2.0.0-1 bug. A tunnel client gains nothing
+# measurable from ISA 3.0, so it is pinned here rather than inherited, and
+# needs no _power8_compat toggle.
+#
+# Maintainer: George Rawlinson <george@rawlinson.net.nz>
+
+pkgname=cloudflared
+pkgver=2026.9.3
+pkgrel=1
+pkgdesc='Command-line client for Cloudflare Tunnel'
+arch=('x86_64' 'powerpc64le')
+url='https://github.com/cloudflare/cloudflared'
+license=('Apache-2.0')
+depends=('glibc')
+makedepends=('git' 'go')
+options=('!lto')
+source=("$pkgname::git+$url.git#tag=$pkgver")
+sha512sums=('52ae21ff641750a6c64d8a10fabcd94359a3a049bfb24d542e3f0fe5542a403ff290680d805a8cfabfc057ed5ca8a7cfd2b9556e284f8a5cf3229d94e388fecb')
+b2sums=('097a91e6131fe8af0e4333083959fbae6fde1069a7aab299c6853cd2fc5fecedaebc47b4c356ac4307f28e6a13ab009d6af53086552b8fdb242d8d17687c3410')
+
+prepare() {
+  cd "$pkgname"
+
+  # create directory for build output
+  mkdir build
+}
+
+build() {
+  cd "$pkgname"
+
+  # POWER8 ISA floor. Two separate knobs reach the two halves of a cgo build,
+  # and neither one reaches the other:
+  #   GOPPC64          the Go compiler's own target level. No CFLAGS value
+  #                    reaches it, and the toolchain default is power9 here.
+  #   CFLAGS/CXXFLAGS  the cgo C objects and the external link below. The
+  #                    POWER9 pool sets -mcpu=power9 in these; rewrite it the
+  #                    way the baseline drop-in does.
+  if [[ ${CARCH} == powerpc64le ]]; then
+    export GOPPC64=power8
+    CFLAGS="${CFLAGS//power9/power8}"
+    CXXFLAGS="${CXXFLAGS//power9/power8}"
+  fi
+
+  # define buildtime for use in man page & binary
+  local build_time="$(date -d@"$SOURCE_DATE_EPOCH" +%Y%m%d-%H:%M:%S)"
+
+  # generate man page
+  sed -e "s/\${VERSION}/${pkgver}/" \
+      -e "s/\${DATE}/${build_time}/" \
+    cloudflared_man_template > "build/$pkgname.1"
+
+  # verify go modules
+  go mod verify
+
+  # set Go flags
+  export CGO_CPPFLAGS="${CPPFLAGS}"
+  export CGO_CFLAGS="${CFLAGS}"
+  export CGO_CXXFLAGS="${CXXFLAGS}"
+  export GOPATH="${srcdir}"
+
+  # build cloudflared
+  #
+  # -trimpath: without it the Go file-path strings (and here the DWARF too, since
+  # -compressdwarf=false below keeps it uncompressed) record the buildroot. This
+  # package ships ONE artifact to both pools, so those strings would name
+  # whichever buildroot happened to compile it, and the two pools could never
+  # converge on an identical file. Every other Go recipe in this tree passes it.
+  # -buildvcs=false: the man page is generated into build/ before this runs, which
+  # leaves the work tree untracked-dirty, so Go's own VCS stamp records "dirty".
+  # main.Version is set explicitly below, so the embedded stamp is redundant.
+  go build -v \
+    -buildmode=pie \
+    -mod=readonly \
+    -modcacherw \
+    -trimpath \
+    -buildvcs=false \
+    -ldflags "-compressdwarf=false \
+    -linkmode external \
+    -extldflags '${LDFLAGS}' \
+      -X main.Version=${pkgver} \
+      -X main.BuildTime=${build_time} \
+      -X github.com/cloudflare/cloudflared/cmd/cloudflared/updater.BuiltForPackageManager=pacman" \
+    -o build \
+    ./cmd/...
+}
+
+# tests hang ._.
+#check() {
+#  cd "$pkgname"
+#
+#  go test -v -mod=vendor -race ./...
+#}
+
+package() {
+  cd "$pkgname"
+
+  # binary
+  install -vDm755 -t "$pkgdir/usr/bin" "build/$pkgname"
+
+  # man page
+  install -vDm644 -t "$pkgdir/usr/share/man/man1" "build/$pkgname.1"
+}
+
+# vim:set ts=2 sw=2 et:

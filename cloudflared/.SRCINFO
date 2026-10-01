@@ -1,0 +1,17 @@
+pkgbase = cloudflared
+	pkgdesc = Command-line client for Cloudflare Tunnel
+	pkgver = 2026.9.3
+	pkgrel = 1
+	url = https://github.com/cloudflare/cloudflared
+	arch = x86_64
+	arch = powerpc64le
+	license = Apache-2.0
+	makedepends = git
+	makedepends = go
+	depends = glibc
+	options = !lto
+	source = cloudflared::git+https://github.com/cloudflare/cloudflared.git#tag=2026.9.3
+	sha512sums = 52ae21ff641750a6c64d8a10fabcd94359a3a049bfb24d542e3f0fe5542a403ff290680d805a8cfabfc057ed5ca8a7cfd2b9556e284f8a5cf3229d94e388fecb
+	b2sums = 097a91e6131fe8af0e4333083959fbae6fde1069a7aab299c6853cd2fc5fecedaebc47b4c356ac4307f28e6a13ab009d6af53086552b8fdb242d8d17687c3410
+
+pkgname = cloudflared
