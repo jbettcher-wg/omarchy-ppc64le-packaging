@@ -1,0 +1,20 @@
+Subject: [PATCH] menu: replace Gemini with Antigravity
+
+Upstream replaced Gemini with Antigravity on the quattro branch (commit
+ed7bae4ac5) but has not shipped it in a stable release, so a release build still
+offers Gemini.  This is that change, backported.
+
+Authored against the 4.0.4 release, which is what this recipe repackages -- it
+does NOT apply to upstream main, which has moved on.  Rebase before submitting.
+
+--- a/default/omarchy/omarchy-menu.jsonc
++++ b/default/omarchy/omarchy-menu.jsonc
+@@ -135,7 +135,7 @@
+   "setup.default.agent.copilot": {"icon":"","label":"Copilot","checked":"[[ \"$(omarchy-default-agent)\" == \"copilot\" ]]","action":"omarchy-default-agent copilot"},
+   "setup.default.agent.crush": {"icon":"󰋑","label":"Crush","checked":"[[ \"$(omarchy-default-agent)\" == \"crush\" ]]","action":"omarchy-default-agent crush"},
+   "setup.default.agent.cursor-agent": {"icon":"","iconFont":"omarchy","label":"Cursor CLI","checked":"[[ \"$(omarchy-default-agent)\" == \"cursor-agent\" ]]","action":"omarchy-default-agent cursor-agent"},
+-  "setup.default.agent.gemini": {"icon":"󰫢","label":"Gemini","checked":"[[ \"$(omarchy-default-agent)\" == \"gemini\" ]]","action":"omarchy-default-agent gemini"},
++  "setup.default.agent.agy": {"icon":"󰫢","label":"Antigravity","checked":"[[ \"$(omarchy-default-agent)\" == \"agy\" ]]","action":"omarchy-default-agent agy"},
+   "setup.default.agent.grok": {"icon":"","iconFont":"omarchy","label":"Grok","checked":"[[ \"$(omarchy-default-agent)\" == \"grok\" ]]","action":"omarchy-default-agent grok"},
+   "setup.default.agent.hermes": {"icon":"","iconFont":"omarchy","label":"Hermes","checked":"[[ \"$(omarchy-default-agent)\" == \"hermes\" ]]","action":"omarchy-default-agent hermes"},
+   "setup.default.agent.muse": {"icon":"󰛤","label":"Muse Code","checked":"[[ \"$(omarchy-default-agent)\" == \"muse\" ]]","action":"omarchy-default-agent muse"},

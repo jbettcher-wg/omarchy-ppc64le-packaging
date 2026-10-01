@@ -29,7 +29,7 @@
 pkgname=omarchy-settings
 pkgver=4.0.4
 # pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.4-1.
-pkgrel=3
+pkgrel=4
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers (ppc64le: no destructive /etc overrides, no mkinitcpio drop-in)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -78,10 +78,12 @@ install="${pkgname}.install"
 _upstream_arch=x86_64
 _srcpkg="${pkgname}-${pkgver}-1-${_upstream_arch}.pkg.tar.zst"
 source=("https://pkgs.omarchy.org/x86_64/${_srcpkg}"
-        "${pkgname}.install")
+        "${pkgname}.install"
+        0001-menu-antigravity.patch)
 noextract=("${_srcpkg}")
 sha256sums=('748c2ee7edc3c67f8c09bdfa9f0930837684297c7107b8a3a87540f8dfe1d100'
-            'SKIP')
+            'SKIP'
+            '520911c05a5caeae11876d577bbd3e287b82f265d138fff183f7d74259ce0a6f')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -179,18 +181,24 @@ package() {
   #                               are no longer applied automatically; see
   #                               omarchy-settings.install.
 
-  # ppc64le: backport Antigravity (agy) coding agent from upstream quattro (commit ed7bae4ac5).
-  # Upstream replaced Gemini with Antigravity in the shell menu.
+  # ppc64le: backport Antigravity (agy) from upstream quattro (commit ed7bae4ac5).
+  #
+  # Carried as a real patch rather than sed, because the patch is the artifact we
+  # would send upstream.  Its path is upstream's git path
+  # (default/omarchy/omarchy-menu.jsonc), so `-p1 -d "$pkgdir/usr/share/omarchy"`
+  # lands it on the installed layout with no rewriting.  patch(1) also fails loudly
+  # when upstream moves the context, where sed matches nothing silently.
+  #
+  # Authored against the 4.0.4 release; it does NOT apply to upstream main, which
+  # is ahead.  Rebase before submitting.
+  #
+  # Order matters: this runs BEFORE the browser cull below, because the cull
+  # deletes lines and would shift the context this patch is anchored to.
   local _menu="${pkgdir}/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc"
   if [ -f "$_menu" ]; then
-    sed -i \
-      -e 's#setup\.default\.agent\.gemini#setup.default.agent.agy#g' \
-      -e 's#"label":"Gemini"#"label":"Antigravity"#g' \
-      -e 's#== \\"gemini\\"#== \\"agy\\"#g' \
-      -e 's#omarchy-default-agent gemini#omarchy-default-agent agy#g' \
-      "$_menu"
+    patch -p1 -d "${pkgdir}/usr/share/omarchy" < "${srcdir}/0001-menu-antigravity.patch"
     grep -q 'setup.default.agent.agy' "$_menu" ||
-      { echo "omarchy-settings: failed to patch agy into omarchy-menu.jsonc" >&2; return 1; }
+      { echo "omarchy-settings: agy patch applied but the menu lacks setup.default.agent.agy" >&2; return 1; }
 
     # ppc64le: cull the browser menu to the browsers that exist here.
     #
