@@ -23,7 +23,7 @@ The recipe builds `main` from
 | `/usr/bin/POWERarm` | the loader/interpreter. This is the binfmt interpreter, and the path the registration names |
 | `/usr/bin/POWERarmInterpreter` | symlink to `POWERarm` (upstream installs a second full copy; see below) |
 | `/usr/bin/POWERarm{Server,Bash,Config,GetConfig,OfflineCompiler,pidof}` | the server, a bash under emulation, the Qt6 settings GUI, the config dumper, the AOT compiler, a guest-aware `pidof` |
-| `/usr/bin/POWERarmRootFSFetcher` | inherited from FEX. **Do not use it** — see "Getting a rootfs" |
+| `/usr/bin/POWERarmRootFSFetcher` | builds and selects the AArch64 guest rootfs. **This is the way in** — see "Getting a rootfs" |
 | `/usr/lib/libPOWERarmCore.so` + `/usr/include/FEXCore/` | the core as a shared library and its headers. Nothing in this package links them (the tools link FEXCore statically); they are there for anything that wants to embed the core |
 | `/usr/lib/gdb/libPOWERarmGDBReader.so` | the GDB JIT reader, so gdb can name frames in generated code |
 | `/usr/lib/binfmt.d/POWERarm-aarch64.conf` | the AArch64 ELF registration. The whole point of the package |
@@ -102,6 +102,24 @@ reason the post-install message exists and the reason this section is here.
 Build one. No root needed:
 
 ```sh
+POWERarmRootFSFetcher build
+```
+
+That is the whole of it. `build` is the default command: it fetches the rootfs,
+adds the per-user overlay and guest pacman, verifies the result really is
+AArch64, and points `~/.config/powerarm/Config.json` at it. Its defaults are the
+ones you want — the `vk` manifest, which is the shape every app on this project
+is tested against, and POWERarm's own pinned snapshot
+(`https://omappc64le.download/archrootfs`) tried before upstream Arch Linux ARM.
+`check` tells you whether the configured rootfs is usable, `list` shows every one
+it can find with its verified architecture.
+
+The guest pacman that `build` leaves in the overlay is what `sleeve` then uses to
+install guest libraries for other applications.
+
+The lower layer is still there if you want it, and is what the fetcher drives:
+
+```sh
 /usr/share/powerarm/rootfs/build-alarm-sysroot.sh
 ```
 
@@ -130,19 +148,22 @@ guest `pacman`; `/usr/share/powerarm/rootfs/README.md` has that procedure.
 Every ELF in the tree is 64K-aligned, so one image serves both 4K and 64K page
 hosts.
 
-### Not `POWERarmRootFSFetcher`, and not `mkrootfs.sh`
+### Not `mkrootfs.sh`
 
-`POWERarmRootFSFetcher` is installed because the build installs it, but it is
-FEX's fetcher with the names swapped: it still downloads from
-`rootfs.fex-emu.gg`, which serves **x86_64 and i386** images for FEX. Running it
-gets you an Ubuntu x86_64 squashfs in `~/.local/share/powerarm/RootFS/`, and an
-aarch64 guest pointed at that fails in ways that look like emulator bugs.
+`packaging/rootfs/mkrootfs.sh` in the POWERarm tree is still unmodified
+fastppcx86, building an x86_64 Arch rootfs from Arch's x86_64 bootstrap tarball,
+so this package does not install it. Retiring it is upstream work in the POWERarm
+tree, not something a recipe should paper over.
 
-`packaging/rootfs/mkrootfs.sh` in the POWERarm tree is in the same state —
-unmodified fastppcx86, building an x86_64 Arch rootfs from Arch's x86_64
-bootstrap tarball — so this package does not install it. Fixing or retiring
-both is upstream work in the POWERarm tree, not something a recipe should paper
-over.
+**`POWERarmRootFSFetcher` used to be listed here too, and no longer belongs.**
+Earlier versions shipped FEX's fetcher with the names swapped: it downloaded from
+`rootfs.fex-emu.gg`, which serves x86_64 and i386 images, so running it left an
+Ubuntu x86_64 squashfs in `~/.local/share/powerarm/RootFS/` and an aarch64 guest
+pointed at it failed in ways that looked like emulator bugs. That was fixed
+upstream by 0.10.0: the binary has no reference to `fex-emu.gg` left, fetches
+from POWERarm's own pinned snapshot and Arch Linux ARM, verifies the result is
+AArch64, and is the documented way in above. Verified against the 0.10.0
+package on 2026-10-01.
 
 ## If you also have a development install
 
