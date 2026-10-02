@@ -1,0 +1,80 @@
+#!/bin/sh
+# A pandoc(1) stand-in for ppc64le, backed by lowdown.
+#
+# WHY THIS EXISTS
+#
+# ghostty generates its own markdown -- src/build/GhosttyDocs.zig runs ghostty's
+# mdgen program to produce share/ghostty/doc/ghostty.{1,5}.md -- and uses pandoc
+# for nothing but converting that markdown, with fixed arguments:
+#
+#   pandoc --standalone --from markdown --to man  FILE   -> roff on stdout
+#   pandoc --standalone --from markdown --to html FILE   -> HTML on stdout
+#
+# pandoc is Haskell and has no ppc64le build in any repo reachable from here.
+# lowdown is C, is packaged in Arch POWER's base repo, and performs both of those
+# conversions, so this maps one onto the other. The alternative, go-md2man, does
+# man only and would leave the HTML step failing.
+#
+# This is a build-environment substitution, not a patch: upstream's build files
+# are untouched, exactly as with the uname shim used for Claude Code. The cost is
+# that lowdown's output is not byte-identical to pandoc's -- it renders correctly,
+# but the formatting differs in detail from the x86 package's man pages.
+#
+# DELIBERATELY STRICT
+#
+# Anything other than the two invocations above is an error rather than a guess.
+# If a future ghostty passes pandoc-specific options, the build should fail here
+# and say so, instead of quietly producing wrong or empty documentation. A shim
+# that silently accepts what it does not understand is worse than no shim.
+
+set -eu
+
+to=''
+file=''
+
+while [ $# -gt 0 ]; do
+	case $1 in
+	--standalone | -s)
+		;;
+	--from | -f)
+		shift
+		[ "${1:-}" = markdown ] ||
+			{ echo "pandoc-shim: unsupported --from '${1:-}'" >&2; exit 2; }
+		;;
+	--to | -t)
+		shift
+		to=${1:-}
+		;;
+	-*)
+		echo "pandoc-shim: unsupported option '$1'" >&2
+		echo "pandoc-shim: this is a lowdown-backed stand-in; see the comment at the top" >&2
+		exit 2
+		;;
+	*)
+		[ -z "$file" ] ||
+			{ echo "pandoc-shim: more than one input file ('$file', '$1')" >&2; exit 2; }
+		file=$1
+		;;
+	esac
+	shift
+done
+
+[ -n "$file" ] || { echo "pandoc-shim: no input file given" >&2; exit 2; }
+[ -r "$file" ] || { echo "pandoc-shim: cannot read '$file'" >&2; exit 2; }
+
+case $to in
+man)
+	exec lowdown -s -Tman "$file"
+	;;
+html)
+	exec lowdown -s -Thtml "$file"
+	;;
+'')
+	echo "pandoc-shim: no --to given" >&2
+	exit 2
+	;;
+*)
+	echo "pandoc-shim: unsupported --to '$to' (only man and html)" >&2
+	exit 2
+	;;
+esac

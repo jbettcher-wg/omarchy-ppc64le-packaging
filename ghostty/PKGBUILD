@@ -21,7 +21,7 @@
 pkgbase=ghostty
 pkgname=(ghostty ghostty-shell-integration ghostty-terminfo ghostty-nautilus)
 pkgver=1.3.1
-pkgrel=2
+pkgrel=3
 pkgdesc='Fast, native, feature-rich terminal emulator pushing modern features'
 arch=(x86_64 aarch64 i686 powerpc64le)
 url="https://github.com/ghostty-org/$pkgbase"
@@ -43,11 +43,15 @@ depends=(bzip2
          zlib)
 makedepends=(blueprint-compiler
              zig0.15)
-# pandoc-cli has no ppc64le build anywhere -- it is Haskell -- and it is only
-# needed for -Demit-docs in build(). ghostty's own default for emit_docs is false
-# unless it finds pandoc on PATH, so dropping both costs the man pages and
-# nothing else.
-[[ $CARCH == powerpc64le ]] || makedepends+=(pandoc-cli)
+# pandoc is Haskell and has no ppc64le build in any repo reachable from here, but
+# it is only used to convert markdown that ghostty generates itself. lowdown is C,
+# is packaged, and does both conversions ghostty asks for, so a small stand-in on
+# PATH gets the man pages built -- see pandoc-lowdown-shim and build().
+if [[ $CARCH == powerpc64le ]]; then
+	makedepends+=(lowdown)
+else
+	makedepends+=(pandoc-cli)
+fi
 
 # zig0.15, not zig. ghostty 1.3.1 declares minimum_zig_version = "0.15.2", and
 # 1.3.1 is upstream's newest release -- main wants 0.16.0 but is untagged. zig
@@ -65,8 +69,10 @@ makedepends=(blueprint-compiler
 _zig=zig-0.15
 optdepends=()
 _archive="$pkgname-$pkgver"
-source=("$url/archive/v$pkgver/$_archive.tar.gz")
-sha256sums=('265837d3026b433f0e6b4e49d43153b915b0a19513f7edd8a8e693c559bd415b')
+source=("$url/archive/v$pkgver/$_archive.tar.gz"
+        pandoc-lowdown-shim)
+sha256sums=('265837d3026b433f0e6b4e49d43153b915b0a19513f7edd8a8e693c559bd415b'
+            'e95cf52dd28cb0a307069c8eace2f34310cbfeb25082b5c1166d39871d7081ad')
 
 prepare() {
 	cd "$_archive"
@@ -96,20 +102,25 @@ prepare() {
 build() {
 	cd "$_archive"
 
-	# -Demit-docs needs pandoc, which has no ppc64le build (see makedepends).
-	#
-	# It must be passed as =false, not merely omitted. ghostty's default is not
-	# "true if pandoc exists" as its comment suggests -- src/build/Config.zig has:
-	#
-	#     // We always emit docs in system package mode.
-	#     if (system_package) break :emit_docs true;
-	#
-	# and this recipe passes --system for the dependency cache, so docs are emitted
-	# unconditionally and the build dies with
-	# "failed to spawn and capture stdio from pandoc: FileNotFound". Passing the
-	# option explicitly short-circuits that block entirely.
 	local _docs=(-Demit-docs)
-	[[ $CARCH == powerpc64le ]] && _docs=(-Demit-docs=false)
+	if [[ $CARCH == powerpc64le ]]; then
+		# Put a lowdown-backed pandoc on PATH. ghostty runs pandoc only to convert
+		# markdown its own mdgen produced, with two fixed invocations; the shim maps
+		# those onto lowdown and refuses anything else. See pandoc-lowdown-shim.
+		#
+		# Note that NOT passing -Demit-docs would not avoid needing pandoc: ghostty's
+		# default is not "true if pandoc exists" as its own comment claims --
+		# src/build/Config.zig has
+		#
+		#     // We always emit docs in system package mode.
+		#     if (system_package) break :emit_docs true;
+		#
+		# and this recipe passes --system for the dependency cache, so docs are
+		# emitted either way. Omitting the flag just produced
+		# "failed to spawn and capture stdio from pandoc: FileNotFound".
+		install -Dm755 "$srcdir/pandoc-lowdown-shim" "$srcdir/shim/pandoc"
+		export PATH="$srcdir/shim:$PATH"
+	fi
 
 	DESTDIR=build $_zig build \
 		--summary all \
