@@ -43,7 +43,7 @@
 pkgname=omarchy
 pkgver=4.0.4
 # pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.4-1.
-pkgrel=4
+pkgrel=5
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -130,7 +130,7 @@ noextract=("${_srcpkg}")
 sha256sums=('78fa778d48180aaf776b44f89ae86780f78e7b47440aa20faeb4a1be9240339c'
             '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
             'dad725d0264ed48f70f89c374c0e4d0d40ac4790baede9d76543b3899226d5f0'
-            '431503e24c9cc6b3b6438b99a003c02585dfdfb61978c289318df334442784af'
+            'd9bf212e4f02ac901b749ed386704fcd737ccf54a41d658a922acc9aa4703ba1'
             '774fbc4f7eab4467395b3f5308f7d984f10eb9c549d3f3cfbd9f6eb2064b83d3')
 
 _unpack() {

@@ -1,4 +1,10 @@
 #!/bin/bash
+
+# omarchy:summary=Install Claude Code's AArch64 build and run it under POWERarm
+# omarchy:args=[--check|--now]
+# omarchy:requires-sudo=true
+# omarchy:examples=omarchy install claude powerarm --now
+
 # omarchy-install-claude-powerarm -- install Claude Code's native AArch64 build
 # and let POWERarm run it.
 #
@@ -76,6 +82,15 @@ need_rootfs() {
 }
 
 install_now() {
+  # The menu reaches this through omarchy-default-agent, which runs
+  # "$agent_installer" --now inside
+  # omarchy-launch-floating-terminal-with-presentation. That is a real terminal, so
+  # the sudo prompts below do work -- but they appear straight after the Omarchy
+  # logo with no other context, so say what is about to be asked for and why.
+  if ! command -v POWERarm >/dev/null || [[ ! -e $HANDLER ]]; then
+    note "this needs root once: to install POWERarm and register its binfmt handler"
+  fi
+
   need_powerarm
   need_binfmt
   need_rootfs
