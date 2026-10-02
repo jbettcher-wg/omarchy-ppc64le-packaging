@@ -1,0 +1,164 @@
+# ppc64le: added powerpc64le to arch() and dropped the documentation build.
+# Imported with tools/fetch.sh ghostty; Arch POWER does not carry this pkgbase.
+#
+# Why this is packaged at all: omarchy's menu offers four terminals and installs
+# them as system packages (omarchy-install-terminal -> omarchy-pkg-add).
+# alacritty, foot and kitty are already in the pool, so ghostty was the only one
+# of the four whose menu entry could not succeed. Building it is the fix rather
+# than hiding the entry -- unlike the x86-only browser binaries this is open
+# source, and the zig it asks for is already packaged.
+#
+# Note the ISA floor needs nothing from us: upstream already passes
+# -Dcpu=baseline in build(). Without it zig's standardTargetOptions() resolves
+# the NATIVE cpu (its own comment says it returns "a more specific cpu like
+# apple_a15"), which on this POWER9 host would emit ISA 3.0 and SIGILL on POWER8.
+# Arch pinning it for their own reasons happens to make this POWER8-legal, so one
+# artifact serves both pools. Do not drop it.
+#
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Maintainer: Peter Jung <ptr1337@archlinux.org>
+
+pkgbase=ghostty
+pkgname=(ghostty ghostty-shell-integration ghostty-terminfo ghostty-nautilus)
+pkgver=1.3.1
+pkgrel=2
+pkgdesc='Fast, native, feature-rich terminal emulator pushing modern features'
+arch=(x86_64 aarch64 i686 powerpc64le)
+url="https://github.com/ghostty-org/$pkgbase"
+license=(MIT)
+depends=(bzip2
+         fontconfig libfontconfig.so
+         freetype2 libfreetype.so
+         glibc # libc.so libm.so
+         glib2 libglib-2.0.so libgio-2.0.so libgobject-2.0.so
+         gtk4 libgtk-4.so
+         gtk4-layer-shell
+         libx11 # libX11.so
+         harfbuzz libharfbuzz.so
+         libadwaita libadwaita-1.so
+         libpng
+         oniguruma # libonig.so
+         pixman
+         wayland libwayland-client.so
+         zlib)
+makedepends=(blueprint-compiler
+             zig0.15)
+# pandoc-cli has no ppc64le build anywhere -- it is Haskell -- and it is only
+# needed for -Demit-docs in build(). ghostty's own default for emit_docs is false
+# unless it finds pandoc on PATH, so dropping both costs the man pages and
+# nothing else.
+[[ $CARCH == powerpc64le ]] || makedepends+=(pandoc-cli)
+
+# zig0.15, not zig. ghostty 1.3.1 declares minimum_zig_version = "0.15.2", and
+# 1.3.1 is upstream's newest release -- main wants 0.16.0 but is untagged. zig
+# changed its package-hash format between those versions, so building 1.3.1 with
+# zig 0.16 fetches all 36 dependencies successfully and then fails in build()
+# with "package not found at .../p/<hash>", because the hashes recorded in
+# build.zig.zon were computed by 0.15 and 0.16 computes different ones.
+#
+# zig0.15 also happens to be the one that works here for a second reason: it
+# needs llvm20, which our pool carries, where zig 0.16 needs llvm21, which lives
+# only in Arch POWER's repos and so has to be installed on the build host by hand.
+# Both sysroots already stage libclang-cpp.so.20.1.
+#
+# Revisit when upstream tags a release that wants 0.16.
+_zig=zig-0.15
+optdepends=()
+_archive="$pkgname-$pkgver"
+source=("$url/archive/v$pkgver/$_archive.tar.gz")
+sha256sums=('265837d3026b433f0e6b4e49d43153b915b0a19513f7edd8a8e693c559bd415b')
+
+prepare() {
+	cd "$_archive"
+
+	# The fetch loop is inlined below rather than calling
+	# ./nix/build-support/fetch-zig-cache.sh, for one reason: their script runs
+	# `zig fetch "$url" >/dev/null 2>&1`, which throws away the error and leaves
+	# only "Failed to fetch: <url>". That cost three build cycles and two wrong
+	# diagnoses here -- the real cause was that zig could not execute at all
+	# (missing libclang-cpp.so.21.1; zig 0.16 pins LLVM 21, which has to be present
+	# on the build host because it lives in Arch POWER's repos, not our pool) and
+	# the one-line reason was being discarded the whole time. Same list, same order,
+	# stderr kept.
+	export ZIG_GLOBAL_CACHE_DIR="$srcdir/zig-global-cache/"
+	echo "ghostty: zig version: $($_zig version 2>&1)"
+	echo "ghostty: cache dir: $ZIG_GLOBAL_CACHE_DIR"
+	while IFS= read -r _url; do
+		[[ -n $_url ]] || continue
+		echo "Fetching: $_url"
+		$_zig fetch "$_url" >/dev/null || {
+			echo "ghostty: zig fetch failed for $_url (error above)" >&2
+			return 1
+		}
+	done < build.zig.zon.txt
+}
+
+build() {
+	cd "$_archive"
+
+	# -Demit-docs needs pandoc, which has no ppc64le build (see makedepends).
+	#
+	# It must be passed as =false, not merely omitted. ghostty's default is not
+	# "true if pandoc exists" as its comment suggests -- src/build/Config.zig has:
+	#
+	#     // We always emit docs in system package mode.
+	#     if (system_package) break :emit_docs true;
+	#
+	# and this recipe passes --system for the dependency cache, so docs are emitted
+	# unconditionally and the build dies with
+	# "failed to spawn and capture stdio from pandoc: FileNotFound". Passing the
+	# option explicitly short-circuits that block entirely.
+	local _docs=(-Demit-docs)
+	[[ $CARCH == powerpc64le ]] && _docs=(-Demit-docs=false)
+
+	DESTDIR=build $_zig build \
+		--summary all \
+		--prefix "/usr" \
+		--system "$srcdir/zig-global-cache/p" \
+		-Doptimize=ReleaseFast \
+		-Dgtk-x11=true \
+		-Dcpu=baseline \
+		-Dpie=true \
+		"${_docs[@]}" \
+		-Dversion-string="$pkgver-arch$pkgrel" \
+		--build-id=sha1
+}
+
+package_ghostty() {
+	depends+=(ghostty-shell-integration
+	          ghostty-terminfo)
+	optdepends+=("ghostty-nautilus: Open in Ghostty context menu in GNOME Files")
+	cd "$_archive"
+	cp -a build/* "$pkgdir/"
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+	rm -r "$pkgdir"/usr/share/terminfo
+	rm -r "$pkgdir"/usr/share/ghostty/shell-integration
+	rm -r "$pkgdir"/usr/share/nautilus-python/
+}
+
+package_ghostty-shell-integration() {
+	pkgdesc='Shell integration scripts for ghostty'
+	depends=()
+	cd "$_archive"
+	mkdir -p "$pkgdir/usr/share/ghostty/shell-integration"
+	cp -r build/usr/share/ghostty/shell-integration/* "$pkgdir/usr/share/ghostty/shell-integration/"
+}
+
+package_ghostty-terminfo() {
+	pkgdesc='Terminfo for ghostty'
+	depends=()
+	cd "$_archive"
+	mkdir -p "$pkgdir/usr/share/terminfo"
+	cp -r build/usr/share/terminfo/x "$pkgdir/usr/share/terminfo/"
+}
+
+package_ghostty-nautilus() {
+	pkgdesc='Open in Ghostty for GNOME Files'
+	depends=(ghostty nautilus-python)
+	# Unlike the rest of ghostty, the nautilus extension is GPL-2.0-or-later
+	# because nautilus-python itself is GPL-2 as well.
+	license=('GPL-2.0-or-later')
+	cd "$_archive"
+	mkdir -p "$pkgdir"/usr/share/nautilus-python/
+	cp -r build/usr/share/nautilus-python/* "$pkgdir"/usr/share/nautilus-python/
+}

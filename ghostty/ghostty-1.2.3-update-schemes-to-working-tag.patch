@@ -1,0 +1,100 @@
+From 75b4e8b5a73363aa7c6be1397e8649797b7403c1 Mon Sep 17 00:00:00 2001
+From: "github-actions[bot]"
+ <41898282+github-actions[bot]@users.noreply.github.com>
+Date: Sat, 25 Oct 2025 18:11:16 -0700
+Subject: [PATCH] Update iTerm2 colorschemes (#9349)
+
+Upstream release:
+https://github.com/mbadolato/iTerm2-Color-Schemes/releases/tag/release-20251020-150521-589c0ea
+
+Co-authored-by: mitchellh <1299+mitchellh@users.noreply.github.com>
+---
+ build.zig.zon             | 4 ++--
+ build.zig.zon.json        | 6 +++---
+ build.zig.zon.nix         | 6 +++---
+ build.zig.zon.txt         | 2 +-
+ flatpak/zig-packages.json | 6 +++---
+ 5 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/build.zig.zon b/build.zig.zon
+index 1bd4d6a5b0..2f238d8a24 100644
+--- a/build.zig.zon
++++ b/build.zig.zon
+@@ -116,8 +116,8 @@
+         // Other
+         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
+         .iterm2_themes = .{
+-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz",
+-            .hash = "N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y",
++            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz",
++            .hash = "N-V-__8AAPk1AwBAULkMLaJVuAoOyhTMRIh-joZs-jRJKHBJ",
+             .lazy = true,
+         },
+     },
+diff --git a/build.zig.zon.json b/build.zig.zon.json
+index cf28571473..16f0f1f4eb 100644
+--- a/build.zig.zon.json
++++ b/build.zig.zon.json
+@@ -49,10 +49,10 @@
+     "url": "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
+     "hash": "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA="
+   },
+-  "N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y": {
++  "N-V-__8AAPk1AwBAULkMLaJVuAoOyhTMRIh-joZs-jRJKHBJ": {
+     "name": "iterm2_themes",
+-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz",
+-    "hash": "sha256-GsEWVt4wMzp6+7N5I+QVuhCVJ70cFrdADwUds59AKnw="
++    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz",
++    "hash": "sha256-y2vhwlDUpgC6x5XPpDY96KNSHd/sRhyJpgiuzstP9p0="
+   },
+   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
+     "name": "jetbrains_mono",
+diff --git a/build.zig.zon.nix b/build.zig.zon.nix
+index 1ac748b696..7ab87e26c0 100644
+--- a/build.zig.zon.nix
++++ b/build.zig.zon.nix
+@@ -163,11 +163,11 @@ in
+       };
+     }
+     {
+-      name = "N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y";
++      name = "N-V-__8AAPk1AwBAULkMLaJVuAoOyhTMRIh-joZs-jRJKHBJ";
+       path = fetchZigArtifact {
+         name = "iterm2_themes";
+-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz";
+-        hash = "sha256-GsEWVt4wMzp6+7N5I+QVuhCVJ70cFrdADwUds59AKnw=";
++        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz";
++        hash = "sha256-y2vhwlDUpgC6x5XPpDY96KNSHd/sRhyJpgiuzstP9p0=";
+       };
+     }
+     {
+diff --git a/build.zig.zon.txt b/build.zig.zon.txt
+index 3982311986..c0576d8f28 100644
+--- a/build.zig.zon.txt
++++ b/build.zig.zon.txt
+@@ -29,7 +29,7 @@ https://deps.files.ghostty.org/zig_js-12205a66d423259567764fa0fc60c82be35365c21aeb76c5a7dc99698401f4f6fefc.tar.gz
+ https://deps.files.ghostty.org/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz
+ https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
+ https://github.com/jcollie/ghostty-gobject/releases/download/0.15.1-2025-09-04-48-1/ghostty-gobject-0.15.1-2025-09-04-48-1.tar.zst
+-https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz
++https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz
+ https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz
+ https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz
+ https://github.com/natecraddock/zf/archive/7aacbe6d155d64d15937ca95ca6c014905eb531f.tar.gz
+diff --git a/flatpak/zig-packages.json b/flatpak/zig-packages.json
+index d762d82c1a..3de5fd0e60 100644
+--- a/flatpak/zig-packages.json
++++ b/flatpak/zig-packages.json
+@@ -61,9 +61,9 @@
+   },
+   {
+     "type": "archive",
+-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251002-142451-4a5043e/ghostty-themes.tgz",
+-    "dest": "vendor/p/N-V-__8AALIsAwDyo88G5mGJGN2lSVmmFMx4YePfUvp_2o3Y",
+-    "sha256": "1ac11656de30333a7afbb37923e415ba109527bd1c16b7400f051db39f402a7c"
++    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20251020-150521-589c0ea/ghostty-themes.tgz",
++    "dest": "vendor/p/N-V-__8AAPk1AwBAULkMLaJVuAoOyhTMRIh-joZs-jRJKHBJ",
++    "sha256": "cb6be1c250d4a600bac795cfa4363de8a3521ddfec461c89a608aececb4ff69d"
+   },
+   {
+     "type": "archive",
