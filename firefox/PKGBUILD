@@ -4,7 +4,7 @@
 
 pkgname=firefox
 pkgver=154.0.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Fast, Private & Safe Web Browser"
 url="https://www.firefox.com/"
 arch=(x86_64 powerpc64le powerpc64)
@@ -113,6 +113,7 @@ source=(
   0006-Enable-hardware-GHASH-on-big-endian-PPC64-in-NSS-fre.patch
   0007-Add-big-endian-rendering-support-for-Skia-and-softwa.patch
   0008-Add-PPC64-Linux-support-to-the-Gecko-profiler.patch
+  0009-Fix-xsmaxdp-xsmindp-opcode-constants-ISA-3.0-leak.patch
   xlib-success.patch
 )
 validpgpkeys=(
@@ -144,6 +145,7 @@ sha256sums=('9cbe191fc74b46108376b1d9bf607c0a40288074e0f2333671253789d6ebbd15'
             'bd1d14661918fc69a643496e495932c4e1352b07210a78af398ae2d169d68f9d'
             '5c67b2b7a12ac47f2413b03b3bd5fb074a9257ef3badb0897a4dc45e2ab59bc6'
             'e4ba6fa61feda850111ac5c62f912077edb8445da490549029bd7e2e9384a32f'
+            '1c9551f7f9ac4679510adb8ee50627d85219ee5275e2059cd47d177099b20ce4'
             '36e7e445968a22fefea96f851003343632dea489a02ee01394d9283515f65465')
 b2sums=('c3c67fbda172085c966521b8710286b91ea53fa5607f38d19a46d52e76ced44681d5bc979d9b1b0e8d6e4be54ffc0424000cc5408e55622fd716941188a69d03'
         'SKIP'
@@ -169,6 +171,7 @@ b2sums=('c3c67fbda172085c966521b8710286b91ea53fa5607f38d19a46d52e76ced44681d5bc9
         'a77348061ffdf10357ca7a148f12079be4cfb6e92c6027e07f759958d835f14ec4e12a4e4a2c2b995ba9d8bfb43ee1de6585e50ee794fa85acbac5dc33331523'
         '2c241ecab3d129c9c23f55eae974df5150926a31fa36f57af8c432a82a30c8d47ba4d7577c42fa49eb52ed5d0d6af7a099a884b5ef8f5bfd88c4f014586adc78'
         '91a550985b9f4f3c5eeb525e4cfd0bf1f757f2d5f8af903c140c9a2f317cf32f41d62336d358d2f9bd9bbc52e074d6cf122a867667d976ef201dfb819eed371f'
+        'f9a456b24bed160bf37ffc3d2712adb410ea4c6efa93d64d355d5e837fbd95b783899608824f2a7410146f9cb430ed84c17a84e0a97229b90cc54a5e285c84a9'
         'f096c3e4d7068e2e7d3eb284168fa64cbfb51ee922383188ebcf048483e0802f6d94cfb54f21e681826edefa084f3f5ea161a8fe6a50535de5c51867ef8b0534')
 
 # Google API keys (see https://www.chromium.org/developers/how-tos/api-keys)
