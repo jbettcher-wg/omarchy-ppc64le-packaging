@@ -1,0 +1,71 @@
+# ppc64le: added powerpc64le to arch(). Imported with tools/fetch.sh mangohud;
+# Arch POWER does not carry this pkgbase.
+#
+# No port was needed. Upstream's arch conditionals are additive rather than
+# exclusive -- src/cpu.cpp and src/fex.cpp wrap x86 and ARM blocks in
+# `#if defined(__x86_64__) || defined(__i386__)` and
+# `#if defined(__arm__) || defined(__aarch64__)` with no #error and no breaking
+# #else, so on ppc64le both are simply omitted. CPU load and temperature still
+# come from /proc and /sys; what is lost is the x86-only cpuid model string and
+# RAPL power reporting, and the ARM-only equivalents.
+#
+# On the ISA scan: the shipped objects hold 8 ISA 3.0 instructions -- 4 darn,
+# 2 mtvsrdd, 2 mfvsrld -- and they are benign. They come from libstdc++'s
+# std::random_device hardware-RNG path, which is gated on
+# __builtin_cpu_supports("darn") (hence the undefined
+# __parse_hwcap_and_convert_at_platform import), so on POWER8 the check fails and
+# it falls back. The same 4 darn are already in the pool's libstdc++.so; they show
+# up inside libMangoHud.so here only because mangohud links parts of libstdc++
+# statically. Do not chase them, and do not conclude the power8 flags failed.
+#
+# meson is already architecture-aware: src/meson.build names the Vulkan implicit
+# layer file from host_machine.cpu_family(), so this installs
+# MangoHud.ppc64.json rather than clashing with an x86 name.
+#
+# Maintainer: Campbell Jones <arch at serebit dot com>
+# Co-Maintainer: George Rawlinson <george@rawlinson.net.nz>
+# Contributor: Ranieri Althoff <ranisalt+aur at gmail dot com>
+# Contributor: Mark Wagie <mark dot wagie at proton dot me>
+_pkgname=MangoHud
+pkgname=mangohud
+pkgver=0.8.4
+pkgrel=1
+pkgdesc="A Vulkan overlay layer for monitoring FPS, temperatures, CPU/GPU load and more."
+arch=('x86_64' 'powerpc64le')
+url="https://github.com/flightlessmango/MangoHud"
+license=('MIT')
+makedepends=('appstream' 'cmocka' 'git' 'glslang' 'libxnvctrl' 'libxrandr' 'meson' 'python-mako' 'vulkan-headers')
+depends=('dbus' 'fmt' 'glfw' 'hicolor-icon-theme' 'libglvnd' 'libx11' 'libxkbcommon' 'python' 'python-matplotlib' 'python-numpy' 'vulkan-icd-loader' 'wayland')
+optdepends=('gamescope: Use MangoApp as an overlay within gamescope'
+            'libxnvctrl: NVIDIA GPU stats by XNVCtrl')
+replaces=("$pkgname-common" "$pkgname-common-wayland" "$pkgname-common-x11" "mangoapp" "$pkgname-x11" "$pkgname-wayland")
+conflicts=("$pkgname-common" "$pkgname-common-wayland" "$pkgname-common-x11" "mangoapp" "$pkgname-x11" "$pkgname-wayland")
+source=("$pkgname-$pkgver.tar.xz::https://github.com/flightlessmango/MangoHud/releases/download/v$pkgver/$_pkgname-v$pkgver-Source.tar.xz")
+b2sums=('06bdfcd26e14ff544e4dea4e39b8f7da6119d87fc7e14f381cf8c47bba69508a4768b8584600424adb8ca2a2f6f4c2d84d63683addeb83bd0dd9a1e055febdb8')
+
+prepare() {
+    cd "$_pkgname-v$pkgver"
+
+    # Use system cmocka instead of subproject
+    sed --in-place "s/  cmocka = subproject('cmocka')//g" meson.build
+    sed --in-place "s/cmocka_dep = cmocka.get_variable('cmocka_dep')/cmocka_dep = dependency('cmocka')/g" meson.build
+}
+
+build() {
+    arch-meson "$_pkgname-v$pkgver" build \
+        -Dmangoapp=true \
+        -Dmangohudctl=true
+
+    meson compile -C build
+}
+
+package() {
+    meson install -C build --destdir "$pkgdir"
+
+    install -Dm 0644 "$srcdir/$_pkgname-v$pkgver/LICENSE" -t "$pkgdir/usr/share/licenses/$pkgname/"
+    rm --force "$pkgdir/usr/lib/libimgui.a"
+}
+
+check() {
+    meson test -C build --print-errorlogs || :
+}
