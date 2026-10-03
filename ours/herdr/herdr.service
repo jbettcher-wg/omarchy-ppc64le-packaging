@@ -1,0 +1,41 @@
+# Herdr's headless server as a systemd *user* unit.
+#
+# Why this exists: started the usual way -- a `herdr` client in a terminal
+# spawning the server as its child -- the server lands in
+# user@<uid>.service/app.slice/app-graphical.slice/app-<compositor>-....scope.
+# That slice is torn down with the graphical session, so a compositor restart
+# or a desktop logout takes every workspace with it. The server keeps its
+# socket and session state in ~/.config/herdr rather than a runtime directory,
+# so it has no actual dependency on a graphical session; this unit puts it
+# where that is true, directly under the user manager.
+#
+# `loginctl enable-linger <user>` is the other half: without it the user
+# manager itself stops once you have no login sessions, and this unit stops
+# with it. With it, the server comes up at boot and survives every logout.
+#
+# A client started afterwards finds this server over the socket instead of
+# spawning its own, so enabling the unit does not give you two servers.
+
+[Unit]
+Description=Herdr terminal workspace manager (headless server)
+Documentation=https://herdr.dev
+# Deliberately not bound to graphical-session.target: that coupling is the
+# bug this unit fixes.
+
+# Workspaces do not survive a restart, so a crash loop is pointless noise.
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/herdr server
+# Graceful shutdown over the API socket, the same path `herdr server stop`
+# takes, so panes are torn down rather than killed out from under their
+# agents. The cgroup kill only applies after TimeoutStopSec.
+ExecStop=/usr/bin/herdr server stop
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

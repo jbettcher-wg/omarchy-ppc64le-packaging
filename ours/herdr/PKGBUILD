@@ -31,10 +31,29 @@
 #   passed the 24-byte GhosttyPoint in r4-r6 and out_ref in r7, zig read the
 #   point from r9 and out_ref from the stack.  See
 #   packages/zig0.15/zig-ppc64le-elfv2-c-abi.patch.
+#
+# What changed that is not ppc64le:
+#
+# - herdr.service, a systemd *user* unit for the headless server, and pkgrel 3.
+#   Launched the usual way -- a client in a terminal spawning the server as its
+#   child -- the server lands in app-graphical.slice, so a compositor restart
+#   or a desktop logout takes every workspace with it. Nothing about the server
+#   needs a graphical session: its socket and session.json live in
+#   ~/.config/herdr, not a runtime directory. The unit puts it directly under
+#   the user manager, where that is true.
+#
+#   Deliberately not enabled by the package. Enabling it reparents whatever
+#   server is running, which costs the current workspaces, so it is the
+#   admin's call when to pay that. `loginctl enable-linger` is the other half:
+#   without it the user manager stops with the last login session and takes
+#   the unit with it.
+#
+#   Not a ppc64le fix -- it would apply to any herdr package, upstream
+#   included, and is worth sending there.
 
 pkgname=herdr
 pkgver=0.8.2
-pkgrel=2
+pkgrel=3
 pkgdesc='Herdr terminal workspace manager for AI coding agents'
 arch=(powerpc64le)
 url='https://github.com/herdrdev/herdr'
@@ -43,9 +62,11 @@ depends=(gcc-libs glibc)
 makedepends=(cargo git 'zig0.15>=0.15.2-2')
 conflicts=(omarchy-herdr)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
-        herdr-build-rs-powerpc64le.patch)
+        herdr-build-rs-powerpc64le.patch
+        herdr.service)
 sha256sums=('60453051025ee44ebf055d26cdaf665a0accd99a992cddd22c166a26c49cd161'
-            'daaa7ae4442d64ec28a64117a88c61f494d23d5297a113ccfd8799b3f625e1e1')
+            'daaa7ae4442d64ec28a64117a88c61f494d23d5297a113ccfd8799b3f625e1e1'
+            'efe7d27a4c990af67a1875004c718b0691ba42a766939fe2016d08cd1166a9d4')
 
 _env() {
   export CARGO_HOME="$srcdir/cargo-home"
@@ -78,4 +99,9 @@ package() {
   cd "$pkgname-$pkgver"
   install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # User unit, not system: the server is per-user and keeps its state under
+  # ~/.config/herdr. See the header for why it is not enabled here.
+  install -Dm644 "$srcdir/herdr.service" \
+    "$pkgdir/usr/lib/systemd/user/herdr.service"
 }
