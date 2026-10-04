@@ -1,0 +1,67 @@
+From caa80003e7d743332337206e22557f2bac57bd69 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 05:43:06 -0600
+Subject: [PATCH 03/10] ppc64le: teach the test runner the host architecture
+
+`node scripts/runner.node.mjs` could not start: `parseArch` knows only
+x64 and aarch64 and throws for anything else, and node spells this host
+"ppc64". `getAbi` then looks for `/lib/ld-linux-<arch>.so.2`, which ELFv2
+does not use -- the glibc loader is `/lib64/ld64.so.2`.
+
+With these two, the full suite runs: 5,958 files, 5,806 passing.
+---
+ scripts/utils.mjs | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/scripts/utils.mjs b/scripts/utils.mjs
+index 75da2ff0..2e478056 100755
+--- a/scripts/utils.mjs
++++ b/scripts/utils.mjs
+@@ -1443,7 +1443,7 @@ export function getOs() {
+ 
+ /**
+  * @param {string} string
+- * @returns {"x64" | "aarch64"}
++ * @returns {"x64" | "aarch64" | "ppc64le"}
+  */
+ export function parseArch(string) {
+   if (/x64|amd64|x86_64/i.test(string)) {
+@@ -1452,11 +1452,16 @@ export function parseArch(string) {
+   if (/arm64|aarch64/i.test(string)) {
+     return "aarch64";
+   }
++  // node spells the host "ppc64" on little-endian POWER; bun only builds the
++  // little-endian variant, which is what "ppc64le" names everywhere else here.
++  if (/ppc64le|ppc64|powerpc64/i.test(string)) {
++    return "ppc64le";
++  }
+   throw new Error(`Unsupported architecture: ${string}`);
+ }
+ 
+ /**
+- * @returns {"x64" | "aarch64"}
++ * @returns {"x64" | "aarch64" | "ppc64le"}
+  */
+ export function getArch() {
+   return parseArch(process.arch);
+@@ -1500,13 +1505,15 @@ export function getAbi() {
+     return "musl";
+   }
+ 
+-  const arch = getArch() === "x64" ? "x86_64" : "aarch64";
++  const hostArch = getArch();
++  const arch = hostArch === "x64" ? "x86_64" : hostArch === "ppc64le" ? "powerpc64le" : "aarch64";
+   const muslLibPath = `/lib/ld-musl-${arch}.so.1`;
+   if (existsSync(muslLibPath)) {
+     return "musl";
+   }
+ 
+-  const gnuLibPath = `/lib/ld-linux-${arch}.so.2`;
++  // ELFv2 does not follow the ld-linux-<arch>.so.2 naming.
++  const gnuLibPath = hostArch === "ppc64le" ? "/lib64/ld64.so.2" : `/lib/ld-linux-${arch}.so.2`;
+   if (existsSync(gnuLibPath)) {
+     return "gnu";
+   }
+-- 
+2.55.0
+

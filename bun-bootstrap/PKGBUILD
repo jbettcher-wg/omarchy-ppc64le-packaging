@@ -1,0 +1,70 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# A native ppc64le bun, prebuilt, whose only job is to build `bun`.
+#
+# Bun is SELF-HOSTING: its build runs a bun to drive ~131 codegen steps, so
+# building bun needs a bun that already runs on this architecture. That is the
+# cycle this package exists to break, and it is a *makedepends* of `bun` and
+# nothing else -- do not install it to use bun, install `bun`.
+#
+# How the first one was made, because it is the part nobody can redo from this
+# file alone: an x86_64 bun release was run under fastppcx86 -- the FEX-derived
+# x86-on-POWER layer, registered as the FEX-x86/FEX-x86_64 binfmt handlers --
+# ON POWER9 HARDWARE, and that drove the build of the first native ppc64le bun.
+# No x86 machine was involved at any point. Two POWER-specific obstacles had to
+# be cleared and are recorded here because they are invisible to an x86-on-ARM
+# user:
+#
+#   * 64 KiB pages. FEX refuses to start an x86_64 binary on a 64K-page kernel
+#     without FEX_HOSTPAGEMODE=degrade (or =force); otherwise SIGTRAP, rc 133.
+#
+#   * The rootfs exec-rewrite. FEX rewrites an exec of any absolute path that
+#     also exists inside $FEX_ROOTFS to the rootfs copy, so /usr/bin/cmake
+#     silently became the Ubuntu-24.04 x86 cmake 3.28, which then reported
+#     CMAKE_ROOT at /usr/share/cmake-3.28 -- a path that exists only inside the
+#     rootfs -- and every try_compile failed once native ninja and clang went
+#     looking. The fix was to copy native cmake and ninja to an unshadowed path
+#     and symlink share/cmake beside bin/, because cmake locates its modules
+#     relative to its own executable.
+#
+# Once a native bun exists none of that is needed, and it is not needed here:
+# this package installs a binary. powerpc64le-handbook's
+# tools/bun-ppc64le-build/setup-shimroot.sh is kept, marked OBSOLETE, for a
+# machine that has to redo the one emulated step.
+
+pkgname=bun-bootstrap
+pkgdesc='Prebuilt native ppc64le bun, used only to build bun (self-hosting bootstrap)'
+pkgver=1.4.3
+pkgrel=1
+_revision='1.4.3-canary.1+782858f41'
+arch=('powerpc64le')
+url='https://bun.sh'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'libstdc++5')
+provides=("bun-bootstrap=$pkgver")
+# No 'conflicts' with bun: this lives at a private path and installs no
+# /usr/bin/bun, so both can be present. `bun`'s build picks this one up by
+# absolute path rather than from PATH -- findBun() in scripts/build/tools.ts
+# prefers a bun at ~/.bun/bin/bun, and letting it win is the control that
+# bun's own build.sh checks for.
+options=('!strip')   # a stripped bun cannot report --revision, which the build verifies
+
+source=("bun-bootstrap-$pkgver-powerpc64le.tar.gz")
+sha256sums=('SKIP')
+
+# The binary this was built from is
+#   sha256 165ea7488c9f68f6ae99cfb24742d1d745a8ce5af9fea58982b8f6c68c3aac2f
+#   revision 1.4.3-canary.1+782858f41
+# Replace sha256sums above with that value, and source= with the release URL,
+# once the artifact is published. SKIP is here because the asset does not exist
+# yet, and a wrong checksum is worse than an honest absent one.
+
+package() {
+  install -Dm755 bun "$pkgdir/usr/lib/bun-bootstrap/bun"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/lib/bun-bootstrap/.pkginfo" <<-INFO
+	revision: $_revision
+	built-by: x86_64 bun under fastppcx86 on POWER9 (one-time bootstrap)
+	purpose: makedepends of bun only
+	INFO
+}

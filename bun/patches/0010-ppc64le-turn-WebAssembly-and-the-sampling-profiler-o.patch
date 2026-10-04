@@ -1,0 +1,168 @@
+From 782858f41a33112e22baabca87bd16872fdfdd06 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 12:14:08 -0600
+Subject: [PATCH 10/10] ppc64le: turn WebAssembly and the sampling profiler on
+
+WebKit's ppc64le branch grew both while bun was still forcing them off.
+
+WebAssembly: b3501b4ff2 has IPInt lowered for PPC64, and WebKitFeatures.cmake
+now has a WTF_CPU_PPC64LE branch whose ENABLE_C_LOOP_DEFAULT=OFF derives
+ENABLE_WEBASSEMBLY_DEFAULT=ON. BBQ and OMG stay out on their own, because
+WEBKIT_OPTION_DEPEND ties them to FTL and there is no B3/Air lowering for
+PowerPC -- so this is an IPInt-only wasm build. Measured: `typeof WebAssembly`
+is "object" and a hand-assembled module computes add(20,22) = 42.
+
+That branch also means ENABLE_JIT and ENABLE_C_LOOP no longer have to be
+spelled out here; build.sh's controls read the resolved CMakeCache and the
+generated LLIntAssembly.h rather than the flags bun passed, so a WebKit
+without the branch fails loudly instead of quietly building a CLoop.
+ENABLE_DFG_JIT stays explicit -- nothing defaults it off -- and
+USE_SYSTEM_MALLOC stays explicit because bun's own USE_MIMALLOC is
+conditional on !asan and the two must not both be off.
+
+One bun-side fix the wasm build needs: the option forcing in
+ZigGlobalObject.cpp guarded useBBQJIT() on ENABLE(WEBASSEMBLY) && ENABLE(JIT),
+which are both true here while BBQ is not compiled. BBQ has its own ENABLE().
+
+Sampling profiler: the MachineContext arm landed in WebKit 5eccefc516 with
+its own evidence (samples attributed to the right function, LLInt frames
+resolving bytecode indices, a negative control that turns every index to
+<nil>). Flipping ENABLE_SAMPLING_PROFILER on and measuring: cpu-prof 12 pass,
+inspector-profiler 46 pass, bun-jsc 38 pass, inspector 24 pass, pprof 1 pass,
+and all seven node test-cpu-prof-*.js exit 0 -- zero failures. The two stale
+"ppc64le has no MachineContext arm" comments are gone with it.
+
+datadog-pprof still fails, but not for the profiler: "No native build was
+found for platform=linux arch=ppc64" -- it is the missing-npm-prebuilt class.
+---
+ scripts/build/deps/webkit.ts          | 42 ++++++++++++---------------
+ src/jsc/bindings/BunCPUProfiler.cpp   | 11 ++-----
+ src/jsc/bindings/ZigGlobalObject.cpp  |  8 +++--
+ src/jsc/bindings/v8/V8CpuProfiler.cpp |  7 ++---
+ 4 files changed, 30 insertions(+), 38 deletions(-)
+
+diff --git a/scripts/build/deps/webkit.ts b/scripts/build/deps/webkit.ts
+index 5b8cb93d..936c9624 100644
+--- a/scripts/build/deps/webkit.ts
++++ b/scripts/build/deps/webkit.ts
+@@ -328,32 +328,28 @@ export const webkit: Dependency = {
+       ENABLE_STATIC_JSC: "ON",
+       USE_THIN_ARCHIVES: "OFF",
+       ENABLE_FTL_JIT: cfg.ppc64le ? "OFF" : "ON",
+-      // ppc64le: Baseline is the only JIT tier that exists for PowerPC. The
+-      // MacroAssembler/assembler pair is ported, so ENABLE_JIT is ON; DFG and
+-      // FTL need B3/Air lowering that does not exist, so they stay OFF.
+-      // ENABLE_JIT=ON with ENABLE_DFG_JIT=OFF is a configuration nobody else
+-      // builds, so name DFG explicitly rather than letting it default.
+-      // ENABLE_C_LOOP stays OFF: the LLInt below the JIT is offlineasm's PPC64
+-      // backend lowered to real PowerPC assembly, not CLoop.
+-      // WebAssembly needs offlineasm lowering for InPlaceInterpreter.asm that
+-      // the PPC64 backend does not have, so it is off with BBQ.
+-      // ENABLE_YARR_JIT is forced 0 for CPU(PPC64LE) inside PlatformEnable.h:
+-      // YarrJITDefaultRegisters wants thirteen live caller-saved GPRs and ELFv2
+-      // has ten. Regexes run in the Yarr interpreter.
++      // ppc64le: Baseline is the only compiling JIT tier for PowerPC, and
++      // WebAssembly's only tier is IPInt. WebKitFeatures.cmake now has a
++      // WTF_CPU_PPC64LE branch that defaults JIT on, CLoop off, FTL off and
++      // the system allocator off, so ENABLE_JIT / ENABLE_C_LOOP are no longer
++      // spelled here — build.sh's controls check the resolved cache and the
++      // generated LLIntAssembly.h rather than the flags we passed, so a WebKit
++      // without that branch fails loudly instead of silently building a CLoop.
++      //
++      // ENABLE_DFG_JIT stays explicit: nothing defaults it off, and ENABLE_JIT
++      // with the DFG off is a configuration nobody else builds. FTL needs the
++      // B3/Air lowering that does not exist, which is also what keeps
++      // WEBKIT_OPTION_DEPEND from turning BBQ and OMG on — wasm is IPInt-only.
++      // ENABLE_YARR_JIT is decided inside PlatformEnable.h.
+       ...(cfg.ppc64le
+         ? {
+-            ENABLE_JIT: "ON",
+             ENABLE_DFG_JIT: "OFF",
+-            ENABLE_C_LOOP: "OFF",
+-            ENABLE_WEBASSEMBLY: "OFF",
+-            ENABLE_SAMPLING_PROFILER: "OFF",
+-            // WebKitFeatures.cmake puts every non-x86_64/arm64/riscv64 CPU in
+-            // the fallback branch, which forces USE_SYSTEM_MALLOC_DEFAULT=ON.
+-            // That collides with the USE_MIMALLOC below ("libpas, mimalloc,
+-            // and system malloc are exclusive", BPlatform.h). libpas is the
+-            // one that genuinely cannot be used here (it is gated to
+-            // BCPU(X86_64)||BCPU(ARM64)); mimalloc is portable, so take the
+-            // same route riscv64 does and turn the system allocator off.
++            ENABLE_SAMPLING_PROFILER: "ON",
++            // The cmake branch above defaults this off too, but bun's own
++            // USE_MIMALLOC below is conditional on !asan, and the two must not
++            // both be off: bmalloc's third option is libpas, which is gated to
++            // BCPU(X86_64)||BCPU(ARM64) and #errors here ("libpas, mimalloc,
++            // and system malloc are exclusive", BPlatform.h).
+             USE_SYSTEM_MALLOC: "OFF",
+           }
+         : {}),
+diff --git a/src/jsc/bindings/BunCPUProfiler.cpp b/src/jsc/bindings/BunCPUProfiler.cpp
+index 66475461..7c0c1fa7 100644
+--- a/src/jsc/bindings/BunCPUProfiler.cpp
++++ b/src/jsc/bindings/BunCPUProfiler.cpp
+@@ -4,14 +4,9 @@
+ #include "helpers.h"
+ #include "BunString.h"
+ 
+-// ppc64le: JSC is built with ENABLE_SAMPLING_PROFILER=OFF. The profiler needs
+-// JSC::MachineContext accessors (framePointer / instructionPointer /
+-// llintInstructionPointer) that have no PPC64 arm yet -- writing one requires
+-// knowing which machine registers the ppc64le LLInt uses for cfr and PB, which
+-// belongs with the offlineasm backend. Everything below is the real
+-// implementation; the #else at the bottom keeps this file's interface intact
+-// with no-ops so `--cpu-prof` degrades to "produces nothing" instead of
+-// failing to link.
++// Everything below is the real implementation; the #else at the bottom keeps
++// this file's interface intact with no-ops on builds without the profiler, so
++// `--cpu-prof` degrades to "produces nothing" instead of failing to link.
+ #if ENABLE(SAMPLING_PROFILER)
+ 
+ #include <JavaScriptCore/SamplingProfiler.h>
+diff --git a/src/jsc/bindings/ZigGlobalObject.cpp b/src/jsc/bindings/ZigGlobalObject.cpp
+index 4153d225..335a528d 100644
+--- a/src/jsc/bindings/ZigGlobalObject.cpp
++++ b/src/jsc/bindings/ZigGlobalObject.cpp
+@@ -309,8 +309,10 @@ extern "C" void JSCInitialize(const char* envp[], size_t envc, void (*onCrash)(c
+             // Options::assertOptionsAreCoherent() aborts the process with
+             // "INCOHERENT OPTIONS: at least one of useWasmIPInt, or useBBQJIT
+             // must be true" when useWasm is on but no Wasm tier exists.
+-            // ppc64le builds JSC with ENABLE_WEBASSEMBLY=OFF (Baseline JIT on,
+-            // DFG/FTL off), so the Wasm guards are the ones that fire there.
++            // BBQ has its own ENABLE(): ppc64le builds wasm with IPInt as the
++            // only tier, because BBQ and OMG depend on FTL and there is no
++            // B3/Air lowering for PowerPC. ENABLE(WEBASSEMBLY) && ENABLE(JIT)
++            // is true there and BBQ is still not compiled.
+ #if ENABLE(WEBASSEMBLY)
+             JSC::Options::useWasm() = true;
+ #endif
+@@ -318,7 +320,7 @@ extern "C" void JSCInitialize(const char* envp[], size_t envc, void (*onCrash)(c
+             JSC::Options::useJIT() = true;
+             JSC::Options::useConcurrentJIT() = true;
+ #endif
+-#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
++#if ENABLE(WEBASSEMBLY_BBQJIT)
+             JSC::Options::useBBQJIT() = true;
+ #endif
+             // JSC::Options::useSigillCrashAnalyzer() = true;
+diff --git a/src/jsc/bindings/v8/V8CpuProfiler.cpp b/src/jsc/bindings/v8/V8CpuProfiler.cpp
+index 5555bd82..705605a3 100644
+--- a/src/jsc/bindings/v8/V8CpuProfiler.cpp
++++ b/src/jsc/bindings/v8/V8CpuProfiler.cpp
+@@ -3,10 +3,9 @@
+ #include "V8HandleScope.h"
+ #include "shim/CpuProfiler.h"
+ 
+-// ppc64le: JSC is built with ENABLE_SAMPLING_PROFILER=OFF (JSC::MachineContext
+-// has no PPC64 arm yet -- see BunCPUProfiler.cpp). The v8::CpuProfiler API
+-// surface below still has to exist so the exported mangled names stay put;
+-// it just reports empty profiles.
++// On a build without the sampling profiler the v8::CpuProfiler API surface
++// below still has to exist so the exported mangled names stay put; it just
++// reports empty profiles.
+ #if ENABLE(SAMPLING_PROFILER)
+ #include <JavaScriptCore/SamplingProfiler.h>
+ #endif
+-- 
+2.55.0
+

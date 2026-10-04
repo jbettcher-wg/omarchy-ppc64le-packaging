@@ -1,0 +1,149 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Bun on ppc64le (POWER8+, little-endian, glibc).
+#
+# Two things about this build are worth knowing before changing it.
+#
+# 1. Bun is SELF-HOSTING: its build runs a bun to drive ~131 codegen steps. The
+#    first native ppc64le bun was produced by running an x86_64 bun under
+#    fastppcx86 on POWER9 hardware -- no x86 machine was involved at any point.
+#    That bootstrap is closed now and this package needs only `bun` in
+#    makedepends, but a machine with no native bun at all has to redo that one
+#    emulated step. See bun-bootstrap.
+#
+# 2. WebKit is NOT built from a tarball here. Bun's own build drives WebKit's
+#    cmake (`--webkit=local`, reading $BUN_WEBKIT_PATH), and the `webkit`
+#    package ships that source tree. Do not switch this to `--webkit=prebuilt`:
+#    prebuilt tarballs are published per {os, arch, musl, debug|lto, asan} and
+#    none exists for ppc64le, and the ASAN setting MUST match bun's because
+#    WTF::Vector's layout changes with it -- mismatching corrupts memory
+#    silently rather than failing to link.
+
+pkgname=bun
+pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager'
+_commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
+pkgver=1.4.3
+pkgrel=1
+arch=('powerpc64le')
+url='https://bun.sh'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'libstdc++5')
+makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'rust' 'ruby' 'python'
+             'perl' 'pkgconf' 'webkit' 'bun-bootstrap')
+provides=('bun')
+options=('!lto')   # Bun drives its own LTO settings through scripts/build.ts
+
+source=(
+  "bun::git+https://github.com/oven-sh/bun.git#commit=$_commit"
+  patches/0001-Port-bun-to-ppc64le-POWER8-little-endian-glibc.patch
+  patches/0002-ppc64le-build-JSC-with-the-Baseline-JIT-on.patch
+  patches/0003-ppc64le-teach-the-test-runner-the-host-architecture.patch
+  patches/0004-ppc64le-wrap-the-glibc-symbols-a-native-build-refere.patch
+  patches/0005-ppc64le-give-V8-s-callback-exit-frame-its-constant-p.patch
+  patches/0006-ppc64le-make-the-arch-hardcoded-and-page-size-bound-.patch
+  patches/0007-ppc64le-termios-c_lflag-bits-are-per-ABI-not-darwin-.patch
+  patches/0008-ppc64le-the-arch-name-bun-calls-itself-and-the-regis.patch
+  patches/0009-bun-ffi-cc-compile-with-the-system-C-compiler-where-.patch
+  patches/0010-ppc64le-turn-WebAssembly-and-the-sampling-profiler-o.patch
+)
+
+sha256sums=(
+  'SKIP'
+  'fc6bb00bde573864450837902f01999e4c46d1481f875b885f7507d840bc8bf8'
+  '40d5cb4a47fadc2cd8b68f0ab8a57171bed6607d133658d5e537137cdd27b48a'
+  '27ab79a7881003db84279023d36db877a732890a01539cb0d93b5bf9a8361c60'
+  '326f3b1df81d8e492a944160f861abebdf6d03e93b21d4223346c2294845614d'
+  '994a5e5e8aa99e9c1b28cf17dacfcdf8fb81dd5590b422c7aec77f8104527ca7'
+  'e967e29806ba00d4790ca0342a75e95b047b4631ad0073ea8b6b5ae6cc0a3542'
+  '60fda5ce37ae3d7c85dcfa7e68ba5371e408939c18599c2c86afeed47ac32d35'
+  '69a773384494f946c2c915841d1b4b0672108e75387645b3dfcbee57179c78d0'
+  '7c9473d0d6b6c9105b25d41f8c88dc10c51553aabf98a5a58d981d11f318d6c8'
+  '2fc51d309ac98829be79324cfacf9448fba0fcac8740b81081f7dfd9a2c35cac'
+)
+
+prepare() {
+  cd bun
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    printf 'Applying %s\n' "$src"
+    patch -Np1 -i "$srcdir/$src"
+  done
+}
+
+build() {
+  cd bun
+
+  # The WebKit source the `webkit` package installed. Bun checks only for
+  # CMakeLists.txt here.
+  export BUN_WEBKIT_PATH=/usr/src/bun-webkit
+
+  # The self-hosting driver, by absolute path. This is not cosmetic:
+  # findBun() in scripts/build/tools.ts prefers a bun at ~/.bun/bin/bun, so a
+  # developer's own install would otherwise silently become the codegen driver
+  # -- and on this architecture that is as likely to be an x86_64 binary under
+  # binfmt, which works, slowly, and produces a build nobody can reproduce.
+  local bootstrap=/usr/lib/bun-bootstrap/bun
+  export PATH="$(dirname "$bootstrap"):$PATH"
+
+  # -j is bounded deliberately. The default is nproc+2, and on a 176-thread
+  # POWER9 that exhausts 446 GiB: the C++ translation units in JavaScriptCore
+  # and bun's unified sources peak in the multi-GiB range EACH. 30 is what fits
+  # with room for the rest of the machine.
+  local jobs="${MAKEFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs=30
+  (( jobs > 30 )) && jobs=30
+
+  # The nested WebKit cmake runs as ONE ninja edge, so the -j above does not
+  # bound it; it would pick nproc+2 on its own. CMAKE_BUILD_PARALLEL_LEVEL is
+  # the only lever, because bun's dep_build rule passes no -j.
+  export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
+
+  "$bootstrap" scripts/build.ts --profile=release --webkit=local -j"$jobs" --configure-only
+
+  # CONTROL, before the expensive part: the driver baked into build.ninja must
+  # be the bootstrap we chose and must be a PowerPC binary. Both halves have
+  # been wrong in practice -- the first when ~/.bun/bin/bun outranked it, the
+  # second when the bootstrap was still the emulated x86_64 one.
+  local driver
+  driver="$(grep -m1 -oE '^  command = [^ ]+/bun ' build/release/build.ninja | awk '{print $3}')"
+  [[ -n $driver ]] || { echo 'CONTROL FAILED: build.ninja names no bun driver' >&2; return 1; }
+  file -L "$driver" | grep -q PowerPC \
+    || { echo "CONTROL FAILED: codegen driver is not a PowerPC bun ($driver)" >&2; return 1; }
+  [[ "$(readlink -f "$driver")" == "$(readlink -f "$bootstrap")" ]] \
+    || { echo "CONTROL FAILED: driver is $driver, not $bootstrap" >&2; return 1; }
+  printf 'codegen driver: %s\n' "$driver"
+
+  "$bootstrap" scripts/build.ts --profile=release --webkit=local -j"$jobs"
+}
+
+check() {
+  cd bun
+  # Smoke only. The full suite needs a display, a network and ~40 minutes; the
+  # cgroup-capped runner in powerpc64le-handbook/tools/jsc-test-runner is the
+  # thing to use for that, because JSTests/stress has memoryHog! tests that
+  # will take the whole machine otherwise.
+  ./build/release/bun --version
+  ./build/release/bun -e 'if (2 + 2 !== 4) throw new Error("arithmetic")'
+}
+
+package() {
+  cd bun
+  install -Dm755 build/release/bun "$pkgdir/usr/bin/bun"
+  ln -s bun "$pkgdir/usr/bin/bunx"
+  install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
+
+  # Shell completions, if this revision ships them.
+  if [[ -f completions/bun.zsh ]]; then
+    install -Dm644 completions/bun.zsh "$pkgdir/usr/share/zsh/site-functions/_bun"
+  fi
+  if [[ -f completions/bun.bash ]]; then
+    install -Dm644 completions/bun.bash "$pkgdir/usr/share/bash-completion/completions/bun"
+  fi
+  if [[ -f completions/bun.fish ]]; then
+    install -Dm644 completions/bun.fish "$pkgdir/usr/share/fish/vendor_completions.d/bun.fish"
+  fi
+}

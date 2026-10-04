@@ -1,0 +1,562 @@
+From 45e589118a63b7003083c46ea04584630fdff62c Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 09:30:28 -0600
+Subject: [PATCH 06/10] ppc64le: make the arch-hardcoded and page-size-bound
+ tests arch-generic
+
+Nine test files assumed x86-64 or arm64 in the string sense. Where the
+test's intent is arch-neutral it now derives the expected value; where the
+machinery genuinely only exists for x86-64/arm64 it skips with the reason.
+
+Derived rather than hardcoded:
+
+  os.test.js          os.arch() is checked against the value set Node
+                      documents for process.arch, and against process.arch
+                      itself, instead of a three-entry list.
+  web-globals         navigator.platform is `Linux ${os.machine()}`, which is
+                      what ZigGlobalObject.cpp's per-CPU() arms produce. The
+                      old literal was already wrong for Linux arm64.
+  process.test.js     process.release's asset name learns ppc64 -> ppc64le,
+                      and the ICU floor table gains linux-ppc64.
+  bun-upgrade         one releaseArch() helper replaces two copies of the
+                      arm64 -> aarch64 map, and the fake release's asset list
+                      covers ppc64le.
+  run-crash-handler   the CPU-feature line has a ppc64le arm listing the
+                      features the POWER8+ baseline guarantees, in the order
+                      crash_handler/CPUFeatures.rs prints them.
+  serve-file-slice-   supervisor.c gains a powerpc64 ptrace arm. glibc has no
+  read-error          user_regs_struct there, so it reads pt_regs through
+                      NT_PRSTATUS. Writing the negative errno into gpr[3] is
+                      both necessary and sufficient: the kernel recomputes
+                      CR0.SO from it on the way out of the syscall-exit stop,
+                      so a positive EIO comes back to the tracee as a
+                      successful 5-byte read.
+
+Skipped with the reason, not made to pass vacuously:
+
+  linker-order        functrace.c's own #error accepts linux x86-64/arm64 and
+                      macOS arm64; the test's `supported` said "any linux".
+                      generateOrderFile()'s gate had the same hole -- its
+                      error message already named the architectures, but the
+                      check did not -- so on any other linux it got past the
+                      gate and failed while compiling the tracer. Both now
+                      agree, which also makes the "refuses to run on an
+                      unsupported platform" case run here instead of skip.
+  gc-controller-      the "idle release lets FTL code age out" block needs an
+  cadence             optimizing tier for there to be optimized code to age
+                      out. Measured: with Baseline only, the run() options'
+                      useEagerCodeBlockJettisonTiming drops the plain
+                      baseline FunctionCodeBlocks during the warm-up, whatever
+                      optimizedCodeAgingQuietSeconds says and however short
+                      the loop -- `before` is 4, not the 40+ the fixture needs.
+
+Two more, in the same spirit:
+
+  build-rust lint     allRustTargets carries powerpc64le-unknown-linux-gnu,
+                      which .buildkite/ci.mjs has no runner for, so "is
+                      exactly the set of triples CI builds" failed. The
+                      exception is now declared in rustTargetsNotInCI and
+                      subtracted, and the lint checks each declared exception
+                      is really in allRustTargets so it cannot outlive the
+                      target it was added for.
+  dead-code-escapes   bun_core::debug's PC_OFFSET is now #[cfg]-gated to the
+                      architectures return_address() reads it on, instead of
+                      carrying a powerpc64 #[allow(dead_code)]. The ELFv2
+                      caveat moves to StackIterator::PC_OFFSET, where the
+                      formula it warns about lives.
+
+timer-gc-roots is the page-size one. RSS is accounted in whole pages and the
+allocator's expansion steps are page-quantised with it: on the 64 KiB-page
+POWER box a single step lands ~22 MB at once, four runs in five, and it does
+not grow with the number of rounds -- granularity, not retention. An absolute
+megabyte bound tuned for 4 KiB pages cannot tell that from the ~7 MB-per-round
+leak the test guards against. harness gains pageSize(), and the test scales
+both the workload and the bound by pageSize()/4096 so the leak stays the same
+multiple of the bound on every host. 4 KiB hosts are unchanged.
+
+Also: findRepoRoot() falls back to walking up from this file's own directory
+when the walk up from cwd finds nothing. A --build-dir outside the repository
+has no "bun" package.json above it, so ninja's regen rule -- which runs from
+the build directory -- could not configure at all.
+---
+ scripts/build/config.ts                       | 32 +++++++++++++------
+ scripts/build/rust.ts                         | 10 ++++++
+ scripts/orderfile/generate.ts                 |  9 +++++-
+ src/bun_core/debug.rs                         | 22 ++++++-------
+ test/cli/install/bun-upgrade.test.ts          | 10 ++++--
+ test/cli/run/run-crash-handler.test.ts        |  7 ++++
+ test/harness.ts                               | 24 ++++++++++++++
+ test/internal/source-lints/build-rust.test.ts |  6 +++-
+ test/js/bun/gc/gc-controller-cadence.test.ts  | 10 +++++-
+ .../http/serve-file-slice-read-error.test.ts  | 25 ++++++++++++++-
+ test/js/bun/perf/linker-order.test.ts         |  5 ++-
+ test/js/node/os/os.test.js                    | 20 +++++++++++-
+ test/js/node/process/process.test.js          |  6 +++-
+ test/js/web/timers/timer-gc-roots.test.ts     | 20 ++++++++----
+ test/js/web/web-globals.test.js               |  6 +++-
+ 15 files changed, 173 insertions(+), 39 deletions(-)
+
+diff --git a/scripts/build/config.ts b/scripts/build/config.ts
+index ad863e63..3253678a 100644
+--- a/scripts/build/config.ts
++++ b/scripts/build/config.ts
+@@ -1428,13 +1428,9 @@ function compareVersionStrings(a: string, b: string): number {
+   return 0;
+ }
+ 
+-/**
+- * Find the repository root by walking up from cwd looking for package.json
+- * with name "bun". Exported so `resolveToolchain()` in configure.ts can
+- * resolve paths correctly when invoked from ninja (where cwd = build dir).
+- */
+-export function findRepoRoot(): string {
+-  let dir = process.cwd();
++/** Walk up from `start` to the directory whose package.json is named "bun". */
++function searchForRepoRoot(start: string): string | undefined {
++  let dir = start;
+   while (true) {
+     const pkgPath = join(dir, "package.json");
+     if (existsSync(pkgPath)) {
+@@ -1448,13 +1444,29 @@ export function findRepoRoot(): string {
+       }
+     }
+     const parent = resolve(dir, "..");
+-    if (parent === dir) {
+-      throw new BuildError("Could not find bun repository root", { hint: "Run this from within the bun repository" });
+-    }
++    if (parent === dir) return undefined;
+     dir = parent;
+   }
+ }
+ 
++/**
++ * Find the repository root by walking up from cwd looking for package.json
++ * with name "bun". Exported so `resolveToolchain()` in configure.ts can
++ * resolve paths correctly when invoked from ninja (where cwd = build dir).
++ *
++ * A `--build-dir` outside the repo has nothing named "bun" above it, so the
++ * cwd walk fails for the `regen` rule ninja runs from the build directory.
++ * This file is always inside the repo, so its own location answers the same
++ * question; the cwd walk stays first so a nested checkout still wins.
++ */
++export function findRepoRoot(): string {
++  const root = searchForRepoRoot(process.cwd()) ?? searchForRepoRoot(import.meta.dirname);
++  if (root === undefined) {
++    throw new BuildError("Could not find bun repository root", { hint: "Run this from within the bun repository" });
++  }
++  return root;
++}
++
+ /**
+  * Parse `--local-deps=name=path[,name=path...]` into name → absolute path.
+  * Names are checked against `allDeps` later (bun.ts) where the dep list is
+diff --git a/scripts/build/rust.ts b/scripts/build/rust.ts
+index f36f97c6..371be8e3 100644
+--- a/scripts/build/rust.ts
++++ b/scripts/build/rust.ts
+@@ -100,6 +100,16 @@ export const allRustTargets = [
+   "aarch64-unknown-freebsd",
+ ] as const;
+ 
++/**
++ * The entries of `allRustTargets` that `.buildkite/ci.mjs` does not build.
++ * They are still type-checked by `rust:check-all` and still get a linker entry
++ * in the generated `.cargo/config.toml`; there is simply no CI runner for
++ * them. test/internal/source-lints/build-rust.test.ts subtracts these before
++ * comparing the two lists, and checks each one is really in `allRustTargets`,
++ * so the exception cannot outlive the target it was added for.
++ */
++export const rustTargetsNotInCI: readonly string[] = ["powerpc64le-unknown-linux-gnu"];
++
+ /**
+  * Tier 3 targets — rustup ships no prebuilt `rust-std` for these, so
+  * `rustup target add` would fail and cargo needs `-Zbuild-std` (which in turn
+diff --git a/scripts/orderfile/generate.ts b/scripts/orderfile/generate.ts
+index 9b3267fc..15b70fda 100644
+--- a/scripts/orderfile/generate.ts
++++ b/scripts/orderfile/generate.ts
+@@ -291,7 +291,14 @@ export function generateOrderFile(options: GenerateOptions): { count: number; ou
+   const log = (message: string) => options.verbose && console.log(message);
+ 
+   const windows = process.platform === "win32";
+-  if (process.platform !== "linux" && !windows && !(process.platform === "darwin" && process.arch === "arm64")) {
++  // The architecture half of that sentence was missing: functrace.c's own
++  // #error accepts only x86-64 and arm64, so on any other linux the generator
++  // used to get past this check and fail while compiling the tracer.
++  const tracerArch = process.arch === "x64" || process.arch === "arm64";
++  if (
++    !((process.platform === "linux" || windows) && tracerArch) &&
++    !(process.platform === "darwin" && process.arch === "arm64")
++  ) {
+     throw new Error("the order file tracer builds on linux x86-64/arm64, macOS arm64, or Windows x64/arm64");
+   }
+ 
+diff --git a/src/bun_core/debug.rs b/src/bun_core/debug.rs
+index ddda7439..39a38774 100644
+--- a/src/bun_core/debug.rs
++++ b/src/bun_core/debug.rs
+@@ -237,6 +237,13 @@ impl StackIterator {
+         0
+     };
+     // Positive offset of the saved PC wrt the frame pointer.
++    //
++    // The powerpc64 value is not usable as written: under ELFv2 a function
++    // saves its caller's LR into the LR slot of the *caller's* frame, so the
++    // return address for a frame at sp lives at `(*sp) + 16` — at `new_fp + 16`
++    // below, not `fp + 16`. Wiring the walk up means changing where the offset
++    // is applied, not what it is. `frame_address()` has no PowerPC arm, so
++    // today the walk terminates on its own alignment check instead.
+     const PC_OFFSET: usize = if cfg!(target_arch = "powerpc64") {
+         2 * core::mem::size_of::<usize>()
+     } else {
+@@ -278,18 +285,9 @@ impl StackIterator {
+     }
+ }
+ 
+-// ppc64le: dead here, and deliberately so. `frame_address()` has no PowerPC
+-// arm (below), so `return_address()` never reads this, and the workspace denies
+-// dead_code.
+-//
+-// Do NOT wire the frame walk up by just adding a `frame_address()` arm: the
+-// `fp + PC_OFFSET` formula above is wrong for ELFv2. A function saves its
+-// caller's LR into the LR slot of the *caller's* frame, so the return address
+-// for a frame at sp lives at `(*sp) + 16` — i.e. at `new_fp + 16`, not
+-// `fp + 16`. `StackIterator::PC_OFFSET`'s existing `target_arch = "powerpc64"`
+-// arm assumes the latter and has never been executed. Fixing it means changing
+-// where the offset is applied, not what it is.
+-#[cfg_attr(target_arch = "powerpc64", allow(dead_code))]
++// Exists for the arches `return_address()` reads it on; everywhere else that
++// function returns 0 and nothing else in the tree references it.
++#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+ pub(crate) const PC_OFFSET: usize = StackIterator::PC_OFFSET;
+ 
+ /// Capture the current thread's call stack.
+diff --git a/test/cli/install/bun-upgrade.test.ts b/test/cli/install/bun-upgrade.test.ts
+index 6857b47e..98479a69 100644
+--- a/test/cli/install/bun-upgrade.test.ts
++++ b/test/cli/install/bun-upgrade.test.ts
+@@ -7,12 +7,17 @@ import { copyFile, writeFile } from "node:fs/promises";
+ import { basename, join } from "path";
+ const { openTempDirWithoutSharingDelete, closeTempDirHandle } = upgrade_test_helpers;
+ 
++// The arch a release asset is named with, which is not process.arch: bun spells
++// arm64 "aarch64" and ppc64 "ppc64le" (Architecture::CURRENT in bun_core::env,
++// and the name `bun upgrade` looks for).
++const releaseArch = () => ({ arm64: "aarch64", ppc64: "ppc64le" })[process.arch] ?? process.arch;
++
+ // Cover every platform/arch/abi/cpu combination so the asset list matches
+ // whichever target this test runs on. Non-matching names are ignored.
+ function allAssetNames(profile = false) {
+   const names: string[] = [];
+   for (const os of ["windows", "linux", "darwin"]) {
+-    for (const arch of ["x64", "aarch64"]) {
++    for (const arch of ["x64", "aarch64", "ppc64le"]) {
+       for (const abi of ["", "-musl"]) {
+         for (const cpu of ["", "-baseline"]) {
+           names.push(`bun-${os}-${arch}${abi}${cpu}${profile ? "-profile" : ""}.zip`);
+@@ -104,9 +109,8 @@ function makeZipStored(entryName: string, data: Buffer, unixMode: number): Buffe
+ // spawns `bun.exe` directly, so the archive has to carry a real PE image.
+ async function writeFakeReleaseZip(outPath: string, version: string): Promise<void> {
+   const os = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
+-  const arch = process.arch === "arm64" ? "aarch64" : "x64";
+   const abi = isMusl ? "-musl" : "";
+-  const folder = `bun-${os}-${arch}${abi}`;
++  const folder = `bun-${os}-${releaseArch()}${abi}`;
+   if (isWindows) {
+     const exe = Buffer.from(await Bun.file(bunExe()).arrayBuffer());
+     await writeFile(outPath, makeZipStored(`${folder}/bun.exe`, exe, 0o755));
+diff --git a/test/cli/run/run-crash-handler.test.ts b/test/cli/run/run-crash-handler.test.ts
+index 7cbae084..afc484f4 100644
+--- a/test/cli/run/run-crash-handler.test.ts
++++ b/test/cli/run/run-crash-handler.test.ts
+@@ -134,6 +134,9 @@ describe.if(isPosix)("terminal signal reflects the crash cause", () => {
+ // x86_64 that detection uses cpuid directly (CPUFeatures.cpp). Every supported
+ // x64 CPU has SSE4.2 and POPCNT, since the baseline build targets Nehalem.
+ // AVX is optional. AVX2 and AVX-512 are reported only with AVX, and after it.
++// arm64 and ppc64le read AT_HWCAP instead; each pattern below lists the
++// features the baseline guarantees, then the optional ones in the order
++// crash_handler/CPUFeatures.rs's NAMED_FLAGS prints them.
+ test("the crash report lists the CPU features", async () => {
+   await using proc = Bun.spawn({
+     cmd: [bunExe(), path.join(import.meta.dir, "fixture-crash.js"), "panic", "--debug-crash-handler-use-trace-string"],
+@@ -145,6 +148,10 @@ test("the crash report lists the CPU features", async () => {
+   const cpuLine = stderr.split(/\r?\n/).find(line => line.startsWith("CPU: "));
+   if (process.arch === "x64") {
+     expect(cpuLine).toMatch(/^CPU: sse42 popcnt(?: avx(?: avx2)?(?: avx512)?)?$/);
++  } else if (process.arch === "ppc64") {
++    // ppc64le is POWER8-and-newer little-endian only, so altivec, vsx and
++    // power8 are always there; power9, crypto and power10 are not.
++    expect(cpuLine).toMatch(/^CPU: altivec vsx power8(?: power9)?(?: crypto)?(?: power10)?$/);
+   } else {
+     expect(cpuLine).toMatch(/^CPU: neon fp( \w+)*$/);
+   }
+diff --git a/test/harness.ts b/test/harness.ts
+index 3e4c5c8c..34399351 100644
+--- a/test/harness.ts
++++ b/test/harness.ts
+@@ -63,6 +63,30 @@ function detectASAN(): boolean {
+   return basename(process.execPath).includes("bun-asan");
+ }
+ 
++let cachedPageSize: number | undefined;
++
++/**
++ * The kernel page size in bytes: 4 KiB on most hosts, 16 KiB on Apple silicon,
++ * 64 KiB on POWER and some arm64 distributions.
++ *
++ * RSS is accounted in whole pages, and the allocator's expansion steps are
++ * page-quantised too, so a test that bounds an RSS delta has a noise floor that
++ * moves with this number. Scale both the workload and the bound by
++ * `pageSize() / 4096` rather than adding a second hardcoded megabyte figure —
++ * the leak stays the same multiple of the bound on every host.
++ */
++export function pageSize(): number {
++  if (cachedPageSize === undefined) {
++    cachedPageSize = 4096;
++    if (!isWindows) {
++      const probe = Bun.spawnSync({ cmd: ["getconf", "PAGESIZE"], stdout: "pipe", stderr: "ignore" });
++      const parsed = Number(probe.stdout?.toString().trim());
++      if (Number.isSafeInteger(parsed) && parsed > 0) cachedPageSize = parsed;
++    }
++  }
++  return cachedPageSize;
++}
++
+ export const bunEnv: NodeJS.Dict<string> = {
+   ...process.env,
+   // Strip ad-hoc JSC debug options that may be set on CI agents — they leak
+diff --git a/test/internal/source-lints/build-rust.test.ts b/test/internal/source-lints/build-rust.test.ts
+index c35d4cd0..4573bbd4 100644
+--- a/test/internal/source-lints/build-rust.test.ts
++++ b/test/internal/source-lints/build-rust.test.ts
+@@ -26,6 +26,7 @@ import {
+ } from "../../../scripts/build/config.ts";
+ import {
+   allRustTargets,
++  rustTargetsNotInCI,
+   cargoBuildInvocation,
+   cargoBuildStdArg,
+   rustTargetIsTier3,
+@@ -105,7 +106,10 @@ describe("allRustTargets", () => {
+       return rustTriple(os, arch, abi);
+     });
+ 
+-    const listed: string[] = [...allRustTargets].sort();
++    // Targets bun supports but CI has no runner for are declared, not implied:
++    // each must really be listed, and everything else has to match the matrix.
++    for (const triple of rustTargetsNotInCI) expect(allRustTargets).toContain(triple);
++    const listed: string[] = allRustTargets.filter(triple => !rustTargetsNotInCI.includes(triple)).sort();
+     expect(listed).toEqual([...new Set(built)].sort());
+   });
+ 
+diff --git a/test/js/bun/gc/gc-controller-cadence.test.ts b/test/js/bun/gc/gc-controller-cadence.test.ts
+index 74bbd41e..022256c5 100644
+--- a/test/js/bun/gc/gc-controller-cadence.test.ts
++++ b/test/js/bun/gc/gc-controller-cadence.test.ts
+@@ -198,7 +198,15 @@ describe("idle release", () => {
+ // Those idle full collections are tagged (GCRequest::isIdle) so JSC may also let idle FTL code — which has no execution
+ // counter of its own and pins every baseline CodeBlock it inlined — age out in them, and only in them: a program that
+ // forces collections itself while running hot code must not lose that code. Eager JIT TTLs make it observable in seconds.
+-describe("idle release lets FTL code age out", () => {
++// Needs an optimizing tier for there to be optimized code to age out. On a
++// Baseline-only JSC (ppc64le has no DFG or FTL lowering) the run() options'
++// `useEagerCodeBlockJettisonTiming` drops the plain baseline FunctionCodeBlocks
++// during the warm-up itself, whatever `optimizedCodeAgingQuietSeconds` says and
++// however short the loop is — measured: `before` is 4, not the 40+ the fixture
++// needs. Nothing here would be testing idle release.
++const hasOptimizingJIT = process.arch !== "ppc64";
++
++describe.skipIf(!hasOptimizingJIT)("idle release lets FTL code age out", () => {
+   const script = /* js */ `
+     const { heapStats, noInline } = require("bun:jsc");
+     const fns = [];
+diff --git a/test/js/bun/http/serve-file-slice-read-error.test.ts b/test/js/bun/http/serve-file-slice-read-error.test.ts
+index 130fc10f..8a39a136 100644
+--- a/test/js/bun/http/serve-file-slice-read-error.test.ts
++++ b/test/js/bun/http/serve-file-slice-read-error.test.ts
+@@ -32,11 +32,15 @@ const SUPERVISOR_C = /* c */ `
+ #include <sys/wait.h>
+ #include <unistd.h>
+ 
+-#if defined(__aarch64__)
++#if defined(__aarch64__) || defined(__powerpc64__)
+   #include <linux/elf.h>
+   #include <sys/uio.h>
+ #endif
+ 
++#if defined(__powerpc64__)
++  #include <asm/ptrace.h>
++#endif
++
+ #if defined(__x86_64__)
+   #define SYS_READ_NR 0
+   typedef struct user_regs_struct regs_t;
+@@ -59,6 +63,25 @@ const SUPERVISOR_C = /* c */ `
+     struct iovec io = { r, sizeof(*r) };
+     return ptrace(PTRACE_SETREGSET, t, (void *)NT_PRSTATUS, &io);
+   }
++#elif defined(__powerpc64__)
++  #define SYS_READ_NR 3
++  /* glibc defines no user_regs_struct on powerpc; NT_PRSTATUS is pt_regs. */
++  typedef struct pt_regs regs_t;
++  static long reg_nr(regs_t *r) { return (long)r->gpr[0]; }
++  static long reg_arg0(regs_t *r) { return (long)r->gpr[3]; }
++  /* Writing the negative errno is enough and is the only thing that works:
++     on the sc path the kernel recomputes CR0.SO from gpr[3] on the way out of
++     the syscall-exit stop, so a positive EIO left in gpr[3] comes back to the
++     tracee as a SUCCESSFUL read of 5 bytes rather than as an error. */
++  static void reg_set_ret(regs_t *r, long v) { r->gpr[3] = (unsigned long)v; }
++  static int get_regs(pid_t t, regs_t *r) {
++    struct iovec io = { r, sizeof(*r) };
++    return ptrace(PTRACE_GETREGSET, t, (void *)NT_PRSTATUS, &io);
++  }
++  static int set_regs(pid_t t, regs_t *r) {
++    struct iovec io = { r, sizeof(*r) };
++    return ptrace(PTRACE_SETREGSET, t, (void *)NT_PRSTATUS, &io);
++  }
+ #else
+   #error unsupported arch
+ #endif
+diff --git a/test/js/bun/perf/linker-order.test.ts b/test/js/bun/perf/linker-order.test.ts
+index 39b270d7..23cf3d54 100644
+--- a/test/js/bun/perf/linker-order.test.ts
++++ b/test/js/bun/perf/linker-order.test.ts
+@@ -289,7 +289,10 @@ describe("deciding whether a build generates its own order file", () => {
+ 
+ const orderfile = join(import.meta.dir, "../../../../scripts/orderfile");
+ const darwin = process.platform === "darwin";
+-const supported = process.platform === "linux" || isWindows || (darwin && process.arch === "arm64");
++// functrace.c's own #error: the tracer is x86-64 INT3 / arm64 BRK, so linux and
++// windows need one of those two architectures, not just the OS.
++const tracerArch = process.arch === "x64" || process.arch === "arm64";
++const supported = ((process.platform === "linux" || isWindows) && tracerArch) || (darwin && process.arch === "arm64");
+ // On windows specifically clang-cl, which is on the CI images: the fixtures
+ // below are linked by lld-link to get the maps the generator reads, the way the
+ // release link writes them. (The generator itself also accepts cl for building
+diff --git a/test/js/node/os/os.test.js b/test/js/node/os/os.test.js
+index 007f9280..d58f1798 100644
+--- a/test/js/node/os/os.test.js
++++ b/test/js/node/os/os.test.js
+@@ -5,7 +5,25 @@ import { isIPv4, isIPv6 } from "node:net";
+ import * as os from "node:os";
+ 
+ it("arch", () => {
+-  expect(["x64", "x86", "arm64"].some(arch => os.arch() === arch)).toBe(true);
++  // os.arch() is documented to return process.arch, whose value set Node
++  // enumerates. Assert against that set rather than the architectures bun
++  // happens to ship binaries for today.
++  const possibleValues = [
++    "arm",
++    "arm64",
++    "ia32",
++    "loong64",
++    "mips",
++    "mipsel",
++    "ppc",
++    "ppc64",
++    "riscv64",
++    "s390",
++    "s390x",
++    "x64",
++  ];
++  expect(possibleValues).toContain(os.arch());
++  expect(os.arch()).toBe(process.arch);
+ });
+ 
+ it("endianness", () => {
+diff --git a/test/js/node/process/process.test.js b/test/js/node/process/process.test.js
+index 74cfcb54..d7e3f116 100644
+--- a/test/js/node/process/process.test.js
++++ b/test/js/node/process/process.test.js
+@@ -394,7 +394,8 @@ it("process.hrtime() coerces tuple elements with ToNumber like node", async () =
+ it("process.release", () => {
+   expect(process.release.name).toBe("node");
+   const platform = process.platform == "win32" ? "windows" : process.platform;
+-  const arch = { arm64: "aarch64", x64: "x64" }[process.arch] || process.arch;
++  // Mirrors the release-asset naming bun's own upgrade path uses.
++  const arch = { arm64: "aarch64", x64: "x64", ppc64: "ppc64le" }[process.arch] || process.arch;
+   const abi = familySync() === "musl" ? "-musl" : "";
+   const nonbaseline = `https://github.com/oven-sh/bun/releases/download/bun-v${process.versions.bun}/bun-${platform}-${arch}${abi}.zip`;
+   const baseline = `https://github.com/oven-sh/bun/releases/download/bun-v${process.versions.bun}/bun-${platform}-${arch}${abi}-baseline.zip`;
+@@ -480,6 +481,9 @@ const MIN_ICU_VERSIONS_BY_PLATFORM_ARCH = {
+   "darwin-arm64": "72.1",
+   "linux-x64": "78.3",
+   "linux-arm64": "78.3",
++  // ppc64le links the distro's ICU rather than a pinned one, so this floor is
++  // the same "do not go backwards" guard, not a version bun ships.
++  "linux-ppc64": "78.3",
+   "win32-x64": "78.3",
+   "win32-arm64": "78.3",
+ };
+diff --git a/test/js/web/timers/timer-gc-roots.test.ts b/test/js/web/timers/timer-gc-roots.test.ts
+index 73509515..4000077d 100644
+--- a/test/js/web/timers/timer-gc-roots.test.ts
++++ b/test/js/web/timers/timer-gc-roots.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isASAN, isDebug } from "harness";
++import { bunEnv, bunExe, isASAN, isDebug, pageSize } from "harness";
+ import path from "node:path";
+ 
+ // bun_jsc::Strong handles now live in StrongRootBlock cells (rooted by a
+@@ -85,9 +85,17 @@ describe.concurrent("Strong handles are backed by StrongRootBlock", () => {
+ });
+ 
+ describe.concurrent("AbortSignal.timeout is released when its wrapper is collected", () => {
++  // RSS moves in whole pages and so do the allocator's expansion steps: on a
++  // 64 KiB-page host one step lands ~22 MB at once, and it does not grow with
++  // the number of rounds, so an absolute megabyte bound tuned for 4 KiB pages
++  // cannot tell that step from the ~7 MB-per-round retention this guards
++  // against. Scale the signal and the bound by the same factor and the leak
++  // stays the same multiple of the bound on every host.
++  const pageScale = pageSize() / 4096;
++
+   test("dropped signals without listeners free their native timer", async () => {
+     const src = `
+-      const N = 15000;
++      const N = ${15000 * pageScale};
+       async function round() {
+         for (let i = 0; i < N; i++) AbortSignal.timeout(600000);
+         for (let k = 0; k < 4; k++) {
+@@ -108,10 +116,10 @@ describe.concurrent("AbortSignal.timeout is released when its wrapper is collect
+     const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
+     expect(stderr).toBe("");
+     const { deltaMB } = JSON.parse(stdout);
+-    // With the refcount cycle this retains ~7 MB per round (20+ MB over three
+-    // rounds). With the timer freed at wrapper GC, steady-state growth is
+-    // allocator noise.
+-    const limit = isASAN || isDebug ? 14 : 10;
++    // With the refcount cycle this retains ~7 MB per round at the 4 KiB N
++    // (20+ MB over three rounds). With the timer freed at wrapper GC,
++    // steady-state growth is allocator noise.
++    const limit = (isASAN || isDebug ? 14 : 10) * pageScale;
+     expect(deltaMB).toBeLessThan(limit);
+     expect(exitCode).toBe(0);
+   }, 15_000);
+diff --git a/test/js/web/web-globals.test.js b/test/js/web/web-globals.test.js
+index 6d3d8cf1..60496afd 100644
+--- a/test/js/web/web-globals.test.js
++++ b/test/js/web/web-globals.test.js
+@@ -1,6 +1,7 @@
+ import { spawn } from "bun";
+ import { expect, it, test } from "bun:test";
+ import { bunEnv, bunExe, isLinux, isMacOS, isWindows, tempDir, withoutAggressiveGC } from "harness";
++import os from "node:os";
+ 
+ test("exists", () => {
+   expect(typeof URL !== "undefined").toBe(true);
+@@ -307,7 +308,10 @@ test("navigator", () => {
+   } else if (isWindows) {
+     expect(navigator.platform).toBe("Win32");
+   } else if (isLinux) {
+-    expect(navigator.platform).toBe("Linux x86_64");
++    // navigator.platform is "Linux <uname -m>": ZigGlobalObject.cpp has an arm
++    // per CPU() and os.machine() reports the same name, so this tracks the
++    // implementation instead of naming one architecture.
++    expect(navigator.platform).toBe(`Linux ${os.machine()}`);
+   }
+ });
+ 
+-- 
+2.55.0
+

@@ -1,0 +1,123 @@
+From af0a7e528f87468a97c0746ac7d5ce2fcc6c916d Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 04:28:02 -0600
+Subject: [PATCH 02/10] ppc64le: build JSC with the Baseline JIT on
+
+JSC now has a PowerPC MacroAssembler and Baseline tier (webkit-ppc64le
+96414b6490), where with the workload held identical, turning on native code
+generation changes the outcome of 0 of 5,831 JSTests/stress tests. Turn it on
+here: ENABLE_JIT=ON, and DFG/FTL explicitly OFF because there is no PPC64
+B3/Air lowering. YARR_JIT is forced off inside PlatformEnable.h -- Yarr wants
+thirteen live caller-saved GPRs and ELFv2 has ten -- so regexes still run
+interpreted. WebAssembly stays off: the PPC64 offlineasm backend does not
+lower InPlaceInterpreter.asm.
+
+The generated LLIntAssembly.h flips from `!OFFLINE_ASM_JIT` to
+`OFFLINE_ASM_JIT`, and libJavaScriptCore.a goes from 0 to 554 defined
+`JSC::JIT::` symbols. On a hot loop `BUN_JSC_reportBaselineCompileTimes=1`
+reports six Baseline compiles emitting real PowerPC code, and zero with
+`BUN_JSC_useJIT=0` on the same binary; both settings compute the same answer.
+
+ENABLE_JIT=ON with ENABLE_DFG_JIT=OFF is a configuration nobody else builds,
+and it found one real bug in Bun rather than in WebKit: NodeVMScript.cpp calls
+`JIT::compileSync`, whose CompilationResult is only forward declared by
+CodeBlock.h. Every other build gets the definition transitively through a DFG
+header, so with the DFG off it fails to compile. Include CompilationResult.h
+directly.
+
+The three `#if ENABLE(JIT)` sites that carried "ppc64le has no JIT" comments
+now take their JIT arm; the comments are corrected rather than the code.
+---
+ scripts/build/deps/webkit.ts         | 20 ++++++++++++++------
+ src/jsc/bindings/NodeVMScript.cpp    |  6 +++++-
+ src/jsc/bindings/ZigGlobalObject.cpp |  3 ++-
+ src/jsc/modules/BunJSCModule.h       |  2 +-
+ 4 files changed, 22 insertions(+), 9 deletions(-)
+
+diff --git a/scripts/build/deps/webkit.ts b/scripts/build/deps/webkit.ts
+index 6237a102..5b8cb93d 100644
+--- a/scripts/build/deps/webkit.ts
++++ b/scripts/build/deps/webkit.ts
+@@ -328,14 +328,22 @@ export const webkit: Dependency = {
+       ENABLE_STATIC_JSC: "ON",
+       USE_THIN_ARCHIVES: "OFF",
+       ENABLE_FTL_JIT: cfg.ppc64le ? "OFF" : "ON",
+-      // ppc64le: JSC has no JIT backend for PowerPC (no MacroAssembler, no
+-      // B3/Air lowering), so every JIT tier is off. ENABLE_C_LOOP stays OFF:
+-      // the ppc64le port lowers the LLInt through offlineasm's PPC64 backend
+-      // to real PowerPC assembly, which is a native interpreter, not CLoop.
+-      // WebAssembly needs at least BBQ, so it is off too.
++      // ppc64le: Baseline is the only JIT tier that exists for PowerPC. The
++      // MacroAssembler/assembler pair is ported, so ENABLE_JIT is ON; DFG and
++      // FTL need B3/Air lowering that does not exist, so they stay OFF.
++      // ENABLE_JIT=ON with ENABLE_DFG_JIT=OFF is a configuration nobody else
++      // builds, so name DFG explicitly rather than letting it default.
++      // ENABLE_C_LOOP stays OFF: the LLInt below the JIT is offlineasm's PPC64
++      // backend lowered to real PowerPC assembly, not CLoop.
++      // WebAssembly needs offlineasm lowering for InPlaceInterpreter.asm that
++      // the PPC64 backend does not have, so it is off with BBQ.
++      // ENABLE_YARR_JIT is forced 0 for CPU(PPC64LE) inside PlatformEnable.h:
++      // YarrJITDefaultRegisters wants thirteen live caller-saved GPRs and ELFv2
++      // has ten. Regexes run in the Yarr interpreter.
+       ...(cfg.ppc64le
+         ? {
+-            ENABLE_JIT: "OFF",
++            ENABLE_JIT: "ON",
++            ENABLE_DFG_JIT: "OFF",
+             ENABLE_C_LOOP: "OFF",
+             ENABLE_WEBASSEMBLY: "OFF",
+             ENABLE_SAMPLING_PROFILER: "OFF",
+diff --git a/src/jsc/bindings/NodeVMScript.cpp b/src/jsc/bindings/NodeVMScript.cpp
+index 99e3eb34..455d0df9 100644
+--- a/src/jsc/bindings/NodeVMScript.cpp
++++ b/src/jsc/bindings/NodeVMScript.cpp
+@@ -5,6 +5,10 @@
+ 
+ #include "JavaScriptCore/CodeCache.h"
+ #include "JavaScriptCore/Completion.h"
++// JIT::compileSync returns a CompilationResult, and CodeBlock.h only forward
++// declares it. On an ENABLE_DFG_JIT build the definition arrives transitively
++// through a DFG header; ppc64le builds Baseline-only, so name it directly.
++#include "JavaScriptCore/CompilationResult.h"
+ #include "JavaScriptCore/JIT.h"
+ #include "JavaScriptCore/JSWeakMap.h"
+ #include "JavaScriptCore/JSWeakMapInlines.h"
+@@ -201,7 +205,7 @@ constructScript(JSGlobalObject* globalObject, CallFrame* callFrame, JSValue newT
+                 script->cachedDataRejected(TriState::True);
+             }
+ #else
+-            // No JIT on this target (ppc64le runs the LLInt only). The cached
++            // No JIT tier on this target, so nothing to compile into. The cached
+             // bytecode decoded fine, which is the part `cachedDataRejected`
+             // reports on; installing it needs no compilation step.
+             executable->installCode(codeBlock);
+diff --git a/src/jsc/bindings/ZigGlobalObject.cpp b/src/jsc/bindings/ZigGlobalObject.cpp
+index c12369d4..4153d225 100644
+--- a/src/jsc/bindings/ZigGlobalObject.cpp
++++ b/src/jsc/bindings/ZigGlobalObject.cpp
+@@ -309,7 +309,8 @@ extern "C" void JSCInitialize(const char* envp[], size_t envc, void (*onCrash)(c
+             // Options::assertOptionsAreCoherent() aborts the process with
+             // "INCOHERENT OPTIONS: at least one of useWasmIPInt, or useBBQJIT
+             // must be true" when useWasm is on but no Wasm tier exists.
+-            // ppc64le builds JSC with ENABLE_JIT=OFF and ENABLE_WEBASSEMBLY=OFF.
++            // ppc64le builds JSC with ENABLE_WEBASSEMBLY=OFF (Baseline JIT on,
++            // DFG/FTL off), so the Wasm guards are the ones that fire there.
+ #if ENABLE(WEBASSEMBLY)
+             JSC::Options::useWasm() = true;
+ #endif
+diff --git a/src/jsc/modules/BunJSCModule.h b/src/jsc/modules/BunJSCModule.h
+index 3c2628f8..59c4415e 100644
+--- a/src/jsc/modules/BunJSCModule.h
++++ b/src/jsc/modules/BunJSCModule.h
+@@ -650,7 +650,7 @@ JSC_DEFINE_HOST_FUNCTION(functionTotalCompileTime,
+ 
+ #else
+ 
+-// ppc64le: no JIT tiers exist, so total compile time is definitionally zero.
++// No JIT tier compiled in, so total compile time is definitionally zero.
+ JSC_DECLARE_HOST_FUNCTION(functionTotalCompileTime);
+ JSC_DEFINE_HOST_FUNCTION(functionTotalCompileTime, (JSC::JSGlobalObject * globalObject, JSC::CallFrame*))
+ {
+-- 
+2.55.0
+

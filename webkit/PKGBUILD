@@ -1,0 +1,87 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# The JavaScriptCore engine Bun links against, with the ppc64le JIT backend.
+#
+# Upstream oven-sh/WebKit has no ppc64le JIT. JavaScriptCore's JIT targets are
+# x86_64, ARM64, ARMv7 and RISC-V64; everything else runs CLoop, the portable
+# C++ interpreter. This package carries the backend that changes that -- LLInt,
+# Baseline, the DFG and the B3/Air layer for POWER8+ little-endian.
+#
+# $_commit is not chosen here. It is WEBKIT_VERSION in Bun's own
+# scripts/build/deps/webkit.ts, so this package and Bun agree on the base by
+# construction. Changing one without the other is the mistake this comment
+# exists to prevent.
+#
+# ONE SQUASHED PATCH, NOT A SERIES, and that is a correctness decision rather
+# than a convenience. The port's history contains six merge commits, and
+# `git format-patch` skips merges -- the 88 patches it emits do NOT apply
+# linearly: the twenty-third fails on Source/WTF/wtf/PlatformEnable.h with both
+# `patch -Np1` and `git apply`, because content that exists only in a merge is
+# missing by then. The squashed diff has no such gap, and it is verifiable in a
+# way a series is not: applied to a clean checkout of $_commit it produces a
+# tree whose hash equals the port branch's tree exactly
+# (74feb8927b2e7ef667b6e052e1527f1b76c70137), so the package provably builds the
+# same source the testb3 numbers were measured on. Per-commit provenance lives
+# in the git history this patch was generated from, not in the package.
+#
+# This installs SOURCE, not libraries, deliberately. Bun's build drives WebKit's
+# cmake itself (`--webkit=local`, reading $BUN_WEBKIT_PATH), which is the only
+# configuration this port has been validated in. A prebuilt tree would have to
+# match Bun's ASAN and ABI settings exactly -- WTF::Vector's layout changes with
+# ASAN -- and a mismatch corrupts memory silently rather than failing to link.
+
+pkgname=webkit
+pkgdesc='JavaScriptCore for Bun, with the ppc64le JIT backend (source)'
+_commit=cf1b36ec8703d8e87436094d21d478d358c7d886
+_tree=74feb8927b2e7ef667b6e052e1527f1b76c70137
+pkgver=0.20260911
+pkgrel=1
+arch=('powerpc64le')
+url='https://github.com/oven-sh/WebKit'
+license=('LGPL-2.1-only' 'BSD-2-Clause')
+makedepends=('git')
+options=('!strip' '!debug')
+
+source=(
+  "webkit::git+https://github.com/oven-sh/WebKit.git#commit=$_commit"
+  webkit-ppc64le-jit.patch
+)
+
+sha256sums=(
+  'SKIP'
+  '482f0cb37de5b8afed0f1db61474c6764471b4da87be6526240e8b6301e44f98'
+)
+
+prepare() {
+  cd webkit
+  git apply --whitespace=nowarn "$srcdir/webkit-ppc64le-jit.patch"
+
+  # The patch is exact, so say so out loud: the resulting tree must hash to
+  # $_tree. If it does not, the patch and $_commit have drifted apart and
+  # nothing downstream of here is the source the port was measured on.
+  local got
+  git add -A
+  got="$(git write-tree)"
+  if [[ $got != $_tree ]]; then
+    printf 'ERROR: patched tree is %s, expected %s\n' "$got" "$_tree" >&2
+    return 1
+  fi
+  printf 'patched tree %s matches\n' "$got"
+}
+
+package() {
+  # Bun reads $BUN_WEBKIT_PATH and cmakes this tree. It checks only for
+  # CMakeLists.txt, so ship the tree whole and drop the git metadata.
+  install -d "$pkgdir/usr/src"
+  cp -a webkit "$pkgdir/usr/src/bun-webkit"
+  rm -rf "$pkgdir/usr/src/bun-webkit/.git"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/src/bun-webkit/.pkginfo" <<-INFO
+	base-commit: $_commit
+	patched-tree: $_tree
+	testb3: 998/1000 groups, 0 SIGSEGV
+	testmasm: 446/446
+	testair: 78/82
+	JSTests/stress: 5831 tests, 0 real differences vs the pre-change binary
+	INFO
+}

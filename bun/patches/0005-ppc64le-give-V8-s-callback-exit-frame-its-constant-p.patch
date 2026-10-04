@@ -1,0 +1,287 @@
+From 95e91d431cd1a58c0fea9a2969de9f705258d6f8 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 07:00:23 -0600
+Subject: [PATCH 05/10] ppc64le: give V8's callback exit frame its
+ constant-pool slot
+
+Calling any function a raw-V8 native addon exports segfaulted at address 0x9.
+Not a dlopen bug and not a duplicate-load bug: a single load crashes too, and
+loading twice without calling anything is fine.
+
+V8's FunctionCallbackInfo is a view onto an ApiCallbackExitFrame whose index
+enum reads
+
+    kFrameConstantPoolIndex,                                  // optional
+    kFrameFPIndex = kFrameConstantPoolIndex + I::kFrameCPSlotCount,
+
+with Internals::kFrameCPSlotCount == 1 under V8_TARGET_ARCH_PPC64 and 0
+everywhere else. Bun's shim hard-coded the no-constant-pool numbering, so it
+wrote the isolate at slot 5 while an addon compiled against real V8's headers
+read slot 6 -- bun's return-value slot, freshly initialised to the empty
+tagged value 1. 0x9 is that 1 plus the +8 of String::NewFromUtf8's first field
+load.
+
+Bun's enum now carries its own kFrameCPSlotCount and derives every index after
+kFrameConstantPoolIndex from it, both frame builders write that slot (on every
+other architecture it aliases kFrameFPIndex, so it is the same store), and the
+CHECK_FRAME_INDEX static_asserts against real V8's headers -- previously
+compiled out on PPC64 -- now hold on every architecture, with one more
+asserting the two kFrameCPSlotCounts agree. Same change for
+PropertyCallbackInfo and ApiAccessorExitFrame.
+
+Node-API addons never saw this layout and were never affected.
+
+Measured on POWER9/ppc64le: test/js/node/process/dlopen-duplicate-load.test.ts
+goes from 3 pass 2 fail to 5 pass 0 fail, and test/v8/v8.test.ts from 3 pass
+80 fail to 83 pass 0 fail.
+---
+ .../bindings/v8/V8FunctionCallbackInfo.cpp    | 24 ++++----------
+ src/jsc/bindings/v8/V8FunctionCallbackInfo.h  | 33 ++++++++++++-------
+ .../bindings/v8/V8PropertyCallbackInfo.cpp    | 19 +++--------
+ src/jsc/bindings/v8/V8PropertyCallbackInfo.h  | 33 ++++++++++++-------
+ src/jsc/bindings/v8/shim/FunctionTemplate.cpp |  2 ++
+ src/jsc/bindings/v8/shim/TemplateProperty.cpp |  2 ++
+ 6 files changed, 58 insertions(+), 55 deletions(-)
+
+diff --git a/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp b/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp
+index 2056e9a1..3d9cf1f2 100644
+--- a/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp
++++ b/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp
+@@ -10,22 +10,11 @@
+             == static_cast<int>(real_v8::FunctionCallbackInfo<real_v8::Value>::NAME), \
+         "Index of `" #NAME "` in the callback exit frame does not match V8");
+ 
+-// PPC64 is the one architecture where V8's exit frame carries a constant-pool
+-// slot (Internals::kFrameCPSlotCount == 1), which shifts every slot index after
+-// kFrameFPIndex by one. Bun's own enum folds kFrameConstantPoolIndex into
+-// kFrameFPIndex, so these indices legitimately disagree with real V8 there.
+-//
+-// Bun's shim is self-consistent, so bun's own callback frames work; what does
+-// NOT work on ppc64le is a native addon compiled against real V8's headers and
+-// using the raw v8:: API, because it would read the frame at V8's offsets.
+-// Node-API (napi) addons are unaffected -- they never see this layout.
+-// Compiling the checks would just stop the build with no way to proceed, so
+-// they are skipped and the limitation is documented instead.
+-#if !CPU(PPC64) && !CPU(PPC64LE)
+ CHECK_FRAME_INDEX(kNewTargetIndex)
+ CHECK_FRAME_INDEX(kArgcIndex)
+ CHECK_FRAME_INDEX(kFrameSPIndex)
+ CHECK_FRAME_INDEX(kFrameTypeIndex)
++CHECK_FRAME_INDEX(kFrameConstantPoolIndex)
+ CHECK_FRAME_INDEX(kFrameFPIndex)
+ CHECK_FRAME_INDEX(kFramePCIndex)
+ CHECK_FRAME_INDEX(kIsolateIndex)
+@@ -35,11 +24,12 @@ CHECK_FRAME_INDEX(kTargetIndex)
+ CHECK_FRAME_INDEX(kReceiverIndex)
+ CHECK_FRAME_INDEX(kFirstJSArgumentIndex)
+ 
+-// Our enum folds kFrameConstantPoolIndex into kFrameFPIndex, which is only
+-// valid when no constant pool slot is present (true everywhere but PPC64)
+-static_assert(real_v8::internal::Internals::kFrameCPSlotCount == 0,
+-    "Bun's v8::FunctionCallbackInfo assumes no constant pool slot in the exit frame");
+-#endif
++// PPC64 is the one architecture whose exit frame carries a constant-pool slot,
++// which shifts every index after kFrameConstantPoolIndex by one. Bun derives
++// its own indices from the same count, so this is what keeps the two in step.
++static_assert(v8::FunctionCallbackInfo<v8::Value>::kFrameCPSlotCount
++        == real_v8::internal::Internals::kFrameCPSlotCount,
++    "Bun's v8::FunctionCallbackInfo disagrees with V8 about the constant pool slot");
+ 
+ static_assert(v8::FunctionCallbackInfo<v8::Value>::kFrameTypeApiCallExit
+         == real_v8::internal::Internals::kFrameTypeApiCallExit,
+diff --git a/src/jsc/bindings/v8/V8FunctionCallbackInfo.h b/src/jsc/bindings/v8/V8FunctionCallbackInfo.h
+index 951d6f7b..904f9e61 100644
+--- a/src/jsc/bindings/v8/V8FunctionCallbackInfo.h
++++ b/src/jsc/bindings/v8/V8FunctionCallbackInfo.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "shim/TaggedPointer.h"
++#include <wtf/Platform.h>
+ 
+ namespace v8 {
+ 
+@@ -19,11 +20,20 @@ class Value;
+ template<typename T>
+ class FunctionCallbackInfo {
+ public:
++    // v8::internal::Internals::kFrameCPSlotCount. PPC64 exit frames carry a
++    // constant-pool slot between the frame type and the frame pointer; no
++    // other architecture has one. Every index after kFrameConstantPoolIndex
++    // shifts by this, so it has to be derived rather than written out.
++#if CPU(PPC64) || CPU(PPC64LE)
++    static constexpr int kFrameCPSlotCount = 1;
++#else
++    static constexpr int kFrameCPSlotCount = 0;
++#endif
++
+     // Slot indices relative to `values`. These must match the private enum in
+     // V8's v8-function-callback.h (checked by static_asserts in
+-    // V8FunctionCallbackInfo.cpp). kFrameConstantPoolIndex is folded into
+-    // kFrameFPIndex because Internals::kFrameCPSlotCount == 0 on every
+-    // architecture Bun supports (it is only 1 on PPC64).
++    // V8FunctionCallbackInfo.cpp), because a native addon compiled against
++    // real V8's headers reads the frame at those indices.
+     enum {
+         // Optional frame arguments block (only for API_CONSTRUCT_EXIT frames).
+         kNewTargetIndex = -1,
+@@ -32,18 +42,19 @@ public:
+         kArgcIndex = 0, // raw integer, not a Smi
+         kFrameSPIndex = 1,
+         kFrameTypeIndex = 2, // Smi-encoded frame type
+-        kFrameFPIndex = 3,
+-        kFramePCIndex = 4,
++        kFrameConstantPoolIndex = 3, // present only when kFrameCPSlotCount == 1
++        kFrameFPIndex = kFrameConstantPoolIndex + kFrameCPSlotCount,
++        kFramePCIndex = kFrameFPIndex + 1,
+ 
+         // API arguments block.
+-        kIsolateIndex = 5, // raw Isolate*
+-        kReturnValueIndex = 6,
+-        kContextIndex = 7, // raw context pointer
+-        kTargetIndex = 8,
++        kIsolateIndex = kFramePCIndex + 1, // raw Isolate*
++        kReturnValueIndex = kIsolateIndex + 1,
++        kContextIndex = kReturnValueIndex + 1, // raw context pointer
++        kTargetIndex = kContextIndex + 1,
+ 
+         // JS arguments block.
+-        kReceiverIndex = 9,
+-        kFirstJSArgumentIndex = 10,
++        kReceiverIndex = kTargetIndex + 1,
++        kFirstJSArgumentIndex = kReceiverIndex + 1,
+     };
+ 
+     // v8::internal::Internals::kFrameTypeApi{Call,Construct}Exit. Stored
+diff --git a/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp b/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp
+index e7b60ad1..b811e249 100644
+--- a/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp
++++ b/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp
+@@ -8,21 +8,10 @@
+             == static_cast<int>(real_v8::PropertyCallbackInfo<real_v8::Value>::NAME), \
+         "Index of `" #NAME "` in the accessor exit frame does not match V8");
+ 
+-// PPC64 is the one architecture where V8's exit frame carries a constant-pool
+-// slot (Internals::kFrameCPSlotCount == 1), which shifts every slot index after
+-// kFrameFPIndex by one. Bun's own enum folds kFrameConstantPoolIndex into
+-// kFrameFPIndex, so these indices legitimately disagree with real V8 there.
+-//
+-// Bun's shim is self-consistent, so bun's own callback frames work; what does
+-// NOT work on ppc64le is a native addon compiled against real V8's headers and
+-// using the raw v8:: API, because it would read the frame at V8's offsets.
+-// Node-API (napi) addons are unaffected -- they never see this layout.
+-// Compiling the checks would just stop the build with no way to proceed, so
+-// they are skipped and the limitation is documented instead.
+-#if !CPU(PPC64) && !CPU(PPC64LE)
+ CHECK_PROPERTY_FRAME_INDEX(kPropertyKeyIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFrameSPIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFrameTypeIndex)
++CHECK_PROPERTY_FRAME_INDEX(kFrameConstantPoolIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFrameFPIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFramePCIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kIsolateIndex)
+@@ -33,9 +22,9 @@ CHECK_PROPERTY_FRAME_INDEX(kShouldThrowOnErrorIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kValueIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFullArgsLength)
+ 
+-static_assert(real_v8::internal::Internals::kFrameCPSlotCount == 0,
+-    "Bun's v8::PropertyCallbackInfo assumes no constant pool slot in the exit frame");
+-#endif
++static_assert(v8::PropertyCallbackInfo<v8::Value>::kFrameCPSlotCount
++        == real_v8::internal::Internals::kFrameCPSlotCount,
++    "Bun's v8::PropertyCallbackInfo disagrees with V8 about the constant pool slot");
+ 
+ static_assert(v8::PropertyCallbackInfo<v8::Value>::kFrameTypeApiNamedAccessorExit
+         == real_v8::internal::Internals::kFrameTypeApiNamedAccessorExit,
+diff --git a/src/jsc/bindings/v8/V8PropertyCallbackInfo.h b/src/jsc/bindings/v8/V8PropertyCallbackInfo.h
+index fd57b6d1..5c3a8e27 100644
+--- a/src/jsc/bindings/v8/V8PropertyCallbackInfo.h
++++ b/src/jsc/bindings/v8/V8PropertyCallbackInfo.h
+@@ -2,6 +2,7 @@
+ 
+ #include "shim/TaggedPointer.h"
+ #include "V8Local.h"
++#include <wtf/Platform.h>
+ 
+ namespace v8 {
+ 
+@@ -19,9 +20,16 @@ class Object;
+ template<typename T>
+ class PropertyCallbackInfo {
+ public:
+-    // Slot indices relative to `args_`. kFrameConstantPoolIndex is folded into
+-    // kFrameFPIndex because Internals::kFrameCPSlotCount == 0 on every
+-    // architecture Bun supports (it is only 1 on PPC64).
++    // v8::internal::Internals::kFrameCPSlotCount; see V8FunctionCallbackInfo.h.
++#if CPU(PPC64) || CPU(PPC64LE)
++    static constexpr int kFrameCPSlotCount = 1;
++#else
++    static constexpr int kFrameCPSlotCount = 0;
++#endif
++
++    // Slot indices relative to `args_`, matching the private enum in V8's
++    // v8-function-callback.h (checked by static_asserts in
++    // V8PropertyCallbackInfo.cpp).
+     enum {
+         // Frame arguments block.
+         kPropertyKeyIndex = 0,
+@@ -29,20 +37,21 @@ public:
+         // Regular ExitFrame structure.
+         kFrameSPIndex = 1,
+         kFrameTypeIndex = 2, // Smi-encoded frame type
+-        kFrameFPIndex = 3,
+-        kFramePCIndex = 4,
++        kFrameConstantPoolIndex = 3, // present only when kFrameCPSlotCount == 1
++        kFrameFPIndex = kFrameConstantPoolIndex + kFrameCPSlotCount,
++        kFramePCIndex = kFrameFPIndex + 1,
+ 
+         // Other arguments block (kFirstApiArgumentIndex).
+-        kIsolateIndex = 5, // raw Isolate*
+-        kReturnValueIndex = 6,
+-        kCallbackInfoIndex = 7, // tagged pointer to AccessorInfo-like {map, data}
+-        kHolderIndex = 8,
++        kIsolateIndex = kFramePCIndex + 1, // raw Isolate*
++        kReturnValueIndex = kIsolateIndex + 1,
++        kCallbackInfoIndex = kReturnValueIndex + 1, // tagged pointer to AccessorInfo-like {map, data}
++        kHolderIndex = kCallbackInfoIndex + 1,
+ 
+         // Optional part, used only by setter/definer/deleter callbacks.
+-        kShouldThrowOnErrorIndex = 9,
+-        kValueIndex = 10,
++        kShouldThrowOnErrorIndex = kHolderIndex + 1,
++        kValueIndex = kShouldThrowOnErrorIndex + 1,
+ 
+-        kFullArgsLength = 11,
++        kFullArgsLength = kValueIndex + 1,
+     };
+ 
+     // v8::internal::Internals::kFrameTypeApiNamedAccessorExit. Stored Smi-encoded
+diff --git a/src/jsc/bindings/v8/shim/FunctionTemplate.cpp b/src/jsc/bindings/v8/shim/FunctionTemplate.cpp
+index 04d46fda..802a9c95 100644
+--- a/src/jsc/bindings/v8/shim/FunctionTemplate.cpp
++++ b/src/jsc/bindings/v8/shim/FunctionTemplate.cpp
+@@ -222,6 +222,8 @@ JSC::JSValue FunctionTemplate::invokeCallback(JSC::JSGlobalObject* globalObject,
+     slot(Info::kFrameSPIndex) = TaggedPointer::fromRaw(0);
+     // IsConstructCall() compares this Smi against kFrameTypeApiConstructExit
+     slot(Info::kFrameTypeIndex) = TaggedPointer(isConstruct ? Info::kFrameTypeApiConstructExit : Info::kFrameTypeApiCallExit);
++    // On PPC64 this is a slot of its own; elsewhere it aliases kFrameFPIndex.
++    slot(Info::kFrameConstantPoolIndex) = TaggedPointer::fromRaw(0);
+     slot(Info::kFrameFPIndex) = TaggedPointer::fromRaw(0);
+     slot(Info::kFramePCIndex) = TaggedPointer::fromRaw(0);
+     // GetIsolate() reads this slot as a raw, untagged pointer
+diff --git a/src/jsc/bindings/v8/shim/TemplateProperty.cpp b/src/jsc/bindings/v8/shim/TemplateProperty.cpp
+index 41507567..b332b738 100644
+--- a/src/jsc/bindings/v8/shim/TemplateProperty.cpp
++++ b/src/jsc/bindings/v8/shim/TemplateProperty.cpp
+@@ -84,6 +84,8 @@ static JSC::JSValue invokeAccessor(
+     frame[Info::kPropertyKeyIndex] = property.tagged();
+     frame[Info::kFrameSPIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kFrameTypeIndex] = TaggedPointer(Info::kFrameTypeApiNamedAccessorExit);
++    // On PPC64 this is a slot of its own; elsewhere it aliases kFrameFPIndex.
++    frame[Info::kFrameConstantPoolIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kFrameFPIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kFramePCIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kIsolateIndex] = TaggedPointer::fromRaw(reinterpret_cast<uintptr_t>(isolate));
+-- 
+2.55.0
+

@@ -1,0 +1,117 @@
+From 303d317c7bc1385feb00f6b92c92adde9b0f731e Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 09:53:12 -0600
+Subject: [PATCH 07/10] ppc64le: termios c_lflag bits are per-ABI, not "darwin
+ vs the rest"
+
+Three tests read a terminal's c_lflag and hardcoded `ICANON = darwin ? 0x100 :
+0x2`. powerpc keeps the older BSD-derived lflag layout, where ICANON is 0x100
+(the darwin value) and 0x2 is ECHOE. Raw mode clears ECHO|ICANON|IEXTEN|ISIG
+and leaves ECHOE alone, so `(localFlags & (0x2 | 0x8)) === 0` reported a raw
+terminal as cooked and three setRawMode assertions failed.
+
+Verified against the host headers: on powerpc64le glibc,
+ICANON=0x100 ECHO=0x8 ECHOE=0x2 ISIG=0x80 IEXTEN=0x400.
+
+One `termios` export in harness now carries the pair and tty.test.ts,
+terminal.test.ts and terminal-spawn.test.ts share it.
+---
+ test/harness.ts                             | 13 +++++++++++++
+ test/js/bun/terminal/terminal-spawn.test.ts |  7 ++-----
+ test/js/bun/terminal/terminal.test.ts       |  5 ++---
+ test/js/node/tty.test.ts                    |  5 ++---
+ 4 files changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/test/harness.ts b/test/harness.ts
+index 34399351..2f5b8eb7 100644
+--- a/test/harness.ts
++++ b/test/harness.ts
+@@ -63,6 +63,19 @@ function detectASAN(): boolean {
+   return basename(process.execPath).includes("bun-asan");
+ }
+ 
++/**
++ * termios `c_lflag` bits, which are per-ABI rather than universal. The generic
++ * Linux layout (x86-64, arm64, riscv64, s390x) puts ICANON at 0x2; powerpc
++ * keeps the older BSD-derived layout, where 0x2 is ECHOE and ICANON is 0x100 —
++ * the same value darwin uses. ECHO is 0x8 in all three. Reading 0x2 as ICANON
++ * on powerpc tests ECHOE instead, which raw mode does not clear, so a raw
++ * terminal looks cooked.
++ */
++export const termios = {
++  ICANON: isMacOS || process.arch === "ppc64" ? 0x100 : 0x2,
++  ECHO: 0x8,
++} as const;
++
+ let cachedPageSize: number | undefined;
+ 
+ /**
+diff --git a/test/js/bun/terminal/terminal-spawn.test.ts b/test/js/bun/terminal/terminal-spawn.test.ts
+index 690324cc..3f9ea612 100644
+--- a/test/js/bun/terminal/terminal-spawn.test.ts
++++ b/test/js/bun/terminal/terminal-spawn.test.ts
+@@ -1,6 +1,6 @@
+ import { dlopen, FFIType } from "bun:ffi";
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isMusl, isWindows, tempDir } from "harness";
++import { bunEnv, bunExe, isMusl, isWindows, tempDir, termios } from "harness";
+ import fs from "node:fs";
+ 
+ // Cross-platform Bun.Terminal + Bun.spawn integration tests that don't rely
+@@ -287,10 +287,7 @@ describe("Bun.Terminal subprocess integration", () => {
+     }
+   });
+ 
+-  // termios c_lflag bit layout is platform-specific. These match sys/termios.h:
+-  // Linux uses the "System V" layout; Darwin/BSD share the "4.3BSD" layout.
+-  const ICANON = process.platform === "darwin" ? 0x100 : 0x2;
+-  const ECHO = 0x8; // same on both
++  const { ICANON, ECHO } = termios;
+ 
+   // Regression: a Bun pipeline producer (stdout is a pipe, stdin/stderr are
+   // TTYs) that never calls setRawMode must not write its startup termios
+diff --git a/test/js/bun/terminal/terminal.test.ts b/test/js/bun/terminal/terminal.test.ts
+index 1040e185..fcffba96 100644
+--- a/test/js/bun/terminal/terminal.test.ts
++++ b/test/js/bun/terminal/terminal.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isLinux, isWindows, tempDir } from "harness";
++import { bunEnv, bunExe, isLinux, isWindows, tempDir, termios } from "harness";
+ import { readFileSync } from "node:fs";
+ import { join } from "node:path";
+ 
+@@ -299,8 +299,7 @@ describe("Bun.Terminal", () => {
+     // any terminal was raw, setRawMode(true) on a second one returned success
+     // without ever touching that terminal's own PTY.
+     test.skipIf(isWindows)("each terminal keeps its own raw mode", async () => {
+-      const ICANON = process.platform === "darwin" ? 0x100 : 0x2;
+-      const ECHO = 0x8;
++      const { ICANON, ECHO } = termios;
+       const isRaw = (terminal: Bun.Terminal) => (terminal.localFlags & (ICANON | ECHO)) === 0;
+ 
+       await using first = new Bun.Terminal({});
+diff --git a/test/js/node/tty.test.ts b/test/js/node/tty.test.ts
+index 3eca2321..7e8e2439 100644
+--- a/test/js/node/tty.test.ts
++++ b/test/js/node/tty.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it, test } from "bun:test";
+-import { bunEnv, bunExe, isWindows } from "harness";
++import { bunEnv, bunExe, isWindows, termios } from "harness";
+ import { WriteStream } from "node:tty";
+ 
+ describe("ReadStream.prototype.setRawMode", () => {
+@@ -88,8 +88,7 @@ describe("ReadStream.prototype.setRawMode", () => {
+   // Bun used to keep one process-wide mode + termios snapshot, which turned
+   // `setRawMode(false)` on a never-raw stream into a real tcsetattr.
+   test.skipIf(isWindows)("a second ReadStream's setRawMode does not disturb process.stdin", async () => {
+-    const ICANON = process.platform === "darwin" ? 0x100 : 0x2;
+-    const ECHO = 0x8;
++    const { ICANON, ECHO } = termios;
+ 
+     const decoder = new TextDecoder();
+     let buffer = "";
+-- 
+2.55.0
+

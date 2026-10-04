@@ -1,0 +1,372 @@
+From 116e9a2efd02e0b7c5c820655dfe21dbbd532c84 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 07:00:22 -0600
+Subject: [PATCH 04/10] ppc64le: wrap the glibc symbols a native build
+ references above the 2.17 floor
+
+test/js/bun/symbols.test.ts failed with 28 symbols newer than the declared
+GLIBC_2.17 base. ppc64le is the only glibc target built natively rather than
+in the Ubuntu-20.04 glibc-2.31 sysroot, so its headers and its default symbol
+versions are the build host's and it references symbols x64 and aarch64 never
+see. Same mechanism as those two -- -Wl,--wrap in flags.ts plus a __wrap_X and
+a .symver in workaround-missing-symbols.cpp -- kept in its own flag-table
+entry so the two sysroot links stay byte-identical.
+
+  2.32  pthread_sigmask
+  2.33  stat stat64 lstat lstat64, via __xstat/__lxstat as fstat already does
+  2.34  dlopen dlclose pthread_detach pthread_join pthread_setname_np
+        pthread_attr_getstack sem_init sem_post sem_wait
+  2.35  hypot hypotf
+  2.38  the __isoc23_* strtol/scanf family
+  2.43  acosf asinf atan2f
+
+pthread_create is already wrapped for an unrelated reason (the execve EAGAIN
+retry), but __real_pthread_create resolved to the 2.34 default. A .symver on
+an undefined symbol only applies inside its own object, so that one is pinned
+in c-bindings.cpp.
+
+The __isoc23_* names are a header redirect, not a call: glibc 2.38 redirects
+the whole strtol/scanf family whenever __GLIBC_USE (ISOC23) is on, which
+_GNU_SOURCE turns on. The wrappers forward to the pre-C23 entry points through
+an asm label, since writing strtol would hit the same redirect and recurse.
+The only behaviour given up is C23's 0b prefix for base 0 and 2, which is
+exactly what glibc 2.17 does not have either.
+
+__vsnprintfieee128 and __strtoieee128_l have no version older than 2.32, so
+they take the _dl_find_object shape instead: dlsym when the host has them,
+fail otherwise. Nothing in bun can reach them -- clang targets ppc64le with
+IBM double-double long double, and the reference comes from
+libstdc++.a(compatibility-ldbl-alt128.o), which the static link pulls in for
+locale_init.o's _M_init_extra_ldbl128 and which serves only the
+__gnu_cxx_ieee128 alternate-ABI locale facets. They live in their own TU
+because their prototypes need __float128, clang only defines that type under
+-mfloat128, and libstdc++'s headers do not compile under that flag.
+
+extraFlagsFor() now concatenates every matching fileOverrides entry rather
+than returning the first.
+---
+ scripts/build/bun.ts                          |   9 ++
+ scripts/build/flags.ts                        |  70 +++++++++++-
+ src/jsc/bindings/c-bindings.cpp               |  10 ++
+ .../bindings/workaround-ieee128-symbols.cpp   |  52 +++++++++
+ .../bindings/workaround-missing-symbols.cpp   | 104 ++++++++++++++++++
+ 5 files changed, 242 insertions(+), 3 deletions(-)
+ create mode 100644 src/jsc/bindings/workaround-ieee128-symbols.cpp
+
+diff --git a/scripts/build/bun.ts b/scripts/build/bun.ts
+index fc1a7481..39937c5d 100644
+--- a/scripts/build/bun.ts
++++ b/scripts/build/bun.ts
+@@ -334,6 +334,15 @@ export function emitBun(n: Ninja, cfg: Config, sources: Sources): BunOutput {
+     noPchSources.add(resolve(cfg.cwd, "src/jsc/bindings/highway_xml.cpp"));
+   }
+ 
++  // Same reason on ppc64le: workaround-ieee128-symbols.cpp is compiled
++  // -mfloat128 (see its fileOverrides entry in flags.ts) so it can declare the
++  // IEEE-128 glibc entry points, and clang refuses a PCH built without the
++  // target feature the TU enables. The force-included PCH would also drag in
++  // the libstdc++ headers that flag cannot survive.
++  if (cfg.ppc64le) {
++    noPchSources.add(resolve(cfg.cwd, "src/jsc/bindings/workaround-ieee128-symbols.cpp"));
++  }
++
+   // Windows-only cpp sources (rescle — PE resource editor for --compile).
+   if (cfg.windows) {
+     // rescle.h does `#define UNICODE` before including ATL; with PCH the
+diff --git a/scripts/build/flags.ts b/scripts/build/flags.ts
+index 76fc5f4b..ea1af158 100644
+--- a/scripts/build/flags.ts
++++ b/scripts/build/flags.ts
+@@ -1236,6 +1236,57 @@ export const linkerFlags: Flag[] = [
+     when: c => c.linux && c.abi === "gnu",
+     desc: "Wrap glibc 2.18+ symbols (portable down to glibc 2.17)",
+   },
++  {
++    // ppc64le has no cross sysroot: it builds natively against the host's
++    // glibc, so its headers and its default symbol versions are the host's,
++    // not the 2.31 the list above was derived from. These are the extra
++    // symbols an objdump -T of the ppc64le binary reports above the 2.17
++    // floor. Kept as its own entry (rather than merged above) so the x64 and
++    // aarch64 links, which are built in the 2.31 sysroot and cannot be tested
++    // from here, are unchanged. Implementations: workaround-missing-symbols.cpp.
++    flag: [
++      // libpthread/libdl → libc.so merge, later on ppc64le than on x86_64
++      "pthread_sigmask", // 2.32
++      "dlclose", // 2.34
++      "dlopen",
++      "pthread_attr_getstack",
++      "pthread_detach",
++      "pthread_join",
++      "pthread_setname_np",
++      "sem_init",
++      "sem_post",
++      "sem_wait",
++      // stat-family inline → real symbol (2.33); the 2.31 sysroot still
++      // inlines these to __xstat, so x64/aarch64 never reference them
++      "lstat",
++      "lstat64",
++      "stat",
++      "stat64",
++      // libm reworks (2.35 / 2.43)
++      "acosf",
++      "asinf",
++      "atan2f",
++      "hypot",
++      "hypotf",
++      // C23 strtol/scanf header redirects (2.38). glibc redirects the plain
++      // names to these whenever __GLIBC_USE (ISOC23) is on, which _GNU_SOURCE
++      // turns on; the 2.31 sysroot's headers predate the redirect entirely.
++      "__isoc23_fscanf",
++      "__isoc23_sscanf",
++      "__isoc23_strtoimax",
++      "__isoc23_strtol",
++      "__isoc23_strtoul",
++      "__isoc23_strtoull",
++      "__isoc23_vfscanf",
++      "__isoc23_vscanf",
++      "__isoc23_vsscanf",
++      // PowerPC-only IEEE-128 long double entry points (2.32)
++      "__strtoieee128_l",
++      "__vsnprintfieee128",
++    ].map(s => `-Wl,--wrap=${s}`),
++    when: c => c.linux && c.abi === "gnu" && c.ppc64le,
++    desc: "Wrap the extra glibc symbols a native ppc64le build references (portable down to glibc 2.17)",
++  },
+   {
+     // c-bindings.cpp: __wrap_execve records that an exec of this process is in
+     // flight, and __wrap_pthread_create retries the EAGAIN the kernel returns
+@@ -1687,6 +1738,17 @@ export const fileOverrides: FileOverride[] = [
+     when: c => c.linux && c.lto && c.abi === "gnu",
+     desc: "Disable LTO: LLD 21 emits glibc versioned symbols (exp@GLIBC_2.17) into .lto_discard which fails to parse '@'",
+   },
++  {
++    file: "src/jsc/bindings/workaround-ieee128-symbols.cpp",
++    // __strtoieee128_l returns __float128, and clang only defines that type on
++    // PowerPC with -mfloat128. It does not change the long double ABI: with or
++    // without it __LDBL_MANT_DIG__ stays 106 (IBM double-double). The TU has to
++    // stay clear of libstdc++ headers, which under this flag reach for
++    // __builtin_fabsq/__builtin_nansq — builtins clang does not have.
++    extraFlags: ["-mfloat128"],
++    when: c => c.ppc64le,
++    desc: "Declare the IEEE-128 glibc entry points wrapped for the 2.17 floor",
++  },
+   {
+     file: "src/jsc/bindings/windows/rescle.cpp",
+     extraFlags: "/EHsc",
+@@ -1814,14 +1876,16 @@ export function computeCpuTargetFlags(cfg: Config): string[] {
+ 
+ /**
+  * Per-file extra flags lookup. Call after computeFlags() when compiling a
+- * specific source. Returns extra flags to append (may be empty).
++ * specific source. Every matching override contributes, in table order, so one
++ * file can collect flags from several independent conditions.
+  */
+ export function extraFlagsFor(cfg: Config, srcRelPath: string): string[] {
+   const key = srcRelPath.replaceAll("\\", "/");
++  const out: string[] = [];
+   for (const o of fileOverrides) {
+     if (o.file !== key) continue;
+     if (o.when && !o.when(cfg)) continue;
+-    return resolveFlagValue(o.extraFlags, cfg);
++    out.push(...resolveFlagValue(o.extraFlags, cfg));
+   }
+-  return [];
++  return out;
+ }
+diff --git a/src/jsc/bindings/c-bindings.cpp b/src/jsc/bindings/c-bindings.cpp
+index 481ccddd..2dcd50e7 100644
+--- a/src/jsc/bindings/c-bindings.cpp
++++ b/src/jsc/bindings/c-bindings.cpp
+@@ -375,6 +375,16 @@ static pid_t execve_counting_pid = 0;
+ extern "C" int __real_execve(const char*, char* const[], char* const[]);
+ extern "C" int __real_pthread_create(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
+ 
++#if defined(__powerpc64__) && defined(__GNU_LIBRARY__)
++// ppc64le builds against the host glibc rather than the 2.31 sysroot, where
++// pthread_create's default version is the 2.34 one from the libpthread→libc
++// merge. --wrap sends __real_pthread_create to that default, which would put
++// GLIBC_2.34 in the binary's verneed; the 2.17 compat_symbol is the same
++// function. Everything else pinned this way is in workaround-missing-symbols.cpp,
++// but a .symver on an undefined symbol only applies inside its own object.
++__asm__(".symver __real_pthread_create,pthread_create@GLIBC_2.17");
++#endif
++
+ extern "C" int __wrap_execve(const char* path, char* const argv[], char* const envp[])
+ {
+     if (getpid() != execve_counting_pid)
+diff --git a/src/jsc/bindings/workaround-ieee128-symbols.cpp b/src/jsc/bindings/workaround-ieee128-symbols.cpp
+new file mode 100644
+index 00000000..e37b5333
+--- /dev/null
++++ b/src/jsc/bindings/workaround-ieee128-symbols.cpp
+@@ -0,0 +1,52 @@
++// glibc's IEEE-128 long double entry points, wrapped so a ppc64le build keeps
++// its GLIBC_2.17 floor. Companion to workaround-missing-symbols.cpp, which
++// owns every other wrapped symbol; these two live apart because their
++// prototypes need __float128, clang only defines that type under -mfloat128
++// (scripts/build/flags.ts fileOverrides), and under that flag libstdc++'s
++// <limits>/<bits/std_abs.h> reach for __builtin_fabsq/__builtin_nansq, which
++// clang does not provide. Only C headers here, and no PCH (scripts/build/bun.ts).
++//
++// glibc grew these in 2.32, so unlike the rest there is no older version to
++// pin to. Nothing in bun calls them: clang targets ppc64le with IBM
++// double-double long double (__LDBL_MANT_DIG__ == 106), and the only reference
++// comes from libstdc++.a(compatibility-ldbl-alt128.o), which the static link
++// pulls in because locale_init.o needs its
++// std::locale::_Impl::_M_init_extra_ldbl128. That object serves the
++// __gnu_cxx_ieee128:: alternate-ABI locale facets, which only
++// -mabi=ieeelongdouble code selects. Forward to glibc's when the host has them
++// (>= 2.32) so nothing changes there, and report failure rather than invent a
++// result on an older one.
++
++#if defined(__linux__) && defined(__powerpc64__)
++#include <features.h>
++#ifdef __GNU_LIBRARY__
++
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
++
++#include <dlfcn.h>
++#include <locale.h>
++#include <stdarg.h>
++#include <stddef.h>
++
++extern "C" int __wrap___vsnprintfieee128(char* s, size_t n, const char* fmt, va_list ap)
++{
++    using fn = int (*)(char*, size_t, const char*, va_list);
++    static fn real = reinterpret_cast<fn>(dlsym(RTLD_DEFAULT, "__vsnprintfieee128"));
++    return real ? real(s, n, fmt, ap) : -1;
++}
++
++extern "C" __float128 __wrap___strtoieee128_l(const char* nptr, char** endptr, locale_t loc)
++{
++    using fn = __float128 (*)(const char*, char**, locale_t);
++    static fn real = reinterpret_cast<fn>(dlsym(RTLD_DEFAULT, "__strtoieee128_l"));
++    if (!real) {
++        if (endptr) *endptr = const_cast<char*>(nptr);
++        return 0;
++    }
++    return real(nptr, endptr, loc);
++}
++
++#endif // __GNU_LIBRARY__
++#endif // __linux__ && __powerpc64__
+diff --git a/src/jsc/bindings/workaround-missing-symbols.cpp b/src/jsc/bindings/workaround-missing-symbols.cpp
+index fa78cdc3..7f71c5e9 100644
+--- a/src/jsc/bindings/workaround-missing-symbols.cpp
++++ b/src/jsc/bindings/workaround-missing-symbols.cpp
+@@ -509,6 +509,110 @@ extern "C" int __wrap___libc_start_main(int (*main)(int, char**, char**), int ar
+     return __libc_start_main(main, argc, argv, init ? init : bun_libc_csu_init, fini, rtld_fini, stack_end);
+ }
+ 
++// ───────────────────────────────────────────────────────────────────────────
++// ppc64le. It is the one glibc target built natively instead of against the
++// 2.31 sysroot, so its headers and default symbol versions are the build
++// host's and it references symbols the groups above never see. The matching
++// -Wl,--wrap= list is the ppc64le entry in scripts/build/flags.ts.
++// ───────────────────────────────────────────────────────────────────────────
++#if defined(__powerpc64__)
++
++#include <inttypes.h>
++#include <locale.h>
++#include <semaphore.h>
++
++// Group A: the same libpthread/libdl/libm story, at the versions ppc64le got
++// them. Every one has a compat_symbol at 2.17 (objdump -T /usr/lib/libc.so.6
++// shows both, e.g. "(GLIBC_2.17)" and "GLIBC_2.34" on dlopen).
++BUN_WRAP_FWD(int, pthread_sigmask, (int how, const sigset_t* set, sigset_t* old), (how, set, old)) // 2.32
++BUN_WRAP_FWD(void*, dlopen, (const char* file, int flags), (file, flags)) // 2.34
++BUN_WRAP_FWD(int, dlclose, (void* handle), (handle))
++BUN_WRAP_FWD(int, pthread_detach, (pthread_t t), (t))
++BUN_WRAP_FWD(int, pthread_join, (pthread_t t, void** ret), (t, ret))
++BUN_WRAP_FWD(int, pthread_setname_np, (pthread_t t, const char* name), (t, name))
++BUN_WRAP_FWD(int, pthread_attr_getstack, (const pthread_attr_t* a, void** addr, size_t* size), (a, addr, size))
++BUN_WRAP_FWD(int, sem_init, (sem_t * s, int shared, unsigned value), (s, shared, value))
++BUN_WRAP_FWD(int, sem_post, (sem_t * s), (s))
++BUN_WRAP_FWD(int, sem_wait, (sem_t * s), (s))
++BUN_WRAP_FWD(double, hypot, (double x, double y), (x, y)) // 2.35
++BUN_WRAP_FWD(float, hypotf, (float x, float y), (x, y))
++BUN_WRAP_FWD(float, acosf, (float x), (x)) // 2.43
++BUN_WRAP_FWD(float, asinf, (float x), (x))
++BUN_WRAP_FWD(float, atan2f, (float y, float x), (y, x))
++
++// Group B: stat/lstat became real symbols in 2.33, like fstat above. The
++// 2.31 sysroot still expands them to __xstat inline, which is why x64 and
++// aarch64 wrap only the f-variants.
++extern "C" int __xstat(int, const char*, struct stat*);
++extern "C" int __xstat64(int, const char*, struct stat64*);
++extern "C" int __lxstat(int, const char*, struct stat*);
++extern "C" int __lxstat64(int, const char*, struct stat64*);
++BUN_SYMVER(__xstat, BUN_GLIBC_BASE);
++BUN_SYMVER(__xstat64, BUN_GLIBC_BASE);
++BUN_SYMVER(__lxstat, BUN_GLIBC_BASE);
++BUN_SYMVER(__lxstat64, BUN_GLIBC_BASE);
++
++extern "C" int __wrap_stat(const char* p, struct stat* st) { return __xstat(_STAT_VER, p, st); }
++extern "C" int __wrap_stat64(const char* p, struct stat64* st) { return __xstat64(_STAT_VER, p, st); }
++extern "C" int __wrap_lstat(const char* p, struct stat* st) { return __lxstat(_STAT_VER, p, st); }
++extern "C" int __wrap_lstat64(const char* p, struct stat64* st) { return __lxstat64(_STAT_VER, p, st); }
++
++// Group C23: glibc 2.38 redirects the strtol and scanf families to
++// __isoc23_* whenever __GLIBC_USE (ISOC23) is on, which _GNU_SOURCE turns on
++// unconditionally — so every TU that calls strtol references a 2.38 symbol.
++// The only difference is that the C23 entry points accept a 0b/0B prefix for
++// base 0 and 2; forwarding to the pre-C23 function is exactly the behaviour
++// this binary would have on the 2.17 floor it claims to support.
++//
++// The forward has to name the real function through an asm label: writing
++// `strtol` here would go through the same header redirect and recurse.
++#define BUN_REAL_PRE_C23(ret, sym, params) \
++    BUN_SYMVER(sym, BUN_GLIBC_BASE);       \
++    extern "C" ret bun_real_##sym params __asm__(#sym)
++
++BUN_REAL_PRE_C23(long, strtol, (const char*, char**, int));
++BUN_REAL_PRE_C23(unsigned long, strtoul, (const char*, char**, int));
++BUN_REAL_PRE_C23(unsigned long long, strtoull, (const char*, char**, int));
++BUN_REAL_PRE_C23(intmax_t, strtoimax, (const char*, char**, int));
++BUN_REAL_PRE_C23(int, vsscanf, (const char*, const char*, va_list));
++BUN_REAL_PRE_C23(int, vfscanf, (FILE*, const char*, va_list));
++BUN_REAL_PRE_C23(int, vscanf, (const char*, va_list));
++
++#undef BUN_REAL_PRE_C23
++
++extern "C" long __wrap___isoc23_strtol(const char* s, char** end, int base) { return bun_real_strtol(s, end, base); }
++extern "C" unsigned long __wrap___isoc23_strtoul(const char* s, char** end, int base) { return bun_real_strtoul(s, end, base); }
++extern "C" unsigned long long __wrap___isoc23_strtoull(const char* s, char** end, int base) { return bun_real_strtoull(s, end, base); }
++extern "C" intmax_t __wrap___isoc23_strtoimax(const char* s, char** end, int base) { return bun_real_strtoimax(s, end, base); }
++
++extern "C" int __wrap___isoc23_vsscanf(const char* s, const char* fmt, va_list ap) { return bun_real_vsscanf(s, fmt, ap); }
++extern "C" int __wrap___isoc23_vfscanf(FILE* stream, const char* fmt, va_list ap) { return bun_real_vfscanf(stream, fmt, ap); }
++extern "C" int __wrap___isoc23_vscanf(const char* fmt, va_list ap) { return bun_real_vscanf(fmt, ap); }
++
++extern "C" int __wrap___isoc23_sscanf(const char* s, const char* fmt, ...)
++{
++    va_list ap;
++    va_start(ap, fmt);
++    int rc = bun_real_vsscanf(s, fmt, ap);
++    va_end(ap);
++    return rc;
++}
++extern "C" int __wrap___isoc23_fscanf(FILE* stream, const char* fmt, ...)
++{
++    va_list ap;
++    va_start(ap, fmt);
++    int rc = bun_real_vfscanf(stream, fmt, ap);
++    va_end(ap);
++    return rc;
++}
++
++// The two remaining offenders, glibc's IEEE-128 long double entry points, are
++// wrapped in workaround-ieee128-symbols.cpp: their prototypes need __float128,
++// which clang only defines under -mfloat128, and that flag cannot be used in
++// a TU that includes libstdc++ headers.
++
++#endif // __powerpc64__
++
+ #endif // glibc
+ 
+ // musl
+-- 
+2.55.0
+

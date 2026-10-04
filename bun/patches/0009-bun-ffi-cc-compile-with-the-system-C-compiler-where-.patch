@@ -1,0 +1,510 @@
+From 8ec0ed34edeeeff1e60b0405776e4f48a119ed48 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 12 Sep 2026 11:10:49 -0600
+Subject: [PATCH 09/10] bun:ffi cc(): compile with the system C compiler where
+ TinyCC has no backend
+
+cc() was the last thing in bun:ffi still going through TinyCC, and TinyCC has
+no code generator for ppc64le, android or freebsd -- `cfg.tinycc` is false on
+all three and cc() threw "not available in this build".
+
+It does not need one. bun 1.4.3 already has two FFI paths and only cc() used
+the old one: dlopen() resolves each symbol with dlsym and hands the pointer to
+Bun__CreateJSCFFIFunction, where JavaScriptCore builds the JS<->C thunk from a
+JSC::FFI::Signature. So where ENABLE_TINYCC is false, cc() now compiles the
+user's sources with the system C compiler into a temporary shared object,
+dlopens it, and takes the same route. Nothing of TinyCC's scaffolding is
+reproduced: no generated JSFunctionCall wrapper, no FFI.h, no libtcc1.c
+compiler-rt, no ffi-std*.h stand-in headers. Where TinyCC exists, nothing
+changes.
+
+$CC first, then clang, cc, gcc. $CC set and not found is an error rather than
+a reason to silently use a different compiler. Flags: -shared -fPIC, then
+either the caller's `flags`, or $BUN_CC_OPTIONS, or -std=c11 -O2 -g -- the
+same precedence the TinyCC path gives `flags` and $BUN_TCC_OPTIONS.
+$BUN_TCC_OPTIONS itself is deliberately not read here; its documented value
+carries TinyCC-only spellings like -Wl,--export-all-symbols that a real linker
+rejects. Compiler diagnostics go to bun's stderr, which is better than
+re-wrapping them: the user gets clang's output verbatim. The object is
+unlinked once dlopen has it.
+
+No compiler version is required. Measured on POWER9/ppc64le with clang 22.1.8
+and gcc 16.1.1, both producing the same answer; every flag used predates clang
+3.1 and gcc 4.7. Packaging: an unversioned optdepends on clang, no upper
+bound.
+
+One thing the shared-object path cannot carry: a napi_env argument. TinyCC's
+wrapper materialised it from an injected symbol, and a JSC FFI signature has
+no slot for one (FFI::Type reserves the tag). napi_value is a JSValue and
+works. cc() now says so instead of failing obscurely, and the tests that need
+napi_env skip on `hasTinyCC`, along with the ones asserting TinyCC's own
+behaviour -- that _Thread_local is rejected, that a compiler-runtime header
+directory is staged. A real compiler does neither.
+
+src/js/bun/ffi.ts stops assigning `native` onto a symbol that already has one:
+JSC's FFI functions carry `native` and `ptr` as readonly intrinsics, and
+overwriting one throws in a builtin's strict mode.
+
+Measured on ppc64le, against WebKit ppc64le-port 8aee24c4ec:
+  test/regression/issue/26249.test.ts   2 pass 0 fail  (was 2 fail)
+  test/js/bun/ffi/cc.test.ts           21 pass 0 fail  (was the whole file)
+  test/napi/napi-value-ffi.test.ts      1 pass 0 fail
+---
+ src/js/bun/ffi.ts                |   9 +-
+ src/runtime/ffi/ffi_body.rs      | 279 ++++++++++++++++++++++++++++++-
+ test/harness.ts                  |  14 ++
+ test/js/bun/ffi/cc.test.ts       |  15 +-
+ test/napi/napi-value-ffi.test.ts |   9 +-
+ 5 files changed, 310 insertions(+), 16 deletions(-)
+
+diff --git a/src/js/bun/ffi.ts b/src/js/bun/ffi.ts
+index 569d3a10..640555b9 100644
+--- a/src/js/bun/ffi.ts
++++ b/src/js/bun/ffi.ts
+@@ -242,9 +242,12 @@ function cc(options) {
+         //    "sqlite3_get_version() - sqlit3.so"
+         path.includes("/") ? `${key} (${path.split("/").pop()})` : `${key} (${path})`,
+       );
+-    } else {
+-      // consistentcy
+-      result.symbols[key].native = result.symbols[key];
++    } else if (symbol.native === undefined) {
++      // consistency. JSC's own FFI functions — what cc() returns wherever it
++      // compiles to a shared object instead of JIT-ing in-process — already
++      // carry `native` and `ptr` as readonly intrinsics, and assigning over
++      // one throws in a builtin's strict mode.
++      symbol.native = symbol;
+     }
+   }
+ 
+diff --git a/src/runtime/ffi/ffi_body.rs b/src/runtime/ffi/ffi_body.rs
+index 16599637..7f0ae495 100644
+--- a/src/runtime/ffi/ffi_body.rs
++++ b/src/runtime/ffi/ffi_body.rs
+@@ -46,6 +46,45 @@ unsafe extern "C" {
+ 
+ use super::get_dl_error;
+ 
++/// The C compiler `cc()` shells out to where TinyCC is unavailable. `$CC`
++/// wins if it is set — and if it is set and cannot be found, that is an error
++/// rather than a reason to fall through to a different compiler.
++#[cfg(unix)]
++fn resolve_system_cc(buf: &mut bun_paths::PathBuffer) -> Option<ZBox> {
++    let path_env = bun_core::util::getenv_z(zstr!("PATH")).unwrap_or(b"");
++    if let Some(cc) = bun_core::util::getenv_z(zstr!("CC"))
++        && !cc.is_empty()
++    {
++        if bun_core::strings::contains_char(cc, b'/') {
++            return Some(ZBox::from_bytes(cc));
++        }
++        return bun_which::which(buf, path_env, b".", cc).map(|z| ZBox::from_bytes(z.as_bytes()));
++    }
++    for candidate in [b"clang".as_slice(), b"cc".as_slice(), b"gcc".as_slice()] {
++        if let Some(found) = bun_which::which(buf, path_env, b".", candidate) {
++            return Some(ZBox::from_bytes(found.as_bytes()));
++        }
++    }
++    None
++}
++
++/// `<tmpdir>/bun-cc-XXXX.so`, absolute so both the compiler's `-o` and
++/// `dlopen` can use it.
++#[cfg(unix)]
++fn system_cc_output_path() -> Option<ZBox> {
++    let mut name_buf = bun_paths::path_buffer_pool::get();
++    let name =
++        Fs::FileSystem::tmpname(b"bun-cc", &mut name_buf.0, bun_core::fast_random()).ok()?;
++    let mut path = Vec::new();
++    path.extend_from_slice(Fs::RealFS::tmpdir_path());
++    if !path.ends_with(b"/") {
++        path.push(b'/');
++    }
++    path.extend_from_slice(name.as_bytes());
++    path.extend_from_slice(b".so");
++    Some(ZBox::from_bytes(&path))
++}
++
+ /// Run a function that needs to write to JIT-protected memory.
+ ///
+ /// This is dangerous as it allows overwriting executable regions of memory.
+@@ -608,6 +647,117 @@ impl CompileC {
+             .filter(|d| !d.is_empty())
+     }
+ 
++    /// Build the sources into a shared object with the system C compiler and
++    /// return its path. Diagnostics go to bun's own stderr: a real compiler
++    /// has one, unlike TinyCC's error callback, and the user gets clang's
++    /// output verbatim rather than a re-wrapped copy.
++    ///
++    /// No compiler version is required. The flags are `-shared -fPIC`, a
++    /// language standard, and the `-I`/`-D`/`-L`/`-l` the caller asked for;
++    /// all of them predate clang 3.1 and gcc 4.7.
++    #[cfg(unix)]
++    pub(crate) fn compile_with_system_compiler(
++        &mut self,
++        global_this: &JSGlobalObject,
++    ) -> JsResult<ZBox> {
++        let mut which_buf = bun_paths::PathBuffer::ZEROED;
++        let Some(cc) = resolve_system_cc(&mut which_buf) else {
++            return Err(global_this.throw(format_args!(
++                "bun:ffi cc() needs a C compiler on PATH (clang, cc or gcc), or $CC pointing at one. This build has no TinyCC for this target."
++            )));
++        };
++
++        let Some(out_path) = system_cc_output_path() else {
++            return Err(
++                global_this.throw(format_args!("bun:ffi cc(): could not create a temporary file"))
++            );
++        };
++
++        let mut argv: Vec<Vec<u8>> = Vec::new();
++        argv.push(cc.as_bytes().to_vec());
++        argv.push(b"-shared".to_vec());
++        argv.push(b"-fPIC".to_vec());
++
++        // Same precedence as the TinyCC path: an explicit `flags` option
++        // replaces the defaults, otherwise $BUN_CC_OPTIONS, otherwise these.
++        // $BUN_TCC_OPTIONS is deliberately not read here — its documented
++        // value carries TinyCC-only spellings such as
++        // `-Wl,--export-all-symbols`, which a real linker rejects.
++        if !self.flags.is_empty() {
++            for word in bun_core::strings::split_any(self.flags.as_bytes(), b" \t") {
++                if !word.is_empty() {
++                    argv.push(word.to_vec());
++                }
++            }
++        } else if let Some(opts) = bun_core::util::getenv_z(zstr!("BUN_CC_OPTIONS")) {
++            for word in bun_core::strings::split_any(opts, b" \t") {
++                if !word.is_empty() {
++                    argv.push(word.to_vec());
++                }
++            }
++        } else {
++            argv.push(b"-std=c11".to_vec());
++            argv.push(b"-O2".to_vec());
++            argv.push(b"-g".to_vec());
++        }
++
++        for include_dir in self.include_dirs.items.iter() {
++            argv.push(b"-I".to_vec());
++            argv.push(include_dir.as_bytes().to_vec());
++        }
++        for define in self.define.iter() {
++            let mut arg = b"-D".to_vec();
++            arg.extend_from_slice(define[0].as_bytes());
++            if !define[1].is_empty() {
++                arg.push(b'=');
++                arg.extend_from_slice(define[1].as_bytes());
++            }
++            argv.push(arg);
++        }
++
++        match &self.source {
++            Source::File(file) => argv.push(file.as_bytes().to_vec()),
++            Source::Files(files) => {
++                for file in files.iter() {
++                    argv.push(file.as_bytes().to_vec());
++                }
++            }
++        }
++
++        for library_dir in self.library_dirs.items.iter() {
++            argv.push(b"-L".to_vec());
++            argv.push(library_dir.as_bytes().to_vec());
++        }
++        for library in self.libraries.items.iter() {
++            let mut arg = b"-l".to_vec();
++            arg.extend_from_slice(library.as_bytes());
++            argv.push(arg);
++        }
++
++        argv.push(b"-o".to_vec());
++        argv.push(out_path.as_bytes().to_vec());
++
++        let status = match bun_core::util::spawn_sync_inherit_no_stdin(&argv) {
++            Ok(status) => status,
++            Err(_) => {
++                return Err(global_this.throw(format_args!(
++                    "bun:ffi cc(): could not run {}",
++                    BStr::new(cc.as_bytes())
++                )));
++            }
++        };
++        if !status.is_ok() {
++            let _ = bun_sys::unlink(out_path.as_zstr());
++            return Err(global_this.throw(format_args!(
++                "bun:ffi cc(): {} failed to compile {} (its diagnostics are above)",
++                BStr::new(cc.as_bytes()),
++                BStr::new(self.source.first().as_bytes())
++            )));
++        }
++
++        Ok(out_path)
++    }
++
+     pub(crate) fn compile(
+         &mut self,
+         global_this: &JSGlobalObject,
+@@ -994,11 +1144,6 @@ impl FFI {
+                 )
+                 .throw());
+         }
+-        if !bun_core::Environment::ENABLE_TINYCC {
+-            return Err(global_this.throw(format_args!(
+-                "bun:ffi cc() is not available in this build (TinyCC is disabled)"
+-            )));
+-        }
+         let arguments = callframe.arguments();
+         if arguments.is_empty() || !arguments[0].is_object() {
+             return Err(global_this.throw_invalid_arguments(format_args!("Expected object")));
+@@ -1145,6 +1290,10 @@ impl FFI {
+             }
+         }
+ 
++        if !bun_core::Environment::ENABLE_TINYCC {
++            return Self::cc_with_system_compiler(global_this, compile_c);
++        }
++
+         // Now we compile the code with tinycc.
+         let mut tcc_state: Option<NonNull<TCC::State>> = match compile_c.compile(global_this) {
+             Ok(s) => Some(s),
+@@ -1570,6 +1719,126 @@ impl FFI {
+         Ok(js_object)
+     }
+ 
++    /// `cc()` where TinyCC has no code generator for the target
++    /// (`!ENABLE_TINYCC`: ppc64le, android, freebsd).
++    ///
++    /// The sources go to the system C compiler as a shared object, which is
++    /// then loaded exactly like `dlopen()` loads any other library — including
++    /// the JS↔C thunks, which JavaScriptCore builds from the signature
++    /// (`Bun__CreateJSCFFIFunction`). None of TinyCC's scaffolding is
++    /// reproduced: no generated `JSFunctionCall` wrapper, no `FFI.h`, no
++    /// `libtcc1.c` compiler-rt and no `ffi-std*.h` stand-in headers.
++    ///
++    /// `napi_env` is the one thing this cannot carry. TinyCC's wrapper
++    /// materialised it out of an injected symbol; a JSC signature has no slot
++    /// for it (`FFI::Type` reserves the tag). `napi_value` is a JSValue and
++    /// works.
++    #[cfg(unix)]
++    fn cc_with_system_compiler(
++        global_this: &JSGlobalObject,
++        mut compile_c: CompileC,
++    ) -> JsResult<JSValue> {
++        for function in compile_c.symbols.map.values() {
++            if function.arg_types.contains(&ABIType::NapiEnv) {
++                return Err(global_this.throw(format_args!(
++                    "bun:ffi cc(): napi_env arguments need the TinyCC backend, which has no code generator for this target. napi_value works; take the env from a napi_value instead."
++                )));
++            }
++        }
++
++        let object_path = match compile_c.compile_with_system_compiler(global_this) {
++            Ok(path) => path,
++            Err(err) => return Err(err),
++        };
++
++        let dylib = match bun_sys::DynLib::open(object_path.as_bytes()) {
++            Ok(d) => d,
++            Err(_) => {
++                let dlerror_msg = get_dl_error();
++                // The object is only useful for a post-mortem, and only while
++                // it is still on disk.
++                let _ = bun_sys::unlink(object_path.as_zstr());
++                return Err(global_this.throw(format_args!(
++                    "bun:ffi cc(): the compiled object did not load: {}",
++                    BStr::new(&dlerror_msg)
++                )));
++            }
++        };
++        // POSIX keeps the mapping alive across an unlink, so the temporary
++        // does not outlive the process that made it.
++        let _ = bun_sys::unlink(object_path.as_zstr());
++
++        let mut symbols = core::mem::take(&mut compile_c.symbols.map);
++        let mut size = symbols.values().len();
++        if size >= 63 {
++            size = 0;
++        }
++        let obj = JSValue::create_empty_object(global_this, size);
++        let _obj_guard = obj.protected();
++
++        let lib_ptr: *mut FFI = bun_core::heap::into_raw(Box::new(FFI::default()));
++        // SAFETY: `lib_ptr` is the fresh allocation from into_raw above.
++        let js_object = unsafe { FFI::to_js_ptr(lib_ptr, global_this) };
++        let _js_object_guard = js_object.protected();
++
++        for function in symbols.values_mut() {
++            let function_name = ZBox::from_bytes(function.base_name.as_bytes());
++            let Some(target) = dylib.lookup::<*mut c_void>(&function_name) else {
++                let ret = global_this.to_invalid_arguments(format_args!(
++                    "\"{}\" is missing from {}. Was it included in the source code?",
++                    BStr::new(function_name.as_bytes()),
++                    BStr::new(compile_c.source.first().as_bytes())
++                ));
++                dylib.close();
++                // SAFETY: lib_ptr is the live, JS-owned FFI allocation.
++                unsafe { &*lib_ptr }.do_close();
++                return Ok(ret);
++            };
++            function.symbol_from_dynamic_library = Some(target);
++
++            let symbol_name = EncodedSlice::utf8(function_name.as_bytes());
++            let cb = match create_jsc_ffi_function(
++                global_this,
++                &symbol_name,
++                function,
++                target,
++                js_object,
++            ) {
++                Ok(cb) if !cb.is_empty() => cb,
++                result => {
++                    let ret = result.map(|_| {
++                        global_this.to_invalid_arguments(format_args!(
++                            "Failed to create FFI function for symbol \"{}\"",
++                            BStr::new(function_name.as_bytes())
++                        ))
++                    });
++                    dylib.close();
++                    // SAFETY: lib_ptr is the live, JS-owned FFI allocation.
++                    unsafe { &*lib_ptr }.do_close();
++                    return ret;
++                }
++            };
++            obj.put(global_this, symbol_name, cb);
++        }
++
++        // SAFETY: lib_ptr is the live, JS-owned FFI allocation.
++        let lib_ref = unsafe { &*lib_ptr };
++        lib_ref.functions.set(symbols);
++        lib_ref.dylib.set(Some(dylib));
++        symbols_value_set_cached(js_object, global_this, obj);
++        Ok(js_object)
++    }
++
++    #[cfg(not(unix))]
++    fn cc_with_system_compiler(
++        global_this: &JSGlobalObject,
++        _compile_c: CompileC,
++    ) -> JsResult<JSValue> {
++        Err(global_this.throw(format_args!(
++            "bun:ffi cc() is not available in this build (TinyCC is disabled)"
++        )))
++    }
++
+     #[bun_jsc::host_fn(getter)]
+     pub fn get_symbols(_this: &FFI, _: &JSGlobalObject) -> JSValue {
+         // This shouldn't be called. The cachedValue is what should be called.
+diff --git a/test/harness.ts b/test/harness.ts
+index 07bee80e..2ecc1553 100644
+--- a/test/harness.ts
++++ b/test/harness.ts
+@@ -63,6 +63,20 @@ function detectASAN(): boolean {
+   return basename(process.execPath).includes("bun-asan");
+ }
+ 
++/**
++ * Whether `bun:ffi`'s `cc()` is backed by TinyCC. Mirrors `cfg.tinycc` in
++ * scripts/build/config.ts: oven-sh/tinycc has no code generator for these
++ * targets, so `cc()` compiles the sources with the system C compiler into a
++ * shared object and loads them instead of JIT-ing in-process.
++ *
++ * Two things follow for tests. The shared-object path takes its JS↔C thunks
++ * from JavaScriptCore, and a JSC FFI signature has no slot for a `napi_env`
++ * argument. And anything that asserts a *TinyCC* behaviour — that
++ * `_Thread_local` is rejected, that a compiler-runtime header directory is
++ * staged — is asserting something a real compiler does not do.
++ */
++export const hasTinyCC = !isAndroid && !isFreeBSD && process.arch !== "ppc64";
++
+ /**
+  * The architecture bun names itself with: release assets, the name
+  * `bun upgrade` looks for, and `bun build --compile` targets all use it. Not
+diff --git a/test/js/bun/ffi/cc.test.ts b/test/js/bun/ffi/cc.test.ts
+index 67be9f3a..4921fffc 100644
+--- a/test/js/bun/ffi/cc.test.ts
++++ b/test/js/bun/ffi/cc.test.ts
+@@ -10,13 +10,14 @@ import {
+   symlinkSync,
+   writeFileSync,
+ } from "fs";
+-import { bunEnv, bunExe, isASAN, isWindows, normalizeBunSnapshot, tempDir, tempDirWithFiles } from "harness";
++import { bunEnv, bunExe, hasTinyCC, isASAN, isWindows, normalizeBunSnapshot, tempDir, tempDirWithFiles } from "harness";
+ import path from "path";
+ 
+ // TODO: we need to install build-essential and Apple SDK in CI.
+ // It can't find includes. It can on machines with that enabled.
+ // TinyCC's setjmp/longjmp error handling conflicts with ASan.
+-it.todoIf(isWindows || isASAN)("can run a .c file", () => {
++// cc-fixture.js takes a napi_env argument, which only the TinyCC backend can supply.
++it.skipIf(!hasTinyCC).todoIf(isWindows || isASAN)("can run a .c file", () => {
+   const result = Bun.spawnSync({
+     cmd: [bunExe(), path.join(__dirname, "cc-fixture.js")],
+     cwd: __dirname,
+@@ -627,7 +628,9 @@ describe.skipIf(isASAN || process.arch !== "x64")("long double varargs inside cc
+ // TinyCC emits Local-Exec TLS, which has no PT_TLS segment to target under
+ // in-memory relocation and would alias the host's own thread block; it must be
+ // rejected up front instead of silently corrupting Bun's thread-locals.
+-describe.skipIf(isASAN)("thread-local storage inside cc()-compiled C", () => {
++// TinyCC rejects thread-local storage; a real C compiler accepts it, so this
++// block asserts a property of the backend rather than of cc().
++describe.skipIf(isASAN || !hasTinyCC)("thread-local storage inside cc()-compiled C", () => {
+   it.each([
+     ["_Thread_local", " = 0"],
+     ["__thread", " = 0"],
+@@ -1021,7 +1024,7 @@ describe("double <-> JSValue conversions", () => {
+   // verbatim, so they are the same boundary. cc()-compiled C resolves napi_*
+   // from the host process; that lookup is only exercised on POSIX today (see
+   // cc-fixture.c).
+-  it.skipIf(isWindows)("impure NaNs through napi_create_double and napi_create_date are purified", async () => {
++  it.skipIf(isWindows || !hasTinyCC)("impure NaNs through napi_create_double and napi_create_date are purified", async () => {
+     using dir = tempDir("bun-ffi-impure-nan-napi", {
+       "impure_napi.c": /* c */ `
+         typedef struct napi_env_fake* napi_env_t;
+@@ -1087,7 +1090,9 @@ describe("double <-> JSValue conversions", () => {
+   });
+ });
+ 
+-describe.skipIf(isASAN)("compiler runtime header directory under BUN_TMPDIR", () => {
++// The staged header directory is TinyCC's missing-compiler-rt workaround; a
++// real C compiler brings its own.
++describe.skipIf(isASAN || !hasTinyCC)("compiler runtime header directory under BUN_TMPDIR", () => {
+   const plantedHeader = "#define bool int\n#define true 100\n#define false 0\n";
+   const files = {
+     "sentinel.txt": "sentinel-unchanged\n",
+diff --git a/test/napi/napi-value-ffi.test.ts b/test/napi/napi-value-ffi.test.ts
+index 3ef93410..aeb529f2 100644
+--- a/test/napi/napi-value-ffi.test.ts
++++ b/test/napi/napi-value-ffi.test.ts
+@@ -2,14 +2,17 @@ import { spawnSync } from "bun";
+ import { cc, dlopen } from "bun:ffi";
+ import { beforeAll, describe, expect, it } from "bun:test";
+ import { existsSync } from "fs";
+-import { bunEnv, bunExe, canBuildNodeAddons, isASAN, isWindows, tempDir } from "harness";
++import { bunEnv, bunExe, canBuildNodeAddons, hasTinyCC, isASAN, isWindows, tempDir } from "harness";
+ import { join, resolve } from "path";
+ 
+ import source from "./napi-app/ffi_addon_1.c" with { type: "file" };
+ 
+ // The napi-app fixture needs a toolchain that can compile the reported
+ // Node headers.
+-const isFFIUnavailable = !canBuildNodeAddons();
++// Every symbol here takes a napi_env, which only the TinyCC backend can
++// supply: the shared-object cc() gets its thunks from JavaScriptCore, and a
++// JSC FFI signature has no slot for one.
++const isFFIUnavailable = !canBuildNodeAddons() || !hasTinyCC;
+ 
+ const symbols = {
+   set_instance_data: {
+@@ -53,7 +56,7 @@ beforeAll(() => {
+   }
+   // TinyCC's setjmp/longjmp error handling conflicts with ASan.
+   // Skip cc() calls on ASan, and catch errors on Windows.
+-  if (!isASAN) {
++  if (!isASAN && hasTinyCC) {
+     try {
+       cc1 = cc({
+         source,
+-- 
+2.55.0
+
