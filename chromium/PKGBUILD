@@ -19,7 +19,7 @@
 
 pkgname=chromium
 pkgver=153.0.8010.52
-pkgrel=1
+pkgrel=3
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -142,7 +142,13 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         chromium-151-dawn-cipd-add-ppc64le.patch
         debian-disable-lint.patch
         ppc64le-seccomp-scv-return-abi.patch
-        ppc64le-v8-power8-loadpc.patch)
+        ppc64le-v8-power8-loadpc.patch
+        ppc64le-v8-maglev-correctness.patch
+        ppc64le-v8-regexp-simd-scans.patch
+        ppc64le-v8-select-roundtieseven-minmax.patch
+        ppc64le-v8-single-bc-branches.patch
+        ppc64le-v8-mul32-overflow-synth.patch
+        ppc64le-v8-ov64-overflow-synth.patch)
 sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
@@ -170,7 +176,13 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
             '6bf93ab62f409b2c89996dfbd5b28b47986c0b09c828f44e84b024988dc2ec8b'
             '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
-            '5bd6fb6e45c7e02de205ca59e9375dcba80166c3d4e9bd176e24eb526c43f7d5')
+            '5bd6fb6e45c7e02de205ca59e9375dcba80166c3d4e9bd176e24eb526c43f7d5'
+            'e007fb1ad3236f760ab162fbf71b5b7436dfb5bf2ddd19493f56d0a4636efece'
+            '508a1776e46dfc95e108d358bc2c16004f1f1424e0da5010cb8274745a7bdea9'
+            'ae27c0be4f29a6f786d7ee9059cee564c727a80db975f00b914d6a7af797ec81'
+            'a2b07814d7c67b099e35b9389aec90169d9c6581f16df088fb41190a7ebda64f'
+            'b5ddebae3fdf6fed543a4e5e8496ae2556839098d409e01dd8d8d956783454a8'
+            '22a11940c55d9957a562273f68ee9006120a8a57be2d1676ce66fab27fb275be')
 
 if (( _manual_clone )); then
   source[0]=fetch-chromium-release
@@ -429,6 +441,39 @@ prepare() {
     if (( _power8_compat )); then
       msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-power8-loadpc.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-power8-loadpc.patch"
+    fi
+
+    # V8 ppc64le patch series -- see V8-PPC64LE-PATCHES.md.
+    #
+    # Unconditional: every instruction these emit is absent from ISA 3.0C
+    # Book III Table 1 ("Instructions Controlled by the V 2.07 Bit"), i.e.
+    # ISA 2.07, so they are POWER8-legal and benefit both lanes equally.
+    # The series carries no _ARCH_PWR9 guards, so what gets compiled is
+    # identical on both lanes and identical to what was measured.
+    #
+    # Must come after the loadpc conditional above: six of the eleven files
+    # are shared with it, and that is the order verified against the real
+    # extracted tree on both lanes.
+    local _vp
+    for _vp in maglev-correctness regexp-simd-scans \
+               select-roundtieseven-minmax single-bc-branches; do
+      msg2 "Applying ppc64le patch: ppc64le-v8-$_vp.patch"
+      patch -Np1 -i "$srcdir/ppc64le-v8-$_vp.patch"
+    done
+
+    # POWER8 only. mcrxr has been emulated rather than implemented since
+    # POWER4 (2805 ns measured against 0.551 for nop), and loadpc routes int32
+    # multiply overflow through it, costing 2862 ns/op against 7.0 after this
+    # patch -- Octane 6996 -> 19259/19891 on a max-cpu-compat=power8 guest.
+    #
+    # Not applied on POWER9: there mcrxrx is real hardware and the synthesised
+    # sequence measures 4.581 ns against 4.606 for mullwo+mcrxrx+mfcr, i.e.
+    # parity. No gain, so no reason to put unexercised codegen into that lane.
+    if (( _power8_compat )); then
+      msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-mul32-overflow-synth.patch"
+      patch -Np1 -i "$srcdir/ppc64le-v8-mul32-overflow-synth.patch"
+      msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-ov64-overflow-synth.patch"
+      patch -Np1 -i "$srcdir/ppc64le-v8-ov64-overflow-synth.patch"
     fi
 
     # skia-vsx-instructions.patch hardcodes an -mcpu/-mtune into skia's

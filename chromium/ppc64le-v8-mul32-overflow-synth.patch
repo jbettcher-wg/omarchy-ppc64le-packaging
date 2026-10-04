@@ -1,0 +1,104 @@
+--- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
++++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
+@@ -422,17 +422,24 @@
+ 
+   MaglevAssembler::TemporaryRegisterScope temps(masm);
+   Register temp = temps.AcquireScratch();
+-  // Read XER[OV32] via mcrxrx, not CR0[SO]. SetRC copies the *sticky*
+-  // XER[SO] into CR0 bit 3, and nothing in a syscall-free stretch of JS ever
+-  // clears it -- so after a single genuine overflow every later int32 multiply
+-  // would deopt forever, permanently dropping the function out of Maglev.
+-  // This matches the idiom every other overflow site in this file uses.
+-  __ mullw(out, left, right, SetOE);
+-  __ MoveToCrFromXer(cr0);
++  // A signed 32x32 product overflows iff the high word differs from the sign
++  // extension of the low word. Two other options were rejected: SetRC copies
++  // the *sticky* XER[SO] into CR0, which nothing in a syscall-free stretch of
++  // JS clears, so one overflow would deopt every later multiply forever; and
++  // reading XER[OV32] needs mcrxr or mcrxrx, where mcrxr has been emulated
++  // rather than implemented since POWER4 -- 2805 ns against 4.58 ns for the
++  // sequence below, which is also at parity with the native mcrxrx path on
++  // POWER9 (4.61 ns), so this is unconditional rather than ISA-gated. mulhw
++  // runs first so it stays correct when `out` aliases `left` or `right`.
++  Register high = temps.AcquireScratch();
++  __ mulhw(high, left, right);
++  __ mullw(out, left, right);
++  __ srawi(temp, out, 31);
++  __ cmpw(high, temp, cr0);
+ 
+-  DCHECK_REGLIST_EMPTY(RegList{temp, out} &
++  DCHECK_REGLIST_EMPTY(RegList{temp, high, out} &
+                        GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+-  __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
++  __ EmitEagerDeoptIf(ne, DeoptimizeReason::kOverflow, this);
+ 
+   // Making sure that the 32-bit output is zero-extended.
+   __ ZeroExtWord32(out, out);
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -337,12 +337,17 @@
+         case kPPC_Add64:
+         case kPPC_Sub64:
+         case kPPC_Neg64:
+-        case kPPC_Mul64:
+           return overflow64;
++        case kPPC_Mul32:
++        case kPPC_Mul64:
++          // Multiply detects overflow by comparing the high word against the
++          // sign extension of the low word (see kPPC_Mul32/64 below), so the
++          // answer lands in CR0[EQ] rather than XER. Reading XER would need
++          // mcrxr, emulated rather than implemented since POWER4.
++          return ne;
+         case kPPC_Add32:
+         case kPPC_Sub32:
+         case kPPC_Neg32:
+-        case kPPC_Mul32:
+           return overflow32;
+         default:
+           break;
+@@ -353,12 +358,13 @@
+         case kPPC_Add64:
+         case kPPC_Sub64:
+         case kPPC_Neg64:
+-        case kPPC_Mul64:
+           return nooverflow64;
++        case kPPC_Mul32:
++        case kPPC_Mul64:
++          return eq;
+         case kPPC_Add32:
+         case kPPC_Sub32:
+         case kPPC_Neg32:
+-        case kPPC_Mul32:
+           return nooverflow32;
+         default:
+           break;
+@@ -1455,9 +1461,11 @@
+       break;
+     case kPPC_Mul32:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        __ mullw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
+-        __ MoveToCrFromXer(cr0);
++        // mulhw first, so this is correct when the output aliases an input.
++        __ mulhw(r0, i.InputRegister(0), i.InputRegister(1));
++        __ mullw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++        __ srawi(ip, i.OutputRegister(), 31);
++        __ cmpw(r0, ip, cr0);
+       } else {
+         __ mullw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+                  LeaveOE, i.OutputRCBit());
+@@ -1466,9 +1474,11 @@
+       break;
+     case kPPC_Mul64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        __ mulld(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
+-        __ MoveToCrFromXer(cr0);
++        // The same identity at 64 bits: mulhd against sradi(lo, 63).
++        __ mulhd(r0, i.InputRegister(0), i.InputRegister(1));
++        __ mulld(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++        __ sradi(ip, i.OutputRegister(), 63);
++        __ cmp(r0, ip, cr0);
+       } else {
+         __ mulld(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+                  LeaveOE, i.OutputRCBit());

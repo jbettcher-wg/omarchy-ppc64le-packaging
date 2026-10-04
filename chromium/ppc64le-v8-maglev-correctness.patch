@@ -1,0 +1,80 @@
+diff --git a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+index 130910c4de..43c6c0973d 100644
+--- a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
++++ b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+@@ -738,7 +738,16 @@ inline void MaglevAssembler::LoadFloat32(DoubleRegister dst, MemOperand src) {
+   MacroAssembler::LoadF32(dst, src);
+ }
+ inline void MaglevAssembler::StoreFloat32(MemOperand dst, DoubleRegister src) {
+-  MacroAssembler::StoreF32(src, dst);
++  // `stfs` does not round. Per Power ISA, the single-precision store
++  // conversion copies the high-order 23 bits of the source significand and
++  // discards the low-order 29 bits, so a Float64 that is not already exactly
++  // representable in single precision has to be rounded with `frsp` first.
++  // Every other Maglev backend does the equivalent conversion here (x64
++  // Cvtsd2ss, arm64 Fcvt, arm vcvt_f32_f64, s390 ledbr, riscv fcvt_s_d).
++  MaglevAssembler::TemporaryRegisterScope temps(this);
++  DoubleRegister double_scratch = temps.AcquireScratchDouble();
++  frsp(double_scratch, src);
++  MacroAssembler::StoreF32(double_scratch, dst);
+ }
+ inline void MaglevAssembler::LoadFloat64(DoubleRegister dst, MemOperand src) {
+   MacroAssembler::LoadF64(dst, src);
+@@ -789,9 +798,17 @@ inline void MaglevAssembler::ToUint8Clamped(Register result,
+                                             Label* max, Label* done) {
+   TemporaryRegisterScope temps(this);
+   DoubleRegister scratch = temps.AcquireScratchDouble();
+-  fcmpu(value, value);
+-  // Set to 0 if NaN.
++  // Set to 0 if NaN, or if value <= 0.
++  //
++  // ppc previously tested only for NaN, so negative inputs fell through to the
++  // conversion below and were stored modulo 256 (-1 wrote 255, -5.5 wrote
++  // 250). Every other backend branches to {min} for non-positive values; see
++  // e.g. s390's CmpF64(zero, value) + JumpIf(CC_OF | ge, min). Note
++  // kDoubleRegZero is not guaranteed to hold 0.0 here, so materialize it.
++  MacroAssembler::LoadDoubleLiteral(scratch, base::Double(0.0));
++  fcmpu(value, scratch);
+   bunordered(min);
++  JumpIf(le, min);
+   MacroAssembler::LoadDoubleLiteral(scratch, base::Double(255.0));
+   fcmpu(value, scratch);
+   JumpIf(ge, max);
+diff --git a/v8/src/maglev/ppc/maglev-ir-ppc.cc b/v8/src/maglev/ppc/maglev-ir-ppc.cc
+index aabd8fb51c..2e78dcbce1 100644
+--- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
++++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
+@@ -422,11 +422,17 @@ void Int32MultiplyWithOverflow::GenerateCode(MaglevAssembler* masm,
+ 
+   MaglevAssembler::TemporaryRegisterScope temps(masm);
+   Register temp = temps.AcquireScratch();
+-  __ mullw(out, left, right, SetOE, SetRC);
++  // Read XER[OV32] via mcrxrx, not CR0[SO]. SetRC copies the *sticky*
++  // XER[SO] into CR0 bit 3, and nothing in a syscall-free stretch of JS ever
++  // clears it -- so after a single genuine overflow every later int32 multiply
++  // would deopt forever, permanently dropping the function out of Maglev.
++  // This matches the idiom every other overflow site in this file uses.
++  __ mullw(out, left, right, SetOE);
++  __ MoveToCrFromXer(cr0);
+ 
+   DCHECK_REGLIST_EMPTY(RegList{temp, out} &
+                        GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+-  __ EmitEagerDeoptIf(overflow, DeoptimizeReason::kOverflow, this);
++  __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
+ 
+   // Making sure that the 32-bit output is zero-extended.
+   __ ZeroExtWord32(out, out);
+@@ -497,8 +503,12 @@ void Int32DivideWithOverflow::GenerateCode(MaglevAssembler* masm,
+   __ bind(*done);
+ 
+   // Perform the actual integer division.
++  // No overflow check here: divw is emitted with LeaveOE so it never updates
++  // XER[OV]/[SO], meaning the old EmitEagerDeoptIf(overflow, ...) read a stale
++  // sticky bit left by some earlier instruction. The INT32_MIN / -1 case is
++  // already handled by the deferred pre-check above and the remainder check
++  // below covers the rest, which is why x64 and s390 have no check here.
+   __ divw(out, left, right, LeaveOE, SetRC);
+-  __ EmitEagerDeoptIf(overflow, DeoptimizeReason::kNotInt32, this);
+ 
+   // Check that the remainder is zero.
+   __ mullw(r0, out, right);

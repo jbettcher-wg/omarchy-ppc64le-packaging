@@ -1,0 +1,192 @@
+diff --git a/v8/src/codegen/ppc/constants-ppc.h b/v8/src/codegen/ppc/constants-ppc.h
+index 858feba28f..aaf75cd3ba 100644
+--- a/v8/src/codegen/ppc/constants-ppc.h
++++ b/v8/src/codegen/ppc/constants-ppc.h
+@@ -285,8 +285,13 @@ using Instr = uint32_t;
+   V(xsmaddmsp, XSMADDMSP, 0xF0000048)                                 \
+   /* VSX Scalar Maximum Double-Precision */                           \
+   V(xsmaxdp, XSMAXDP, 0xF0000500)                                     \
++  /* VSX Scalar Maximum Type-J Double-Precision (ISA 3.0): NaN-propagating */ \
++  /* and max(+0,-0) = +0, i.e. exactly JS Math.max semantics */              \
++  V(xsmaxjdp, XSMAXJDP, 0xF0000480)                                   \
+   /* VSX Scalar Minimum Double-Precision */                           \
+   V(xsmindp, XSMINDP, 0xF0000540)                                     \
++  /* VSX Scalar Minimum Type-J Double-Precision (ISA 3.0) */           \
++  V(xsminjdp, XSMINJDP, 0xF00004C0)                                   \
+   /* VSX Scalar Multiply-Subtract Type-A Double-Precision */          \
+   V(xsmsubadp, XSMSUBADP, 0xF0000188)                                 \
+   /* VSX Scalar Multiply-Subtract Type-A Single-Precision */          \
+@@ -550,6 +555,10 @@ using Instr = uint32_t;
+   V(xvcvdpuxws, XVCVDPUXWS, 0xF0000320)
+ 
+ #define PPC_XX2_OPCODE_SCALAR_A_FORM_LIST(V)                                \
++  /* VSX Scalar Round to Double-Precision Integer using Current rounding */ \
++  /* mode. Ties-to-even under the default FPSCR, i.e. exactly JS/IEEE  */   \
++  /* roundTiesToEven -- unlike frin, which is ties-away.               */   \
++  V(xsrdpic, XSRDPIC, 0xF00001AC)                                           \
+   /* VSX Scalar Convert Double-Precision to Single-Precision format Non- */ \
+   /* signalling */                                                          \
+   V(xscvdpspn, XSCVDPSPN, 0xF000042C)                                       \
+@@ -610,9 +619,6 @@ using Instr = uint32_t;
+   V(xsnegdp, XSNEGDP, 0xF00005E4)                                            \
+   /* VSX Scalar Round to Double-Precision Integer */                         \
+   V(xsrdpi, XSRDPI, 0xF0000124)                                              \
+-  /* VSX Scalar Round to Double-Precision Integer using Current rounding */  \
+-  /* mode */                                                                 \
+-  V(xsrdpic, XSRDPIC, 0xF00001AC)                                            \
+   /* VSX Scalar Round to Double-Precision Integer toward -Infinity */        \
+   V(xsrdpim, XSRDPIM, 0xF00001E4)                                            \
+   /* VSX Scalar Round to Double-Precision Integer toward +Infinity */        \
+diff --git a/v8/src/compiler/backend/ppc/code-generator-ppc.cc b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+index 621be2d3bc..9162efd665 100644
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -1635,6 +1635,12 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
+     case kPPC_RoundDouble:
+       ASSEMBLE_FLOAT_UNOP_RC(frin, MiscField::decode(instr->opcode()));
+       break;
++    case kPPC_RoundDoubleTiesEven:
++      // xsrdpic rounds using the current FPSCR rounding mode. V8 never changes
++      // it from the default round-to-nearest-ties-to-even, which is what
++      // roundTiesToEven requires. frin is ties-away and cannot be used here.
++      __ xsrdpic(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
++      break;
+     case kPPC_NegDouble:
+       ASSEMBLE_FLOAT_UNOP_RC(fneg, 0);
+       break;
+@@ -3137,7 +3143,26 @@ void CodeGenerator::AssembleArchTableSwitch(Instruction* instr) {
+ 
+ void CodeGenerator::AssembleArchSelect(Instruction* instr,
+                                        FlagsCondition condition) {
+-  UNIMPLEMENTED();
++  PPCOperandConverter i(this, instr);
++  ArchOpcode op = instr->arch_opcode();
++  CRegister cr = cr0;
++
++  // The result register is always the last output of the instruction, and the
++  // true/false values are always the last two inputs -- the condition may have
++  // consumed any number of inputs before them.
++  size_t output_index = instr->OutputCount() - 1;
++  DCHECK_GE(instr->InputCount(), 2);
++  size_t true_value_index = instr->InputCount() - 2;
++  size_t false_value_index = instr->InputCount() - 1;
++
++  Condition cond = FlagsConditionToCondition(condition, op);
++  // isel reads a literal zero rather than the register when ra == r0. r0 is
++  // not in ALLOCATABLE_GENERAL_REGISTERS, so the allocator cannot supply it
++  // here, but assert it rather than rely on that silently.
++  DCHECK_NE(i.InputRegister(true_value_index), r0);
++  __ isel(cond, i.OutputRegister(output_index),
++          i.InputRegister(true_value_index),
++          i.InputRegister(false_value_index), cr);
+ }
+ 
+ void CodeGenerator::FinishFrame(Frame* frame) {
+diff --git a/v8/src/compiler/backend/ppc/instruction-codes-ppc.h b/v8/src/compiler/backend/ppc/instruction-codes-ppc.h
+index 962124384a..e6306d9fc7 100644
+--- a/v8/src/compiler/backend/ppc/instruction-codes-ppc.h
++++ b/v8/src/compiler/backend/ppc/instruction-codes-ppc.h
+@@ -64,6 +64,7 @@ namespace compiler {
+   V(PPC_CeilDouble)                  \
+   V(PPC_TruncateDouble)              \
+   V(PPC_RoundDouble)                 \
++  V(PPC_RoundDoubleTiesEven)         \
+   V(PPC_MaxDouble)                   \
+   V(PPC_MinDouble)                   \
+   V(PPC_AbsDouble)                   \
+diff --git a/v8/src/compiler/backend/ppc/instruction-scheduler-ppc.cc b/v8/src/compiler/backend/ppc/instruction-scheduler-ppc.cc
+index 36f942d9da..efd0eac9db 100644
+--- a/v8/src/compiler/backend/ppc/instruction-scheduler-ppc.cc
++++ b/v8/src/compiler/backend/ppc/instruction-scheduler-ppc.cc
+@@ -79,6 +79,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
+     case kPPC_CeilDouble:
+     case kPPC_TruncateDouble:
+     case kPPC_RoundDouble:
++    case kPPC_RoundDoubleTiesEven:
+     case kPPC_MaxDouble:
+     case kPPC_MinDouble:
+     case kPPC_AbsDouble:
+diff --git a/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc b/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
+index 20417bbe66..e388a16fab 100644
+--- a/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
++++ b/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
+@@ -1348,7 +1348,24 @@ bool InstructionSelector::ZeroExtendsWord32ToWord64NoPhis(OpIndex node) {
+ }
+ 
+ void InstructionSelector::VisitChangeUint32ToUint64(OpIndex node) {
+-  // TODO(mbrandy): inspect input to see if nop is appropriate.
++  // Measured in Octane: the common shape is `extsw rA,rB; rldicl rA,rA,0,32`,
++  // where the clrldi overwrites every bit the extsw wrote. If the producer is
++  // itself a 32-bit sign extension, the clear alone suffices, so emit it
++  // against the original input and drop the dead extend. Measured over
++  // crypto+richards+deltablue: the adjacent pair drops 71 -> 57.
++  const Operation& op = Get(node);
++  OpIndex input = op.input(0);
++  if (const ChangeOp* change = Get(input).TryCast<ChangeOp>()) {
++    if (change->kind == ChangeOp::Kind::kSignExtend &&
++        change->from == RegisterRepresentation::Word32() &&
++        change->to == RegisterRepresentation::Word64() &&
++        CanCover(node, input)) {
++      PPCOperandGenerator g(this);
++      Emit(kPPC_Uint32ToUint64, g.DefineAsRegister(node),
++           g.UseRegister(Get(input).input(0)));
++      return;
++    }
++  }
+   VisitRR(this, kPPC_Uint32ToUint64, node);
+ }
+ 
+@@ -1659,7 +1676,15 @@ namespace {
+ void VisitCompare(InstructionSelector* selector, InstructionCode opcode,
+                   InstructionOperand left, InstructionOperand right,
+                   FlagsContinuation* cont) {
+-  selector->EmitWithContinuation(opcode, left, right, cont);
++  if (cont->IsSelect()) {
++    PPCOperandGenerator g(selector);
++    InstructionOperand inputs[] = {left, right,
++                                   g.UseRegister(cont->true_value()),
++                                   g.UseRegister(cont->false_value())};
++    selector->EmitWithContinuation(opcode, 0, nullptr, 4, inputs, cont);
++  } else {
++    selector->EmitWithContinuation(opcode, left, right, cont);
++  }
+ }
+ 
+ // Shared routine for multiple word compare operations.
+@@ -2892,15 +2917,15 @@ void InstructionSelector::VisitStoreLane(OpIndex node) {
+ void InstructionSelector::AddOutputToSelectContinuation(OperandGenerator* g,
+                                                         int first_input_index,
+                                                         OpIndex node) {
+-  UNREACHABLE();
++  continuation_outputs_.push_back(g->DefineAsRegister(node));
+ }
+ 
+ void InstructionSelector::VisitFloat32RoundTiesEven(OpIndex node) {
+-  UNREACHABLE();
++  VisitRR(this, kPPC_RoundDoubleTiesEven, node);
+ }
+ 
+ void InstructionSelector::VisitFloat64RoundTiesEven(OpIndex node) {
+-  UNREACHABLE();
++  VisitRR(this, kPPC_RoundDoubleTiesEven, node);
+ }
+ 
+ void InstructionSelector::VisitF64x2NearestInt(OpIndex node) { UNREACHABLE(); }
+@@ -2917,7 +2942,16 @@ InstructionSelector::SupportedMachineOperatorFlags() {
+          MachineOperatorBuilder::kFloat64RoundTruncate |
+          MachineOperatorBuilder::kFloat64RoundTiesAway |
+          MachineOperatorBuilder::kWord32Popcnt |
+-         MachineOperatorBuilder::kWord64Popcnt;
++         MachineOperatorBuilder::kWord64Popcnt |
++         MachineOperatorBuilder::kWord32Select |
++         MachineOperatorBuilder::kWord64Select |
++         // xsrdpic rounds using the current FPSCR mode, which defaults to
++         // ties-to-even -- exactly roundTiesToEven. Without this flag
++         // Float64RoundTiesEven lowers to a long branchy sequence that
++         // contains a Float64Mod, i.e. a C call to fmod, on ordinary JS
++         // paths such as Uint8ClampedArray stores.
++         MachineOperatorBuilder::kFloat32RoundTiesEven |
++         MachineOperatorBuilder::kFloat64RoundTiesEven;
+   // We omit kWord32ShiftIsSafe as s[rl]w use 0x3F as a mask rather than 0x1F.
+ }
+ 

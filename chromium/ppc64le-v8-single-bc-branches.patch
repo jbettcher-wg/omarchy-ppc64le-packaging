@@ -1,0 +1,151 @@
+diff --git a/v8/src/codegen/ppc/assembler-ppc.h b/v8/src/codegen/ppc/assembler-ppc.h
+index 453a5378ec..3c52623ad3 100644
+--- a/v8/src/codegen/ppc/assembler-ppc.h
++++ b/v8/src/codegen/ppc/assembler-ppc.h
+@@ -222,6 +222,28 @@ class Assembler : public AssemblerBase {
+     }
+   }
+ 
++  // Emit the trampoline pool now, if any forward branches are still
++  // outstanding. Call this immediately before opening a
++  // BlockTrampolinePoolScope that may span more than kMaxCondBranchReach.
++  //
++  // CheckTrampolinePool() returns without emitting for the entire duration of a
++  // blocked region, so a long scope does not delay the scheduled check -- it
++  // suppresses it permanently, and next_trampoline_check_ is simply passed.
++  // trampoline_ is then left at its default with free_slot_count_ == 0, and the
++  // first out-of-reach 16-bit fixup to bind afterwards takes bind_to()'s fatal
++  // CHECK_NE(trampoline_pos, kInvalidSlotPos). The scheduling leaves only
++  // kMaxBlockTrampolineSectionSize (64 instructions) of slack for blocked
++  // sections, but the baseline jump table and the Maglev/TurboFan deopt-exit
++  // loops hold one scope across the whole table: measured at 640,000 bytes for
++  // an 80,000-case switch, which is 80,000 * (b + nop).
++  void ForceTrampolinePoolEmission() {
++    if (trampoline_emitted_ || tracked_branch_count_ == 0) return;
++    if (is_trampoline_pool_blocked()) return;
++    next_trampoline_check_ = pc_offset();
++    CheckTrampolinePool();
++  }
++
++
+   static RegList DefaultTmpList();
+   static DoubleRegList DefaultFPTmpList();
+ 
+@@ -893,16 +915,51 @@ class Assembler : public AssemblerBase {
+       return;
+     }
+ 
+-    if ((L->is_bound() && is_near(L, cond))) {
+-      bc_short(cond, L, cr, lk);
++    if (L->is_bound()) {
++      if (is_near(L, cond)) {
++        bc_short(cond, L, cr, lk);
++        return;
++      }
++      // Bound and out of bc's +-32 KB reach: the negated-skip plus a far b is
++      // the only option, since the target is already fixed.
++      Label skip;
++      bc_short(NegateCondition(cond), &skip, cr);
++      b(L, lk);
++      bind(&skip);
+       return;
+     }
+ 
+-    Label skip;
+-    Condition neg_cond = NegateCondition(cond);
+-    bc_short(neg_cond, &skip, cr);
+-    b(L, lk);
+-    bind(&skip);
++    // Forward branch. The distance is not known yet, but it does not have to
++    // be: emit the single bc and let bind_to() deal with it. If the label
++    // turns out to be further than bc's 16-bit reach, bind_to() allocates a
++    // trampoline slot and reroutes the fixup through it -- it already computes
++    // max_reach_from() per fixup and max_reach_from() already returns 16 for
++    // BCX. That path simply was never reachable, because this function
++    // previously emitted the two-instruction form for *every* forward branch
++    // regardless of how near the target turned out to be.
++    //
++    // Measured on TurboFan output for crypto+richards+deltablue: 4589 of 4988
++    // conditional branches (92%) were the two-instruction pair, i.e. ~7% of
++    // all generated instructions existed only to work around not knowing the
++    // distance yet. It also doubles the branch footprint seen by the
++    // predictor, since each forward conditional became a not-taken bc plus an
++    // unconditional b.
++    //
++    // The escape hatch only exists while a trampoline pool can still be
++    // emitted. CheckTrampolinePool() emits exactly one pool per code object
++    // and then sets trampoline_emitted_, after which an out-of-reach fixup has
++    // nowhere to go and bind_to()'s get_trampoline_entry() would fail. Large
++    // generated bodies -- Irregexp in particular -- keep emitting branches
++    // long after that point, so once the net is gone fall back to the
++    // two-instruction form, which always reaches.
++    if (trampoline_emitted_) {
++      Label skip;
++      bc_short(NegateCondition(cond), &skip, cr);
++      b(L, lk);
++      bind(&skip);
++      return;
++    }
++    bc_short(cond, L, cr, lk);
+   }
+ 
+   void bne(Label* L, CRegister cr = cr0, LKBit lk = LeaveLK) {
+
+diff --git a/v8/src/baseline/ppc/baseline-assembler-ppc-inl.h b/v8/src/baseline/ppc/baseline-assembler-ppc-inl.h
+index 6dc92aaa86..cae539f1df 100644
+--- a/v8/src/baseline/ppc/baseline-assembler-ppc-inl.h
++++ b/v8/src/baseline/ppc/baseline-assembler-ppc-inl.h
+@@ -603,6 +603,14 @@ void BaselineAssembler::Switch(Register reg, int case_value_base,
+ 
+   // Mostly copied from code-generator-arm.cc
+   JumpIf(kUnsignedGreaterThanEqual, reg, Operand(num_labels), &fallthrough);
++  // The jump table below is 8 bytes per case and is emitted inside a
++  // BlockTrampolinePoolScope, with `fallthrough` bound at its far end, so the
++  // bounds-check branch above can end up out of reach. Flush the pool here:
++  // after that branch, so it is outstanding and gets a slot, and before the
++  // scope opens, since once inside no pool can be emitted at all. It must not
++  // go any later -- a pool between bind(&jump_table) and the table body would
++  // move the table away from the address GetLabelAddress computes.
++  masm_->ForceTrampolinePoolEmission();
+   // Ensure to emit the constant pool first if necessary.
+   int entry_size_log2 = 3;
+   __ ShiftLeftU32(reg, reg, Operand(entry_size_log2));
+
+diff --git a/v8/src/codegen/ppc/macro-assembler-ppc.cc b/v8/src/codegen/ppc/macro-assembler-ppc.cc
+index 323170da61..3baee6c6c4 100644
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
+@@ -5249,6 +5260,14 @@ void MacroAssembler::Switch(Register scratch, Register value,
+   int entry_size_log2 = 2;
+   ShiftLeftU32(value, value, Operand(entry_size_log2));
+ 
++  // Same reach problem as BaselineAssembler::Switch, at 4 bytes per case
++  // instead of 8: above 8192 cases `fallthrough`, bound at the far end of the
++  // table inside the scope below, is out of the `bge` above's +-32 KB reach,
++  // and no pool can be emitted once the scope is open. Flush after the bge so
++  // it is outstanding, and before the scope. Measured boundary without this:
++  // 8100 cases OK, 8200 fatal in bind_to()'s CHECK_NE(trampoline_pos, ...).
++  ForceTrampolinePoolEmission();
++
+   Assembler::BlockTrampolinePoolScope block_trampoline_pool(this);
+   DCHECK(!AreAliased(scratch, value, r0));
+   GetLabelAddress(scratch, &jump_table);
+
+diff --git a/v8/src/maglev/maglev-code-generator.cc b/v8/src/maglev/maglev-code-generator.cc
+index d893cee4d9..d19acc7f09 100644
+--- a/v8/src/maglev/maglev-code-generator.cc
++++ b/v8/src/maglev/maglev-code-generator.cc
+@@ -1937,6 +1937,13 @@ bool MaglevCodeGenerator::EmitDeopts() {
+       code_gen_state_.eager_deopts().size(), &eager_deopt_entry,
+       code_gen_state_.lazy_deopts().size(), &lazy_deopt_entry);
+ 
++#ifdef V8_TARGET_ARCH_PPC64
++  // Flush before the scope below, which spans every deopt exit. See
++  // Assembler::ForceTrampolinePoolEmission. Must precede the pc_offset()
++  // record, so the recorded offset is after any pool.
++  masm()->ForceTrampolinePoolEmission();
++#endif
++
+   deopt_exit_start_offset_ = __ pc_offset();
+ 
+   int deopt_index = 0;
