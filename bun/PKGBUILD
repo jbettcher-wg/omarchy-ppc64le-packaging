@@ -28,8 +28,11 @@ arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
 depends=('glibc' 'gcc-libs' 'libstdc++5')
-makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'rust' 'ruby' 'python'
-             'perl' 'pkgconf' 'webkit' 'bun-bootstrap')
+# NOTE: 'rust' is NOT in this list, deliberately -- see build() for why. The
+# rust-nightly-bun dependency DOES NOT EXIST YET and has to be packaged before
+# this recipe can build on a clean machine.
+makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'ruby' 'python'
+             'perl' 'pkgconf' 'webkit' 'bun-bootstrap' 'rust-nightly-bun')
 provides=('bun')
 options=('!lto')   # Bun drives its own LTO settings through scripts/build.ts
 
@@ -88,6 +91,30 @@ build() {
   # binfmt, which works, slowly, and produces a build nobody can reproduce.
   local bootstrap=/usr/lib/bun-bootstrap/bun
   export PATH="$(dirname "$bootstrap"):$PATH"
+
+  # A PINNED RUST NIGHTLY WITH rust-src, and the system `rust` package cannot
+  # substitute. Bun's release path passes -Zbuild-std unconditionally, which
+  # requires nightly cargo AND the rust-src component to rebuild core/alloc/std
+  # for this target. Arch's `rust` is stable, and because it is not a rustup
+  # shim it IGNORES the RUSTUP_TOOLCHAIN=nightly-... that bun's build exports --
+  # so the failure is not "wrong toolchain selected", it is cargo refusing the
+  # -Z flags outright:
+  #
+  #   error: the `-Z` flag is only accepted on the nightly channel of Cargo,
+  #   but this is the `stable` channel
+  #
+  # Naming a directory is how bun lets you override it; that also bypasses
+  # bun's own LLVM 21.1.8 pin, which is why BUN_TOOLCHAIN_LLVM can be /usr with
+  # clang 22.x.
+  export BUN_TOOLCHAIN_RUST=/usr/lib/rust-nightly-bun
+  export BUN_TOOLCHAIN_LLVM=/usr
+
+  # TMPDIR must share a filesystem with bun's install cache. Bun extracts a
+  # package to a temp dir and then RENAMES THE DIRECTORY into the cache, and a
+  # cross-device directory rename fails EXDEV.
+  export BUN_INSTALL_CACHE_DIR="$srcdir/bun-cache"
+  export TMPDIR="$srcdir/bun-tmp"
+  mkdir -p "$BUN_INSTALL_CACHE_DIR" "$TMPDIR"
 
   # -j is bounded deliberately. The default is nproc+2, and on a 176-thread
   # POWER9 that exhausts 446 GiB: the C++ translation units in JavaScriptCore
