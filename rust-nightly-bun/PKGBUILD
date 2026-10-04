@@ -1,0 +1,69 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# A pinned Rust nightly with rust-src, whose only job is to build `bun`.
+#
+# WHY THE SYSTEM `rust` PACKAGE CANNOT DO THIS. Bun's release path passes
+#   -Zbuild-std=core,alloc,std,proc_macro,panic_abort
+# unconditionally, which needs nightly cargo AND the rust-src component so std
+# can be rebuilt for the target. Arch's rust is stable. The failure is not a
+# toolchain-selection problem that rustup would fix: bun's build exports
+# RUSTUP_TOOLCHAIN=nightly-2026-07-20, but it invokes /usr/bin/cargo, which is
+# not a rustup shim and ignores that variable entirely, so cargo refuses the
+# flags outright --
+#
+#   error: the `-Z` flag is only accepted on the nightly channel of Cargo,
+#   but this is the `stable` channel
+#
+# -- which reads as "no nightly installed" and sends you to rustup, where it
+# would still call /usr/bin/cargo. BUN_TOOLCHAIN_RUST naming a directory is the
+# override bun actually provides, and that is what bun's recipe sets.
+#
+# PREBUILT, like bun-bootstrap, and for a comparable reason: Rust bootstraps
+# itself, so building this from source needs a stage0 Rust for ppc64le, which is
+# the problem it is here to solve. If this ever has to be regenerated from
+# scratch, the chain is rustup's nightly-2026-07-20 with the rust-src component
+# for powerpc64le-unknown-linux-gnu.
+#
+# TRIMMED from the 1.6G install to 667M. The llvm-tools-preview component is
+# the bulk of what went -- rust-lld 173M, opt 167M, llc 163M, llvm-nm 65M,
+# llvm-ar 64M -- and bun does not use any of it: it sets
+# CARGO_TARGET_POWERPC64LE_UNKNOWN_LINUX_GNU_LINKER to the system clang++ and
+# links with system lld. clippy, miri, rustfmt, rust-analyzer, rust-analysis and
+# share/doc went for the same reason. Verified, not assumed: the trimmed
+# toolchain rebuilds core, alloc, std and proc_macro from its own rust-src for
+# powerpc64le-unknown-linux-gnu and links a staticlib, which is exactly the
+# -Zbuild-std path bun takes.
+
+pkgname=rust-nightly-bun
+pkgdesc='Pinned Rust nightly with rust-src, used only to build bun'
+pkgver=1.99.0_nightly20260719
+pkgrel=1
+_rustc='1.99.0-nightly (9f36de775 2026-07-19)'
+_cargo='1.99.0-nightly (3efb1f477 2026-07-17)'
+arch=('powerpc64le')
+url='https://github.com/rust-lang/rust'
+license=('MIT' 'Apache-2.0')
+# DT_NEEDED across bin/cargo, bin/rustc and lib/librustc_driver-*.so: libc,
+# libdl, libm, libpthread (glibc) and libgcc_s (gcc-libs). Nothing else.
+depends=('glibc' 'gcc-libs')
+provides=("rust-nightly-bun=$pkgver")
+# No conflict with `rust`: this installs under /usr/lib and puts nothing on
+# PATH, so a stable system rust can be present at the same time. bun's recipe
+# reaches it through BUN_TOOLCHAIN_RUST, by absolute path.
+options=('!strip' '!debug')   # stripping rustc breaks its own metadata lookups
+
+source=("rust-nightly-bun-$pkgver-powerpc64le.tar.zst")
+sha256sums=('cdb17155e94a80550ac777ef21892971844c9088ffc1b4a00ecc7ba7665a3876')
+
+package() {
+  install -d "$pkgdir/usr/lib"
+  cp -a rust-nightly-bun "$pkgdir/usr/lib/rust-nightly-bun"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/lib/rust-nightly-bun/.pkginfo" <<-INFO
+	rustc: $_rustc
+	cargo: $_cargo
+	components: rustc, cargo, rust-std (powerpc64le), rust-src
+	removed: llvm-tools, clippy, miri, rustfmt, rust-analyzer, rust-analysis, doc
+	purpose: makedepends of bun only -- reached via BUN_TOOLCHAIN_RUST
+	INFO
+}

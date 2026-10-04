@@ -39,6 +39,9 @@ pkgrel=1
 arch=('powerpc64le')
 url='https://github.com/oven-sh/WebKit'
 license=('LGPL-2.1-only' 'BSD-2-Clause')
+# No depends: this package installs source, nothing links against it. git is
+# needed in prepare() for `git apply` and the `git write-tree` gate.
+# Verified present: git is in omarchy-power9.
 makedepends=('git')
 options=('!strip' '!debug')
 

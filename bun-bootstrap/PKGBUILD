@@ -40,7 +40,9 @@ _revision='1.4.3-canary.1+782858f41'
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
-depends=('glibc' 'gcc-libs' 'libstdc++5')
+# Same shape as `bun`: DT_NEEDED is glibc plus icu, with no libstdc++ or
+# libgcc_s because bun links its C++ runtime statically.
+depends=('glibc' 'icu')
 provides=("bun-bootstrap=$pkgver")
 # No 'conflicts' with bun: this lives at a private path and installs no
 # /usr/bin/bun, so both can be present. `bun`'s build picks this one up by
@@ -50,14 +52,14 @@ provides=("bun-bootstrap=$pkgver")
 options=('!strip')   # a stripped bun cannot report --revision, which the build verifies
 
 source=("bun-bootstrap-$pkgver-powerpc64le.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('f283acce02f84958153210a99c5a5301e19e9db629e80d9d0f6f25885bb17f97')
 
-# The binary this was built from is
-#   sha256 165ea7488c9f68f6ae99cfb24742d1d745a8ce5af9fea58982b8f6c68c3aac2f
-#   revision 1.4.3-canary.1+782858f41
-# Replace sha256sums above with that value, and source= with the release URL,
-# once the artifact is published. SKIP is here because the asset does not exist
-# yet, and a wrong checksum is worse than an honest absent one.
+# The archive holds the bun whose sha256 is
+#   165ea7488c9f68f6ae99cfb24742d1d745a8ce5af9fea58982b8f6c68c3aac2f
+# revision 1.4.3-canary.1+782858f41. source= is a bare filename, so makepkg
+# expects the archive beside this PKGBUILD; point it at the published URL
+# (R2 or a release asset) once it is uploaded -- the checksum above does not
+# change when it moves.
 
 package() {
   install -Dm755 bun "$pkgdir/usr/lib/bun-bootstrap/bun"

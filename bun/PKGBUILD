@@ -27,12 +27,19 @@ pkgrel=1
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
-depends=('glibc' 'gcc-libs' 'libstdc++5')
+# Read out of the built binary's DT_NEEDED, not guessed: ld64.so.2, libc.so.6
+# and libm.so.6 (glibc) plus libicui18n.so.78 and libicuuc.so.78 (icu). There is
+# NO libstdc++ or libgcc_s entry -- bun links its C++ runtime statically -- so
+# gcc-libs is not a dependency however much it looks like one.
+depends=('glibc' 'icu')
 # NOTE: 'rust' is NOT in this list, deliberately -- see build() for why. The
 # rust-nightly-bun dependency DOES NOT EXIST YET and has to be packaged before
 # this recipe can build on a clean machine.
+# Every name here was checked against the repos before being written down.
+# cmake, ninja and lld resolve from [base], not from the Omarchy pools; icu is
+# in both omarchy-power9 and base. 'rust' is deliberately absent -- see build().
 makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'ruby' 'python'
-             'perl' 'pkgconf' 'webkit' 'bun-bootstrap' 'rust-nightly-bun')
+             'perl' 'pkgconf' 'icu' 'webkit' 'bun-bootstrap' 'rust-nightly-bun')
 provides=('bun')
 options=('!lto')   # Bun drives its own LTO settings through scripts/build.ts
 
