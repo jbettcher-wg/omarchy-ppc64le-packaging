@@ -71,17 +71,31 @@ prepare() {
 
 package() {
   # Bun reads $BUN_WEBKIT_PATH and cmakes this tree. It checks only for
-  # CMakeLists.txt, so ship the tree whole and drop the git metadata.
+  # CMakeLists.txt, so ship the tree and drop the git metadata.
   install -d "$pkgdir/usr/src"
   cp -a webkit "$pkgdir/usr/src/bun-webkit"
-  rm -rf "$pkgdir/usr/src/bun-webkit/.git"
+  cd "$pkgdir/usr/src/bun-webkit"
+  rm -rf .git
 
-  install -Dm644 /dev/stdin "$pkgdir/usr/src/bun-webkit/.pkginfo" <<-INFO
+  # Prune what PORT=JSCOnly cannot use. LayoutTests alone is the largest thing
+  # in the tree and none of these are referenced by a JSC build -- verified by
+  # building `jsc` from a tree with exactly these removed: cmake configured and
+  # ninja ran 3106 of 3106 edges with zero errors, and the resulting binary
+  # evaluates JavaScript. 6.4G down to 1.5G.
+  #
+  # JSTests goes too. It is JSC's test corpus, not a build input, and the
+  # runner that uses it (powerpc64le-handbook tools/jsc-test-runner) works from
+  # a git checkout -- it also needs the cgroup cap that corpus requires, which
+  # an installed copy would not carry.
+  rm -rf LayoutTests Websites PerformanceTests WebDriverTests ManualTests JSTests
+
+  install -Dm644 /dev/stdin .pkginfo <<-INFO
 	base-commit: $_commit
 	patched-tree: $_tree
 	testb3: 998/1000 groups, 0 SIGSEGV
 	testmasm: 446/446
 	testair: 78/82
 	JSTests/stress: 5831 tests, 0 real differences vs the pre-change binary
+	pruned: LayoutTests Websites PerformanceTests WebDriverTests ManualTests JSTests
 	INFO
 }
