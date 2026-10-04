@@ -56,3 +56,10 @@ luajit/luajit-ppc64le/
 neovim/neovim/
 qwen-code/qwen-code/
 ours/omarchy-theme-power9/power9.bak.*
+
+# Agent handoff notes left beside a recipe. Working notes, not packaging
+# material, and they go stale against the recipe they describe: this one
+# carried a prepare() snippet naming a patch that had already been withdrawn
+# for crashing, under a heading saying no action was needed. The recipe is the
+# source of truth; keep the notes local.
+**/V8-PPC64LE-PATCHES.md
