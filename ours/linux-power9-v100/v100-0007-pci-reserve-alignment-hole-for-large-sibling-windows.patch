@@ -1,0 +1,29 @@
+PCI: reserve the alignment hole after a window larger than its alignment (7.x)
+
+On 7.2.9 pbus_size_mem() sums max(size, align) per child and rounds the total only to the window
+alignment (1G on powernv M64). Two V100s behind sibling PLX downstream ports each need a 33G prefetchable
+window aligned to 32G; the parent was sized 66G(+1G), the first fits at 0-33G, the second needs 64-97G:
+'bridge window [mem size 0x840000000 64bit pref]: can't assign; no space', BAR1-5 of 0004:05:00.0 and
+0035:04:00.0 stay 0M @ 0x0 and RmInitAdapter fails. 6.12 rounded the window up to min_align instead.
+Round each such child up to its alignment so the hole is reserved. Local build for the AC922.
+
+--- a/drivers/pci/setup-bus.c	2026-10-03 04:43:16.000000000 -0600
++++ b/drivers/pci/setup-bus.c	2026-10-04 21:04:17.777108911 -0600
+@@ -1331,7 +1331,16 @@
+ 				continue;
+ 
+ 			r_size = resource_size(r);
+-			size += max(r_size, align);
++			/*
++			 * AC922 local change: a resource larger than its
++			 * alignment (a bridge window holding one big BAR plus
++			 * smaller ones) leaves a hole up to the next equally
++			 * aligned sibling. Reserve that hole, or the second such
++			 * sibling cannot be placed: two V100s behind sibling
++			 * switch ports each need a 33G window aligned to 32G,
++			 * which does not fit the 66G this used to ask for.
++			 */
++			size += max(ALIGN(r_size, align), align);
+ 
+ 			/*
+ 			 * If resource's size is larger than its alignment,

@@ -1,0 +1,28 @@
+powerpc/powernv/eeh: do not make an EEH PE for NVLink NPU devices that have no PE yet (7.x)
+
+EEH probes a device when it is added; the restored NVLink code assigns NPU PEs later, in
+pnv_pci_ioda_setup_nvlink(). The EEH PE therefore carries IODA_INVALID_PE (PHB#7-PE#ffffffff), and a config
+read that returns all-ones (a plain lspci) is treated as a frozen PE, cannot be recovered and ends in
+'permanent failure', removing all twelve NPU link devices. Seen on 7.2.9-npu, 2026-10-04.
+Local build for the AC922.
+
+--- a/arch/powerpc/platforms/powernv/eeh-powernv.c	2026-10-03 04:43:16.000000000 -0600
++++ b/arch/powerpc/platforms/powernv/eeh-powernv.c	2026-10-04 21:04:17.782816077 -0600
+@@ -350,6 +350,17 @@
+ 	if ((pdev->class >> 8) == PCI_CLASS_BRIDGE_ISA)
+ 		return NULL;
+ 
++	/*
++	 * AC922 / NVLink local change: the emulated NPU link devices get their
++	 * PE later, from pnv_pci_ioda_setup_nvlink(). An EEH PE made now would
++	 * carry IODA_INVALID_PE, and the first config read returning all-ones
++	 * (any lspci) would be taken for a frozen PE, fail to recover and
++	 * remove every NPU device. Leave them out of EEH.
++	 */
++	if (phb->type == PNV_PHB_NPU_NVLINK &&
++	    phb->ioda.pe_rmap[config_addr] == IODA_INVALID_PE)
++		return NULL;
++
+ 	eeh_edev_dbg(edev, "Probing device\n");
+ 
+ 	/* Initialize eeh device */

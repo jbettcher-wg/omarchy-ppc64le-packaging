@@ -1,0 +1,27 @@
+cpufreq: powernv: enable boost (ultra-turbo / WOF frequencies) by default again (7.x)
+
+6.12 set powernv_cpufreq_driver.boost_enabled = true at init; 7.2.9 only installs set_boost, so the core
+applies boost=0 to every new policy and the WOF frequencies (3483-3800 MHz on this AC922) are unreachable
+until someone writes 1 to /sys/devices/system/cpu/cpufreq/boost. Restore the old default.
+Local build for the AC922.
+
+--- a/drivers/cpufreq/powernv-cpufreq.c	2026-10-03 04:43:16.000000000 -0600
++++ b/drivers/cpufreq/powernv-cpufreq.c	2026-10-04 21:19:26.313111934 -0600
+@@ -1126,8 +1126,16 @@
+ 	if (rc)
+ 		goto out;
+ 
+-	if (powernv_pstate_info.wof_enabled)
++	if (powernv_pstate_info.wof_enabled) {
+ 		powernv_cpufreq_driver.set_boost = cpufreq_boost_set_sw;
++		/*
++		 * AC922 local change: 6.12 and earlier turned boost on here, so
++		 * the ultra-turbo (WOF) frequencies were usable from boot. 7.x
++		 * dropped the default and every policy starts with boost off
++		 * (scaling_max_freq 3133 MHz instead of 3800 MHz).
++		 */
++		powernv_cpufreq_driver.boost_enabled = true;
++	}
+ 
+ 	rc = cpufreq_register_driver(&powernv_cpufreq_driver);
+ 	if (rc) {

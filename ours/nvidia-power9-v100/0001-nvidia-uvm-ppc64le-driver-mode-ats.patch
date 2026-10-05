@@ -1,0 +1,219 @@
+nvidia-uvm: driver-mode ATS on POWER9 (NVLink 2.0) for kernels without the in-kernel NPU2 driver
+
+Local workaround, ppc64le only; not something NVIDIA will take (535 is the last ppc64le branch).
+
+On RHEL's 4.18 nvidia-uvm uses the kernel's pnv_npu2_init_context()/destroy_context(). Mainline removed
+those, so on linux-power9-v100 UVM runs ATS itself ("driver mode": it maps the NPU's ATSD registers and owns
+the mmu_notifier). Stock 535.216.03 has that code but it is unusable as shipped:
+
+ - uvm_linux.h: the gate that enables UVM's own mmu_notifier is limited to kernels < 5.9; open it for the
+   arch_invalidate_secondary_tlbs() API too.
+ - uvm_va_space_mm.c: add an mmu_notifier .release that issues a full-PASID invalidate. exit_mmap() releases
+   notifiers before it unmaps, so without it the nest MMU keeps a dead process's translations.
+ - uvm_ats_ibm.c: bound the wait on a stuck ATSD register (60 s, then log and continue) instead of spinning
+   forever in process exit.
+ - uvm_ats_ibm.[ch]: keep an mm_count reference on the mm from the first NPU becoming active until the last
+   goes away, and use THAT mm for mm_context_remove_copro(). uvm_mm_release() always runs before
+   uvm_release() and clears va_space_mm.mm, so the stock teardown dereferenced NULL in radix__flush_all_mm()
+   ("BUG: Kernel NULL pointer dereference on read at 0x00000678"), the VA space was never destroyed and every
+   exited or killed CUDA process left its GPU memory allocated.
+ - uvm_ats_ibm.c: do NOT destroy the OPAL NPU context at process exit. It is per GPU, armed once at boot by
+   the kernel; destroying it made the next CUDA context on that GPU hang in cuDevicePrimaryCtxRetain().
+ - nvidia-uvm.Kbuild: a conftest symbol probe for pnv_npu2_destroy_pasid (now only gates an unused extern).
+
+Verified 2026-10-04 on an 8335-GTG, 4x V100-SXM2-32GB, kernel 7.2.9: three start / kill / restart cycles each
+on 2 and 4 GPUs, memory back to 0 MiB every time, no oops.
+
+--- a/nvidia-uvm/uvm_ats_ibm.c	2026-10-04 23:43:45.694420907 -0600
++++ b/nvidia-uvm/uvm_ats_ibm.c	2026-10-04 23:43:45.759956300 -0600
+@@ -41,6 +41,15 @@
+ #include <asm/mmu.h>
+ #include <asm/mmu_context.h>
+ 
++#if NV_IS_EXPORT_SYMBOL_PRESENT_pnv_npu2_destroy_pasid
++// Exported by the pnv_npu2_destroy_pasid() kernel patch
++// (V100-POWER9-KERNEL/kernel/0004-powerpc-powernv-npu2-destroy-pasid.patch),
++// which restores the v4.18 nest-MMU per-PASID context teardown on kernels
++// where the in-kernel NPU2 driver was removed (>= 5.3). No upstream kernel
++// header declares it, so it is declared here.
++int pnv_npu2_destroy_pasid(struct pci_dev *gpdev, unsigned int pasid);
++#endif
++
+ #define NPU_ATSD_REG_MAP_SIZE 32
+ 
+ // There are three 8-byte registers in each ATSD mapping:
+@@ -369,9 +378,17 @@
+         // commit 03b8abedf4f4965e7e9e0d4f92877c42c07ce19f for background.
+         //
+         // This is safe to do without holding mm_users high or mmap_lock.
+-        if (bitmap_empty(ibm_va_space->npu_active_mask, NV_MAX_NPUS))
++        if (bitmap_empty(ibm_va_space->npu_active_mask, NV_MAX_NPUS)) {
+             mm_context_add_copro(va_space->va_space_mm.mm);
+ 
++            // Keep the mm_struct (and so its context id / PASID) alive until
++            // the matching mm_context_remove_copro() in unregister.
++            if (!ibm_va_space->copro_mm) {
++                ibm_va_space->copro_mm = va_space->va_space_mm.mm;
++                mmgrab(ibm_va_space->copro_mm);
++            }
++        }
++
+         UVM_ASSERT(!test_bit(npu_index, ibm_va_space->npu_active_mask));
+         __set_bit(npu_index, ibm_va_space->npu_active_mask);
+     }
+@@ -394,6 +411,7 @@
+     uvm_gpu_t *gpu = gpu_va_space->gpu;
+     size_t npu_index = uvm_ibm_npu_index(gpu->parent->npu);
+     bool do_remove = false;
++    struct mm_struct *copro_mm = NULL;
+     uvm_ibm_va_space_t *ibm_va_space;
+     uvm_ibm_gpu_va_space_t *ibm_gpu_va_space = &gpu_va_space->ats.ibm;
+ 
+@@ -428,8 +446,11 @@
+     --ibm_va_space->npu_ref_counts[npu_index];
+     if (ibm_va_space->npu_ref_counts[npu_index] == 0) {
+         __clear_bit(npu_index, ibm_va_space->npu_active_mask);
+-        if (bitmap_empty(ibm_va_space->npu_active_mask, NV_MAX_NPUS))
++        if (bitmap_empty(ibm_va_space->npu_active_mask, NV_MAX_NPUS)) {
+             do_remove = true;
++            copro_mm = ibm_va_space->copro_mm;
++            ibm_va_space->copro_mm = NULL;
++        }
+     }
+ 
+     uvm_write_unlock_irqrestore(&ibm_va_space->rwlock);
+@@ -441,8 +462,30 @@
+         // safe to call here even if another thread jumps in with a register and
+         // calls mm_context_add_copro() between this thread's unlock and this
+         // call.
+-        UVM_ASSERT(va_space->va_space_mm.mm);
+-        mm_context_remove_copro(va_space->va_space_mm.mm);
++        //
++        // At process exit va_space->va_space_mm.mm is already NULL here
++        // (uvm_mm_release() runs before uvm_release() destroys the GPU VA
++        // spaces), which used to end in a NULL dereference in
++        // radix__flush_all_mm() and left the GPU memory allocated. Use the mm
++        // reference taken at register time instead.
++        if (!copro_mm)
++            return;
++
++        mm_context_remove_copro(copro_mm);
++
++        // Do NOT call pnv_npu2_destroy_pasid() here. OPAL's NPU context is
++        // per GPU (BDF), not per PASID: the kernel arms it once per GPU at
++        // boot (pnv_npu2_map_lpar_dev() -> opal_npu_init_context(), PASID
++        // argument unused), so opal_npu_destroy_context() at process exit
++        // removes that GPU's whole translation context and every later CUDA
++        // context on the GPU hangs in cuDevicePrimaryCtxRetain() (seen
++        // 2026-10-04 on 7.2.9-npu-5 once this path stopped crashing). The dead
++        // PASID's translations are flushed by uvm_mmu_notifier_release_ats()
++        // and by mm_context_remove_copro() above.
++
++        // Last use of the mm: the copro count is back to zero, so the final
++        // mmdrop() can run destroy_context() without its copros warning.
++        mmdrop(copro_mm);
+     }
+ }
+ 
+@@ -566,13 +609,32 @@
+ 
+ // Wait for all prior operations issued to active NPUs in va_space on the given
+ // registers to finish.
++//
++// A stuck ATSD would otherwise hang the caller forever. This wait is reached
++// from the mmu_notifier callbacks, which run in process exit (exit_mmap), so
++// an unbounded spin here is what makes processes using the GPUs unable to
++// exit at all. uvm_spin_loop() already prints a warning every 30 seconds;
++// the hard timeout below gives up after UVM_ATSD_REG_WAIT_TIMEOUT_NS, logs
++// an error, and lets the teardown continue.
++#define UVM_ATSD_REG_WAIT_TIMEOUT_NS (60ULL * 1000 * 1000 * 1000)
++
+ static void atsd_regs_wait(uvm_va_space_t *va_space, uvm_atsd_regs_t *regs)
+ {
+-    uvm_spin_loop_t spin;
+     size_t i;
+     for_each_npu_index_in_va_space(i, va_space) {
+-        UVM_SPIN_WHILE(atsd_reg_read(&g_uvm_global.npus[i], regs->ids[i], NPU_ATSD_REG_STAT), &spin)
+-            ;
++        uvm_spin_loop_t spin;
++
++        uvm_spin_loop_init(&spin);
++        while (atsd_reg_read(&g_uvm_global.npus[i], regs->ids[i], NPU_ATSD_REG_STAT)) {
++            UVM_SPIN_LOOP(&spin);
++            if (uvm_spin_loop_elapsed(&spin) > UVM_ATSD_REG_WAIT_TIMEOUT_NS) {
++                UVM_ERR_PRINT("ATSD on NPU %zu reg %u did not complete within %llu ms; "
++                              "continuing without waiting for it\n",
++                              (size_t) i, regs->ids[i],
++                              UVM_ATSD_REG_WAIT_TIMEOUT_NS / (1000 * 1000));
++                break;
++            }
++        }
+     }
+ }
+ 
+--- a/nvidia-uvm/uvm_ats_ibm.h	2026-10-04 23:43:45.699958349 -0600
++++ b/nvidia-uvm/uvm_ats_ibm.h	2026-10-04 23:43:45.809954593 -0600
+@@ -113,6 +113,13 @@
+     // npu_ref_counts is greater than 0.
+     NvU32 npu_ref_counts[NV_MAX_NPUS];
+     DECLARE_BITMAP(npu_active_mask, NV_MAX_NPUS);
++
++    // Driver-mode ATS: the mm that mm_context_add_copro() was called on, with
++    // an mm_count reference held from the first NPU becoming active until the
++    // last one goes away. va_space_mm.mm cannot be used on the teardown path:
++    // uvm_mm_release() clears it before uvm_release() destroys the GPU VA
++    // spaces. Protected by rwlock.
++    struct mm_struct *copro_mm;
+ #endif
+ 
+     // Lock protecting npu_ref_counts and npu_active_mask. Invalidations
+--- a/nvidia-uvm/uvm_linux.h	2026-10-04 23:43:45.699958349 -0600
++++ b/nvidia-uvm/uvm_linux.h	2026-10-04 23:43:45.849953227 -0600
+@@ -127,9 +127,8 @@
+ //
+ // The callback was added in commit 0f0a327fa12cd55de5e7f8c05a70ac3d047f405e,
+ // v3.19 (2014-11-13) and renamed in commit 1af5a8109904.
+-    #if (defined(NV_MMU_NOTIFIER_OPS_HAS_INVALIDATE_RANGE) || \
+-         defined(NV_ARCH_INVALIDATE_SECONDARY_TLBS)) && \
+-        defined(NVCPU_PPC64LE) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
++    #if defined(NV_MMU_NOTIFIER_OPS_HAS_INVALIDATE_RANGE) || \
++        defined(NV_MMU_NOTIFIER_OPS_HAS_ARCH_INVALIDATE_SECONDARY_TLBS)
+         #define UVM_CAN_USE_MMU_NOTIFIERS() 1
+     #else
+         #define UVM_CAN_USE_MMU_NOTIFIERS() 0
+--- a/nvidia-uvm/uvm_va_space_mm.c	2026-10-04 23:43:45.699958349 -0600
++++ b/nvidia-uvm/uvm_va_space_mm.c	2026-10-04 23:43:45.899951519 -0600
+@@ -213,8 +213,26 @@
+         UVM_ENTRY_VOID(uvm_ats_invalidate(get_va_space(mn), start, end));
+     }
+ 
++    static void uvm_mmu_notifier_release_ats(struct mmu_notifier *mn,
++                                             struct mm_struct *mm)
++    {
++        // The mm is going away. Flush every one of its translations out of
++        // the nest-MMU TLBs (full-PASID invalidate plus the required
++        // membars) before the kernel frees the pages.
++        //
++        // The 4.18 kernel-mode ATS path did this in the kernel's own
++        // mmu_notifier .release (npu-dma.c). On the 6.12 Stage-1 kernel the
++        // driver owns the notifier, and driver-mode ATS otherwise never
++        // sees a full invalidate at process exit -- exit_mmap() releases
++        // the mmu notifiers before it unmaps the VMAs -- so without this
++        // the nest MMU keeps the dead PASID's TLB entries, the GPU memory
++        // is not freed, and a recycled PID can hit stale translations.
++        UVM_ENTRY_VOID(uvm_ats_invalidate(get_va_space(mn), 0, ~0UL));
++    }
++
+     static struct mmu_notifier_ops uvm_mmu_notifier_ops_ats =
+     {
++        .release = uvm_mmu_notifier_release_ats,
+ #if defined(NV_MMU_NOTIFIER_OPS_HAS_INVALIDATE_RANGE)
+         .invalidate_range = uvm_mmu_notifier_invalidate_range_ats,
+ #elif defined(NV_MMU_NOTIFIER_OPS_HAS_ARCH_INVALIDATE_SECONDARY_TLBS)
+--- a/nvidia-uvm/nvidia-uvm.Kbuild	2026-10-04 23:43:45.699958349 -0600
++++ b/nvidia-uvm/nvidia-uvm.Kbuild	2026-10-04 23:43:45.949949812 -0600
+@@ -115,3 +115,4 @@
+ 
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_int_active_memcg
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_migrate_vma_setup
++NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_pnv_npu2_destroy_pasid

@@ -1,0 +1,49 @@
+mm: let non-GPL modules use __vma_start_write
+
+7.x flags every EXPORT_SYMBOL_GPL() symbol (a __flags_<sym> section, enum
+ksym_flags/KSYM_FLAG_GPL_ONLY at include/linux/module_symbol.h:7) and enforces
+the license twice: at link time in scripts/mod/modpost.c:1803
+
+  if (!mod->is_gpl_compatible && exp->is_gpl_only)
+          error("GPL-incompatible module %s.ko uses GPL-only symbol '%s'\n", ...)
+
+and at load time in kernel/module/main.c:376
+
+  if (!fsa->gplok && (sym_flags & KSYM_FLAG_GPL_ONLY))
+
+nvidia.ko (MODULE_LICENSE("NVIDIA"), nvidia/nv-frontend.c:29) inlines the 7.x
+helpers vm_flags_set()/vm_flags_clear() from include/linux/mm.h:1018/:1026, and
+those call the out-of-line __vma_start_write (mm/mmap_lock.c:139, exported
+EXPORT_SYMBOL_GPL at :170), so the driver build stops at modpost:
+
+  ERROR: modpost: GPL-incompatible module nvidia.ko uses GPL-only symbol '__vma_start_write'
+  make[4]: *** [.../scripts/Makefile.modpost:147: Module.symvers] Error 1
+
+Everything else in that pass is clean: 0 hard compile errors, the four linked
+objects (nvidia.o, nvidia-uvm.o, nvidia-modeset.o, nvidia-peermem.o) are
+produced.  Inventory of the GPL-flagged symbol set (kernel Module.symvers, 15331
+entries) against nm -u of each linked module: nvidia.o has exactly ONE such
+reference, nvidia-modeset.o and nvidia-peermem.o have none, and nvidia-uvm.o has
+eight but declares MODULE_LICENSE("Dual MIT/GPL") which modpost accepts.  So this
+one export is the whole blocker for the shipped modules.
+
+Dropping the GPL-only flag on this one symbol keeps the driver's call path
+byte-identical to the 7.x one (it still performs the per-VMA reader exclusion),
+which the driver-side alternative does not: routing NVIDIA's nv_vm_flags_{set,
+clear} wrappers (common/inc/nv-mm.h:295/:304) through the fully-inline
+__vm_flags_mod()/vm_flags_reset() pair would skip that bookkeeping and clobber
+the extended flag words.  This is a local policy choice in OUR build of this
+kernel (it lets a non-GPL module use one kernel internal); it does not touch
+the 6.12 NPU tree (no such mechanism there) or the 4.18 DKMS modules.  Apply
+from the kernel source root with -p1.
+--- a/mm/mmap_lock.c
++++ b/mm/mmap_lock.c
+@@ -167,7 +167,7 @@
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL_GPL(__vma_start_write);
++EXPORT_SYMBOL(__vma_start_write);
+ 
+ void __vma_exclude_readers_for_detach(struct vm_area_struct *vma)
+ {

@@ -1,0 +1,453 @@
+powerpc/powernv: restore NPU2 / NVLink 2.0 support for the AC922's V100s
+
+Local, not for upstream. Mainline removed the in-kernel NPU2 driver (npu-dma.c, v5.3/v5.13), which is what
+gave an IBM AC922 its coherent NVLink path between the POWER9 nest MMU and Tesla V100-SXM2 GPUs. This puts
+back "stage 1" only: the OPAL wrappers, pnv_pci_get_npu_dev()/pnv_pci_get_gpu_dev(), the NPU_NVLINK PHB
+type and its PE setup, and the boot-time translation context (pnv_npu2_map_lpar_dev() ->
+opal_npu_map_lpar() + opal_npu_init_context()) that every NVLink GPU needs before the GPU driver issues
+DMA. NVIDIA's proprietary nvidia-uvm then runs ATS in "driver mode" on top of it.
+
+--- a/arch/powerpc/include/asm/opal.h
++++ b/arch/powerpc/include/asm/opal.h
+@@ -28,6 +28,9 @@
+ 
+ /* API functions */
+ int64_t opal_invalid_call(void);
++int64_t opal_npu_init_context(uint64_t phb_id, int pasid, uint64_t msr,
++			      uint64_t bdf);
++int64_t opal_npu_destroy_context(uint64_t phb_id, uint64_t pid, uint64_t bdf);
+ int64_t opal_npu_map_lpar(uint64_t phb_id, uint64_t bdf, uint64_t lparid,
+ 			uint64_t lpcr);
+ int64_t opal_npu_spa_setup(uint64_t phb_id, uint32_t bdfn,
+--- a/arch/powerpc/include/asm/pci.h
++++ b/arch/powerpc/include/asm/pci.h
+@@ -114,6 +114,17 @@
+ extern void pcibios_setup_phb_io_space(struct pci_controller *hose);
+ extern void pcibios_scan_phb(struct pci_controller *hose);
+ 
++/*
++ * NVLink (NPU) device association. Declared here rather than in asm/pnv-pci.h
++ * because out-of-tree consumers -- notably NVIDIA's conftest -- probe for
++ * these with only <linux/pci.h> included, and linux/pci.h reaches asm/pci.h.
++ * This is where v5.12 declared them, for the same reason.
++ */
++extern struct pci_dev *pnv_pci_get_gpu_dev(struct pci_dev *npdev);
++extern struct pci_dev *pnv_pci_get_npu_dev(struct pci_dev *gpdev, int index);
++extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
++				 unsigned long msr);
++
+ #endif	/* __KERNEL__ */
+ 
+ #endif /* __ASM_POWERPC_PCI_H */
+--- a/arch/powerpc/include/asm/pnv-pci.h
++++ b/arch/powerpc/include/asm/pnv-pci.h
+@@ -75,4 +75,7 @@
+ extern int pnv_php_set_slot_power_state(struct hotplug_slot *slot,
+ 					uint8_t state);
+ 
++struct pci_dev *pnv_pci_get_gpu_dev(struct pci_dev *npdev);
++struct pci_dev *pnv_pci_get_npu_dev(struct pci_dev *gpdev, int index);
++
+ #endif
+--- a/arch/powerpc/platforms/powernv/Makefile
++++ b/arch/powerpc/platforms/powernv/Makefile
+@@ -9,6 +9,7 @@
+ KASAN_SANITIZE_setup.o := n
+ 
+ obj-y			+= setup.o opal-call.o opal-wrappers.o opal.o opal-async.o
++obj-y			+= npu-dma.o
+ obj-y			+= idle.o opal-rtc.o opal-nvram.o opal-lpc.o opal-flash.o
+ obj-y			+= rng.o opal-elog.o opal-dump.o opal-sysparam.o opal-sensor.o
+ obj-y			+= opal-msglog.o opal-hmi.o opal-power.o opal-irqchip.o
+--- a/arch/powerpc/platforms/powernv/opal-call.c
++++ b/arch/powerpc/platforms/powernv/opal-call.c
+@@ -269,6 +269,8 @@
+ OPAL_CALL(opal_xive_set_queue_state,		OPAL_XIVE_SET_QUEUE_STATE);
+ OPAL_CALL(opal_xive_get_vp_state,		OPAL_XIVE_GET_VP_STATE);
+ OPAL_CALL(opal_signal_system_reset,		OPAL_SIGNAL_SYSTEM_RESET);
++OPAL_CALL(opal_npu_init_context,		OPAL_NPU_INIT_CONTEXT);
++OPAL_CALL(opal_npu_destroy_context,		OPAL_NPU_DESTROY_CONTEXT);
+ OPAL_CALL(opal_npu_map_lpar,			OPAL_NPU_MAP_LPAR);
+ OPAL_CALL(opal_imc_counters_init,		OPAL_IMC_COUNTERS_INIT);
+ OPAL_CALL(opal_imc_counters_start,		OPAL_IMC_COUNTERS_START);
+--- a/arch/powerpc/platforms/powernv/pci-ioda.c
++++ b/arch/powerpc/platforms/powernv/pci-ioda.c
+@@ -46,7 +46,8 @@
+ #include "../../../../drivers/pci/pci.h"
+ 
+ /* This array is indexed with enum pnv_phb_type */
+-static const char * const pnv_phb_names[] = { "IODA2", "NPU_OCAPI" };
++static const char * const pnv_phb_names[] = { "IODA2", "NPU_OCAPI",
++							      "NPU_NVLINK" };
+ 
+ static void pnv_pci_ioda2_set_bypass(struct pnv_ioda_pe *pe, bool enable);
+ static void pnv_pci_configure_bus(struct pci_bus *bus);
+@@ -788,7 +789,8 @@
+ 	 * Release from all parents PELT-V. NPUs don't have a PELTV
+ 	 * table
+ 	 */
+-	if (phb->type != PNV_PHB_NPU_OCAPI)
++	if (phb->type != PNV_PHB_NPU_OCAPI &&
++	    phb->type != PNV_PHB_NPU_NVLINK)
+ 		pnv_ioda_unset_peltv(phb, pe, parent);
+ 
+ 	rc = opal_pci_set_pe(phb->opal_id, pe->pe_number, pe->rid,
+@@ -859,7 +861,8 @@
+ 	 * Configure PELTV. NPUs don't have a PELTV table so skip
+ 	 * configuration on them.
+ 	 */
+-	if (phb->type != PNV_PHB_NPU_OCAPI)
++	if (phb->type != PNV_PHB_NPU_OCAPI &&
++	    phb->type != PNV_PHB_NPU_NVLINK)
+ 		pnv_ioda_set_peltv(phb, pe, true);
+ 
+ 	/* Setup reverse map */
+@@ -2177,8 +2180,92 @@
+ 		pnv_pci_enable_bridge(hose->bus);
+ }
+ 
++/*
++ * Assign a PE to an NPU link device.
++ *
++ * PE#0 on the NPU is reserved for error handling by hardware errata, leaving
++ * three PEs for more links than that. NPUs that link the same GPU are given
++ * the same PE, which makes the sums work out.
++ */
++static struct pnv_ioda_pe *pnv_ioda_setup_npu_PE(struct pci_dev *npu_pdev)
++{
++	int pe_num, found_pe = false, rc;
++	long rid;
++	struct pnv_ioda_pe *pe;
++	struct pci_dev *gpu_pdev;
++	struct pci_dn *npu_pdn;
++	struct pnv_phb *phb = pci_bus_to_pnvhb(npu_pdev->bus);
++
++	/*
++	 * Intentionally leak a reference on the npu device to make sure it
++	 * never goes away, as has been the case all along.
++	 */
++	pci_dev_get(npu_pdev);
++
++	gpu_pdev = pnv_pci_get_gpu_dev(npu_pdev);
++	for (pe_num = 0; pe_num < phb->ioda.total_pe_num; pe_num++) {
++		pe = &phb->ioda.pe_array[pe_num];
++		if (!pe->pdev)
++			continue;
++
++		if (pnv_pci_get_gpu_dev(pe->pdev) == gpu_pdev) {
++			/* Same peer GPU -- share that NPU's PE. */
++			dev_info(&npu_pdev->dev,
++				 "Associating to existing PE %x\n", pe_num);
++			npu_pdn = pci_get_pdn(npu_pdev);
++			rid = npu_pdev->bus->number << 8 | npu_pdn->devfn;
++			npu_pdn->pe_number = pe_num;
++			phb->ioda.pe_rmap[rid] = pe->pe_number;
++			pe->device_count++;
++
++			rc = opal_pci_set_pe(phb->opal_id, pe_num, rid,
++					OpalPciBusAll,
++					OPAL_COMPARE_RID_DEVICE_NUMBER,
++					OPAL_COMPARE_RID_FUNCTION_NUMBER,
++					OPAL_MAP_PE);
++			WARN_ON(rc != OPAL_SUCCESS);
++			found_pe = true;
++			break;
++		}
++	}
++
++	if (!found_pe)
++		return pnv_ioda_setup_dev_PE(npu_pdev);
++	return pe;
++}
++
++static void pnv_ioda_setup_npu_PEs(struct pci_bus *bus)
++{
++	struct pci_dev *pdev;
++
++	list_for_each_entry(pdev, &bus->devices, bus_list)
++		pnv_ioda_setup_npu_PE(pdev);
++}
++
++static void pnv_pci_ioda_setup_nvlink(void)
++{
++	struct pci_controller *hose;
++	struct pnv_phb *phb;
++
++	list_for_each_entry(hose, &hose_list, list_node) {
++		phb = hose->private_data;
++		if (phb->type == PNV_PHB_NPU_NVLINK) {
++			/* PE#0 is needed for error reporting */
++			pnv_ioda_reserve_pe(phb, 0);
++			pnv_ioda_setup_npu_PEs(hose->bus);
++		}
++	}
++	/*
++	 * Arm the NPU context for every NVLink GPU. Must happen before the
++	 * GPU driver issues NVLink DMA, or the NPU PE freezes and EEH tears
++	 * the bricks out.
++	 */
++	pnv_npu2_map_lpar(MSR_DR | MSR_PR | MSR_HV);
++}
++
+ static void pnv_pci_ioda_fixup(void)
+ {
++	pnv_pci_ioda_setup_nvlink();
+ 	pnv_pci_ioda_create_dbgfs();
+ 
+ 	pnv_pci_enable_bridges();
+@@ -2424,6 +2511,7 @@
+ 		pnv_pci_ioda2_release_pe_dma(pe);
+ 		break;
+ 	case PNV_PHB_NPU_OCAPI:
++	case PNV_PHB_NPU_NVLINK:
+ 		break;
+ 	default:
+ 		WARN_ON(1);
+@@ -2554,6 +2642,13 @@
+ #endif
+ };
+ 
++static const struct pci_controller_ops pnv_npu_ioda_controller_ops = {
++	.enable_device_hook	= pnv_pci_enable_device_hook,
++	.window_alignment	= pnv_pci_window_alignment,
++	.reset_secondary_bus	= pnv_pci_reset_secondary_bus,
++	.shutdown		= pnv_pci_ioda_shutdown,
++};
++
+ static const struct pci_controller_ops pnv_npu_ocapi_ioda_controller_ops = {
+ 	.enable_device_hook	= pnv_ocapi_enable_device_hook,
+ 	.release_device		= pnv_pci_release_device,
+@@ -2759,6 +2854,9 @@
+ 	ppc_md.pcibios_fixup = pnv_pci_ioda_fixup;
+ 
+ 	switch (phb->type) {
++	case PNV_PHB_NPU_NVLINK:
++		hose->controller_ops = pnv_npu_ioda_controller_ops;
++		break;
+ 	case PNV_PHB_NPU_OCAPI:
+ 		hose->controller_ops = pnv_npu_ocapi_ioda_controller_ops;
+ 		break;
+@@ -2811,6 +2909,11 @@
+ 	pnv_pci_init_ioda_phb(np, 0, PNV_PHB_IODA2);
+ }
+ 
++void __init pnv_pci_init_npu_phb(struct device_node *np)
++{
++	pnv_pci_init_ioda_phb(np, 0, PNV_PHB_NPU_NVLINK);
++}
++
+ void __init pnv_pci_init_npu2_opencapi_phb(struct device_node *np)
+ {
+ 	pnv_pci_init_ioda_phb(np, 0, PNV_PHB_NPU_OCAPI);
+--- a/arch/powerpc/platforms/powernv/pci.c
++++ b/arch/powerpc/platforms/powernv/pci.c
+@@ -853,6 +853,17 @@
+ 	for_each_compatible_node(np, NULL, "ibm,ioda3-phb")
+ 		pnv_pci_init_ioda2_phb(np);
+ 
++	/* Look for NPU PHBs */
++	for_each_compatible_node(np, NULL, "ibm,ioda2-npu-phb")
++		pnv_pci_init_npu_phb(np);
++
++	/*
++	 * Look for NPU2 PHBs which we treat mostly as NPU PHBs with
++	 * the exception of TCE kill which requires an OPAL call.
++	 */
++	for_each_compatible_node(np, NULL, "ibm,ioda2-npu2-phb")
++		pnv_pci_init_npu_phb(np);
++
+ 	/* Look for NPU2 OpenCAPI PHBs */
+ 	for_each_compatible_node(np, NULL, "ibm,ioda2-npu2-opencapi-phb")
+ 		pnv_pci_init_npu2_opencapi_phb(np);
+--- a/arch/powerpc/platforms/powernv/pci.h
++++ b/arch/powerpc/platforms/powernv/pci.h
+@@ -12,6 +12,7 @@
+ enum pnv_phb_type {
+ 	PNV_PHB_IODA2,
+ 	PNV_PHB_NPU_OCAPI,
++	PNV_PHB_NPU_NVLINK,
+ };
+ 
+ /* Precise PHB model for error management */
+@@ -275,6 +276,10 @@
+ extern struct iommu_table *pnv_pci_table_alloc(int nid);
+ 
+ extern void pnv_pci_init_ioda2_phb(struct device_node *np);
++extern void pnv_pci_init_npu_phb(struct device_node *np);
++extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
++				 unsigned long msr);
++extern void pnv_npu2_map_lpar(unsigned long msr);
+ extern void pnv_pci_init_npu2_opencapi_phb(struct device_node *np);
+ extern void pnv_pci_reset_secondary_bus(struct pci_dev *dev);
+ extern int pnv_eeh_phb_reset(struct pci_controller *hose, int option);
+--- a/arch/powerpc/platforms/powernv/npu-dma.c
++++ b/arch/powerpc/platforms/powernv/npu-dma.c
+@@ -0,0 +1,168 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * NVLink (NPU) device association helpers for POWER9 / NPU2.
++ *
++ * This is a Stage-1 revival of the code removed in commit 562d1e207d32
++ * ("powerpc/powernv: remove the nvlink support"), which landed in v5.13.
++ * Firmware (skiboot) still describes the NPU2 subsystem fully in the device
++ * tree, and NVIDIA's out-of-tree driver still contains its ibmnpu half; the
++ * only missing piece was the kernel side.
++ *
++ * Deliberately reduced relative to the v5.12 original: the ATSD / mmu_notifier
++ * context machinery (pnv_npu2_init_context() and friends) and the VFIO
++ * passthrough compound-IOMMU paths are NOT restored here. NVIDIA's driver
++ * probes for pnv_npu2_init_context() via conftest and builds without it, so
++ * omitting it costs ATS/unified-memory but not the NVLink data path.
++ *
++ * Original copyright Alistair Popple, IBM Corporation 2015.
++ */
++
++#include <linux/export.h>
++#include <linux/of.h>
++#include <linux/pci.h>
++
++#include <asm/opal.h>
++#include <asm/pci-bridge.h>
++#include <asm/pnv-pci.h>
++#include <asm/ppc-pci.h>
++
++#include "pci.h"
++
++/*
++ * Resolve a device-tree node to its struct pci_dev.
++ *
++ * pci_get_domain_bus_and_slot() takes a reference the callers here do not
++ * want -- the PE already holds one -- so it is dropped immediately. This
++ * mirrors the v5.12 behaviour exactly; callers must not rely on holding a
++ * reference to the returned device.
++ */
++static struct pci_dev *get_pci_dev(struct device_node *dn)
++{
++	struct pci_dn *pdn = PCI_DN(dn);
++	struct pci_dev *pdev;
++
++	if (!pdn)
++		return NULL;
++
++	pdev = pci_get_domain_bus_and_slot(pci_domain_nr(pdn->phb->bus),
++					   pdn->busno, pdn->devfn);
++	if (pdev)
++		pci_dev_put(pdev);
++
++	return pdev;
++}
++
++/* Given an NPU device, get the GPU it is linked to. */
++struct pci_dev *pnv_pci_get_gpu_dev(struct pci_dev *npdev)
++{
++	struct device_node *dn;
++	struct pci_dev *gpdev;
++
++	if (WARN_ON(!npdev))
++		return NULL;
++
++	if (WARN_ON(!npdev->dev.of_node))
++		return NULL;
++
++	dn = of_parse_phandle(npdev->dev.of_node, "ibm,gpu", 0);
++	if (!dn)
++		return NULL;
++
++	gpdev = get_pci_dev(dn);
++	of_node_put(dn);
++
++	return gpdev;
++}
++EXPORT_SYMBOL(pnv_pci_get_gpu_dev);
++
++/*
++ * Given a GPU, get the index'th NPU link device attached to it.
++ * NVIDIA's nv-ibmnpu.c calls this to enumerate a GPU's NVLink bricks.
++ */
++struct pci_dev *pnv_pci_get_npu_dev(struct pci_dev *gpdev, int index)
++{
++	struct device_node *dn;
++	struct pci_dev *npdev;
++
++	if (WARN_ON(!gpdev))
++		return NULL;
++
++	/* Not all PCI devices have device-tree nodes */
++	if (!gpdev->dev.of_node)
++		return NULL;
++
++	dn = of_parse_phandle(gpdev->dev.of_node, "ibm,npu", index);
++	if (!dn)
++		return NULL;
++
++	npdev = get_pci_dev(dn);
++	of_node_put(dn);
++
++	return npdev;
++}
++EXPORT_SYMBOL(pnv_pci_get_npu_dev);
++
++/*
++ * Arm the NPU translation context for one GPU.
++ *
++ * opal_npu_map_lpar() associates the GPU's BDF with an LPAR (0 = host), and
++ * opal_npu_init_context() programs the XTS so the nest MMU will translate
++ * that GPU's NVLink DMA. Without both, GPU->sysmem DMA over NVLink is
++ * untranslated and freezes the NPU PE.
++ */
++int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
++			  unsigned long msr)
++{
++	struct pci_dev *npdev = pnv_pci_get_npu_dev(gpdev, 0);
++	struct pci_controller *hose;
++	struct pnv_phb *nphb;
++	int ret;
++
++	if (!npdev)
++		return -ENODEV;
++
++	hose = pci_bus_to_host(npdev->bus);
++	if (!hose->dn ||
++	    !of_device_is_compatible(hose->dn, "ibm,ioda2-npu2-phb")) {
++		dev_info_once(&npdev->dev, "NVLink1 does not support contexts\n");
++		return 0;
++	}
++
++	nphb = hose->private_data;
++
++	dev_dbg(&gpdev->dev, "Map LPAR opalid=%llu lparid=%u\n",
++		nphb->opal_id, lparid);
++	/*
++	 * Radix only: skiboot expects a zero LPCR, which only means anything
++	 * for hash.
++	 */
++	ret = opal_npu_map_lpar(nphb->opal_id, pci_dev_id(gpdev), lparid, 0);
++	if (ret) {
++		dev_err(&gpdev->dev, "Error %d mapping device to LPAR\n", ret);
++		return ret;
++	}
++
++	dev_dbg(&gpdev->dev, "init context opalid=%llu msr=%lx\n",
++		nphb->opal_id, msr);
++	ret = opal_npu_init_context(nphb->opal_id, 0 /*__unused*/, msr,
++				    pci_dev_id(gpdev));
++	if (ret < 0)
++		dev_err(&gpdev->dev, "Failed to init context: %d\n", ret);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pnv_npu2_map_lpar_dev);
++
++/* Every PCI device whose DT node carries an "ibm,npu" phandle is an NVLink GPU. */
++void pnv_npu2_map_lpar(unsigned long msr)
++{
++	struct pci_dev *gpdev = NULL;
++
++	for_each_pci_dev(gpdev) {
++		if (!gpdev->dev.of_node)
++			continue;
++		if (!of_get_property(gpdev->dev.of_node, "ibm,npu", NULL))
++			continue;
++		pnv_npu2_map_lpar_dev(gpdev, 0, msr);
++	}
++}
