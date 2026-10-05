@@ -32,10 +32,20 @@
 # tools/bun-ppc64le-build/setup-shimroot.sh is kept, marked OBSOLETE, for a
 # machine that has to redo the one emulated step.
 
+# BUILD THIS NATIVELY (bq, or makepkg under the ppc64le root). It must NOT be
+# built from inside the POWERarm aarch64 sleeve: fakeroot's faked uses SysV IPC,
+# which does not work through the binfmt layer, so it half-intercepts and
+# mangles modes instead of failing. The symptom is a package whose files are
+# -rw------- and owned by the builder's uid rather than root, with
+# `semop(2): Invalid argument` and `fakeroot internal error #43` in the log.
+# pkgrel 2 exists to supersede exactly such a build of pkgrel 1, which was
+# published to the power9 pool: pacman compares versions, not contents, so a
+# same-version rebuild is never delivered to a machine that already has it.
+
 pkgname=bun-bootstrap
 pkgdesc='Prebuilt native ppc64le bun, used only to build bun (self-hosting bootstrap)'
 pkgver=1.4.3
-pkgrel=1
+pkgrel=2
 _revision='1.4.3-canary.1+782858f41'
 arch=('powerpc64le')
 url='https://bun.sh'
