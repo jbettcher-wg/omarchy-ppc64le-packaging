@@ -1,258 +1,183 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 #
-# bun -- the ppc64le port of oven-sh/bun, built against our ppc64le
-# JavaScriptCore.
+# Bun on ppc64le (POWER8+, little-endian, glibc).
 #
-# Read this header before the first build: unlike the rest of this tree, this
-# recipe has prerequisites that are not satisfied by the repository yet.  They
-# are listed under "What a first build needs" at the bottom.
+# Two things about this build are worth knowing before changing it.
 #
-# What this builds
+# 1. Bun is SELF-HOSTING: its build runs a bun to drive ~131 codegen steps. The
+#    first native ppc64le bun was produced by running an x86_64 bun under
+#    fastppcx86 on POWER9 hardware -- no x86 machine was involved at any point.
+#    That bootstrap is closed now and this package needs only `bun` in
+#    makedepends, but a machine with no native bun at all has to redo that one
+#    emulated step. See bun-bootstrap.
 #
-#   bun 1.4.3 plus our 10-commit ppc64le port, linked against JSC from our
-#   52-commit WebKit port.  The two are coupled and the coupling is exact:
-#   bun pins its engine by commit in scripts/build/deps/webkit.ts
-#   (WEBKIT_VERSION = cf1b36ec87), and our WebKit branch is based on precisely
-#   that commit.  bun must build against *our* WebKit, never upstream's --
-#   there is no ppc64le prebuilt in oven-sh/WebKit's releases, so the
-#   "prebuilt" mode bun defaults to cannot work here at all.  The recipe uses
-#   webkit=local (via --profile=release-local) with BUN_WEBKIT_PATH pointing
-#   at the patched checkout in $srcdir.
-#
-#   Note for anyone coming to this from bun's older releases: 1.4 has no Zig
-#   and no CMakeLists.txt of its own.  bun is Rust + C++ now (1,533 .rs files,
-#   0 .zig), driven by scripts/build.ts, which generates ninja and drives
-#   nested cmake only for the vendored C/C++ dependencies.  zig is not a build
-#   dependency of this package.
-#
-# How the port is carried
-#
-#   Neither the bun nor the WebKit branch has ever been pushed, and the base
-#   commits are public upstream, so source() clones each upstream at its base
-#   commit and applies our work from a patch tarball beside this file -- the
-#   convention chromium and electron43 already use here.
-#
-#     bun-ppc64le-patches-r1.tar.gz   10 patches, the real per-commit series
-#                                     (this branch is linear), base
-#                                     471b5868b6 = v1.4.3
-#     webkit-ppc64le-r1.tar.gz        ONE squashed diff, base cf1b36ec87
-#
-#   The WebKit material is squashed for a reason that took a while to find:
-#   that branch contains a merge whose conflict resolution exists in no single
-#   commit, so a format-patch series does not replay (it fails partway through
-#   in both date and topological order).  The squashed diff reproduces the
-#   branch tip's tree exactly.  MANIFEST inside each tarball records the base,
-#   the tip, the expected tree hash and the command that regenerates it, and
-#   prepare() verifies both trees rather than trusting that.
-#
-#   webkit-ppc64le-r1.tar.gz is byte-identical to the copy in
-#   packages/ours/jsc (same sha256).  Each recipe keeps its own copy so each
-#   is self-contained; regenerate both together.
-#
-# Toolchain, and why these versions
-#
-#   LLVM   bun pins LLVM 21.1.x (scripts/build/tools.ts: LLVM_VERSION
-#          "21.1.8", enforced as >=21.1.0 <21.1.99) and warns that a mismatch
-#          causes allocation failures at run time.  The repo's default clang
-#          is 22, so the build is pointed at packages/llvm21 + clang21 + lld21
-#          through BUN_TOOLCHAIN_LLVM, which is bun's supported escape hatch:
-#          it makes that directory the only place tools are taken from and
-#          disables the version check.  (The bring-up build on this machine
-#          used BUN_TOOLCHAIN_LLVM=/usr, i.e. clang 22, and did produce a
-#          working binary -- but shipping against the version upstream pins is
-#          the smaller risk.)
-#
-#   Rust   bun requires a *pinned nightly*: rust-toolchain.toml says
-#          nightly-2026-07-20, and the sources use nightly-only features
-#          (allocator_api, adt_const_params, thread_local, freeze, ...) in
-#          roughly every crate.  The repo's rust 1.98.1 stable cannot build
-#          it.  build() therefore installs that exact toolchain with rustup
-#          into $srcdir (nothing lands in $HOME) and hands it to bun through
-#          BUN_TOOLCHAIN_RUST.  powerpc64le-unknown-linux-gnu is Tier 2 with
-#          host tools, so a prebuilt nightly exists; our port adds it to
-#          rust-toolchain.toml's targets list.
-#
-#   bun    bun builds bun.  scripts/build/tools.ts resolveToolchain() calls
-#          findBun() with required:true, so the build refuses to configure
-#          without a bun binary on PATH even when node drives it.  That makes
-#          this package self-hosting like rust or go: makedepends=(bun), and
-#          the first build on a machine needs a bootstrap binary from
-#          somewhere else.  See the bottom of this header.
-#
-#   node   node >= 25 can drive the build in place of bun (configure.ts falls
-#          back to `node --experimental-strip-types`), and --package-manager=npm
-#          installs node_modules with `npm ci` instead of `bun install`.  Both
-#          are used here so the JS side of the build needs only nodejs/npm.
-#          The repo's nodejs is 26.
-#
-#   WebKit's own generators need perl (JSON::PP, English, FindBin -- core),
-#   python and ruby.  ruby-erb is separate on Arch since ruby 3.4 unbundled
-#   erb; without it the nested WebKit build dies in the LLInt generator.
-#   gperf is not needed (WebCore only, and this is the JSCOnly port).
-#
-# The build reaches the network
-#
-#   Three ways, all at build time, all pinned by commit or lockfile:
-#     * 19 vendored C/C++/Rust dependencies (boringssl, libarchive, lolhtml,
-#       mimalloc, zlib-ng, zstd, lsquic, tinycc, ...) are fetched as GitHub
-#       archives at the commits pinned in scripts/build/deps/*.ts;
-#     * node_modules via `npm ci` against bun.lock's resolved versions;
-#     * the pinned Rust nightly via rustup.
-#   That is the same shape as packages/electron43, which runs yarn install in
-#   build().  Everything the build writes -- caches, node_modules, rustup and
-#   cargo homes -- is redirected under $srcdir so a build leaves $HOME alone.
-#
-# What a first build needs (nothing here is guesswork; each was checked)
-#
-#   1. A bootstrap bun.  There is no bun package yet, so the first build must
-#      be given one: the native ppc64le binary from the bring-up build, or the
-#      x86_64 bun under fastppcx86.  After that this package bootstraps itself.
-#   2. packages/llvm21, clang21 and lld21 installed (all three exist in the
-#      repos; lld21 is in omarchy-power9).
-#   3. rustup installed (base/rustup 1.29.0-2) and network access for the
-#      pinned nightly.  If a rust-nightly package is ever built for this tree,
-#      point BUN_TOOLCHAIN_RUST at it and drop the rustup step.
-#
-# Maintainer note: pkgrel, not pkgver, moves when only the port patches change.
+# 2. WebKit is NOT built from a tarball here. Bun's own build drives WebKit's
+#    cmake (`--webkit=local`, reading $BUN_WEBKIT_PATH), and the `webkit`
+#    package ships that source tree. Do not switch this to `--webkit=prebuilt`:
+#    prebuilt tarballs are published per {os, arch, musl, debug|lto, asan} and
+#    none exists for ppc64le, and the ASAN setting MUST match bun's because
+#    WTF::Vector's layout changes with it -- mismatching corrupts memory
+#    silently rather than failing to link.
 
 pkgname=bun
+pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager'
+_commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
 pkgver=1.4.3
 pkgrel=1
-pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager (ppc64le port)'
 arch=('powerpc64le')
 url='https://bun.sh'
-license=('MIT' 'LGPL-2.1-only' 'BSD-2-Clause')
-depends=('glibc' 'gcc-libs' 'icu')
-makedepends=('git' 'cmake' 'ninja' 'nodejs>=25' 'npm' 'rustup'
-             'clang21' 'llvm21' 'lld21'
-             'perl' 'python' 'ruby' 'ruby-erb'
-             'bun')
-provides=('bunx')
-# bun drives its own LTO through the build profile; makepkg's global lto flags
-# would be appended to a build system that never sees $CFLAGS anyway.
-options=('!lto')
+license=('MIT')
+# Read out of the built binary's DT_NEEDED, not guessed: ld64.so.2, libc.so.6
+# and libm.so.6 (glibc) plus libicui18n.so.78 and libicuuc.so.78 (icu). There is
+# NO libstdc++ or libgcc_s entry -- bun links its C++ runtime statically -- so
+# gcc-libs is not a dependency however much it looks like one.
+depends=('glibc' 'icu')
+# NOTE: 'rust' is NOT in this list, deliberately -- see build() for why. The
+# rust-nightly-bun dependency DOES NOT EXIST YET and has to be packaged before
+# this recipe can build on a clean machine.
+# Every name here was checked against the repos before being written down.
+# cmake, ninja and lld resolve from [base], not from the Omarchy pools; icu is
+# in both omarchy-power9 and base. 'rust' is deliberately absent -- see build().
+makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'ruby' 'python'
+             'perl' 'pkgconf' 'icu' 'webkit' 'bun-bootstrap' 'rust-nightly-bun')
+provides=('bun')
+options=('!lto')   # Bun drives its own LTO settings through scripts/build.ts
 
-# oven-sh/bun v1.4.3, the base our 10 commits sit on.
-_bun_commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
-_bun_tree=f53aa6cf94666b6d9ab510780b5f0be1800e014b
-# oven-sh/WebKit at bun 1.4.3's WEBKIT_VERSION pin -- see scripts/build/deps/webkit.ts.
-_webkit_commit=cf1b36ec8703d8e87436094d21d478d358c7d886
-_webkit_tree=293c8e571086b420429364113372abf3d8976ad2
-# The nightly rust-toolchain.toml pins.
-_rust_nightly=nightly-2026-07-20
-# Where clang21/llvm21/lld21 all install.
-_llvm_prefix=/usr/lib/llvm21
+source=(
+  "bun::git+https://github.com/oven-sh/bun.git#commit=$_commit"
+  patches/0001-Port-bun-to-ppc64le-POWER8-little-endian-glibc.patch
+  patches/0002-ppc64le-build-JSC-with-the-Baseline-JIT-on.patch
+  patches/0003-ppc64le-teach-the-test-runner-the-host-architecture.patch
+  patches/0004-ppc64le-wrap-the-glibc-symbols-a-native-build-refere.patch
+  patches/0005-ppc64le-give-V8-s-callback-exit-frame-its-constant-p.patch
+  patches/0006-ppc64le-make-the-arch-hardcoded-and-page-size-bound-.patch
+  patches/0007-ppc64le-termios-c_lflag-bits-are-per-ABI-not-darwin-.patch
+  patches/0008-ppc64le-the-arch-name-bun-calls-itself-and-the-regis.patch
+  patches/0009-bun-ffi-cc-compile-with-the-system-C-compiler-where-.patch
+  patches/0010-ppc64le-turn-WebAssembly-and-the-sampling-profiler-o.patch
+)
 
-source=("bun::git+https://github.com/oven-sh/bun.git#commit=$_bun_commit"
-        "webkit::git+https://github.com/oven-sh/WebKit.git#commit=$_webkit_commit"
-        "bun-ppc64le-patches-r1.tar.gz"
-        "webkit-ppc64le-r1.tar.gz")
-sha256sums=('SKIP'
-            'SKIP'
-            '6554b69d6835416a73153d5cfc1ac2dc8099fc9365d1814e15bc3ebc3edb9133'
-            '8e7f872ef3f99a8602d8128c63878721688a8fed00b8bc570fb11e438effd889')
-
-_env() {
-  # Nothing under $HOME.  bun's cacheDir defaults to $BUN_INSTALL/build-cache
-  # and BUN_INSTALL defaults to ~/.bun, so BUN_INSTALL has to move too, not
-  # just --cache-dir.
-  export BUN_INSTALL="$srcdir/bun-install"
-  export CARGO_HOME="$srcdir/cargo-home"
-  export RUSTUP_HOME="$srcdir/rustup-home"
-  export npm_config_cache="$srcdir/npm-cache"
-
-  # The engine: our patched checkout, not vendor/WebKit and not a prebuilt
-  # (no ppc64le prebuilt exists).
-  export BUN_WEBKIT_PATH="$srcdir/webkit"
-
-  # Both toolchain overrides make their directory the pin and switch off
-  # bun's own version checking -- see the header.
-  export BUN_TOOLCHAIN_LLVM="$_llvm_prefix"
-  export BUN_TOOLCHAIN_RUST="$RUSTUP_HOME/toolchains/$_rust_nightly-powerpc64le-unknown-linux-gnu"
-}
-
-_verify_tree() {
-  # $1 = checkout, $2 = expected tree.  A patch series that applies but lands
-  # on a different tree is the failure this catches; for the WebKit half the
-  # series is a squashed diff precisely because the per-commit series does not
-  # replay, so the check is the guarantee.
-  local _tree
-  _tree=$(git -C "$1" write-tree)
-  if [[ $_tree != "$2" ]]; then
-    echo "==> $1: patched tree $_tree does not match the expected $2" >&2
-    echo "==> patches and base commit have drifted; regenerate the tarball" >&2
-    echo "==> (each tarball's MANIFEST has the command)" >&2
-    return 1
-  fi
-}
+sha256sums=(
+  'SKIP'
+  'fc6bb00bde573864450837902f01999e4c46d1481f875b885f7507d840bc8bf8'
+  '40d5cb4a47fadc2cd8b68f0ab8a57171bed6607d133658d5e537137cdd27b48a'
+  '27ab79a7881003db84279023d36db877a732890a01539cb0d93b5bf9a8361c60'
+  '326f3b1df81d8e492a944160f861abebdf6d03e93b21d4223346c2294845614d'
+  '994a5e5e8aa99e9c1b28cf17dacfcdf8fb81dd5590b422c7aec77f8104527ca7'
+  'e967e29806ba00d4790ca0342a75e95b047b4631ad0073ea8b6b5ae6cc0a3542'
+  '60fda5ce37ae3d7c85dcfa7e68ba5371e408939c18599c2c86afeed47ac32d35'
+  '69a773384494f946c2c915841d1b4b0672108e75387645b3dfcbee57179c78d0'
+  '7c9473d0d6b6c9105b25d41f8c88dc10c51553aabf98a5a58d981d11f318d6c8'
+  '2fc51d309ac98829be79324cfacf9448fba0fcac8740b81081f7dfd9a2c35cac'
+)
 
 prepare() {
-  local _p
+  cd bun
 
-  cd "$srcdir/bun"
-  # git apply rather than git am: the numbered series is only a transport
-  # here, makepkg's checkout has no committer identity configured, and
-  # --index lets the result be checked against the branch tip's tree.
-  for _p in "$srcdir"/bun-ppc64le/*.patch; do
-    git apply --index "$_p"
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    printf 'Applying %s\n' "$src"
+    patch -Np1 -i "$srcdir/$src"
   done
-  _verify_tree "$srcdir/bun" "$_bun_tree"
-
-  cd "$srcdir/webkit"
-  git apply --index "$srcdir/webkit-ppc64le/0001-jsc-ppc64le-port.patch"
-  _verify_tree "$srcdir/webkit" "$_webkit_tree"
 }
 
 build() {
-  cd "$srcdir/bun"
-  _env
+  cd bun
 
-  # The pinned nightly.  --profile=minimal plus rust-src: rust-src is what
-  # rust-toolchain.toml asks for (cargo -Zbuild-std, only used for Tier 3
-  # targets, which ppc64le is not -- but the toolchain file lists it and
-  # rustup honours the file when it installs).
-  rustup toolchain install "$_rust_nightly" --profile minimal --component rust-src
-  rustup target add powerpc64le-unknown-linux-gnu --toolchain "$_rust_nightly"
+  # The WebKit source the `webkit` package installed. Bun checks only for
+  # CMakeLists.txt here.
+  export BUN_WEBKIT_PATH=/usr/src/bun-webkit
 
-  # node drives the build (>= 25 required by the codegen scripts) and npm
-  # installs node_modules from bun.lock; --profile=release-local selects a
-  # Release build against the local WebKit at $BUN_WEBKIT_PATH.  -j comes from
-  # makepkg's MAKEFLAGS and is handed straight to ninja.
-  local _jobs=()
-  [[ $MAKEFLAGS =~ -j[[:space:]]*([0-9]+) ]] && _jobs+=("-j${BASH_REMATCH[1]}")
+  # The self-hosting driver, by absolute path. This is not cosmetic:
+  # findBun() in scripts/build/tools.ts prefers a bun at ~/.bun/bin/bun, so a
+  # developer's own install would otherwise silently become the codegen driver
+  # -- and on this architecture that is as likely to be an x86_64 binary under
+  # binfmt, which works, slowly, and produces a build nobody can reproduce.
+  local bootstrap=/usr/lib/bun-bootstrap/bun
+  export PATH="$(dirname "$bootstrap"):$PATH"
 
-  node scripts/build.ts \
-    --profile=release-local \
-    --package-manager=npm \
-    --build-dir="$srcdir/build" \
-    --cache-dir="$srcdir/build-cache" \
-    "${_jobs[@]}"
+  # A PINNED RUST NIGHTLY WITH rust-src, and the system `rust` package cannot
+  # substitute. Bun's release path passes -Zbuild-std unconditionally, which
+  # requires nightly cargo AND the rust-src component to rebuild core/alloc/std
+  # for this target. Arch's `rust` is stable, and because it is not a rustup
+  # shim it IGNORES the RUSTUP_TOOLCHAIN=nightly-... that bun's build exports --
+  # so the failure is not "wrong toolchain selected", it is cargo refusing the
+  # -Z flags outright:
+  #
+  #   error: the `-Z` flag is only accepted on the nightly channel of Cargo,
+  #   but this is the `stable` channel
+  #
+  # Naming a directory is how bun lets you override it; that also bypasses
+  # bun's own LLVM 21.1.8 pin, which is why BUN_TOOLCHAIN_LLVM can be /usr with
+  # clang 22.x.
+  export BUN_TOOLCHAIN_RUST=/usr/lib/rust-nightly-bun
+  export BUN_TOOLCHAIN_LLVM=/usr
+
+  # TMPDIR must share a filesystem with bun's install cache. Bun extracts a
+  # package to a temp dir and then RENAMES THE DIRECTORY into the cache, and a
+  # cross-device directory rename fails EXDEV.
+  export BUN_INSTALL_CACHE_DIR="$srcdir/bun-cache"
+  export TMPDIR="$srcdir/bun-tmp"
+  mkdir -p "$BUN_INSTALL_CACHE_DIR" "$TMPDIR"
+
+  # -j is bounded deliberately. The default is nproc+2, and on a 176-thread
+  # POWER9 that exhausts 446 GiB: the C++ translation units in JavaScriptCore
+  # and bun's unified sources peak in the multi-GiB range EACH. 30 is what fits
+  # with room for the rest of the machine.
+  local jobs="${MAKEFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs=30
+  (( jobs > 30 )) && jobs=30
+
+  # The nested WebKit cmake runs as ONE ninja edge, so the -j above does not
+  # bound it; it would pick nproc+2 on its own. CMAKE_BUILD_PARALLEL_LEVEL is
+  # the only lever, because bun's dep_build rule passes no -j.
+  export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
+
+  "$bootstrap" scripts/build.ts --profile=release --webkit=local -j"$jobs" --configure-only
+
+  # CONTROL, before the expensive part: the driver baked into build.ninja must
+  # be the bootstrap we chose and must be a PowerPC binary. Both halves have
+  # been wrong in practice -- the first when ~/.bun/bin/bun outranked it, the
+  # second when the bootstrap was still the emulated x86_64 one.
+  local driver
+  driver="$(grep -m1 -oE '^  command = [^ ]+/bun ' build/release/build.ninja | awk '{print $3}')"
+  [[ -n $driver ]] || { echo 'CONTROL FAILED: build.ninja names no bun driver' >&2; return 1; }
+  file -L "$driver" | grep -q PowerPC \
+    || { echo "CONTROL FAILED: codegen driver is not a PowerPC bun ($driver)" >&2; return 1; }
+  [[ "$(readlink -f "$driver")" == "$(readlink -f "$bootstrap")" ]] \
+    || { echo "CONTROL FAILED: driver is $driver, not $bootstrap" >&2; return 1; }
+  printf 'codegen driver: %s\n' "$driver"
+
+  "$bootstrap" scripts/build.ts --profile=release --webkit=local -j"$jobs"
 }
 
 check() {
-  cd "$srcdir/bun"
-  # The runtime, the JIT and the bundler all have to be alive to get this far.
-  # bun's own test suite is thousands of tests against a live network and a
-  # test registry; it belongs in the source tree, not in a package build.
-  "$srcdir/build/bun" --version
-  "$srcdir/build/bun" -e 'if (1 + 1 !== 2) throw new Error("arithmetic"); console.log("bun ok")'
+  cd bun
+  # Smoke only. The full suite needs a display, a network and ~40 minutes; the
+  # cgroup-capped runner in powerpc64le-handbook/tools/jsc-test-runner is the
+  # thing to use for that, because JSTests/stress has memoryHog! tests that
+  # will take the whole machine otherwise.
+  ./build/release/bun --version
+  ./build/release/bun -e 'if (2 + 2 !== 4) throw new Error("arithmetic")'
 }
 
 package() {
-  install -Dm755 "$srcdir/build/bun" "$pkgdir/usr/bin/bun"
-  # bunx is bun under another name, exactly as upstream installs it.
+  cd bun
+  install -Dm755 build/release/bun "$pkgdir/usr/bin/bun"
   ln -s bun "$pkgdir/usr/bin/bunx"
+  install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
 
-  install -Dm644 "$srcdir/bun/completions/bun.bash" \
-    "$pkgdir/usr/share/bash-completion/completions/bun"
-  install -Dm644 "$srcdir/bun/completions/bun.zsh" \
-    "$pkgdir/usr/share/zsh/site-functions/_bun"
-  install -Dm644 "$srcdir/bun/completions/bun.fish" \
-    "$pkgdir/usr/share/fish/vendor_completions.d/bun.fish"
-
-  install -Dm644 "$srcdir/bun/LICENSE.md" \
-    "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
-  # JSC is linked in statically, so its licence ships with the binary.
-  install -Dm644 "$srcdir/webkit/Source/JavaScriptCore/COPYING.LIB" \
-    "$pkgdir/usr/share/licenses/$pkgname/COPYING.LIB"
+  # Shell completions, if this revision ships them.
+  if [[ -f completions/bun.zsh ]]; then
+    install -Dm644 completions/bun.zsh "$pkgdir/usr/share/zsh/site-functions/_bun"
+  fi
+  if [[ -f completions/bun.bash ]]; then
+    install -Dm644 completions/bun.bash "$pkgdir/usr/share/bash-completion/completions/bun"
+  fi
+  if [[ -f completions/bun.fish ]]; then
+    install -Dm644 completions/bun.fish "$pkgdir/usr/share/fish/vendor_completions.d/bun.fish"
+  fi
 }
