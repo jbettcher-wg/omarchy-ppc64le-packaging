@@ -23,7 +23,7 @@ pkgname=bun
 pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager'
 _commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
 pkgver=1.4.3
-pkgrel=1
+pkgrel=2
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
@@ -55,6 +55,7 @@ source=(
   0008-ppc64le-the-arch-name-bun-calls-itself-and-the-regis.patch
   0009-bun-ffi-cc-compile-with-the-system-C-compiler-where-.patch
   0010-ppc64le-turn-WebAssembly-and-the-sampling-profiler-o.patch
+  0011-ppc64le-turn-the-DFG-on.patch
 )
 
 sha256sums=(
@@ -69,6 +70,7 @@ sha256sums=(
   '69a773384494f946c2c915841d1b4b0672108e75387645b3dfcbee57179c78d0'
   '7c9473d0d6b6c9105b25d41f8c88dc10c51553aabf98a5a58d981d11f318d6c8'
   '2fc51d309ac98829be79324cfacf9448fba0fcac8740b81081f7dfd9a2c35cac'
+  '674e70c9d73ff3aae3eb28da38e4a77aa0d2b66f0585c08ab11b4452fdde635e'
 )
 
 prepare() {

@@ -973,10 +973,10 @@ index 0000000000..c3b2a29def
 +#endif // ENABLE(ASSEMBLER) && CPU(PPC64LE)
 diff --git a/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
 new file mode 100644
-index 0000000000..77d42f06a6
+index 0000000000..eedc0dd2e7
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
-@@ -0,0 +1,5397 @@
+@@ -0,0 +1,5431 @@
 +/*
 + * Copyright (C) 2026 Justin Bettcher. All rights reserved.
 + *
@@ -2721,18 +2721,37 @@ index 0000000000..77d42f06a6
 +
 +    void and32(RegisterID a, RegisterID b, RegisterID dest)
 +    {
-+        // Both inputs satisfy the 32-bit invariant, so their AND does too and
-+        // no mask is needed. (The doc's section 5.4 warns that inputs are not
-+        // always extended -- that is true for the offlineasm backend, whose
-+        // sources include lwa and sign-extended immediates. Here every 32-bit
-+        // producer re-masks, so the invariant does hold on entry.)
++        // The inputs are NOT guaranteed clean, so the output must be masked.
++        //
++        // This used to assume otherwise -- "every 32-bit producer re-masks, so
++        // the invariant does hold on entry" -- and that is false under B3.
++        // AirOpcode.opcodes declares And32/Or32/Xor32 as ZD:G:32, which is a
++        // promise that the def's upper 32 bits are ZERO, and B3 relies on it:
++        // it lowers Trunc to nothing at all (B3LowerToAir.cpp, case Trunc), so
++        // a 64-bit value flows into a 32-bit operation with a dirty upper
++        // word, and the greedy allocator coalesces away the Move32 that would
++        // otherwise have cleaned it because the def width is already <= 32.
++        //
++        // The consequence was not subtle. With FTL on, `a & b` returned NaN
++        // for every input: the operands arrive boxed (0xFFFE...), the bare
++        // `and` kept the tag bits, and adding NumberTag to an already-tagged
++        // value produces a double pattern. A dirty value used as an index
++        // instead yields a wild address, which is the shape of several of the
++        // SIGSEGVs.
++        //
++        // testb3 cannot see this: it reads results back as C int32, which
++        // discards exactly the bits that are wrong.
 +        m_assembler.and_(dest, a, b);
++        maskLow32(dest);
 +    }
 +
 +    void and32(TrustedImm32 imm, RegisterID dest) { and32(imm, dest, dest); }
 +
 +    void and32(TrustedImm32 imm, RegisterID src, RegisterID dest)
 +    {
++        // No mask needed, and not by luck: the immediate is widened as
++        // uint32_t, so bits 32-63 of the mask are zero and the AND clears
++        // the destination's upper word for us whatever the source held.
 +        andImmediate64(src, static_cast<uint32_t>(imm.m_value), dest);
 +    }
 +
@@ -2781,13 +2800,22 @@ index 0000000000..77d42f06a6
 +        m_assembler.or_(dest, src, scratch);
 +    }
 +
-+    void or32(RegisterID src, RegisterID dest) { m_assembler.or_(dest, dest, src); }
-+    void or32(RegisterID a, RegisterID b, RegisterID dest) { m_assembler.or_(dest, a, b); }
++    // ZD:G:32 -- see the note on and32(a, b, dest). The inputs may carry a
++    // dirty upper word, so every one of these masks its result.
++    void or32(RegisterID src, RegisterID dest) { or32(src, dest, dest); }
++    void or32(RegisterID a, RegisterID b, RegisterID dest)
++    {
++        m_assembler.or_(dest, a, b);
++        maskLow32(dest);
++    }
 +    void or32(TrustedImm32 imm, RegisterID dest) { or32(imm, dest, dest); }
 +
 +    void or32(TrustedImm32 imm, RegisterID src, RegisterID dest)
 +    {
++        // ori/oris leave the source's upper word untouched, so unlike
++        // and32's immediate form this does not clean itself.
 +        orImmediate64(src, static_cast<uint32_t>(imm.m_value), dest);
++        maskLow32(dest);
 +    }
 +
 +    void or32(RegisterID src, Address address)
@@ -2885,16 +2913,22 @@ index 0000000000..77d42f06a6
 +        m_assembler.xor_(dest, src, scratch);
 +    }
 +
-+    void xor32(RegisterID src, RegisterID dest) { m_assembler.xor_(dest, dest, src); }
-+    void xor32(RegisterID a, RegisterID b, RegisterID dest) { m_assembler.xor_(dest, a, b); }
++    void xor32(RegisterID src, RegisterID dest) { xor32(src, dest, dest); }
++    void xor32(RegisterID a, RegisterID b, RegisterID dest)
++    {
++        m_assembler.xor_(dest, a, b);
++        maskLow32(dest);
++    }
 +    void xor32(TrustedImm32 imm, RegisterID dest) { xor32(imm, dest, dest); }
 +
 +    void xor32(TrustedImm32 imm, RegisterID src, RegisterID dest)
 +    {
-+        // xor32(TrustedImm32(-1), r) is how JSC spells a 32-bit NOT, and -1
-+        // as a 32-bit pattern is 0xffffffff, which stays inside the low word
-+        // and so preserves the invariant.
++        // xor32(TrustedImm32(-1), r) is how JSC spells a 32-bit NOT. The
++        // immediate does stay inside the low word, but xori/xoris pass the
++        // SOURCE's upper word straight through, so the result still has to
++        // be masked when that source is dirty.
 +        xorImmediate64(src, static_cast<uint32_t>(imm.m_value), dest);
++        maskLow32(dest);
 +    }
 +
 +    void xor32(Address address, RegisterID dest)
@@ -7812,10 +7846,10 @@ index 0000000000..5d26500ab8
 +#endif // ENABLE(ASSEMBLER) && CPU(PPC64LE)
 diff --git a/Source/JavaScriptCore/assembler/PPC64Registers.h b/Source/JavaScriptCore/assembler/PPC64Registers.h
 new file mode 100644
-index 0000000000..f51cba5061
+index 0000000000..9e16912aaa
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/PPC64Registers.h
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,236 @@
 +/*
 + * Copyright (C) 2026 Justin Bettcher. All rights reserved.
 + *
@@ -8031,7 +8065,23 @@ index 0000000000..f51cba5061
 +    macro(f27, "f27"_s, 0, 1)       \
 +    macro(f28, "f28"_s, 0, 1)       \
 +    macro(f29, "f29"_s, 0, 1)       \
-+/* MacroAssembler scratch registers */ \
++/* f26-f31 are callee-save and NOT reserved, which is correct: Air may use a
++   callee-save register freely because AirHandleCalleeSaves emits the save and
++   restore for it in the procedure's own prologue and epilogue, so the caller's
++   value is preserved. What Air must not do is allocate a callee-save the VM
++   entry frame cannot RECORD, because an exception unwinding through the frame
++   looks every register in the save list up in the buffer slot map; FPRInfo
++   names only f14-f25 (fpRegCS0-fpRegCS11) and those are the FPRs
++   vmCalleeSaveRegisters() covers. That restriction belongs in Air's register
++   pool, not here -- see b3/air/AirCode.cpp -- because reserving these instead
++   changes every other consumer of reservedHardwareRegisters() and was measured
++   to break stress/generator-fib-ftl-and-string.js.
++
++   f30/f31 used to be labelled the "MacroAssembler scratch registers" here.
++   They have not been since those moved to f0/f13, which are reserved, and the
++   reason for the move is in FPRInfo.h: nothing saves f30/f31 across a VM entry,
++   so JIT code clobbering them corrupted the floating-point state of whatever
++   C++ called in. */ \
 +    macro(f30, "f30"_s, 0, 1)       \
 +    macro(f31, "f31"_s, 0, 1)
 +
@@ -10700,7 +10750,7 @@ index d8e7594cbf..7b1cfd808c 100644
              m_proc, m_origin,
              innerResult);
 diff --git a/Source/JavaScriptCore/b3/B3LowerToAir.cpp b/Source/JavaScriptCore/b3/B3LowerToAir.cpp
-index 084dc1db56..ecad2aa317 100644
+index 084dc1db56..bbce4bd3c8 100644
 --- a/Source/JavaScriptCore/b3/B3LowerToAir.cpp
 +++ b/Source/JavaScriptCore/b3/B3LowerToAir.cpp
 @@ -1179,6 +1179,26 @@ private:
@@ -10772,7 +10822,49 @@ index 084dc1db56..ecad2aa317 100644
              appendUnOp<Depend32, Depend64>(m_value->child(0));
              return;
          }
-@@ -6106,6 +6132,28 @@ private:
+@@ -6057,6 +6083,41 @@ private:
+         case B3::CCall: {
+             CCallValue* cCall = m_value->as<CCallValue>();
+             bool deferToAfterRegAlloc = m_isRare && m_code.optLevel() >= 2;
++
++            // ppc64le: keep any CCall that touches a Float off the cold path.
++            //
++            // Both halves of the ELFv2 float seam are handled by the in-place
++            // expansion below -- ConvertFloatToDouble into an argument FPR,
++            // ConvertDoubleToFloat out of the result FPR -- because a float
++            // lives in an FPR in DOUBLE format across a C call here while this
++            // port's Float type is the raw single everywhere inside a
++            // procedure. AirLowerAfterRegAlloc's ColdCCall arm builds its pre-
++            // and post-call shuffles with widthForType(), so a Float moves as
++            // Width32 (fmr, raw bits): the callee would read 1.0f as
++            // ~1.06e-314, and a float result would come back as +0.0 because
++            // word 1 of 0x3ff0000000000000 is zero. It runs after register
++            // allocation and so cannot mint the Tmp a conversion needs, and
++            // open-coding one against physical registers there would have to
++            // reason about scratch availability and a stack-homed argument. So
++            // route these through the expansion that is already correct and
++            // already tested instead.
++            //
++            // The cost is that a rare float-taking or float-returning C call
++            // is expanded in place rather than out of line. The calls this
++            // applies to are B3LowerMacrosAfterOptimizations' float math
++            // helpers (ceilFloat, floorFloat, truncFloat, and
++            // sqrtFloat/roundFloat/stdPowFloat behind them), which are small
++            // and few.
++            //
++            // Unreachable until FTL is on: optLevel() >= 2 is an FTL build.
++            if (isPPC64() && deferToAfterRegAlloc) {
++                bool touchesFloat = cCall->type() == Float;
++                for (unsigned i = 1; !touchesFloat && i < cCall->numChildren(); ++i)
++                    touchesFloat = cCall->child(i)->type() == Float;
++                if (touchesFloat)
++                    deferToAfterRegAlloc = false;
++            }
++
+             if (deferToAfterRegAlloc) {
+                 m_procedure.setUsesColdCCall(true);
+ 
+@@ -6106,6 +6167,28 @@ private:
                  Value* child = cCall->child(i);
                  Arg src = immOrTmp(child);
                  Width width = cCallArgumentRegisterWidth(child->type());
@@ -10801,7 +10893,7 @@ index 084dc1db56..ecad2aa317 100644
                  for (unsigned j = 0, len = cCallArgumentRegisterCount(child->type()); j < len; ++j) {
                      ShufflePair pair(src, destinations[destinationIndex++], width);
                      hasRegisterSource |= pair.src().isReg();
-@@ -6159,7 +6207,14 @@ private:
+@@ -6159,7 +6242,14 @@ private:
                  append(Move, cCallResult(m_code, cCall, 1), resultDst1);
                  break;
              case Float:
@@ -10817,7 +10909,7 @@ index 084dc1db56..ecad2aa317 100644
                  break;
              case Double:
                  append(MoveDouble, cCallResult(m_code, cCall, 0), resultDst0);
-@@ -6647,6 +6702,24 @@ private:
+@@ -6647,6 +6737,24 @@ private:
                  append(Ret64, returnValueGPR);
                  break;
              case Float:
@@ -11263,7 +11355,7 @@ index b867ddf00a..0bf784cf58 100644
  
      return ArgumentValueList { procedure, block, types, WTF::move(underlyingArgs), WTF::move(argUnderlyingCounts) };
 diff --git a/Source/JavaScriptCore/b3/air/AirCode.cpp b/Source/JavaScriptCore/b3/air/AirCode.cpp
-index d20771fdff..cec0563741 100644
+index d20771fdff..0f444b0276 100644
 --- a/Source/JavaScriptCore/b3/air/AirCode.cpp
 +++ b/Source/JavaScriptCore/b3/air/AirCode.cpp
 @@ -55,7 +55,7 @@ static void defaultPrologueGenerator(CCallHelpers& jit, Code& code)
@@ -11275,7 +11367,47 @@ index d20771fdff..cec0563741 100644
  
      if (code.frameSize()) {
          jit.subPtr(MacroAssembler::TrustedImm32(code.frameSize()), MacroAssembler::stackPointerRegister);
-@@ -119,7 +119,7 @@ void Code::emitEpilogue(CCallHelpers& jit)
+@@ -84,6 +84,39 @@ Code::Code(Procedure& proc)
+             all.exclude(RegisterSet::stackRegisters());
+             all.exclude(RegisterSet::reservedHardwareRegisters());
+             auto calleeSave = RegisterSet::calleeSaveRegisters();
++            if constexpr (isPPC64()) {
++                // Air may only allocate a callee-save that the VM entry frame
++                // can RECORD. When an exception unwinds,
++                // copyCalleeSavesToEntryFrameCalleeSavesBuffer walks the
++                // procedure's callee-save list and looks every register up in
++                // vmCalleeSaveBufferSlotsByRegIndex; a register with no slot
++                // either aborts on RELEASE_ASSERT(bufferSlot >= 0) or, if that
++                // is loosened, has its live value silently dropped.
++                //
++                // On this target the two sets are not the same. ELFv2 makes
++                // r14-r28 nonvolatile, but the buffer covers r14-r24 plus
++                // f14-f25, which is what NUMBER_OF_CALLEE_SAVES_REGISTERS (23)
++                // and copyCalleeSavesToBuffer in LowLevelInterpreter.asm are
++                // sized and written for. Extending the buffer instead would
++                // mean csr names for r25-r28, which are already regT10-regT12
++                // in GPRInfo -- dual-naming registers to paper over this.
++                //
++                // Measured: with r25-r28 allocatable and dropped on unwind,
++                // stress/generator-fib-ftl-and-string.js and
++                // stress/arrowfunction-run-10000-1.js die in
++                // operationValueAddProfiledNoOptimize on a JSValue that fails
++                // downcast<JSObject>. Keeping them out of the pool costs four
++                // GPRs and leaves 21, against x86_64's 14.
++                //
++                // r29/r30 are reserved and already excluded above, but
++                // AirHandleCalleeSaves merges them into every procedure's list
++                // regardless; they are safe to drop on unwind precisely because
++                // being reserved means nothing holds a live value in them. See
++                // RegisterSet::vmEntryPreservedTemporaries().
++                RegisterSet unrecordable = calleeSave;
++                unrecordable.exclude(RegisterSet::vmCalleeSaveRegisters());
++                all.exclude(unrecordable);
++            }
+             all.forEach(
+                 [&] (Reg reg) {
+                     if (!calleeSave.contains(reg, IgnoreVectors))
+@@ -119,7 +152,7 @@ void Code::emitEpilogue(CCallHelpers& jit)
      if (frameSize()) {
          // NOTE: on ARM64, if the callee saves have bigger offsets due to a potential tail call,
          // the macro assembler might assert scratch register usage on load operations emitted by emitRestore.
@@ -13443,6 +13575,43 @@ index 1ded120aa4..e73fb71315 100644
  #else
  #error "unsupported architecture"
  #endif
+diff --git a/Source/JavaScriptCore/dfg/DFGOperations.cpp b/Source/JavaScriptCore/dfg/DFGOperations.cpp
+index c743effaba..91bc0c88c5 100644
+--- a/Source/JavaScriptCore/dfg/DFGOperations.cpp
++++ b/Source/JavaScriptCore/dfg/DFGOperations.cpp
+@@ -5681,8 +5681,31 @@ JSC_DEFINE_JIT_OPERATION(operationStringFromCodePointUntyped, EncodedJSValue, (J
+     double codePointAsDouble = value.toNumber(globalObject);
+     OPERATION_RETURN_IF_EXCEPTION(scope, encodedJSValue());
+ 
++    // Range-check the double BEFORE narrowing it. static_cast<uint32_t> of a
++    // negative double is undefined behaviour, and clang acts on it: at -O2 it
++    // folds the `codePoint != codePointAsDouble` round-trip check away, since
++    // the cast being well defined would imply the value was already in
++    // [0, 2^32). On ppc64le the cast lowers to fctiwuz, which SATURATES a
++    // negative to zero, so the surviving code built the string for code point
++    // 0 -- String.fromCodePoint(-1.0) returned "\u0000" instead of throwing,
++    // while -0.5 still threw because the fractional part kept the check alive.
++    // Measured with the same expression and the same compiler on POWER9:
++    // at -O0 `cp != d` is 1 and it throws; at -O2 it is 0 and it does not.
++    //
++    // This is reached only from the DFG's UntypedUse path for a double
++    // argument, which is why the Int32Use path was unaffected and the stress
++    // test only failed once the DFG was on.
++    //
++    // The form below is NaN-safe: every ordered comparison against NaN is
++    // false, so the negation throws, which is what the old round-trip check
++    // did for NaN too.
++    if (!(codePointAsDouble >= 0 && codePointAsDouble <= UCHAR_MAX_VALUE)) [[unlikely]] {
++        throwRangeError(globalObject, scope, "Arguments contain a value that is out of range of code points"_s);
++        OPERATION_RETURN(scope, encodedJSValue());
++    }
++
+     uint32_t codePoint = static_cast<uint32_t>(codePointAsDouble);
+-    if (codePoint != codePointAsDouble || codePoint > UCHAR_MAX_VALUE) [[unlikely]] {
++    if (codePoint != codePointAsDouble) [[unlikely]] {
+         throwRangeError(globalObject, scope, "Arguments contain a value that is out of range of code points"_s);
+         OPERATION_RETURN(scope, encodedJSValue());
+     }
 diff --git a/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp b/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp
 index cdc8eca18e..f5c72adb81 100644
 --- a/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp
@@ -14362,6 +14531,26 @@ index 517d88a61d..3bead71ad8 100644
  #else // !OS(WINDOWS) || !CPU(X86_64)
  // FIXME (see rdar://72897291): Work around a Clang bug where __builtin_return_address()
  // sometimes gives us a signed pointer, and sometimes does not.
+diff --git a/Source/JavaScriptCore/interpreter/InterpreterInlines.h b/Source/JavaScriptCore/interpreter/InterpreterInlines.h
+index 27d8bfd201..64ef055bd2 100644
+--- a/Source/JavaScriptCore/interpreter/InterpreterInlines.h
++++ b/Source/JavaScriptCore/interpreter/InterpreterInlines.h
+@@ -192,6 +192,15 @@ inline void UnwindFunctorBase::copyCalleeSavesToEntryFrameCalleeSavesBuffer(Stac
+         return;
+ 
+     auto dontCopyRegisters = RegisterSet::stackRegisters();
++    // Registers the VM entry frame preserves itself have no slot in the
++    // calleeSaveRegistersBuffer map, so they must be skipped here exactly like
++    // the stack registers are. Empty except on ppc64le; see
++    // RegisterSet::vmEntryPreservedTemporaries(). Without this the
++    // RELEASE_ASSERT below fires on the first throw through any Air-compiled
++    // (FTL) frame, because AirHandleCalleeSaves merges the MacroAssembler's
++    // two callee-saved temps into every Air procedure's save list on that
++    // target.
++    dontCopyRegisters.merge(RegisterSet::vmEntryPreservedTemporaries());
+     CPURegister* frame = reinterpret_cast<CPURegister*>(callFrame->registers());
+ 
+     unsigned registerCount = currentCalleeSaves->registerCount();
 diff --git a/Source/JavaScriptCore/jit/AssemblyHelpers.cpp b/Source/JavaScriptCore/jit/AssemblyHelpers.cpp
 index e91150e605..5f3e4569e9 100644
 --- a/Source/JavaScriptCore/jit/AssemblyHelpers.cpp
@@ -15582,7 +15771,7 @@ index e21ee9576a..f0712aa894 100644
      && sizeof(T) <= sizeof(CPURegister);
  
 diff --git a/Source/JavaScriptCore/jit/RegisterSet.cpp b/Source/JavaScriptCore/jit/RegisterSet.cpp
-index 8f0193ea4b..e29f75897b 100644
+index 8f0193ea4b..1a7983fde8 100644
 --- a/Source/JavaScriptCore/jit/RegisterSet.cpp
 +++ b/Source/JavaScriptCore/jit/RegisterSet.cpp
 @@ -83,7 +83,16 @@ RegisterSet RegisterSet::reservedHardwareRegisters()
@@ -15621,7 +15810,7 @@ index 8f0193ea4b..e29f75897b 100644
      result.add(MacroAssembler::fpTempRegister, IgnoreVectors);
      result.add(MacroAssembler::fpTempRegister2, IgnoreVectors);
  #endif
-@@ -210,6 +219,42 @@ RegisterSet RegisterSet::vmCalleeSaveRegisters()
+@@ -210,6 +219,80 @@ RegisterSet RegisterSet::vmCalleeSaveRegisters()
      result.add(FPRInfo::fpRegCS9, IgnoreVectors);
      result.add(FPRInfo::fpRegCS10, IgnoreVectors);
      result.add(FPRInfo::fpRegCS11, IgnoreVectors);
@@ -15661,10 +15850,48 @@ index 8f0193ea4b..e29f75897b 100644
 +#if NUMBER_OF_CALLEE_SAVES_REGISTERS > 0
 +    RELEASE_ASSERT(result.numberOfSetRegisters() == NUMBER_OF_CALLEE_SAVES_REGISTERS,
 +        result.numberOfSetRegisters(), NUMBER_OF_CALLEE_SAVES_REGISTERS);
++#endif
++    return result;
++}
++
++RegisterSet RegisterSet::vmEntryPreservedTemporaries()
++{
++    RegisterSet result;
++#if CPU(PPC64LE)
++    // ONLY the MacroAssembler's two temps, and the reason is that they are
++    // RESERVED: Air never allocates them, nothing holds a live value in them
++    // across a call, and AirHandleCalleeSaves merges them into every Air
++    // procedure's save list anyway (macroClobberedGPRs() & calleeSaveRegisters()
++    // when isPPC64()), so they turn up in a list with no buffer slot through no
++    // fault of the procedure. Dropping them on unwind loses nothing.
++    //
++    // r25-r28 are deliberately NOT here even though preserveNonvolatileTemporaries()
++    // in llint/LowLevelInterpreter.asm saves all six of r25-r30 and they are
++    // equally absent from vmCalleeSaveRegisters(). They are ALLOCATABLE --
++    // GPRInfo names r25-r27 regT10-regT12 -- so an Air procedure can hold a
++    // live JSValue in one across a throw, and the entry-frame copy is how the
++    // handler gets it back. Skipping them instead cost two tests that had been
++    // passing: stress/generator-fib-ftl-and-string.js and
++    // stress/arrowfunction-run-10000-1.js died in
++    // operationValueAddProfiledNoOptimize with a JSValue that failed
++    // downcast<JSObject> in JSCell::toPrimitive -- a value that was dropped on
++    // the way out rather than restored. The asm macro restores the registers
++    // the VM ENTRY saw, which is what a C++ caller needs and not what an
++    // intermediate JS handler needs.
++    //
++    // Doing r25-r28 properly means giving them real slots in
++    // VMEntryRecord::calleeSaveRegistersBuffer, which is a wider change (the
++    // buffer size, the slot map, and the LLInt assembly that writes it). Until
++    // then they still reach the RELEASE_ASSERT below, and some of the residual
++    // SIGABRTs are expected to be exactly that.
++    static_assert(PPC64Registers::r29 == MacroAssembler::dataTempRegister);
++    static_assert(PPC64Registers::r30 == MacroAssembler::memoryTempRegister);
++    result.add(PPC64Registers::r29);
++    result.add(PPC64Registers::r30);
  #endif
      return result;
  }
-@@ -225,7 +270,7 @@ RegisterSet RegisterSet::llintBaselineCalleeSaveRegisters()
+@@ -225,7 +308,7 @@ RegisterSet RegisterSet::llintBaselineCalleeSaveRegisters()
      result.add(GPRInfo::regCS2);
      result.add(GPRInfo::regCS3);
      result.add(GPRInfo::regCS4);
@@ -15673,7 +15900,7 @@ index 8f0193ea4b..e29f75897b 100644
      result.add(GPRInfo::regCS6);
      static_assert(GPRInfo::regCS7 == GPRInfo::jitDataRegister);
      static_assert(GPRInfo::regCS8 == GPRInfo::numberTagRegister);
-@@ -251,7 +296,7 @@ RegisterSet RegisterSet::dfgCalleeSaveRegisters()
+@@ -251,7 +334,7 @@ RegisterSet RegisterSet::dfgCalleeSaveRegisters()
      result.add(GPRInfo::regCS2);
      result.add(GPRInfo::regCS3);
      result.add(GPRInfo::regCS4);
@@ -15682,7 +15909,54 @@ index 8f0193ea4b..e29f75897b 100644
      static_assert(GPRInfo::regCS7 == GPRInfo::jitDataRegister);
      static_assert(GPRInfo::regCS8 == GPRInfo::numberTagRegister);
      static_assert(GPRInfo::regCS9 == GPRInfo::notCellMaskRegister);
-@@ -422,7 +467,7 @@ RegisterSet RegisterSet::ipintCalleeSaveRegisters()
+@@ -327,6 +410,46 @@ RegisterSet RegisterSet::ftlCalleeSaveRegisters()
+     result.add(FPRInfo::fpRegCS9, IgnoreVectors);
+     result.add(FPRInfo::fpRegCS10, IgnoreVectors);
+     result.add(FPRInfo::fpRegCS11, IgnoreVectors);
++#elif CPU(PPC64LE)
++    // Same set as vmCalleeSaveRegisters() above, which is how every other
++    // target here relates the two: X86_64 lists regCS0-regCS4 in both,
++    // RISCV64 regCS0-regCS10 plus fpRegCS0-fpRegCS11 in both, ARM64
++    // regCS0-regCS9 plus fpRegCS0-fpRegCS7 in both. It has to be: FTL's OSR
++    // exit compiler reads this to find where the callee saves it must restore
++    // were put, and what put them there is the VM entry frame, which uses
++    // vmCalleeSaveRegisters().
++    //
++    // Without this arm the #else below made ftlCalleeSaveRegisters()
++    // UNREACHABLE_FOR_PLATFORM() -- so an FTL build compiled, tiered up and
++    // ran, then aborted at the first OSR exit in FTL::compileStub
++    // (ftl/FTLOSRExitCompiler.cpp). That is the only thing a bare
++    // ENABLE_FTL_JIT=ON hit on this target.
++    result.add(GPRInfo::regCS0);
++    result.add(GPRInfo::regCS1);
++    result.add(GPRInfo::regCS2);
++    result.add(GPRInfo::regCS3);
++    result.add(GPRInfo::regCS4);
++    result.add(GPRInfo::regCS5);
++    result.add(GPRInfo::regCS6);
++    static_assert(GPRInfo::regCS7 == GPRInfo::jitDataRegister);
++    static_assert(GPRInfo::regCS8 == GPRInfo::numberTagRegister);
++    static_assert(GPRInfo::regCS9 == GPRInfo::notCellMaskRegister);
++    result.add(GPRInfo::regCS7);
++    result.add(GPRInfo::regCS8);
++    result.add(GPRInfo::regCS9);
++    result.add(GPRInfo::regCS10);
++    result.add(FPRInfo::fpRegCS0, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS1, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS2, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS3, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS4, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS5, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS6, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS7, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS8, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS9, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS10, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS11, IgnoreVectors);
+ #else
+     UNREACHABLE_FOR_PLATFORM();
+ #endif
+@@ -422,7 +545,7 @@ RegisterSet RegisterSet::ipintCalleeSaveRegisters()
  #if CPU(X86_64)
      registers.add(GPRInfo::regCS1); // MC (pointer to metadata)
      registers.add(GPRInfo::regCS2); // PB
@@ -15691,6 +15965,22 @@ index 8f0193ea4b..e29f75897b 100644
      registers.add(GPRInfo::regCS6); // MC
      registers.add(GPRInfo::regCS7); // PB
  #else
+diff --git a/Source/JavaScriptCore/jit/RegisterSet.h b/Source/JavaScriptCore/jit/RegisterSet.h
+index 6b8d530a60..376d214fc4 100644
+--- a/Source/JavaScriptCore/jit/RegisterSet.h
++++ b/Source/JavaScriptCore/jit/RegisterSet.h
+@@ -262,6 +262,11 @@ public:
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE specialRegisters();
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE calleeSaveRegisters();
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE vmCalleeSaveRegisters();
++    // Callee-saved registers the VM entry frame hands back by ITSELF, rather
++    // than through calleeSaveRegistersBuffer -- so they are legitimately
++    // absent from vmCalleeSaveRegisters() and must not be looked up in its
++    // slot map. Empty everywhere except ppc64le.
++    JS_EXPORT_PRIVATE static RegisterSet NODELETE vmEntryPreservedTemporaries();
+     JS_EXPORT_PRIVATE static RegisterAtOffsetList* vmCalleeSaveRegisterOffsets();
+     JS_EXPORT_PRIVATE static std::span<const int8_t> vmCalleeSaveBufferSlotsByRegIndex();
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE llintBaselineCalleeSaveRegisters();
 diff --git a/Source/JavaScriptCore/llint/InPlaceInterpreter.asm b/Source/JavaScriptCore/llint/InPlaceInterpreter.asm
 index 8b352b33da..f5af9fa828 100644
 --- a/Source/JavaScriptCore/llint/InPlaceInterpreter.asm
@@ -23591,10 +23881,10 @@ index 16f5e0334b..77345b53b9 100644
      )
  
 diff --git a/Source/WTF/wtf/PlatformEnable.h b/Source/WTF/wtf/PlatformEnable.h
-index f2b6bb9632..885ecfa5db 100644
+index f2b6bb9632..8196c2716b 100644
 --- a/Source/WTF/wtf/PlatformEnable.h
 +++ b/Source/WTF/wtf/PlatformEnable.h
-@@ -723,6 +723,54 @@
+@@ -723,6 +723,46 @@
  #define ENABLE_WEBASSEMBLY_BBQJIT 0
  #endif
  
@@ -23616,40 +23906,32 @@ index f2b6bb9632..885ecfa5db 100644
 +   it allocates its own registers, and it #errors for any CPU it does not
 +   know. It follows the DFG.
 +
-+   WebAssembly is on with both compiling tiers off. The comment this replaces
-+   said it needed "at minimum the BBQ or OMG tier, or the wasm LLInt"; in this
-+   revision the wasm LLInt no longer exists and the interpreter tier is IPInt,
-+   which goes through offlineasm and the MacroAssembler -- both of which this
-+   port has. BBQ needs the B3 headers, which only build under FTL, and OMG
-+   needs an Air backend, so those two stay off: the same shape as
-+   CPU(RISCV64) above, except that here the interpreter tier is real.
++   WebAssembly is on. The comment this replaces said it needed "at minimum the
++   BBQ or OMG tier, or the wasm LLInt"; in this revision the wasm LLInt no
++   longer exists and the interpreter tier is IPInt, which goes through
++   offlineasm and the MacroAssembler -- both of which this port has.
 +
-+   BEFORE TURNING FTL (and with it ENABLE_B3_JIT) ON HERE: this port's float
-+   register model keeps a float in an FPR as its raw 32-bit single in the low
-+   word, which is not ELFv2's double-format convention, and the two are
-+   reconciled in exactly one place for JIT operations --
-+   MacroAssemblerPPC64::callOperation. B3LowerMacrosAfterOptimizations emits
-+   calls to MathCommon's float-returning operations (ceilFloat, floorFloat,
-+   truncFloat) through B3's own call machinery, which does not go through
-+   that overload, and B3's ValueRep-based call lowering will hand and take
-+   float arguments in FPRs, which the operation ABI otherwise forbids. Every
-+   one of those is a silently wrong number, not a crash. The grep is
-+   `grep -rn 'JIT_OPERATION(.*, float,' Source/JavaScriptCore`;
-+   jsc-ppc64le-yarr-wasm.md sections 7.5 C and 7.7 are the reasoning. */
++   The two compiling wasm tiers are NOT decided here any more. BBQ needs the
++   B3 headers and OMG needs the Air backend, both of which are built only
++   under FTL, so the decision belongs after ENABLE_B3_JIT is derived -- see
++   the CPU(PPC64LE) && !ENABLE(B3_JIT) block further down. Forcing them to 0
++   here was wrong once FTL worked: this block runs before ENABLE_FTL_JIT and
++   ENABLE_B3_JIT are settled, so the #undef silently overrode a cmake
++   ENABLE_WEBASSEMBLY_BBQJIT=ON and compiled BBQ out of a build that had
++   asked for it. The symptom was a build that configured with BBQ and OMG ON,
++   reported useBBQJIT=true, and emitted no wasm function code at all -- only
++   the JS->Wasm IC and the two throw stubs -- with timings identical to
++   IPInt's to within noise. */
 +#undef ENABLE_YARR_JIT_REGEXP_TEST_INLINE
 +#define ENABLE_YARR_JIT_REGEXP_TEST_INLINE 0
 +#undef ENABLE_WEBASSEMBLY
 +#define ENABLE_WEBASSEMBLY 1
-+#undef ENABLE_WEBASSEMBLY_OMGJIT
-+#define ENABLE_WEBASSEMBLY_OMGJIT 0
-+#undef ENABLE_WEBASSEMBLY_BBQJIT
-+#define ENABLE_WEBASSEMBLY_BBQJIT 0
 +#endif
 +
  #if !defined(ENABLE_C_LOOP)
  #if ENABLE(JIT) || CPU(X86_64) || CPU(ARM64)
  #define ENABLE_C_LOOP 0
-@@ -731,7 +779,12 @@
+@@ -731,7 +771,12 @@
  #endif
  #endif
  
@@ -23663,6 +23945,54 @@ index f2b6bb9632..885ecfa5db 100644
  #define ENABLE_JUMP_ISLANDS 1
  #endif
  
+@@ -843,6 +888,47 @@
+ #define ENABLE_B3_JIT 1
+ #endif
+ 
++/* ppc64le's two compiling wasm tiers stay off, and B3 is no longer the reason.
++   B3 and Air are here now, and FTL builds and runs on this target. What BBQ
++   and OMG additionally need is a VECTOR layer in the MacroAssembler, which
++   this port does not have: wasm SIMD lives in IPInt's hand-written VSX arms in
++   llint/InPlaceInterpreter64.asm, not in MacroAssemblerPPC64.h.
++
++   This has to sit after ENABLE_B3_JIT above rather than in the CPU(PPC64LE)
++   block near the top of the file, because cmake's WEBKIT_OPTION_DEPEND ties
++   ENABLE_WEBASSEMBLY_BBQJIT and ENABLE_WEBASSEMBLY_OMGJIT to ENABLE_FTL_JIT,
++   so an FTL build asks for them and they must be refused after that is known.
++   Forcing them in the early block instead -- which is what this port did --
++   silently overrode an explicit cmake ENABLE_WEBASSEMBLY_BBQJIT=ON: the build
++   configured with BBQ and OMG ON, reported useBBQJIT=true at run time, and
++   emitted no wasm function code at all, only the JS->Wasm IC and the two throw
++   stubs, with timings identical to IPInt's.
++
++   Compiling with them on is what measures the gap: 151 errors, and they are
++   almost entirely vector. 46 missing members, of which ~40 are vector --
++   vectorLoad{8,16,32,64}{Lane,Splat}, vectorStore{8,16,32,64}Lane,
++   vectorSplat, vectorExtractLane, vectorReplaceLane, vectorSshr/Ushr/Ushl(8),
++   vectorMulHigh/vectorMulLow, vectorFusedMulAdd/vectorFusedNegMulAdd,
++   vectorRelaxedMin/Max/Q15Mulr/DotI8x16I7x16, move128ToVector,
++   moveZeroToVector, transfer8/transfer16 -- plus a further 65 errors that are
++   calls to members MacroAssemblerPPC64.h declares DELETED (moveVector,
++   vectorSwizzle, vectorExtractLaneInt64, vectorExtendLow, vectorAddSat,
++   compareIntegerVector, vectorXor, vectorTruncSat, countPopulation32/64).
++   The non-vector remainder is small: atomicXchg{8,16,32,64},
++   atomicXchgAdd{8,16,32,64}, multiplySub64, convertUInt32ToFloat,
++   checkWasmStackOverflow, and one #error Unsupported architecture. at
++   wasm/WasmOperations.cpp:854.
++
++   So this is a VSX MacroAssembler project, not a flag. Until it exists IPInt
++   is the only wasm tier, which is what makes assertOptionsAreCoherent()'s "at
++   least one of useWasmIPInt, or useBBQJIT" pass. */
++#if CPU(PPC64LE)
++#undef ENABLE_WEBASSEMBLY_OMGJIT
++#define ENABLE_WEBASSEMBLY_OMGJIT 0
++#undef ENABLE_WEBASSEMBLY_BBQJIT
++#define ENABLE_WEBASSEMBLY_BBQJIT 0
++#endif
++
+ #if CPU(ARM)
+ #undef ENABLE_WEBASSEMBLY
+ #define ENABLE_WEBASSEMBLY 0
 diff --git a/Source/WTF/wtf/PlatformHave.h b/Source/WTF/wtf/PlatformHave.h
 index 7c376db5d6..1a8727e549 100644
 --- a/Source/WTF/wtf/PlatformHave.h

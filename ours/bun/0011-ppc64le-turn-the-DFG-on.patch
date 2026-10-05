@@ -1,0 +1,3358 @@
+From 7aed93afede0759c9ad8f98a0258ee82343da6ca Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Mon, 5 Oct 2026 03:32:17 -0600
+Subject: [PATCH] ppc64le: turn the DFG on
+
+The DFG tier needs no ppc64le backend of its own: DFGSpeculativeJIT64.cpp is
+generic over the MacroAssembler, which this port has and which the Baseline
+tier already exercises. It was off because it had never been measured, and the
+comment here said FTL and the DFG both "need B3/Air lowering that does not
+exist" -- that lowering exists now.
+
+Measured over JSTests/stress, 5833 tests: a DFG build fails 34, and all 34
+fail identically with --useDFGJIT=false, checked one at a time. So the DFG
+introduces no failure that the Baseline tier does not already have. Two bugs
+that did show up were fixed in WebKit first -- an upstream UB cast in
+operationStringFromCodePointUntyped, and and32/or32/xor32 not honouring Air's
+ZDef contract, which was also corrupting array indices through `^`.
+
+Worth about 3.2x: a 40M-iteration integer loop 2639ms -> 818ms, an
+object/float workload 854ms -> 288ms, against node 26's 653ms and 152ms.
+
+FTL stays off. Not for want of a backend -- testb3 is 998/1000 and FTL builds,
+tiers up and returns correct answers -- but because the same suite still shows
+79 failures to the DFG build's 34. Enabling it also drags in BBQ and OMG
+through WEBKIT_OPTION_DEPEND, and those need a vector layer in
+MacroAssemblerPPC64.h that is not written.
+---
+ patches/boringssl/ppc64le-target-cpu.patch    |  25 ++
+ patches/mimalloc/ppc64le-atomic-pause.patch   |  25 ++
+ rust-toolchain.toml                           |   3 +
+ scripts/build/buildOptionsRs.ts               |   3 +
+ scripts/build/bun.ts                          |   9 +
+ scripts/build/codegen.ts                      |   4 +-
+ scripts/build/config.ts                       |  81 +++--
+ scripts/build/deps/boringssl.ts               |  11 +
+ scripts/build/deps/libjpeg-turbo.ts           |  26 ++
+ scripts/build/deps/mimalloc.ts                |  12 +
+ scripts/build/deps/webkit.ts                  |  41 ++-
+ scripts/build/deps/zlib.ts                    |  11 +
+ scripts/build/flags.ts                        |  77 ++++-
+ scripts/build/rust.ts                         |  37 ++-
+ scripts/build/tools.ts                        |   1 +
+ scripts/orderfile/generate.ts                 |   9 +-
+ scripts/utils.mjs                             |  15 +-
+ src/bun_core/Global.rs                        |   2 +
+ src/bun_core/debug.rs                         |  10 +
+ src/bun_core/env.rs                           |  11 +
+ src/crash_handler/CPUFeatures.rs              |  31 +-
+ src/crash_handler/lib.rs                      |  14 +
+ src/exe_format/elf.rs                         |   6 +-
+ src/install_types/resolver_hooks.rs           |   4 +
+ src/js/bun/ffi.ts                             |   9 +-
+ src/js/node/os.ts                             |   9 +-
+ src/jsc/bindings/BunCPUProfiler.cpp           |  38 +++
+ src/jsc/bindings/BunProcess.cpp               |   7 +
+ src/jsc/bindings/CPUFeatures.cpp              |  70 +++++
+ src/jsc/bindings/NodeVM.cpp                   |  19 +-
+ src/jsc/bindings/NodeVMScript.cpp             |  12 +
+ src/jsc/bindings/ZigGlobalObject.cpp          |  62 +++-
+ src/jsc/bindings/ZigGlobalObject.h            |   4 +
+ src/jsc/bindings/c-bindings.cpp               |  10 +
+ src/jsc/bindings/v8/V8CpuProfiler.cpp         |  24 +-
+ .../bindings/v8/V8FunctionCallbackInfo.cpp    |  12 +-
+ src/jsc/bindings/v8/V8FunctionCallbackInfo.h  |  33 ++-
+ .../bindings/v8/V8PropertyCallbackInfo.cpp    |   7 +-
+ src/jsc/bindings/v8/V8PropertyCallbackInfo.h  |  33 ++-
+ src/jsc/bindings/v8/shim/FunctionTemplate.cpp |   2 +
+ src/jsc/bindings/v8/shim/TemplateProperty.cpp |   2 +
+ src/jsc/bindings/webcore/JSPerformance.cpp    |  17 ++
+ .../webcore/JSWasmStreamingCompiler.cpp       |   6 +
+ .../webcore/JSWasmStreamingCompiler.h         |   9 +
+ .../bindings/workaround-ieee128-symbols.cpp   |  52 ++++
+ .../bindings/workaround-missing-symbols.cpp   | 128 +++++++-
+ src/jsc/modules/BunJSCModule.h                |  66 +++++
+ src/options_types/compile_target.rs           |   2 +
+ src/platform/linux.rs                         |  34 ++-
+ src/runtime/bake/BakeGlobalObject.cpp         |   6 +
+ src/runtime/cli/upgrade_command.rs            |   6 +
+ src/runtime/ffi/ffi_body.rs                   | 279 +++++++++++++++++-
+ src/runtime/server/server_body.rs             |   1 +
+ src/tcc_sys/tcc.rs                            |   4 +-
+ src/windows_sys/externs.rs                    |  12 +
+ test/bundler/bun-build-compile.test.ts        |  16 +-
+ test/cli/install/bun-upgrade.test.ts          |   7 +-
+ .../package.json                              |   3 +
+ .../package.json                              |   1 +
+ .../test-native-binlink-target/package.json   |   1 +
+ .../test-postinstall-skip-native/package.json |   2 +
+ test/cli/run/run-crash-handler.test.ts        |   7 +
+ test/harness.ts                               |  60 ++++
+ test/internal/source-lints/build-rust.test.ts |   6 +-
+ test/js/bun/ffi/cc.test.ts                    |  15 +-
+ test/js/bun/gc/gc-controller-cadence.test.ts  |  10 +-
+ .../http/serve-file-slice-read-error.test.ts  |  25 +-
+ test/js/bun/perf/linker-order.test.ts         |   5 +-
+ test/js/bun/terminal/terminal-spawn.test.ts   |   7 +-
+ test/js/bun/terminal/terminal.test.ts         |   5 +-
+ test/js/node/os/os.test.js                    |  20 +-
+ test/js/node/process/process.test.js          |   6 +-
+ test/js/node/tty.test.ts                      |   5 +-
+ test/js/web/timers/timer-gc-roots.test.ts     |  20 +-
+ test/js/web/web-globals.test.js               |   6 +-
+ test/napi/napi-value-ffi.test.ts              |   9 +-
+ 76 files changed, 1561 insertions(+), 118 deletions(-)
+ create mode 100644 patches/boringssl/ppc64le-target-cpu.patch
+ create mode 100644 patches/mimalloc/ppc64le-atomic-pause.patch
+ create mode 100644 src/jsc/bindings/workaround-ieee128-symbols.cpp
+
+diff --git a/patches/boringssl/ppc64le-target-cpu.patch b/patches/boringssl/ppc64le-target-cpu.patch
+new file mode 100644
+index 00000000000..d2ed429c2f0
+--- /dev/null
++++ b/patches/boringssl/ppc64le-target-cpu.patch
+@@ -0,0 +1,25 @@
++BoringSSL's target.h enumerates the CPUs it supports and #errors on anything
++else, so ppc64le never reaches the OPENSSL_32_BIT/OPENSSL_64_BIT definitions
++that crypto_word_t and BN_ULONG are built from. That surfaced as ~8000
++"unknown type name 'crypto_word_t'" errors across 176 translation units.
++
++Add the little-endian POWER branch. This is exactly the "patching this list is
++trivial" case the comment above the #error describes: ppc64le is a standard
++64-bit two's-complement little-endian architecture, which is the bar that
++comment sets. OPENSSL_PPC64LE is referenced nowhere in the tree (only in
++third_party/benchmark, which is not built), so it selects no assembly -- the
++perlasm .S files self-guard on OPENSSL_X86_64/OPENSSL_AARCH64 and assemble to
++empty objects, leaving the portable C implementations.
++
++--- a/include/openssl/target.h	2026-09-12 01:09:16.454530697 -0600
+++++ b/include/openssl/target.h	2026-09-12 01:09:16.470576012 -0600
++@@ -45,6 +45,9 @@
++ #define OPENSSL_RISCV64
++ #elif defined(__riscv) && __SIZEOF_POINTER__ == 4
++ #define OPENSSL_32_BIT
+++#elif defined(__PPC64__) && defined(__LITTLE_ENDIAN__)
+++#define OPENSSL_64_BIT
+++#define OPENSSL_PPC64LE
++ #elif defined(__pnacl__)
++ #define OPENSSL_32_BIT
++ #define OPENSSL_PNACL
+diff --git a/patches/mimalloc/ppc64le-atomic-pause.patch b/patches/mimalloc/ppc64le-atomic-pause.patch
+new file mode 100644
+index 00000000000..53e858b9696
+--- /dev/null
++++ b/patches/mimalloc/ppc64le-atomic-pause.patch
+@@ -0,0 +1,25 @@
++mi_atomic_pause() has arms for x86, aarch64 and armv7, and an #else that calls
++mi_atomic_thread_fence(mi_memory_order_seq_cst). Those two names only exist in
++mimalloc's C++ atomic shim; in a C translation unit (src/static.c) neither is
++declared, so the fallback does not compile. Nothing noticed because every
++architecture mimalloc is built on has its own arm.
++
++Add the PowerPC arm rather than fix the dead #else: "or 27,27,27" is the
++architectural SMT low-priority hint and is the direct counterpart of the
++"pause"/"isb"/"yield" the other three arms use.
++
++--- a/include/mimalloc/atomic.h	2026-09-12 01:09:16.457318916 -0600
+++++ b/include/mimalloc/atomic.h	2026-09-12 01:09:16.470733202 -0600
++@@ -409,6 +409,12 @@
++ static inline void mi_atomic_pause(void) {
++   __asm__ volatile ("yield" ::: "memory");
++ }
+++#elif (defined(__GNUC__) || defined(__clang__)) && (defined(__powerpc64__) || defined(__powerpc__))
+++static inline void mi_atomic_pause(void) {
+++  // "or 27,27,27" is the SMT low-priority hint (a no-op on single-threaded
+++  // cores). This is the PowerPC spin-wait idiom, matching "pause"/"isb"/"yield".
+++  __asm__ volatile ("or 27,27,27" ::: "memory");
+++}
++ #else
++ static inline void mi_atomic_pause(void) {
++   mi_atomic_thread_fence(mi_memory_order_seq_cst);
+diff --git a/rust-toolchain.toml b/rust-toolchain.toml
+index ce6cb21d9fc..4e86064158a 100644
+--- a/rust-toolchain.toml
++++ b/rust-toolchain.toml
+@@ -20,6 +20,9 @@ channel = "nightly-2026-07-20"
+ components = ["rust-src", "rustfmt", "clippy", "miri"]
+ targets = [
+   "aarch64-unknown-linux-gnu",
++  # ppc64le: Tier 2 with host tools, so a prebuilt rust-std exists. Not in
++  # CI's matrix — listed so a native POWER build and rust-analyzer work.
++  "powerpc64le-unknown-linux-gnu",
+   "x86_64-unknown-linux-gnu",
+   "aarch64-unknown-linux-musl",
+   "x86_64-unknown-linux-musl",
+diff --git a/scripts/build/buildOptionsRs.ts b/scripts/build/buildOptionsRs.ts
+index 0ea2c440a5b..14e8d6f7ad0 100644
+--- a/scripts/build/buildOptionsRs.ts
++++ b/scripts/build/buildOptionsRs.ts
+@@ -69,6 +69,9 @@ export function generateBuildOptionsRs(cfg: Config): string {
+     "pub const ENABLE_TINYCC: bool = !cfg!(any(",
+     `    target_os = "android",`,
+     `    target_os = "freebsd",`,
++    // ppc64le: oven-sh/tinycc has no PowerPC backend. rustc spells both
++    // endiannesses of ppc64 as target_arch = "powerpc64".
++    `    target_arch = "powerpc64",`,
+     "));",
+     "",
+   ];
+diff --git a/scripts/build/bun.ts b/scripts/build/bun.ts
+index fc1a7481d7b..39937c5d47b 100644
+--- a/scripts/build/bun.ts
++++ b/scripts/build/bun.ts
+@@ -334,6 +334,15 @@ export function emitBun(n: Ninja, cfg: Config, sources: Sources): BunOutput {
+     noPchSources.add(resolve(cfg.cwd, "src/jsc/bindings/highway_xml.cpp"));
+   }
+ 
++  // Same reason on ppc64le: workaround-ieee128-symbols.cpp is compiled
++  // -mfloat128 (see its fileOverrides entry in flags.ts) so it can declare the
++  // IEEE-128 glibc entry points, and clang refuses a PCH built without the
++  // target feature the TU enables. The force-included PCH would also drag in
++  // the libstdc++ headers that flag cannot survive.
++  if (cfg.ppc64le) {
++    noPchSources.add(resolve(cfg.cwd, "src/jsc/bindings/workaround-ieee128-symbols.cpp"));
++  }
++
+   // Windows-only cpp sources (rescle — PE resource editor for --compile).
+   if (cfg.windows) {
+     // rescle.h does `#define UNICODE` before including ATL; with PCH the
+diff --git a/scripts/build/codegen.ts b/scripts/build/codegen.ts
+index 36566f1e9ca..4272d08538f 100644
+--- a/scripts/build/codegen.ts
++++ b/scripts/build/codegen.ts
+@@ -92,7 +92,9 @@ function codegenTarget(cfg: Config): { platform: string; arch: string } {
+           : cfg.os === "freebsd"
+             ? "freebsd"
+             : "linux";
+-  const arch = cfg.x64 ? "x64" : "arm64";
++  // node spells powerpc64le "ppc64" in process.arch — match it exactly,
++  // since this value is inlined into bundled JS.
++  const arch = cfg.x64 ? "x64" : cfg.ppc64le ? "ppc64" : "arm64";
+   return { platform, arch };
+ }
+ 
+diff --git a/scripts/build/config.ts b/scripts/build/config.ts
+index 671839b78c7..3253678a89a 100644
+--- a/scripts/build/config.ts
++++ b/scripts/build/config.ts
+@@ -18,7 +18,7 @@ import { clangTargetArch, toolchainOverride } from "./tools.ts";
+ import { cyan, dim, green } from "./tty.ts";
+ 
+ export type OS = "linux" | "darwin" | "windows" | "freebsd";
+-export type Arch = "x64" | "aarch64";
++export type Arch = "x64" | "aarch64" | "ppc64le";
+ export type Abi = "gnu" | "musl" | "android";
+ export type BuildType = "Debug" | "Release" | "RelWithDebInfo" | "MinSizeRel";
+ export type BuildMode = "full" | "cpp-only" | "rust-only" | "link-only" | "rust-and-link" | "archive-link";
+@@ -80,6 +80,8 @@ export interface Config {
+   unix: boolean;
+   x64: boolean;
+   arm64: boolean;
++  /** powerpc64le (POWER8+, little-endian). JSC runs LLInt-only here — no JIT. */
++  ppc64le: boolean;
+ 
+   /**
+    * What's running the build. Differs from os/arch/windows (target) in
+@@ -510,9 +512,15 @@ export function detectHost(): Host {
+       ? "x64"
+       : a === "arm64"
+         ? "aarch64"
+-        : (() => {
+-            throw new BuildError(`Unsupported host architecture: ${a}`, { hint: "Bun builds on x64 or arm64" });
+-          })();
++        : // node reports powerpc64le as "ppc64" (os.arch()); bun only supports
++          // the little-endian POWER8+ variant, so map it to "ppc64le".
++          a === "ppc64"
++          ? "ppc64le"
++          : (() => {
++              throw new BuildError(`Unsupported host architecture: ${a}`, {
++                hint: "Bun builds on x64, arm64, or ppc64le",
++              });
++            })();
+ 
+   return { os, arch, exeSuffix: os === "windows" ? ".exe" : "" };
+ }
+@@ -722,7 +730,24 @@ export function resolveConfig(partial: PartialConfig, toolchain: Toolchain): Con
+   // in project() to set CMAKE_SYSTEM_PROCESSOR. The found clang's default
+   // target is what we actually build for. Cross-compiles from a unix host
+   // skip this (the host clang-cl's default arch is just the host's).
+-  const compilerArch = os === "windows" && host.os === "windows" ? clangTargetArch(toolchain.cc) : undefined;
++  //
++  // The same trap exists on Linux, and it is how bun gets built on ppc64le
++  // today: there is no native bun to bootstrap with, so the build driver is an
++  // x86_64 bun running under an emulator on a POWER9 box. `os.arch()` reports
++  // the emulated process ("x64"), not the machine. Every tool the driver
++  // *invokes* — clang, cargo, ninja — is native ppc64le, so the compiler's
++  // default target is the truthful answer for both the target and the host.
++  const compilerArch =
++    (os === "windows" && host.os === "windows") || (os === "linux" && host.os === "linux")
++      ? clangTargetArch(toolchain.cc)
++      : undefined;
++  // Correct the detected host too, not just the target. `host.arch` feeds
++  // `isCross` (which would otherwise demand a cross sysroot for what is a
++  // native build) and `canRunOnHost` (which gates running the binary we just
++  // built). An explicit --arch is still honoured for real cross-compiles.
++  if (compilerArch !== undefined && compilerArch !== host.arch && partial.arch === undefined) {
++    host.arch = compilerArch;
++  }
+   const arch = partial.arch ?? compilerArch ?? host.arch;
+   const abi: Abi | undefined = os === "linux" ? (partial.abi ?? detectLinuxAbi()) : undefined;
+ 
+@@ -733,6 +758,7 @@ export function resolveConfig(partial: PartialConfig, toolchain: Toolchain): Con
+   const unix = linux || darwin || freebsd;
+   const x64 = arch === "x64";
+   const arm64 = arch === "aarch64";
++  const ppc64le = arch === "ppc64le";
+   // Darwin target on a non-darwin host (Linux CI box building macOS
+   // binaries). Same host-clang + --target/-isysroot model as Android/FreeBSD,
+   // with ld64.lld doing the Mach-O link. See the cross block further down.
+@@ -890,7 +916,10 @@ export function resolveConfig(partial: PartialConfig, toolchain: Toolchain): Con
+ 
+   // TinyCC: off on Android (no upstream bionic support; FFI cc() falls back
+   // to dlopen-only) and FreeBSD (oven-sh/tinycc has no FreeBSD target).
+-  const tinycc = partial.tinycc ?? !(abi === "android" || freebsd);
++  // ppc64le: oven-sh/tinycc has no PowerPC code generator at all (there is no
++  // ppc64-gen.c), so bun:ffi's cc()/JIT trampolines cannot exist. Off here for
++  // the same reason as Android/FreeBSD.
++  const tinycc = partial.tinycc ?? !(abi === "android" || freebsd || ppc64le);
+ 
+   const valgrind = partial.valgrind ?? false;
+   const fuzzilli = partial.fuzzilli ?? false;
+@@ -1013,7 +1042,7 @@ export function resolveConfig(partial: PartialConfig, toolchain: Toolchain): Con
+   // and the libstdc++ ABI matches the WebKit prebuilt. musl uses an
+   // alpine-derived sysroot. Local dev without a sysroot builds native.
+   if (linux && abi !== "android" && crossTarget === undefined) {
+-    const llvmArch = x64 ? "x86_64" : "aarch64";
++    const llvmArch = x64 ? "x86_64" : ppc64le ? "powerpc64le" : "aarch64";
+     const hostAbi = host.os === "linux" ? detectLinuxAbi() : undefined;
+     const isCross = arch !== host.arch || abi !== hostAbi;
+     if (abi === "musl") {
+@@ -1181,6 +1210,7 @@ export function resolveConfig(partial: PartialConfig, toolchain: Toolchain): Con
+     unix,
+     x64,
+     arm64,
++    ppc64le,
+     host,
+     canRunOnHost: os === host.os && arch === host.arch && (!linux || abi === (detectLinuxAbi() ?? abi)),
+     exeSuffix,
+@@ -1212,7 +1242,10 @@ export function resolveConfig(partial: PartialConfig, toolchain: Toolchain): Con
+     timeTrace: partial.timeTrace ?? false,
+     ci,
+     buildkite,
+-    webkit: partial.webkit ?? "prebuilt",
++    // ppc64le: oven-sh/WebKit publishes no bun-webkit-linux-ppc64le tarball,
++    // so a local WebKit checkout is the only option. Point at one with
++    // $BUN_WEBKIT_PATH (see deps/webkit.ts).
++    webkit: partial.webkit ?? (ppc64le ? "local" : "prebuilt"),
+     localDeps: parseLocalDeps(partial.localDeps, cwd),
+     packageManager,
+     cwd,
+@@ -1395,13 +1428,9 @@ function compareVersionStrings(a: string, b: string): number {
+   return 0;
+ }
+ 
+-/**
+- * Find the repository root by walking up from cwd looking for package.json
+- * with name "bun". Exported so `resolveToolchain()` in configure.ts can
+- * resolve paths correctly when invoked from ninja (where cwd = build dir).
+- */
+-export function findRepoRoot(): string {
+-  let dir = process.cwd();
++/** Walk up from `start` to the directory whose package.json is named "bun". */
++function searchForRepoRoot(start: string): string | undefined {
++  let dir = start;
+   while (true) {
+     const pkgPath = join(dir, "package.json");
+     if (existsSync(pkgPath)) {
+@@ -1415,13 +1444,29 @@ export function findRepoRoot(): string {
+       }
+     }
+     const parent = resolve(dir, "..");
+-    if (parent === dir) {
+-      throw new BuildError("Could not find bun repository root", { hint: "Run this from within the bun repository" });
+-    }
++    if (parent === dir) return undefined;
+     dir = parent;
+   }
+ }
+ 
++/**
++ * Find the repository root by walking up from cwd looking for package.json
++ * with name "bun". Exported so `resolveToolchain()` in configure.ts can
++ * resolve paths correctly when invoked from ninja (where cwd = build dir).
++ *
++ * A `--build-dir` outside the repo has nothing named "bun" above it, so the
++ * cwd walk fails for the `regen` rule ninja runs from the build directory.
++ * This file is always inside the repo, so its own location answers the same
++ * question; the cwd walk stays first so a nested checkout still wins.
++ */
++export function findRepoRoot(): string {
++  const root = searchForRepoRoot(process.cwd()) ?? searchForRepoRoot(import.meta.dirname);
++  if (root === undefined) {
++    throw new BuildError("Could not find bun repository root", { hint: "Run this from within the bun repository" });
++  }
++  return root;
++}
++
+ /**
+  * Parse `--local-deps=name=path[,name=path...]` into name → absolute path.
+  * Names are checked against `allDeps` later (bun.ts) where the dep list is
+diff --git a/scripts/build/deps/boringssl.ts b/scripts/build/deps/boringssl.ts
+index 9db3b212578..758f72c8b42 100644
+--- a/scripts/build/deps/boringssl.ts
++++ b/scripts/build/deps/boringssl.ts
+@@ -36,6 +36,17 @@ export const boringssl: Dependency = {
+     commit: BORINGSSL_COMMIT,
+   }),
+ 
++  // Conditional: keeps the source identity (and therefore the fetch cache)
++  // unchanged for x64/arm64 builds.
++  patches: cfg =>
++    cfg.ppc64le
++      ? [
++          // target.h #errors on any CPU it doesn't enumerate, so ppc64le never
++          // gets OPENSSL_64_BIT and crypto_word_t/BN_ULONG stay undefined.
++          "patches/boringssl/ppc64le-target-cpu.patch",
++        ]
++      : [],
++
+   build: cfg => {
+     // win-x64 uses NASM-syntax .asm; everything else (including win-aarch64)
+     // uses gas .S that clang assembles.
+diff --git a/scripts/build/deps/libjpeg-turbo.ts b/scripts/build/deps/libjpeg-turbo.ts
+index 224d1f312df..64b16022f2c 100644
+--- a/scripts/build/deps/libjpeg-turbo.ts
++++ b/scripts/build/deps/libjpeg-turbo.ts
+@@ -67,6 +67,20 @@ const SIMD_ARM64 = [
+   "arm/aarch64/jsimd",
+ ];
+ 
++// simd/CMakeLists.txt SIMD_SOURCES for powerpc (AltiVec/VMX). The *ext-altivec.c
++// files are #include'd by their parents, not compiled separately -- same as the
++// x86 *ext-*.asm convention below. All their #includes are relative, so unlike
++// arm this needs no extra include dir.
++// prettier-ignore
++const SIMD_POWERPC = [
++  "powerpc/jccolor-altivec", "powerpc/jcgray-altivec",
++  "powerpc/jcsample-altivec", "powerpc/jdcolor-altivec",
++  "powerpc/jdmerge-altivec", "powerpc/jdsample-altivec",
++  "powerpc/jfdctfst-altivec", "powerpc/jfdctint-altivec",
++  "powerpc/jidctfst-altivec", "powerpc/jidctint-altivec",
++  "powerpc/jquanti-altivec",
++];
++
+ // simd/CMakeLists.txt SIMD_SOURCES for x86_64; the *ext-*.asm files are %include'd, not assembled.
+ // prettier-ignore
+ const SIMD_X64 = [
+@@ -109,6 +123,18 @@ export const libjpegTurbo: Dependency = {
+         "jbun_stubs.c",
+         ...(cfg.arm64 ? SIMD_ARM64.map(f => `simd/${f}.c`) : []),
+         ...(cfg.x64 ? ["simd/x86_64/jsimd.c", ...SIMD_X64.map(f => `simd/${f}.asm`)] : []),
++        // ppc64le: WITH_SIMD is defined unconditionally in the generated
++        // jconfig.h, so *something* must provide the jsimd_can_*/jsimd_*
++        // dispatcher the core calls -- otherwise the final link fails with ~40
++        // undefined jsimd_* symbols. Upstream's AltiVec port is complete and
++        // does its own runtime detection via getauxval(AT_HWCAP), so use it
++        // rather than stubbing the dispatcher out.
++        ...(cfg.ppc64le
++          ? [
++              { path: "simd/powerpc/jsimd.c", cflags: ["-maltivec", "-DHAVE_GETAUXVAL"] },
++              ...SIMD_POWERPC.map(f => ({ path: `simd/${f}.c`, cflags: ["-maltivec"] })),
++            ]
++          : []),
+       ],
+       // Mirrors simd/CMakeLists.txt; nasm wants -I with a trailing slash.
+       nasmflags: cfg.x64
+diff --git a/scripts/build/deps/mimalloc.ts b/scripts/build/deps/mimalloc.ts
+index 5e491a9abde..5642056e58d 100644
+--- a/scripts/build/deps/mimalloc.ts
++++ b/scripts/build/deps/mimalloc.ts
+@@ -24,6 +24,18 @@ export const mimalloc: Dependency = {
+     commit: MIMALLOC_COMMIT,
+   }),
+ 
++  // Conditional: keeps the source identity (and therefore the fetch cache)
++  // unchanged for x64/arm64 builds.
++  patches: cfg =>
++    cfg.ppc64le
++      ? [
++          // mi_atomic_pause()'s #else fallback calls names that only exist in
++          // the C++ atomic shim, so it does not compile from C on any arch
++          // without its own arm. Give PowerPC one.
++          "patches/mimalloc/ppc64le-atomic-pause.patch",
++        ]
++      : [],
++
+   build: cfg => {
+     // ─── Override behavior (global malloc replacement) ───
+     //   ASAN:    OFF — ASAN interceptors must see the real malloc.
+diff --git a/scripts/build/deps/webkit.ts b/scripts/build/deps/webkit.ts
+index 359f8a466e3..135ead73500 100644
+--- a/scripts/build/deps/webkit.ts
++++ b/scripts/build/deps/webkit.ts
+@@ -327,7 +327,46 @@ export const webkit: Dependency = {
+       PORT: "JSCOnly",
+       ENABLE_STATIC_JSC: "ON",
+       USE_THIN_ARCHIVES: "OFF",
+-      ENABLE_FTL_JIT: "ON",
++      ENABLE_FTL_JIT: cfg.ppc64le ? "OFF" : "ON",
++      // ppc64le: Baseline is the only compiling JIT tier for PowerPC, and
++      // WebAssembly's only tier is IPInt. WebKitFeatures.cmake now has a
++      // WTF_CPU_PPC64LE branch that defaults JIT on, CLoop off, FTL off and
++      // the system allocator off, so ENABLE_JIT / ENABLE_C_LOOP are no longer
++      // spelled here — build.sh's controls check the resolved cache and the
++      // generated LLIntAssembly.h rather than the flags we passed, so a WebKit
++      // without that branch fails loudly instead of silently building a CLoop.
++      //
++      // ENABLE_DFG_JIT is ON. The DFG has no per-target backend to write --
++      // DFGSpeculativeJIT64.cpp is generic over the MacroAssembler, which this
++      // port has -- and it is now measured clean: across JSTests/stress (5833
++      // tests) a DFG build fails 34, and every one of those 34 fails
++      // identically with --useDFGJIT=false, so the DFG introduces nothing.
++      // Worth roughly 3.2x: a 40M-iteration integer loop goes 2639ms -> 818ms
++      // and an object/float workload 854ms -> 288ms, against node 26's 653ms
++      // and 152ms on the same box.
++      //
++      // FTL stays OFF, and no longer because the Air backend is missing -- it
++      // is here, testb3 is 998/1000, and FTL builds and runs. It is off
++      // because it is not clean yet: the same suite shows 79 failures against
++      // the DFG build's 34, so something like 25-60 FTL-specific ones remain
++      // (two runs of one binary differ by 18 tests, so a single figure would
++      // be false precision). WEBKIT_OPTION_DEPEND ties BBQ and OMG to FTL, so
++      // wasm stays IPInt-only with it off -- and those two additionally need a
++      // vector layer in MacroAssemblerPPC64.h that does not exist.
++      //
++      // ENABLE_YARR_JIT is decided inside PlatformEnable.h, and is ON.
++      ...(cfg.ppc64le
++        ? {
++            ENABLE_DFG_JIT: "ON",
++            ENABLE_SAMPLING_PROFILER: "ON",
++            // The cmake branch above defaults this off too, but bun's own
++            // USE_MIMALLOC below is conditional on !asan, and the two must not
++            // both be off: bmalloc's third option is libpas, which is gated to
++            // BCPU(X86_64)||BCPU(ARM64) and #errors here ("libpas, mimalloc,
++            // and system malloc are exclusive", BPlatform.h).
++            USE_SYSTEM_MALLOC: "OFF",
++          }
++        : {}),
+       CMAKE_EXPORT_COMPILE_COMMANDS: "ON",
+       USE_BUN_JSC_ADDITIONS: "ON",
+       USE_BUN_EVENT_LOOP: "ON",
+diff --git a/scripts/build/deps/zlib.ts b/scripts/build/deps/zlib.ts
+index 2ee3470f950..95bab5ae1f8 100644
+--- a/scripts/build/deps/zlib.ts
++++ b/scripts/build/deps/zlib.ts
+@@ -203,6 +203,17 @@ export const zlib: Dependency = {
+       }
+       sources.push(...GENERIC.map(s => `arch/generic/${s}.c`));
+       sources.push("arch/arm/arm_features.c");
++    } else if (cfg.ppc64le) {
++      // ppc64le: portable C only. zlib-ng does ship arch/power VSX kernels
++      // (adler32/chunkset/crc32/slide_hash POWER8, compare256 POWER9), but
++      // nothing here has validated them and zlib correctness is not worth
++      // the risk — the generic fallbacks are byte-identical by construction.
++      // Wiring arch/power up later is a contained change: add a POWER kernel
++      // table and set archDir = "power".
++      kernels = [];
++      archDir = "generic";
++      defines.WITH_ALL_FALLBACKS = true;
++      sources.push(...GENERIC.map(s => `arch/generic/${s}.c`));
+     } else {
+       throw new Error(`zlib: no SIMD kernel table for arch ${cfg.arch}`);
+     }
+diff --git a/scripts/build/flags.ts b/scripts/build/flags.ts
+index 0b377562026..ea1af15812c 100644
+--- a/scripts/build/flags.ts
++++ b/scripts/build/flags.ts
+@@ -72,6 +72,13 @@ export const cpuTargetFlags: Flag[] = [
+     when: c => c.x64,
+     desc: "x64: Nehalem (2008) — no AVX, broadest compatibility",
+   },
++  {
++    // POWER9 is the floor: the only ppc64le hardware bun is built/tested on.
++    // POWER8 would also work (VSX-2), but nothing has exercised it.
++    flag: ["-mcpu=power9", "-mtune=power9"],
++    when: c => c.ppc64le,
++    desc: "ppc64le: POWER9 (VSX-3, little-endian ELFv2)",
++  },
+ ];
+ 
+ // ═══════════════════════════════════════════════════════════════════════════
+@@ -1229,6 +1236,57 @@ export const linkerFlags: Flag[] = [
+     when: c => c.linux && c.abi === "gnu",
+     desc: "Wrap glibc 2.18+ symbols (portable down to glibc 2.17)",
+   },
++  {
++    // ppc64le has no cross sysroot: it builds natively against the host's
++    // glibc, so its headers and its default symbol versions are the host's,
++    // not the 2.31 the list above was derived from. These are the extra
++    // symbols an objdump -T of the ppc64le binary reports above the 2.17
++    // floor. Kept as its own entry (rather than merged above) so the x64 and
++    // aarch64 links, which are built in the 2.31 sysroot and cannot be tested
++    // from here, are unchanged. Implementations: workaround-missing-symbols.cpp.
++    flag: [
++      // libpthread/libdl → libc.so merge, later on ppc64le than on x86_64
++      "pthread_sigmask", // 2.32
++      "dlclose", // 2.34
++      "dlopen",
++      "pthread_attr_getstack",
++      "pthread_detach",
++      "pthread_join",
++      "pthread_setname_np",
++      "sem_init",
++      "sem_post",
++      "sem_wait",
++      // stat-family inline → real symbol (2.33); the 2.31 sysroot still
++      // inlines these to __xstat, so x64/aarch64 never reference them
++      "lstat",
++      "lstat64",
++      "stat",
++      "stat64",
++      // libm reworks (2.35 / 2.43)
++      "acosf",
++      "asinf",
++      "atan2f",
++      "hypot",
++      "hypotf",
++      // C23 strtol/scanf header redirects (2.38). glibc redirects the plain
++      // names to these whenever __GLIBC_USE (ISOC23) is on, which _GNU_SOURCE
++      // turns on; the 2.31 sysroot's headers predate the redirect entirely.
++      "__isoc23_fscanf",
++      "__isoc23_sscanf",
++      "__isoc23_strtoimax",
++      "__isoc23_strtol",
++      "__isoc23_strtoul",
++      "__isoc23_strtoull",
++      "__isoc23_vfscanf",
++      "__isoc23_vscanf",
++      "__isoc23_vsscanf",
++      // PowerPC-only IEEE-128 long double entry points (2.32)
++      "__strtoieee128_l",
++      "__vsnprintfieee128",
++    ].map(s => `-Wl,--wrap=${s}`),
++    when: c => c.linux && c.abi === "gnu" && c.ppc64le,
++    desc: "Wrap the extra glibc symbols a native ppc64le build references (portable down to glibc 2.17)",
++  },
+   {
+     // c-bindings.cpp: __wrap_execve records that an exec of this process is in
+     // flight, and __wrap_pthread_create retries the EAGAIN the kernel returns
+@@ -1680,6 +1738,17 @@ export const fileOverrides: FileOverride[] = [
+     when: c => c.linux && c.lto && c.abi === "gnu",
+     desc: "Disable LTO: LLD 21 emits glibc versioned symbols (exp@GLIBC_2.17) into .lto_discard which fails to parse '@'",
+   },
++  {
++    file: "src/jsc/bindings/workaround-ieee128-symbols.cpp",
++    // __strtoieee128_l returns __float128, and clang only defines that type on
++    // PowerPC with -mfloat128. It does not change the long double ABI: with or
++    // without it __LDBL_MANT_DIG__ stays 106 (IBM double-double). The TU has to
++    // stay clear of libstdc++ headers, which under this flag reach for
++    // __builtin_fabsq/__builtin_nansq — builtins clang does not have.
++    extraFlags: ["-mfloat128"],
++    when: c => c.ppc64le,
++    desc: "Declare the IEEE-128 glibc entry points wrapped for the 2.17 floor",
++  },
+   {
+     file: "src/jsc/bindings/windows/rescle.cpp",
+     extraFlags: "/EHsc",
+@@ -1807,14 +1876,16 @@ export function computeCpuTargetFlags(cfg: Config): string[] {
+ 
+ /**
+  * Per-file extra flags lookup. Call after computeFlags() when compiling a
+- * specific source. Returns extra flags to append (may be empty).
++ * specific source. Every matching override contributes, in table order, so one
++ * file can collect flags from several independent conditions.
+  */
+ export function extraFlagsFor(cfg: Config, srcRelPath: string): string[] {
+   const key = srcRelPath.replaceAll("\\", "/");
++  const out: string[] = [];
+   for (const o of fileOverrides) {
+     if (o.file !== key) continue;
+     if (o.when && !o.when(cfg)) continue;
+-    return resolveFlagValue(o.extraFlags, cfg);
++    out.push(...resolveFlagValue(o.extraFlags, cfg));
+   }
+-  return [];
++  return out;
+ }
+diff --git a/scripts/build/rust.ts b/scripts/build/rust.ts
+index 5e4fa5c5f0a..371be8e36de 100644
+--- a/scripts/build/rust.ts
++++ b/scripts/build/rust.ts
+@@ -51,7 +51,7 @@ export function rustTarget(cfg: Config): string {
+ 
+ /** `rustTarget()` on the bare target platform; `abi` is linux-only. */
+ export function rustTriple(os: OS, arch: Arch, abi: Abi | undefined): string {
+-  const rustArch = arch === "x64" ? "x86_64" : "aarch64";
++  const rustArch = arch === "x64" ? "x86_64" : arch === "ppc64le" ? "powerpc64le" : "aarch64";
+   if (os === "darwin") return `${rustArch}-apple-darwin`;
+   if (os === "windows") return `${rustArch}-pc-windows-msvc`;
+   if (os === "freebsd") return `${rustArch}-unknown-freebsd`;
+@@ -85,6 +85,9 @@ export function cargoProfile(cfg: Config): { name: string; subdir: string } {
+ export const allRustTargets = [
+   "x86_64-unknown-linux-gnu",
+   "aarch64-unknown-linux-gnu",
++  // ppc64le: Tier 2 with host tools + std. Not in CI's matrix; listed so
++  // `rust:check-all` and the generated .cargo/config.toml cover it.
++  "powerpc64le-unknown-linux-gnu",
+   "x86_64-unknown-linux-musl",
+   "aarch64-unknown-linux-musl",
+   "x86_64-linux-android",
+@@ -97,6 +100,16 @@ export const allRustTargets = [
+   "aarch64-unknown-freebsd",
+ ] as const;
+ 
++/**
++ * The entries of `allRustTargets` that `.buildkite/ci.mjs` does not build.
++ * They are still type-checked by `rust:check-all` and still get a linker entry
++ * in the generated `.cargo/config.toml`; there is simply no CI runner for
++ * them. test/internal/source-lints/build-rust.test.ts subtracts these before
++ * comparing the two lists, and checks each one is really in `allRustTargets`,
++ * so the exception cannot outlive the target it was added for.
++ */
++export const rustTargetsNotInCI: readonly string[] = ["powerpc64le-unknown-linux-gnu"];
++
+ /**
+  * Tier 3 targets — rustup ships no prebuilt `rust-std` for these, so
+  * `rustup target add` would fail and cargo needs `-Zbuild-std` (which in turn
+@@ -141,13 +154,33 @@ export const cargoBuildStdArg = "-Zbuild-std=core,alloc,std,proc_macro,panic_abo
+  *
+  * clang-cl (windows) spells the same flags `/clang:-march=...`.
+  */
++/**
++ * clang CPU name → LLVM CPU name, for the cases where the clang driver accepts
++ * an alias that the LLVM backend (and therefore `-Ctarget-cpu`) does not.
++ *
++ * PowerPC is the one that bites: `clang -mcpu=power9` is accepted by the
++ * driver, but LLVM's PPC subtarget calls it `pwr9`, and rustc rejects
++ * `-Ctarget-cpu=power9` with "not a recognized processor for this target
++ * (ignoring processor)" — a *warning*, not an error, so without this mapping
++ * the Rust half would silently build for generic ppc64 while the C++ half
++ * built for POWER9. Confirmed against
++ * `rustc --print target-cpus --target powerpc64le-unknown-linux-gnu`, which
++ * reports the host as `pwr9`.
++ */
++const LLVM_CPU_ALIASES: Record<string, string> = {
++  power8: "pwr8",
++  power9: "pwr9",
++  power10: "pwr10",
++  power11: "pwr11",
++};
++
+ function rustCpuTargetFlags(cfg: Config): string[] {
+   const rustflags: string[] = [];
+   for (const clangFlag of computeCpuTargetFlags(cfg)) {
+     const parsed = /^(?:\/clang:)?-m(cpu|tune|arch)=(.+)$/.exec(clangFlag);
+     assert(parsed !== null, `rustCpuTargetFlags() can't translate cpuTargetFlags entry '${clangFlag}'`);
+     const kind = parsed[1]!;
+-    const value = parsed[2]!;
++    const value = LLVM_CPU_ALIASES[parsed[2]!] ?? parsed[2]!;
+     if (kind === "tune") {
+       rustflags.push(`-Ztune-cpu=${value}`);
+     } else if (kind === "cpu" || cfg.x64) {
+diff --git a/scripts/build/tools.ts b/scripts/build/tools.ts
+index 4aa4474bcde..2c2d533ca93 100644
+--- a/scripts/build/tools.ts
++++ b/scripts/build/tools.ts
+@@ -216,6 +216,7 @@ export function clangTargetArch(clang: string): Arch | undefined {
+   // aarch64-pc-windows-msvc, arm64-apple-darwin, x86_64-unknown-linux-gnu, ...
+   if (/^(aarch64|arm64)/.test(triple)) return "aarch64";
+   if (/^(x86_64|x64|amd64)/i.test(triple)) return "x64";
++  if (/^(powerpc64le|ppc64le)/i.test(triple)) return "ppc64le";
+   return undefined;
+ }
+ 
+diff --git a/scripts/orderfile/generate.ts b/scripts/orderfile/generate.ts
+index 9b3267fc83c..15b70fdaa2d 100644
+--- a/scripts/orderfile/generate.ts
++++ b/scripts/orderfile/generate.ts
+@@ -291,7 +291,14 @@ export function generateOrderFile(options: GenerateOptions): { count: number; ou
+   const log = (message: string) => options.verbose && console.log(message);
+ 
+   const windows = process.platform === "win32";
+-  if (process.platform !== "linux" && !windows && !(process.platform === "darwin" && process.arch === "arm64")) {
++  // The architecture half of that sentence was missing: functrace.c's own
++  // #error accepts only x86-64 and arm64, so on any other linux the generator
++  // used to get past this check and fail while compiling the tracer.
++  const tracerArch = process.arch === "x64" || process.arch === "arm64";
++  if (
++    !((process.platform === "linux" || windows) && tracerArch) &&
++    !(process.platform === "darwin" && process.arch === "arm64")
++  ) {
+     throw new Error("the order file tracer builds on linux x86-64/arm64, macOS arm64, or Windows x64/arm64");
+   }
+ 
+diff --git a/scripts/utils.mjs b/scripts/utils.mjs
+index 75da2ff08d2..2e478056101 100755
+--- a/scripts/utils.mjs
++++ b/scripts/utils.mjs
+@@ -1443,7 +1443,7 @@ export function getOs() {
+ 
+ /**
+  * @param {string} string
+- * @returns {"x64" | "aarch64"}
++ * @returns {"x64" | "aarch64" | "ppc64le"}
+  */
+ export function parseArch(string) {
+   if (/x64|amd64|x86_64/i.test(string)) {
+@@ -1452,11 +1452,16 @@ export function parseArch(string) {
+   if (/arm64|aarch64/i.test(string)) {
+     return "aarch64";
+   }
++  // node spells the host "ppc64" on little-endian POWER; bun only builds the
++  // little-endian variant, which is what "ppc64le" names everywhere else here.
++  if (/ppc64le|ppc64|powerpc64/i.test(string)) {
++    return "ppc64le";
++  }
+   throw new Error(`Unsupported architecture: ${string}`);
+ }
+ 
+ /**
+- * @returns {"x64" | "aarch64"}
++ * @returns {"x64" | "aarch64" | "ppc64le"}
+  */
+ export function getArch() {
+   return parseArch(process.arch);
+@@ -1500,13 +1505,15 @@ export function getAbi() {
+     return "musl";
+   }
+ 
+-  const arch = getArch() === "x64" ? "x86_64" : "aarch64";
++  const hostArch = getArch();
++  const arch = hostArch === "x64" ? "x86_64" : hostArch === "ppc64le" ? "powerpc64le" : "aarch64";
+   const muslLibPath = `/lib/ld-musl-${arch}.so.1`;
+   if (existsSync(muslLibPath)) {
+     return "musl";
+   }
+ 
+-  const gnuLibPath = `/lib/ld-linux-${arch}.so.2`;
++  // ELFv2 does not follow the ld-linux-<arch>.so.2 naming.
++  const gnuLibPath = hostArch === "ppc64le" ? "/lib64/ld64.so.2" : `/lib/ld-linux-${arch}.so.2`;
+   if (existsSync(gnuLibPath)) {
+     return "gnu";
+   }
+diff --git a/src/bun_core/Global.rs b/src/bun_core/Global.rs
+index 3ac4e52ace7..4db1b96b59d 100644
+--- a/src/bun_core/Global.rs
++++ b/src/bun_core/Global.rs
+@@ -588,6 +588,8 @@ pub const arch_name: &str = if cfg!(target_arch = "x86_64") {
+     "x86"
+ } else if cfg!(target_arch = "aarch64") {
+     "arm64"
++} else if cfg!(target_arch = "powerpc64") {
++    "ppc64"
+ } else {
+     "unknown"
+ };
+diff --git a/src/bun_core/debug.rs b/src/bun_core/debug.rs
+index 9ff90f16af0..39a38774bbe 100644
+--- a/src/bun_core/debug.rs
++++ b/src/bun_core/debug.rs
+@@ -237,6 +237,13 @@ impl StackIterator {
+         0
+     };
+     // Positive offset of the saved PC wrt the frame pointer.
++    //
++    // The powerpc64 value is not usable as written: under ELFv2 a function
++    // saves its caller's LR into the LR slot of the *caller's* frame, so the
++    // return address for a frame at sp lives at `(*sp) + 16` — at `new_fp + 16`
++    // below, not `fp + 16`. Wiring the walk up means changing where the offset
++    // is applied, not what it is. `frame_address()` has no PowerPC arm, so
++    // today the walk terminates on its own alignment check instead.
+     const PC_OFFSET: usize = if cfg!(target_arch = "powerpc64") {
+         2 * core::mem::size_of::<usize>()
+     } else {
+@@ -278,6 +285,9 @@ impl StackIterator {
+     }
+ }
+ 
++// Exists for the arches `return_address()` reads it on; everywhere else that
++// function returns 0 and nothing else in the tree references it.
++#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+ pub(crate) const PC_OFFSET: usize = StackIterator::PC_OFFSET;
+ 
+ /// Capture the current thread's call stack.
+diff --git a/src/bun_core/env.rs b/src/bun_core/env.rs
+index 9f4c52ef8c2..bc8f5637123 100644
+--- a/src/bun_core/env.rs
++++ b/src/bun_core/env.rs
+@@ -43,6 +43,9 @@ const IS_FREEBSD: bool = cfg!(target_os = "freebsd");
+ pub const IS_KQUEUE: bool = IS_MAC || IS_FREEBSD;
+ const IS_AARCH64: bool = cfg!(target_arch = "aarch64");
+ const IS_X64: bool = cfg!(target_arch = "x86_64");
++// rustc spells both endiannesses of 64-bit PowerPC "powerpc64"; bun only
++// supports the little-endian POWER8+ side, so pin the endianness here.
++const IS_PPC64LE: bool = cfg!(all(target_arch = "powerpc64", target_endian = "little"));
+ pub const IS_MUSL: bool = cfg!(target_env = "musl");
+ pub const IS_ANDROID: bool = cfg!(target_os = "android");
+ pub const ALLOW_ASSERT: bool = IS_DEBUG || IS_TEST || build_options::RELEASE_SAFE;
+@@ -175,6 +178,7 @@ pub const OS_NAME_NPM: &str = OS.npm_name();
+ pub enum Architecture {
+     X64,
+     Arm64,
++    Ppc64le,
+     Wasm,
+ }
+ 
+@@ -184,6 +188,8 @@ impl Architecture {
+         match self {
+             Self::X64 => "x64",
+             Self::Arm64 => "aarch64",
++            // npm's `cpu` field and node's process.arch both say "ppc64".
++            Self::Ppc64le => "ppc64",
+             Self::Wasm => "wasm",
+         }
+     }
+@@ -196,6 +202,9 @@ crate::comptime_string_map! {
+         b"amd64" => Architecture::X64,
+         b"aarch64" => Architecture::Arm64,
+         b"arm64" => Architecture::Arm64,
++        b"ppc64" => Architecture::Ppc64le,
++        b"ppc64le" => Architecture::Ppc64le,
++        b"powerpc64le" => Architecture::Ppc64le,
+         b"wasm" => Architecture::Wasm,
+     };
+ }
+@@ -206,6 +215,8 @@ pub const ARCH: Architecture = if IS_WASM {
+     Architecture::X64
+ } else if IS_AARCH64 {
+     Architecture::Arm64
++} else if IS_PPC64LE {
++    Architecture::Ppc64le
+ } else {
+     panic!("Please add your architecture to the Architecture enum")
+ };
+diff --git a/src/crash_handler/CPUFeatures.rs b/src/crash_handler/CPUFeatures.rs
+index 5736ea90433..2015b863ad2 100644
+--- a/src/crash_handler/CPUFeatures.rs
++++ b/src/crash_handler/CPUFeatures.rs
+@@ -44,7 +44,26 @@ bitflags::bitflags! {
+     }
+ }
+ 
+-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
++// Mirrors `PPC64CPUFeature` in src/jsc/bindings/CPUFeatures.cpp. rustc spells
++// both endiannesses of 64-bit PowerPC as target_arch = "powerpc64"; bun only
++// supports the little-endian POWER8+ side of that.
++#[cfg(target_arch = "powerpc64")]
++bitflags::bitflags! {
++    #[repr(transparent)]
++    #[derive(Copy, Clone)]
++    pub struct Flags: u8 {
++        const NONE      = 1 << 0;
++        const ALTIVEC   = 1 << 1;
++        const VSX       = 1 << 2;
++        const ARCH_2_07 = 1 << 3;
++        const ARCH_3_00 = 1 << 4;
++        const CRYPTO    = 1 << 5;
++        const ARCH_3_1  = 1 << 6;
++        // bit 7 = padding
++    }
++}
++
++#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "powerpc64")))]
+ compile_error!("CPUFeatures: unsupported target architecture");
+ 
+ // Per-arch const table of flag names, skipping "none" and padding bits.
+@@ -67,6 +86,16 @@ const NAMED_FLAGS: &[(&str, Flags)] = &[
+     ("sve", Flags::SVE),
+ ];
+ 
++#[cfg(target_arch = "powerpc64")]
++const NAMED_FLAGS: &[(&str, Flags)] = &[
++    ("altivec", Flags::ALTIVEC),
++    ("vsx", Flags::VSX),
++    ("power8", Flags::ARCH_2_07),
++    ("power9", Flags::ARCH_3_00),
++    ("crypto", Flags::CRYPTO),
++    ("power10", Flags::ARCH_3_1),
++];
++
+ impl fmt::Display for CPUFeatures {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+         let mut is_first = true;
+diff --git a/src/crash_handler/lib.rs b/src/crash_handler/lib.rs
+index 0d0d6b007cf..c29e6627511 100644
+--- a/src/crash_handler/lib.rs
++++ b/src/crash_handler/lib.rs
+@@ -1473,6 +1473,8 @@ mod draft {
+         } else {
+             "arm64"
+         }
++    } else if cfg!(target_arch = "powerpc64") {
++        "ppc64le"
+     } else {
+         "x64"
+     };
+@@ -2376,6 +2378,18 @@ mod draft {
+             {
+                 b'F'
+             }
++            // ppc64le. NOTE: bun.report has no debug files for this platform,
++            // so a trace string starting with 'p' will not symbolicate there —
++            // it only keeps the tag unique so the URL is still well-formed and
++            // obviously identifiable as a POWER build.
++            #[cfg(all(target_os = "linux", not(target_env = "musl"), target_arch = "powerpc64"))]
++            {
++                b'p'
++            }
++            #[cfg(all(target_os = "linux", target_env = "musl", target_arch = "powerpc64"))]
++            {
++                b'P'
++            }
+         };
+     }
+ 
+diff --git a/src/exe_format/elf.rs b/src/exe_format/elf.rs
+index 9d231ec56e0..e5cf7f3416d 100644
+--- a/src/exe_format/elf.rs
++++ b/src/exe_format/elf.rs
+@@ -505,11 +505,15 @@ struct BunSectionInfo {
+     section_index: u16,
+ }
+ 
+-const INTERP_MAP: [(&[u8], &[u8]); 4] = [
++const INTERP_MAP: [(&[u8], &[u8]); 6] = [
+     (b"ld-linux-x86-64.so.2", b"/lib64/ld-linux-x86-64.so.2"),
+     (b"ld-linux-aarch64.so.1", b"/lib/ld-linux-aarch64.so.1"),
+     (b"ld-musl-x86_64.so.1", b"/lib/ld-musl-x86_64.so.1"),
+     (b"ld-musl-aarch64.so.1", b"/lib/ld-musl-aarch64.so.1"),
++    // ppc64le ELFv2. Note the loader is NOT named after the arch the way the
++    // other four are: glibc calls it ld64.so.2 on both endiannesses.
++    (b"ld64.so.2", b"/lib64/ld64.so.2"),
++    (b"ld-musl-powerpc64le.so.1", b"/lib/ld-musl-powerpc64le.so.1"),
+ ];
+ 
+ fn read_ehdr(data: &[u8]) -> Elf64_Ehdr {
+diff --git a/src/install_types/resolver_hooks.rs b/src/install_types/resolver_hooks.rs
+index 79ed00b6764..2141f81012f 100644
+--- a/src/install_types/resolver_hooks.rs
++++ b/src/install_types/resolver_hooks.rs
+@@ -921,6 +921,10 @@ impl Architecture {
+     pub const CURRENT: Self = Self(Self::ARM64);
+     #[cfg(target_arch = "x86_64")]
+     pub const CURRENT: Self = Self(Self::X64);
++    // npm's `cpu` field spells ppc64le as "ppc64" (it does not distinguish
++    // endianness), which is the bit that already exists above.
++    #[cfg(target_arch = "powerpc64")]
++    pub const CURRENT: Self = Self(Self::PPC64);
+ 
+     #[inline]
+     pub const fn none() -> Self {
+diff --git a/src/js/bun/ffi.ts b/src/js/bun/ffi.ts
+index 569d3a109b1..640555b9a08 100644
+--- a/src/js/bun/ffi.ts
++++ b/src/js/bun/ffi.ts
+@@ -242,9 +242,12 @@ function cc(options) {
+         //    "sqlite3_get_version() - sqlit3.so"
+         path.includes("/") ? `${key} (${path.split("/").pop()})` : `${key} (${path})`,
+       );
+-    } else {
+-      // consistentcy
+-      result.symbols[key].native = result.symbols[key];
++    } else if (symbol.native === undefined) {
++      // consistency. JSC's own FFI functions — what cc() returns wherever it
++      // compiles to a shared object instead of JIT-ing in-process — already
++      // carry `native` and `ptr` as readonly intrinsics, and assigning over
++      // one throws in a builtin's strict mode.
++      symbol.native = symbol;
+     }
+   }
+ 
+diff --git a/src/js/node/os.ts b/src/js/node/os.ts
+index 3326d8093d5..c74e07d5d32 100644
+--- a/src/js/node/os.ts
++++ b/src/js/node/os.ts
+@@ -97,7 +97,9 @@ function bound(binding) {
+     },
+     cpus: lazyCpus(binding),
+     endianness: function () {
+-      return process.arch === "arm64" || process.arch === "x64" //
++      // "ppc64" here is ppc64le — bun does not support big-endian POWER, and
++      // config.ts only ever maps a little-endian host to this arch string.
++      return process.arch === "arm64" || process.arch === "x64" || process.arch === "ppc64" //
+         ? "LE"
+         : $bundleError("TODO: endianness");
+     },
+@@ -142,7 +144,10 @@ function bound(binding) {
+           ? process.platform === "freebsd"
+             ? "amd64"
+             : "x86_64"
+-          : $bundleError("TODO: machine");
++          : // uname -m on little-endian POWER is "ppc64le".
++            process.arch === "ppc64"
++            ? "ppc64le"
++            : $bundleError("TODO: machine");
+     },
+     devNull: process.platform === "win32" ? "\\\\.\\nul" : "/dev/null",
+     get EOL() {
+diff --git a/src/jsc/bindings/BunCPUProfiler.cpp b/src/jsc/bindings/BunCPUProfiler.cpp
+index 978ab566049..7c0c1fa725d 100644
+--- a/src/jsc/bindings/BunCPUProfiler.cpp
++++ b/src/jsc/bindings/BunCPUProfiler.cpp
+@@ -3,6 +3,12 @@
+ #include "ZigGlobalObject.h"
+ #include "helpers.h"
+ #include "BunString.h"
++
++// Everything below is the real implementation; the #else at the bottom keeps
++// this file's interface intact with no-ops on builds without the profiler, so
++// `--cpu-prof` degrades to "produces nothing" instead of failing to link.
++#if ENABLE(SAMPLING_PROFILER)
++
+ #include <JavaScriptCore/SamplingProfiler.h>
+ #include <JavaScriptCore/VM.h>
+ #include <JavaScriptCore/JSGlobalObject.h>
+@@ -945,3 +951,35 @@ extern "C" void Bun__stopCPUProfiler(JSC::VM* vm, BunString* outJSON, BunString*
+     if (outText)
+         *outText = Bun::toStringRef(textResult);
+ }
++
++#else // !ENABLE(SAMPLING_PROFILER)
++
++namespace Bun {
++
++void setSamplingInterval(int) { }
++bool isCPUProfilerRunning() { return false; }
++void startCPUProfiler(JSC::VM&) { }
++
++void stopCPUProfiler(JSC::VM&, WTF::String* outJSON, WTF::String* outText)
++{
++    if (outJSON)
++        *outJSON = WTF::String();
++    if (outText)
++        *outText = WTF::String();
++}
++
++} // namespace Bun
++
++extern "C" void Bun__setSamplingInterval(int) { }
++
++extern "C" void Bun__startCPUProfiler(JSC::VM*) { }
++
++extern "C" void Bun__stopCPUProfiler(JSC::VM*, BunString* outJSON, BunString* outText)
++{
++    if (outJSON)
++        *outJSON = Bun::toStringRef(WTF::String());
++    if (outText)
++        *outText = Bun::toStringRef(WTF::String());
++}
++
++#endif // ENABLE(SAMPLING_PROFILER)
+diff --git a/src/jsc/bindings/BunProcess.cpp b/src/jsc/bindings/BunProcess.cpp
+index 57f1b66e0ed..b639ab81e7c 100644
+--- a/src/jsc/bindings/BunProcess.cpp
++++ b/src/jsc/bindings/BunProcess.cpp
+@@ -202,6 +202,10 @@ static JSValue constructArch(VM& vm, JSObject* processObject)
+     return JSC::jsString(vm, makeAtomString("x64"_s));
+ #elif CPU(ARM64)
+     return JSC::jsString(vm, makeAtomString("arm64"_s));
++#elif CPU(PPC64LE) || CPU(PPC64)
++    // node reports both endiannesses of 64-bit PowerPC as "ppc64"; the
++    // endianness is exposed separately through os.endianness().
++    return JSC::jsString(vm, makeAtomString("ppc64"_s));
+ #else
+ #error "Unknown architecture"
+ #endif
+@@ -2914,6 +2918,9 @@ __attribute__((minsize)) static JSValue constructProcessConfigObject(VM& vm, JSO
+ #elif CPU(ARM64)
+     putDirectNamed(vm, variables, "host_arch"_s, JSC::jsString(vm, String("arm64"_s)));
+     putDirectNamed(vm, variables, "target_arch"_s, JSC::jsString(vm, String("arm64"_s)));
++#elif CPU(PPC64LE) || CPU(PPC64)
++    putDirectNamed(vm, variables, "host_arch"_s, JSC::jsString(vm, String("ppc64"_s)));
++    putDirectNamed(vm, variables, "target_arch"_s, JSC::jsString(vm, String("ppc64"_s)));
+ #else
+ #error "Unsupported architecture"
+ #endif
+diff --git a/src/jsc/bindings/CPUFeatures.cpp b/src/jsc/bindings/CPUFeatures.cpp
+index 06355dcb7f4..cea07185e7a 100644
+--- a/src/jsc/bindings/CPUFeatures.cpp
++++ b/src/jsc/bindings/CPUFeatures.cpp
+@@ -8,6 +8,17 @@ enum class X86CPUFeature : uint8_t {
+     avx512 = 5,
+ };
+ 
++// Keep in sync with `Flags` in src/crash_handler/CPUFeatures.rs — the two
++// halves share a packed u8 across the FFI boundary and there is no check.
++enum class PPC64CPUFeature : uint8_t {
++    altivec = 1,
++    vsx = 2,
++    arch_2_07 = 3, // POWER8
++    arch_3_00 = 4, // POWER9
++    crypto = 5,
++    arch_3_1 = 6, // POWER10
++};
++
+ enum class AArch64CPUFeature : uint8_t {
+     neon = 1,
+     fp = 2,
+@@ -129,12 +140,71 @@ static uint8_t aarch64_cpu_features()
+ 
+ #endif
+ 
++#if CPU(PPC64LE) || CPU(PPC64)
++
++#if OS(LINUX)
++#include <sys/auxv.h>
++
++// From the kernel's <asm/cputable.h>. Spelled out rather than included:
++// glibc, musl and the kernel headers disagree about which of <bits/hwcap.h>,
++// <asm/cputable.h> and <sys/auxv.h> actually defines these, and getting it
++// wrong is a silent miscompile (the macro is simply absent, so the `&`
++// disappears). The values are ABI and cannot change.
++#ifndef PPC_FEATURE_HAS_ALTIVEC
++#define PPC_FEATURE_HAS_ALTIVEC 0x10000000
++#endif
++#ifndef PPC_FEATURE_HAS_VSX
++#define PPC_FEATURE_HAS_VSX 0x00000080
++#endif
++#ifndef PPC_FEATURE2_ARCH_2_07
++#define PPC_FEATURE2_ARCH_2_07 0x80000000
++#endif
++#ifndef PPC_FEATURE2_ARCH_3_00
++#define PPC_FEATURE2_ARCH_3_00 0x00800000
++#endif
++#ifndef PPC_FEATURE2_VEC_CRYPTO
++#define PPC_FEATURE2_VEC_CRYPTO 0x02000000
++#endif
++#ifndef PPC_FEATURE2_ARCH_3_1
++#define PPC_FEATURE2_ARCH_3_1 0x00040000
++#endif
++#endif
++
++static uint8_t ppc64_cpu_features()
++{
++    uint8_t features = 0;
++
++#if OS(LINUX)
++    unsigned long hwcap = getauxval(AT_HWCAP);
++    unsigned long hwcap2 = getauxval(AT_HWCAP2);
++
++    if (hwcap & PPC_FEATURE_HAS_ALTIVEC)
++        features |= 1 << static_cast<uint8_t>(PPC64CPUFeature::altivec);
++    if (hwcap & PPC_FEATURE_HAS_VSX)
++        features |= 1 << static_cast<uint8_t>(PPC64CPUFeature::vsx);
++    if (hwcap2 & PPC_FEATURE2_ARCH_2_07)
++        features |= 1 << static_cast<uint8_t>(PPC64CPUFeature::arch_2_07);
++    if (hwcap2 & PPC_FEATURE2_ARCH_3_00)
++        features |= 1 << static_cast<uint8_t>(PPC64CPUFeature::arch_3_00);
++    if (hwcap2 & PPC_FEATURE2_VEC_CRYPTO)
++        features |= 1 << static_cast<uint8_t>(PPC64CPUFeature::crypto);
++    if (hwcap2 & PPC_FEATURE2_ARCH_3_1)
++        features |= 1 << static_cast<uint8_t>(PPC64CPUFeature::arch_3_1);
++#endif
++
++    return features;
++}
++
++#endif
++
+ extern "C" uint8_t bun_cpu_features()
+ {
+ #if CPU(X86_64)
+     return x86_cpu_features();
+ #elif CPU(ARM64)
+     return aarch64_cpu_features();
++#elif CPU(PPC64LE) || CPU(PPC64)
++    return ppc64_cpu_features();
+ #else
+ #error "Unknown architecture"
+ #endif
+diff --git a/src/jsc/bindings/NodeVM.cpp b/src/jsc/bindings/NodeVM.cpp
+index 60ec59919fc..cdaa25ef705 100644
+--- a/src/jsc/bindings/NodeVM.cpp
++++ b/src/jsc/bindings/NodeVM.cpp
+@@ -980,11 +980,26 @@ const JSC::GlobalObjectMethodTable& NodeVMGlobalObject::globalObjectMethodTable(
+     return table;
+ }
+ 
++// ppc64le builds JSC with ENABLE_WEBASSEMBLY=OFF, so there is no
++// WebAssembly.CompileError constructor to build an instance of. Nothing can
++// reach these paths there (a `WebAssembly` global does not exist to be
++// disallowed), but they still have to compile, so fall back to a plain Error
++// carrying the same message.
++static JSObject* createWasmCodegenDisallowedError(JSC::JSGlobalObject* globalObject, VM& vm)
++{
++    constexpr auto message = "Wasm code generation disallowed by embedder"_s;
++#if ENABLE(WEBASSEMBLY)
++    return JSC::createJSWebAssemblyCompileError(globalObject, vm, message);
++#else
++    return JSC::createError(globalObject, message);
++#endif
++}
++
+ JSC_DEFINE_HOST_FUNCTION(jsNodeVmWasmDisallowed, (JSC::JSGlobalObject * globalObject, JSC::CallFrame*))
+ {
+     VM& vm = globalObject->vm();
+     auto scope = DECLARE_THROW_SCOPE(vm);
+-    JSObject* error = JSC::createJSWebAssemblyCompileError(globalObject, vm, "Wasm code generation disallowed by embedder"_s);
++    JSObject* error = createWasmCodegenDisallowedError(globalObject, vm);
+     RETURN_IF_EXCEPTION(scope, {});
+     scope.throwException(globalObject, error);
+     return {};
+@@ -996,7 +1011,7 @@ JSC_DEFINE_HOST_FUNCTION(jsNodeVmWasmCompileDisallowed, (JSC::JSGlobalObject * g
+ {
+     VM& vm = globalObject->vm();
+     auto scope = DECLARE_THROW_SCOPE(vm);
+-    JSObject* error = JSC::createJSWebAssemblyCompileError(globalObject, vm, "Wasm code generation disallowed by embedder"_s);
++    JSObject* error = createWasmCodegenDisallowedError(globalObject, vm);
+     RETURN_IF_EXCEPTION(scope, {});
+     RELEASE_AND_RETURN(scope, JSValue::encode(JSC::JSPromise::rejectedPromise(globalObject, error)));
+ }
+diff --git a/src/jsc/bindings/NodeVMScript.cpp b/src/jsc/bindings/NodeVMScript.cpp
+index 6f8303a8e25..455d0df97f9 100644
+--- a/src/jsc/bindings/NodeVMScript.cpp
++++ b/src/jsc/bindings/NodeVMScript.cpp
+@@ -5,6 +5,10 @@
+ 
+ #include "JavaScriptCore/CodeCache.h"
+ #include "JavaScriptCore/Completion.h"
++// JIT::compileSync returns a CompilationResult, and CodeBlock.h only forward
++// declares it. On an ENABLE_DFG_JIT build the definition arrives transitively
++// through a DFG header; ppc64le builds Baseline-only, so name it directly.
++#include "JavaScriptCore/CompilationResult.h"
+ #include "JavaScriptCore/JIT.h"
+ #include "JavaScriptCore/JSWeakMap.h"
+ #include "JavaScriptCore/JSWeakMapInlines.h"
+@@ -192,6 +196,7 @@ constructScript(JSGlobalObject* globalObject, CallFrame* callFrame, JSValue newT
+                 codeBlock = JSC::ProgramCodeBlock::create(vm, executable, unlinkedBlock, jsScope);
+                 RETURN_IF_EXCEPTION(scope, {});
+             }
++#if ENABLE(JIT)
+             JSC::CompilationResult compilationResult = JIT::compileSync(vm, codeBlock, JITCompilationEffort::JITCompilationCanFail);
+             if (compilationResult != JSC::CompilationResult::CompilationFailed) {
+                 executable->installCode(codeBlock);
+@@ -199,6 +204,13 @@ constructScript(JSGlobalObject* globalObject, CallFrame* callFrame, JSValue newT
+             } else {
+                 script->cachedDataRejected(TriState::True);
+             }
++#else
++            // No JIT tier on this target, so nothing to compile into. The cached
++            // bytecode decoded fine, which is the part `cachedDataRejected`
++            // reports on; installing it needs no compilation step.
++            executable->installCode(codeBlock);
++            script->cachedDataRejected(TriState::False);
++#endif
+         }
+     } else if (script->options().produceCachedData)
+         script->cacheBytecode();
+diff --git a/src/jsc/bindings/ZigGlobalObject.cpp b/src/jsc/bindings/ZigGlobalObject.cpp
+index ac5188842dd..335a528d6c7 100644
+--- a/src/jsc/bindings/ZigGlobalObject.cpp
++++ b/src/jsc/bindings/ZigGlobalObject.cpp
+@@ -147,8 +147,10 @@
+ #include "streams/JSTransformStreamDefaultController.h"
+ #include "JSURLPattern.h"
+ #include "JSURLSearchParams.h"
++#if ENABLE(WEBASSEMBLY)
+ #include "JSWasmStreamingCompiler.h"
+ #include <JavaScriptCore/WebAssemblyCompileOptions.h>
++#endif
+ #include "JSWebSocket.h"
+ #include "JSWorker.h"
+ #include "streams/JSWritableStream.h"
+@@ -300,10 +302,27 @@ extern "C" void JSCInitialize(const char* envp[], size_t envc, void (*onCrash)(c
+         // useWasmFaultSignalHandler/FastMemory when ASAN_OPTIONS lacks
+         // allow_user_segv_handler=1, so we don't force it off here.
+         JSC::initialize([&] {
++            // These four force on features that must actually be compiled in.
++            // Their JSC defaults already track the ENABLE() macros
++            // (jitEnabledByDefault(), canUseWasm()), so on a build without them
++            // forcing true is not just useless, it is fatal:
++            // Options::assertOptionsAreCoherent() aborts the process with
++            // "INCOHERENT OPTIONS: at least one of useWasmIPInt, or useBBQJIT
++            // must be true" when useWasm is on but no Wasm tier exists.
++            // BBQ has its own ENABLE(): ppc64le builds wasm with IPInt as the
++            // only tier, because BBQ and OMG depend on FTL and there is no
++            // B3/Air lowering for PowerPC. ENABLE(WEBASSEMBLY) && ENABLE(JIT)
++            // is true there and BBQ is still not compiled.
++#if ENABLE(WEBASSEMBLY)
+             JSC::Options::useWasm() = true;
++#endif
++#if ENABLE(JIT)
+             JSC::Options::useJIT() = true;
+-            JSC::Options::useBBQJIT() = true;
+             JSC::Options::useConcurrentJIT() = true;
++#endif
++#if ENABLE(WEBASSEMBLY_BBQJIT)
++            JSC::Options::useBBQJIT() = true;
++#endif
+             // JSC::Options::useSigillCrashAnalyzer() = true;
+             JSC::Options::useSourceProviderCache() = true;
+             // JSC::Options::useUnlinkedCodeBlockJettisoning() = false;
+@@ -327,7 +346,9 @@ extern "C" void JSCInitialize(const char* envp[], size_t envc, void (*onCrash)(c
+             // Upstream enabled Wasm Memory64 by default (0d0080ea539d); keep
+             // it off in Bun while upstream stabilises it.
+             // BUN_JSC_useWasmMemory64=1 re-enables it for opt-in testing.
++#if ENABLE(WEBASSEMBLY)
+             JSC::Options::useWasmMemory64() = false;
++#endif
+ #if OS(WINDOWS)
+             // oven-sh/WebKit#553 starts the MarkedBlock warm-up helper thread from
+             // the allocation slow path once the heap has ramped; on Windows that
+@@ -966,8 +987,17 @@ const JSC::GlobalObjectMethodTable& GlobalObject::globalObjectMethodTable()
+         &scriptExecutionStatus,
+         &unsafeEvalNoop, // reportViolationForUnsafeEval
+         nullptr, // defaultLanguage
++#if ENABLE(WEBASSEMBLY)
+         &compileStreaming,
+         &instantiateStreaming,
++#else
++        // GlobalObjectMethodTable keeps two `void*` placeholders here when
++        // WebAssembly is off, specifically so positional initializers stay
++        // aligned (GlobalObjectMethodTable.h). They must be filled, not
++        // skipped — omitting them silently shifts every later hook.
++        nullptr, // compileStreamingPlaceholder
++        nullptr, // instantiateStreamingPlaceholder
++#endif
+         &deriveShadowRealmGlobalObject,
+         &codeForEval, // codeForEval
+         &canCompileStrings, // canCompileStrings
+@@ -995,8 +1025,17 @@ const JSC::GlobalObjectMethodTable& EvalGlobalObject::globalObjectMethodTable()
+         &scriptExecutionStatus,
+         &unsafeEvalNoop, // reportViolationForUnsafeEval
+         nullptr, // defaultLanguage
++#if ENABLE(WEBASSEMBLY)
+         &compileStreaming,
+         &instantiateStreaming,
++#else
++        // GlobalObjectMethodTable keeps two `void*` placeholders here when
++        // WebAssembly is off, specifically so positional initializers stay
++        // aligned (GlobalObjectMethodTable.h). They must be filled, not
++        // skipped — omitting them silently shifts every later hook.
++        nullptr, // compileStreamingPlaceholder
++        nullptr, // instantiateStreamingPlaceholder
++#endif
+         &deriveShadowRealmGlobalObject,
+         &codeForEval, // codeForEval
+         &canCompileStrings, // canCompileStrings
+@@ -1024,8 +1063,17 @@ const JSC::GlobalObjectMethodTable& StandaloneGlobalObject::globalObjectMethodTa
+         &scriptExecutionStatus,
+         &unsafeEvalNoop, // reportViolationForUnsafeEval
+         nullptr, // defaultLanguage
++#if ENABLE(WEBASSEMBLY)
+         &compileStreaming,
+         &instantiateStreaming,
++#else
++        // GlobalObjectMethodTable keeps two `void*` placeholders here when
++        // WebAssembly is off, specifically so positional initializers stay
++        // aligned (GlobalObjectMethodTable.h). They must be filled, not
++        // skipped — omitting them silently shifts every later hook.
++        nullptr, // compileStreamingPlaceholder
++        nullptr, // instantiateStreamingPlaceholder
++#endif
+         &deriveShadowRealmGlobalObject,
+         &codeForEval, // codeForEval
+         &canCompileStrings, // canCompileStrings
+@@ -1747,7 +1795,13 @@ JSC_DEFINE_HOST_FUNCTION(functionNavigatorGetPlatform, (JSC::JSGlobalObject * gl
+ #elif OS(WINDOWS)
+     return JSValue::encode(JSC::jsString(vm, String("Win32"_s)));
+ #elif OS(LINUX)
++#if CPU(ARM64)
++    return JSValue::encode(JSC::jsString(vm, String("Linux aarch64"_s)));
++#elif CPU(PPC64LE) || CPU(PPC64)
++    return JSValue::encode(JSC::jsString(vm, String("Linux ppc64le"_s)));
++#else
+     return JSValue::encode(JSC::jsString(vm, String("Linux x86_64"_s)));
++#endif
+ #elif OS(FREEBSD)
+ #if CPU(ARM64)
+     return JSValue::encode(JSC::jsString(vm, String("FreeBSD arm64"_s)));
+@@ -4246,6 +4300,10 @@ JSC::JSValue EvalGlobalObject::moduleLoaderEvaluate(JSGlobalObject* lexicalGloba
+     return result;
+ }
+ 
++// ppc64le: JSC is built with ENABLE_WEBASSEMBLY=OFF, so JSC::Wasm does not
++// exist and JSGlobalObject declares no streaming hooks to override.
++#if ENABLE(WEBASSEMBLY)
++
+ extern "C" JSC::EncodedJSValue Zig__GlobalObject__getBodyStreamOrBytesForWasmStreaming(JSGlobalObject*, EncodedJSValue response, JSC::Wasm::StreamingCompiler* compiler);
+ 
+ extern "C" void JSC__Wasm__StreamingCompiler__addBytes(JSC::Wasm::StreamingCompiler* compiler, const uint8_t* spanPtr, size_t spanSize)
+@@ -4309,6 +4367,8 @@ void GlobalObject::instantiateStreaming(JSGlobalObject* globalObject, JSC::JSPro
+     handleResponseOnStreamingAction(globalObject, promise, source, JSC::Wasm::CompilerMode::FullCompile, importObject, WTF::move(compileOptions));
+ }
+ 
++#endif // ENABLE(WEBASSEMBLY)
++
+ GlobalObject::PromiseFunctions GlobalObject::promiseHandlerID(Zig::FFIFunction handler)
+ {
+     if (handler == BunServe__onResolvePlugins) {
+diff --git a/src/jsc/bindings/ZigGlobalObject.h b/src/jsc/bindings/ZigGlobalObject.h
+index 035d86a7d8d..c6270af7c5a 100644
+--- a/src/jsc/bindings/ZigGlobalObject.h
++++ b/src/jsc/bindings/ZigGlobalObject.h
+@@ -194,8 +194,10 @@ public:
+     static JSC::JSPromise* moduleLoaderFetch(JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue key, const WTF::String& referrer, RefPtr<JSC::ScriptFetchParameters>, RefPtr<JSC::ScriptFetcher>);
+     static JSC::JSObject* moduleLoaderCreateImportMetaProperties(JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue key, JSC::JSModuleRecord*, RefPtr<JSC::ScriptFetcher>);
+     static JSC::JSValue moduleLoaderEvaluate(JSGlobalObject*, JSC::JSModuleLoader*, JSValue key, JSValue moduleRecordValue, RefPtr<JSC::ScriptFetcher>, JSValue sentValue, JSValue resumeMode);
++#if ENABLE(WEBASSEMBLY)
+     static void compileStreaming(JSGlobalObject*, JSC::JSPromise*, JSC::JSValue source, std::optional<JSC::WebAssemblyCompileOptions>&&);
+     static void instantiateStreaming(JSGlobalObject*, JSC::JSPromise*, JSC::JSValue source, JSC::JSObject* importObject, std::optional<JSC::WebAssemblyCompileOptions>&&);
++#endif
+ 
+     static ScriptExecutionStatus scriptExecutionStatus(JSGlobalObject*, JSObject*);
+     static void promiseRejectionTracker(JSGlobalObject*, JSC::JSPromise*, JSC::JSPromiseRejectionOperation);
+@@ -266,7 +268,9 @@ public:
+     JSC::JSFunction* utilInspectStylizeColorFunction() const { return m_utilInspectStylizeColorFunction.getInitializedOnMainThread(this); }
+     JSC::JSFunction* utilInspectStylizeNoColorFunction() const { return m_utilInspectStylizeNoColorFunction.getInitializedOnMainThread(this); }
+ 
++#if ENABLE(WEBASSEMBLY)
+     JSC::JSFunction* wasmStreamingConsumeStreamFunction() const { return m_wasmStreamingConsumeStreamFunction.getInitializedOnMainThread(this); }
++#endif
+ 
+     JSObject* requireFunctionUnbound() const { return m_requireFunctionUnbound.getInitializedOnMainThread(this); }
+     JSObject* requireResolveFunctionUnbound() const { return m_requireResolveFunctionUnbound.getInitializedOnMainThread(this); }
+diff --git a/src/jsc/bindings/c-bindings.cpp b/src/jsc/bindings/c-bindings.cpp
+index 481ccddda14..2dcd50e7ff0 100644
+--- a/src/jsc/bindings/c-bindings.cpp
++++ b/src/jsc/bindings/c-bindings.cpp
+@@ -375,6 +375,16 @@ static pid_t execve_counting_pid = 0;
+ extern "C" int __real_execve(const char*, char* const[], char* const[]);
+ extern "C" int __real_pthread_create(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
+ 
++#if defined(__powerpc64__) && defined(__GNU_LIBRARY__)
++// ppc64le builds against the host glibc rather than the 2.31 sysroot, where
++// pthread_create's default version is the 2.34 one from the libpthread→libc
++// merge. --wrap sends __real_pthread_create to that default, which would put
++// GLIBC_2.34 in the binary's verneed; the 2.17 compat_symbol is the same
++// function. Everything else pinned this way is in workaround-missing-symbols.cpp,
++// but a .symver on an undefined symbol only applies inside its own object.
++__asm__(".symver __real_pthread_create,pthread_create@GLIBC_2.17");
++#endif
++
+ extern "C" int __wrap_execve(const char* path, char* const argv[], char* const envp[])
+ {
+     if (getpid() != execve_counting_pid)
+diff --git a/src/jsc/bindings/v8/V8CpuProfiler.cpp b/src/jsc/bindings/v8/V8CpuProfiler.cpp
+index c80db710ff1..705605a3628 100644
+--- a/src/jsc/bindings/v8/V8CpuProfiler.cpp
++++ b/src/jsc/bindings/v8/V8CpuProfiler.cpp
+@@ -3,7 +3,12 @@
+ #include "V8HandleScope.h"
+ #include "shim/CpuProfiler.h"
+ 
++// On a build without the sampling profiler the v8::CpuProfiler API surface
++// below still has to exist so the exported mangled names stay put; it just
++// reports empty profiles.
++#if ENABLE(SAMPLING_PROFILER)
+ #include <JavaScriptCore/SamplingProfiler.h>
++#endif
+ #include <JavaScriptCore/VM.h>
+ #include <JavaScriptCore/JSGlobalObject.h>
+ #include <JavaScriptCore/ScriptExecutable.h>
+@@ -37,6 +42,7 @@ uint32_t CpuProfilerImpl::start(WTF::String&& title, bool recordSamples)
+     uint32_t id = m_nextId++;
+     m_sessions.append(Session { id, WTF::move(title), nowMicroseconds(), recordSamples });
+ 
++#if ENABLE(SAMPLING_PROFILER)
+     if (m_sessions.size() == 1) {
+         auto& vm = m_isolate->vm();
+         auto stopwatch = WTF::Stopwatch::create();
+@@ -46,6 +52,7 @@ uint32_t CpuProfilerImpl::start(WTF::String&& title, bool recordSamples)
+         sampler.noticeCurrentThreadAsJSCExecutionThread();
+         sampler.start();
+     }
++#endif
+ 
+     return id;
+ }
+@@ -64,8 +71,6 @@ const CpuProfilerImpl::Session* CpuProfilerImpl::sessionWithTitle(const WTF::Str
+ // the V8 CpuProfileNode/CpuProfile object model instead.
+ static void buildProfileTree(JSC::VM& vm, CpuProfileImpl& profile, int64_t startTime, bool recordSamples)
+ {
+-    JSC::SamplingProfiler* sampler = vm.samplingProfiler();
+-
+     auto makeRoot = [&]() -> CpuProfileNodeImpl* {
+         auto root = makeUnique<CpuProfileNodeImpl>();
+         root->id = 1;
+@@ -79,6 +84,16 @@ static void buildProfileTree(JSC::VM& vm, CpuProfileImpl& profile, int64_t start
+ 
+     profile.m_startTime = startTime;
+ 
++#if !ENABLE(SAMPLING_PROFILER)
++    // No profiler: emit a well-formed profile containing only the root node,
++    // which is exactly what the `!sampler` path below already does.
++    UNUSED_PARAM(vm);
++    UNUSED_PARAM(recordSamples);
++    makeRoot();
++    profile.m_endTime = nowMicroseconds();
++#else
++    JSC::SamplingProfiler* sampler = vm.samplingProfiler();
++
+     if (!sampler) {
+         makeRoot();
+         profile.m_endTime = nowMicroseconds();
+@@ -273,6 +288,7 @@ static void buildProfileTree(JSC::VM& vm, CpuProfileImpl& profile, int64_t start
+     }
+ 
+     profile.m_endTime = lastTimestamp > startTime ? lastTimestamp : nowMicroseconds();
++#endif // ENABLE(SAMPLING_PROFILER)
+ }
+ 
+ CpuProfileImpl* CpuProfilerImpl::stop(uint32_t id)
+@@ -295,6 +311,7 @@ CpuProfileImpl* CpuProfilerImpl::stop(uint32_t id)
+     profile->m_title = WTF::move(session.title);
+     buildProfileTree(vm, *profile, session.startTime, session.recordSamples);
+ 
++#if ENABLE(SAMPLING_PROFILER)
+     if (m_sessions.isEmpty()) {
+         if (JSC::SamplingProfiler* sampler = vm.samplingProfiler()) {
+             WTF::Locker locker { sampler->getLock() };
+@@ -302,6 +319,7 @@ CpuProfileImpl* CpuProfilerImpl::stop(uint32_t id)
+             sampler->clearData();
+         }
+     }
++#endif
+ 
+     return profile;
+ }
+@@ -466,6 +484,7 @@ void CpuProfiler::CollectSample(Isolate*, const std::optional<uint64_t>)
+ void CpuProfiler::Dispose()
+ {
+     auto* impl = toImpl(this);
++#if ENABLE(SAMPLING_PROFILER)
+     if (!impl->m_sessions.isEmpty()) {
+         if (JSC::SamplingProfiler* sampler = impl->m_isolate->vm().samplingProfiler()) {
+             WTF::Locker locker { sampler->getLock() };
+@@ -473,6 +492,7 @@ void CpuProfiler::Dispose()
+             sampler->clearData();
+         }
+     }
++#endif
+     delete impl;
+ }
+ 
+diff --git a/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp b/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp
+index 59228019f97..3d9cf1f2f6c 100644
+--- a/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp
++++ b/src/jsc/bindings/v8/V8FunctionCallbackInfo.cpp
+@@ -1,6 +1,7 @@
+ #include "V8FunctionCallbackInfo.h"
+ #include "real_v8.h"
+ #include "v8_compatibility_assertions.h"
++#include <wtf/Platform.h>
+ 
+ // Check that a slot index in our FunctionCallbackInfo matches the index V8's
+ // inline accessors use to read that slot of the ApiCallbackExitFrame
+@@ -13,6 +14,7 @@ CHECK_FRAME_INDEX(kNewTargetIndex)
+ CHECK_FRAME_INDEX(kArgcIndex)
+ CHECK_FRAME_INDEX(kFrameSPIndex)
+ CHECK_FRAME_INDEX(kFrameTypeIndex)
++CHECK_FRAME_INDEX(kFrameConstantPoolIndex)
+ CHECK_FRAME_INDEX(kFrameFPIndex)
+ CHECK_FRAME_INDEX(kFramePCIndex)
+ CHECK_FRAME_INDEX(kIsolateIndex)
+@@ -22,10 +24,12 @@ CHECK_FRAME_INDEX(kTargetIndex)
+ CHECK_FRAME_INDEX(kReceiverIndex)
+ CHECK_FRAME_INDEX(kFirstJSArgumentIndex)
+ 
+-// Our enum folds kFrameConstantPoolIndex into kFrameFPIndex, which is only
+-// valid when no constant pool slot is present (true everywhere but PPC64)
+-static_assert(real_v8::internal::Internals::kFrameCPSlotCount == 0,
+-    "Bun's v8::FunctionCallbackInfo assumes no constant pool slot in the exit frame");
++// PPC64 is the one architecture whose exit frame carries a constant-pool slot,
++// which shifts every index after kFrameConstantPoolIndex by one. Bun derives
++// its own indices from the same count, so this is what keeps the two in step.
++static_assert(v8::FunctionCallbackInfo<v8::Value>::kFrameCPSlotCount
++        == real_v8::internal::Internals::kFrameCPSlotCount,
++    "Bun's v8::FunctionCallbackInfo disagrees with V8 about the constant pool slot");
+ 
+ static_assert(v8::FunctionCallbackInfo<v8::Value>::kFrameTypeApiCallExit
+         == real_v8::internal::Internals::kFrameTypeApiCallExit,
+diff --git a/src/jsc/bindings/v8/V8FunctionCallbackInfo.h b/src/jsc/bindings/v8/V8FunctionCallbackInfo.h
+index 951d6f7b47a..904f9e6160f 100644
+--- a/src/jsc/bindings/v8/V8FunctionCallbackInfo.h
++++ b/src/jsc/bindings/v8/V8FunctionCallbackInfo.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "shim/TaggedPointer.h"
++#include <wtf/Platform.h>
+ 
+ namespace v8 {
+ 
+@@ -19,11 +20,20 @@ class Value;
+ template<typename T>
+ class FunctionCallbackInfo {
+ public:
++    // v8::internal::Internals::kFrameCPSlotCount. PPC64 exit frames carry a
++    // constant-pool slot between the frame type and the frame pointer; no
++    // other architecture has one. Every index after kFrameConstantPoolIndex
++    // shifts by this, so it has to be derived rather than written out.
++#if CPU(PPC64) || CPU(PPC64LE)
++    static constexpr int kFrameCPSlotCount = 1;
++#else
++    static constexpr int kFrameCPSlotCount = 0;
++#endif
++
+     // Slot indices relative to `values`. These must match the private enum in
+     // V8's v8-function-callback.h (checked by static_asserts in
+-    // V8FunctionCallbackInfo.cpp). kFrameConstantPoolIndex is folded into
+-    // kFrameFPIndex because Internals::kFrameCPSlotCount == 0 on every
+-    // architecture Bun supports (it is only 1 on PPC64).
++    // V8FunctionCallbackInfo.cpp), because a native addon compiled against
++    // real V8's headers reads the frame at those indices.
+     enum {
+         // Optional frame arguments block (only for API_CONSTRUCT_EXIT frames).
+         kNewTargetIndex = -1,
+@@ -32,18 +42,19 @@ public:
+         kArgcIndex = 0, // raw integer, not a Smi
+         kFrameSPIndex = 1,
+         kFrameTypeIndex = 2, // Smi-encoded frame type
+-        kFrameFPIndex = 3,
+-        kFramePCIndex = 4,
++        kFrameConstantPoolIndex = 3, // present only when kFrameCPSlotCount == 1
++        kFrameFPIndex = kFrameConstantPoolIndex + kFrameCPSlotCount,
++        kFramePCIndex = kFrameFPIndex + 1,
+ 
+         // API arguments block.
+-        kIsolateIndex = 5, // raw Isolate*
+-        kReturnValueIndex = 6,
+-        kContextIndex = 7, // raw context pointer
+-        kTargetIndex = 8,
++        kIsolateIndex = kFramePCIndex + 1, // raw Isolate*
++        kReturnValueIndex = kIsolateIndex + 1,
++        kContextIndex = kReturnValueIndex + 1, // raw context pointer
++        kTargetIndex = kContextIndex + 1,
+ 
+         // JS arguments block.
+-        kReceiverIndex = 9,
+-        kFirstJSArgumentIndex = 10,
++        kReceiverIndex = kTargetIndex + 1,
++        kFirstJSArgumentIndex = kReceiverIndex + 1,
+     };
+ 
+     // v8::internal::Internals::kFrameTypeApi{Call,Construct}Exit. Stored
+diff --git a/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp b/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp
+index 27bfae3cf53..b811e249e20 100644
+--- a/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp
++++ b/src/jsc/bindings/v8/V8PropertyCallbackInfo.cpp
+@@ -1,6 +1,7 @@
+ #include "V8PropertyCallbackInfo.h"
+ #include "real_v8.h"
+ #include "v8_compatibility_assertions.h"
++#include <wtf/Platform.h>
+ 
+ #define CHECK_PROPERTY_FRAME_INDEX(NAME)                                              \
+     static_assert(static_cast<int>(v8::PropertyCallbackInfo<v8::Value>::NAME)         \
+@@ -10,6 +11,7 @@
+ CHECK_PROPERTY_FRAME_INDEX(kPropertyKeyIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFrameSPIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFrameTypeIndex)
++CHECK_PROPERTY_FRAME_INDEX(kFrameConstantPoolIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFrameFPIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFramePCIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kIsolateIndex)
+@@ -20,8 +22,9 @@ CHECK_PROPERTY_FRAME_INDEX(kShouldThrowOnErrorIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kValueIndex)
+ CHECK_PROPERTY_FRAME_INDEX(kFullArgsLength)
+ 
+-static_assert(real_v8::internal::Internals::kFrameCPSlotCount == 0,
+-    "Bun's v8::PropertyCallbackInfo assumes no constant pool slot in the exit frame");
++static_assert(v8::PropertyCallbackInfo<v8::Value>::kFrameCPSlotCount
++        == real_v8::internal::Internals::kFrameCPSlotCount,
++    "Bun's v8::PropertyCallbackInfo disagrees with V8 about the constant pool slot");
+ 
+ static_assert(v8::PropertyCallbackInfo<v8::Value>::kFrameTypeApiNamedAccessorExit
+         == real_v8::internal::Internals::kFrameTypeApiNamedAccessorExit,
+diff --git a/src/jsc/bindings/v8/V8PropertyCallbackInfo.h b/src/jsc/bindings/v8/V8PropertyCallbackInfo.h
+index fd57b6d173e..5c3a8e27e1f 100644
+--- a/src/jsc/bindings/v8/V8PropertyCallbackInfo.h
++++ b/src/jsc/bindings/v8/V8PropertyCallbackInfo.h
+@@ -2,6 +2,7 @@
+ 
+ #include "shim/TaggedPointer.h"
+ #include "V8Local.h"
++#include <wtf/Platform.h>
+ 
+ namespace v8 {
+ 
+@@ -19,9 +20,16 @@ class Object;
+ template<typename T>
+ class PropertyCallbackInfo {
+ public:
+-    // Slot indices relative to `args_`. kFrameConstantPoolIndex is folded into
+-    // kFrameFPIndex because Internals::kFrameCPSlotCount == 0 on every
+-    // architecture Bun supports (it is only 1 on PPC64).
++    // v8::internal::Internals::kFrameCPSlotCount; see V8FunctionCallbackInfo.h.
++#if CPU(PPC64) || CPU(PPC64LE)
++    static constexpr int kFrameCPSlotCount = 1;
++#else
++    static constexpr int kFrameCPSlotCount = 0;
++#endif
++
++    // Slot indices relative to `args_`, matching the private enum in V8's
++    // v8-function-callback.h (checked by static_asserts in
++    // V8PropertyCallbackInfo.cpp).
+     enum {
+         // Frame arguments block.
+         kPropertyKeyIndex = 0,
+@@ -29,20 +37,21 @@ public:
+         // Regular ExitFrame structure.
+         kFrameSPIndex = 1,
+         kFrameTypeIndex = 2, // Smi-encoded frame type
+-        kFrameFPIndex = 3,
+-        kFramePCIndex = 4,
++        kFrameConstantPoolIndex = 3, // present only when kFrameCPSlotCount == 1
++        kFrameFPIndex = kFrameConstantPoolIndex + kFrameCPSlotCount,
++        kFramePCIndex = kFrameFPIndex + 1,
+ 
+         // Other arguments block (kFirstApiArgumentIndex).
+-        kIsolateIndex = 5, // raw Isolate*
+-        kReturnValueIndex = 6,
+-        kCallbackInfoIndex = 7, // tagged pointer to AccessorInfo-like {map, data}
+-        kHolderIndex = 8,
++        kIsolateIndex = kFramePCIndex + 1, // raw Isolate*
++        kReturnValueIndex = kIsolateIndex + 1,
++        kCallbackInfoIndex = kReturnValueIndex + 1, // tagged pointer to AccessorInfo-like {map, data}
++        kHolderIndex = kCallbackInfoIndex + 1,
+ 
+         // Optional part, used only by setter/definer/deleter callbacks.
+-        kShouldThrowOnErrorIndex = 9,
+-        kValueIndex = 10,
++        kShouldThrowOnErrorIndex = kHolderIndex + 1,
++        kValueIndex = kShouldThrowOnErrorIndex + 1,
+ 
+-        kFullArgsLength = 11,
++        kFullArgsLength = kValueIndex + 1,
+     };
+ 
+     // v8::internal::Internals::kFrameTypeApiNamedAccessorExit. Stored Smi-encoded
+diff --git a/src/jsc/bindings/v8/shim/FunctionTemplate.cpp b/src/jsc/bindings/v8/shim/FunctionTemplate.cpp
+index 04d46fdac13..802a9c95637 100644
+--- a/src/jsc/bindings/v8/shim/FunctionTemplate.cpp
++++ b/src/jsc/bindings/v8/shim/FunctionTemplate.cpp
+@@ -222,6 +222,8 @@ JSC::JSValue FunctionTemplate::invokeCallback(JSC::JSGlobalObject* globalObject,
+     slot(Info::kFrameSPIndex) = TaggedPointer::fromRaw(0);
+     // IsConstructCall() compares this Smi against kFrameTypeApiConstructExit
+     slot(Info::kFrameTypeIndex) = TaggedPointer(isConstruct ? Info::kFrameTypeApiConstructExit : Info::kFrameTypeApiCallExit);
++    // On PPC64 this is a slot of its own; elsewhere it aliases kFrameFPIndex.
++    slot(Info::kFrameConstantPoolIndex) = TaggedPointer::fromRaw(0);
+     slot(Info::kFrameFPIndex) = TaggedPointer::fromRaw(0);
+     slot(Info::kFramePCIndex) = TaggedPointer::fromRaw(0);
+     // GetIsolate() reads this slot as a raw, untagged pointer
+diff --git a/src/jsc/bindings/v8/shim/TemplateProperty.cpp b/src/jsc/bindings/v8/shim/TemplateProperty.cpp
+index 41507567876..b332b738851 100644
+--- a/src/jsc/bindings/v8/shim/TemplateProperty.cpp
++++ b/src/jsc/bindings/v8/shim/TemplateProperty.cpp
+@@ -84,6 +84,8 @@ static JSC::JSValue invokeAccessor(
+     frame[Info::kPropertyKeyIndex] = property.tagged();
+     frame[Info::kFrameSPIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kFrameTypeIndex] = TaggedPointer(Info::kFrameTypeApiNamedAccessorExit);
++    // On PPC64 this is a slot of its own; elsewhere it aliases kFrameFPIndex.
++    frame[Info::kFrameConstantPoolIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kFrameFPIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kFramePCIndex] = TaggedPointer::fromRaw(0);
+     frame[Info::kIsolateIndex] = TaggedPointer::fromRaw(reinterpret_cast<uintptr_t>(isolate));
+diff --git a/src/jsc/bindings/webcore/JSPerformance.cpp b/src/jsc/bindings/webcore/JSPerformance.cpp
+index 41ebf4a089d..1f4f650fb6f 100644
+--- a/src/jsc/bindings/webcore/JSPerformance.cpp
++++ b/src/jsc/bindings/webcore/JSPerformance.cpp
+@@ -237,11 +237,28 @@ size_t JSPerformance::estimatedSize(JSCell* cell, VM& vm)
+ void JSPerformance::finishCreation(VM& vm)
+ {
+     Base::finishCreation(vm);
++    // DOMJIT::Effect's heap-kind constructors are declared only under
++    // ENABLE(DFG_JIT) (DFG::AbstractHeapKind lives in DFGAbstractHeap.h, and
++    // its only consumers are in DFGClobberize.h). ppc64le builds JSC with no
++    // JIT tiers at all, so describe the effect as "forDef" -- the signature is
++    // still needed to construct the JSFunction, but nothing will ever consume
++    // the effect because no DFG exists to inline through it.
++#if ENABLE(DFG_JIT)
+     static const JSC::DOMJIT::Signature DOMJITSignatureForPerformanceNow(
+         functionPerformanceNowWithoutTypeCheck,
+         JSPerformance::info(),
+         JSC::DOMJIT::Effect::forWriteKinds(DFG::AbstractHeapKind::SideState),
+         SpecDoubleReal);
++#else
++    // Effect::forWrite() is the non-DFG factory (forWriteKinds and friends are
++    // declared only under ENABLE(DFG_JIT)). top() is the conservative range:
++    // nothing consumes the effect without a DFG, so over-describing it is free.
++    static const JSC::DOMJIT::Signature DOMJITSignatureForPerformanceNow(
++        functionPerformanceNowWithoutTypeCheck,
++        JSPerformance::info(),
++        JSC::DOMJIT::Effect::forWrite(JSC::DOMJIT::HeapRange::top()),
++        SpecDoubleReal);
++#endif
+ 
+     JSFunction* now = JSFunction::create(
+         vm,
+diff --git a/src/jsc/bindings/webcore/JSWasmStreamingCompiler.cpp b/src/jsc/bindings/webcore/JSWasmStreamingCompiler.cpp
+index 0eff1663acc..49c481d79f1 100644
+--- a/src/jsc/bindings/webcore/JSWasmStreamingCompiler.cpp
++++ b/src/jsc/bindings/webcore/JSWasmStreamingCompiler.cpp
+@@ -1,6 +1,10 @@
+ #include "config.h"
+ #include "JSWasmStreamingCompiler.h"
+ 
++// ppc64le: JSC is built without WebAssembly, so there is no
++// JSC::Wasm::StreamingCompiler to wrap and this becomes an empty TU.
++#if ENABLE(WEBASSEMBLY)
++
+ #include "DOMClientIsoSubspaces.h"
+ #include "DOMIsoSubspaces.h"
+ #include "JSDOMBinding.h"
+@@ -219,3 +223,5 @@ Wasm::StreamingCompiler* JSWasmStreamingCompiler::toWrapped(VM& vm, JSValue valu
+ }
+ 
+ }
++
++#endif // ENABLE(WEBASSEMBLY)
+diff --git a/src/jsc/bindings/webcore/JSWasmStreamingCompiler.h b/src/jsc/bindings/webcore/JSWasmStreamingCompiler.h
+index 0c79276d8ea..0df7065db6e 100644
+--- a/src/jsc/bindings/webcore/JSWasmStreamingCompiler.h
++++ b/src/jsc/bindings/webcore/JSWasmStreamingCompiler.h
+@@ -1,6 +1,13 @@
+ #pragma once
+ 
++// JSDOMWrapper.h first: it pulls in wtf/Platform.h, which is what defines
++// ENABLE(WEBASSEMBLY). ppc64le builds JSC with ENABLE_WEBASSEMBLY=OFF (see
++// scripts/build/deps/webkit.ts), so JSC::Wasm::StreamingCompiler does not
++// exist and this whole wrapper has nothing to wrap.
+ #include "JSDOMWrapper.h"
++
++#if ENABLE(WEBASSEMBLY)
++
+ #include "JavaScriptCore/WasmStreamingCompiler.h"
+ 
+ namespace WebCore {
+@@ -53,3 +60,5 @@ template<> struct JSDOMWrapperConverterTraits<JSC::Wasm::StreamingCompiler> {
+ };
+ 
+ } // namespace WebCore
++
++#endif // ENABLE(WEBASSEMBLY)
+diff --git a/src/jsc/bindings/workaround-ieee128-symbols.cpp b/src/jsc/bindings/workaround-ieee128-symbols.cpp
+new file mode 100644
+index 00000000000..e37b5333ceb
+--- /dev/null
++++ b/src/jsc/bindings/workaround-ieee128-symbols.cpp
+@@ -0,0 +1,52 @@
++// glibc's IEEE-128 long double entry points, wrapped so a ppc64le build keeps
++// its GLIBC_2.17 floor. Companion to workaround-missing-symbols.cpp, which
++// owns every other wrapped symbol; these two live apart because their
++// prototypes need __float128, clang only defines that type under -mfloat128
++// (scripts/build/flags.ts fileOverrides), and under that flag libstdc++'s
++// <limits>/<bits/std_abs.h> reach for __builtin_fabsq/__builtin_nansq, which
++// clang does not provide. Only C headers here, and no PCH (scripts/build/bun.ts).
++//
++// glibc grew these in 2.32, so unlike the rest there is no older version to
++// pin to. Nothing in bun calls them: clang targets ppc64le with IBM
++// double-double long double (__LDBL_MANT_DIG__ == 106), and the only reference
++// comes from libstdc++.a(compatibility-ldbl-alt128.o), which the static link
++// pulls in because locale_init.o needs its
++// std::locale::_Impl::_M_init_extra_ldbl128. That object serves the
++// __gnu_cxx_ieee128:: alternate-ABI locale facets, which only
++// -mabi=ieeelongdouble code selects. Forward to glibc's when the host has them
++// (>= 2.32) so nothing changes there, and report failure rather than invent a
++// result on an older one.
++
++#if defined(__linux__) && defined(__powerpc64__)
++#include <features.h>
++#ifdef __GNU_LIBRARY__
++
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
++
++#include <dlfcn.h>
++#include <locale.h>
++#include <stdarg.h>
++#include <stddef.h>
++
++extern "C" int __wrap___vsnprintfieee128(char* s, size_t n, const char* fmt, va_list ap)
++{
++    using fn = int (*)(char*, size_t, const char*, va_list);
++    static fn real = reinterpret_cast<fn>(dlsym(RTLD_DEFAULT, "__vsnprintfieee128"));
++    return real ? real(s, n, fmt, ap) : -1;
++}
++
++extern "C" __float128 __wrap___strtoieee128_l(const char* nptr, char** endptr, locale_t loc)
++{
++    using fn = __float128 (*)(const char*, char**, locale_t);
++    static fn real = reinterpret_cast<fn>(dlsym(RTLD_DEFAULT, "__strtoieee128_l"));
++    if (!real) {
++        if (endptr) *endptr = const_cast<char*>(nptr);
++        return 0;
++    }
++    return real(nptr, endptr, loc);
++}
++
++#endif // __GNU_LIBRARY__
++#endif // __linux__ && __powerpc64__
+diff --git a/src/jsc/bindings/workaround-missing-symbols.cpp b/src/jsc/bindings/workaround-missing-symbols.cpp
+index 0ee12bafda1..7f71c5e9ef8 100644
+--- a/src/jsc/bindings/workaround-missing-symbols.cpp
++++ b/src/jsc/bindings/workaround-missing-symbols.cpp
+@@ -89,6 +89,15 @@ std::atomic<int> wtfStringCopyCount;
+ #define _STAT_VER 0
+ #elif defined(__x86_64__)
+ #define _STAT_VER 1
++#elif defined(__powerpc64__)
++// powerpc uses the "old" stat.h flavour: _STAT_VER_LINUX_OLD/_STAT_VER_KERNEL
++// are 1, _STAT_VER_SVR4 is 2 and _STAT_VER_LINUX is 3. Measured against
++// ArchPOWER glibc 2.43 on POWER9: __xstat/__fxstat accept 1 and 3 and return
++// EINVAL for 0 and 2, and both accepted values fill an identical struct stat
++// (wordsize-64 makes the kernel and glibc layouts the same). 3 is the one that
++// means "glibc struct stat", so use it explicitly rather than inheriting it
++// from the #else below.
++#define _STAT_VER 3
+ #else
+ #define _STAT_VER 3
+ #endif
+@@ -100,6 +109,14 @@ std::atomic<int> wtfStringCopyCount;
+ #elif defined(__aarch64__)
+ #define BUN_GLIBC_BASE "GLIBC_2.17"
+ #define BUN_GLIBC_2_4 "GLIBC_2.17"
++#elif defined(__powerpc64__)
++// ppc64le's glibc ABI starts at GLIBC_2.17 — the port predates any later
++// symbol version, so every symbol below has 2.17 as its base. Verified with
++// `objdump -T /usr/lib/libm.so.6` on ArchPOWER glibc 2.43: exp/exp2/expf/
++// log/log2/log2f/logf/pow/powf each carry a default (GLIBC_2.17) alongside
++// the newer GLIBC_2.27/2.29 versions this pins away from.
++#define BUN_GLIBC_BASE "GLIBC_2.17"
++#define BUN_GLIBC_2_4 "GLIBC_2.17"
+ #endif
+ 
+ #define BUN_SYMVER(sym, ver) __asm__(".symver " #sym "," #sym "@" ver)
+@@ -114,7 +131,12 @@ BUN_SYMVER(logf, BUN_GLIBC_BASE);
+ BUN_SYMVER(pow, BUN_GLIBC_BASE);
+ BUN_SYMVER(powf, BUN_GLIBC_BASE);
+ 
+-#if defined(__x86_64__) || defined(__aarch64__)
++// This MUST agree with the `-Wl,--wrap=` list in scripts/build/flags.ts, which
++// is gated on `c.linux && c.abi === "gnu"` — i.e. every glibc arch, ppc64le
++// included. If an arch takes the `symbol` branch while the linker is still
++// wrapping, every call is redirected to a `__wrap_*` that was never defined
++// and the link fails with undefined symbols.
++#if defined(__x86_64__) || defined(__aarch64__) || defined(__powerpc64__)
+ #define BUN_WRAP_GLIBC_SYMBOL(symbol) __wrap_##symbol
+ #else
+ #define BUN_WRAP_GLIBC_SYMBOL(symbol) symbol
+@@ -487,6 +509,110 @@ extern "C" int __wrap___libc_start_main(int (*main)(int, char**, char**), int ar
+     return __libc_start_main(main, argc, argv, init ? init : bun_libc_csu_init, fini, rtld_fini, stack_end);
+ }
+ 
++// ───────────────────────────────────────────────────────────────────────────
++// ppc64le. It is the one glibc target built natively instead of against the
++// 2.31 sysroot, so its headers and default symbol versions are the build
++// host's and it references symbols the groups above never see. The matching
++// -Wl,--wrap= list is the ppc64le entry in scripts/build/flags.ts.
++// ───────────────────────────────────────────────────────────────────────────
++#if defined(__powerpc64__)
++
++#include <inttypes.h>
++#include <locale.h>
++#include <semaphore.h>
++
++// Group A: the same libpthread/libdl/libm story, at the versions ppc64le got
++// them. Every one has a compat_symbol at 2.17 (objdump -T /usr/lib/libc.so.6
++// shows both, e.g. "(GLIBC_2.17)" and "GLIBC_2.34" on dlopen).
++BUN_WRAP_FWD(int, pthread_sigmask, (int how, const sigset_t* set, sigset_t* old), (how, set, old)) // 2.32
++BUN_WRAP_FWD(void*, dlopen, (const char* file, int flags), (file, flags)) // 2.34
++BUN_WRAP_FWD(int, dlclose, (void* handle), (handle))
++BUN_WRAP_FWD(int, pthread_detach, (pthread_t t), (t))
++BUN_WRAP_FWD(int, pthread_join, (pthread_t t, void** ret), (t, ret))
++BUN_WRAP_FWD(int, pthread_setname_np, (pthread_t t, const char* name), (t, name))
++BUN_WRAP_FWD(int, pthread_attr_getstack, (const pthread_attr_t* a, void** addr, size_t* size), (a, addr, size))
++BUN_WRAP_FWD(int, sem_init, (sem_t * s, int shared, unsigned value), (s, shared, value))
++BUN_WRAP_FWD(int, sem_post, (sem_t * s), (s))
++BUN_WRAP_FWD(int, sem_wait, (sem_t * s), (s))
++BUN_WRAP_FWD(double, hypot, (double x, double y), (x, y)) // 2.35
++BUN_WRAP_FWD(float, hypotf, (float x, float y), (x, y))
++BUN_WRAP_FWD(float, acosf, (float x), (x)) // 2.43
++BUN_WRAP_FWD(float, asinf, (float x), (x))
++BUN_WRAP_FWD(float, atan2f, (float y, float x), (y, x))
++
++// Group B: stat/lstat became real symbols in 2.33, like fstat above. The
++// 2.31 sysroot still expands them to __xstat inline, which is why x64 and
++// aarch64 wrap only the f-variants.
++extern "C" int __xstat(int, const char*, struct stat*);
++extern "C" int __xstat64(int, const char*, struct stat64*);
++extern "C" int __lxstat(int, const char*, struct stat*);
++extern "C" int __lxstat64(int, const char*, struct stat64*);
++BUN_SYMVER(__xstat, BUN_GLIBC_BASE);
++BUN_SYMVER(__xstat64, BUN_GLIBC_BASE);
++BUN_SYMVER(__lxstat, BUN_GLIBC_BASE);
++BUN_SYMVER(__lxstat64, BUN_GLIBC_BASE);
++
++extern "C" int __wrap_stat(const char* p, struct stat* st) { return __xstat(_STAT_VER, p, st); }
++extern "C" int __wrap_stat64(const char* p, struct stat64* st) { return __xstat64(_STAT_VER, p, st); }
++extern "C" int __wrap_lstat(const char* p, struct stat* st) { return __lxstat(_STAT_VER, p, st); }
++extern "C" int __wrap_lstat64(const char* p, struct stat64* st) { return __lxstat64(_STAT_VER, p, st); }
++
++// Group C23: glibc 2.38 redirects the strtol and scanf families to
++// __isoc23_* whenever __GLIBC_USE (ISOC23) is on, which _GNU_SOURCE turns on
++// unconditionally — so every TU that calls strtol references a 2.38 symbol.
++// The only difference is that the C23 entry points accept a 0b/0B prefix for
++// base 0 and 2; forwarding to the pre-C23 function is exactly the behaviour
++// this binary would have on the 2.17 floor it claims to support.
++//
++// The forward has to name the real function through an asm label: writing
++// `strtol` here would go through the same header redirect and recurse.
++#define BUN_REAL_PRE_C23(ret, sym, params) \
++    BUN_SYMVER(sym, BUN_GLIBC_BASE);       \
++    extern "C" ret bun_real_##sym params __asm__(#sym)
++
++BUN_REAL_PRE_C23(long, strtol, (const char*, char**, int));
++BUN_REAL_PRE_C23(unsigned long, strtoul, (const char*, char**, int));
++BUN_REAL_PRE_C23(unsigned long long, strtoull, (const char*, char**, int));
++BUN_REAL_PRE_C23(intmax_t, strtoimax, (const char*, char**, int));
++BUN_REAL_PRE_C23(int, vsscanf, (const char*, const char*, va_list));
++BUN_REAL_PRE_C23(int, vfscanf, (FILE*, const char*, va_list));
++BUN_REAL_PRE_C23(int, vscanf, (const char*, va_list));
++
++#undef BUN_REAL_PRE_C23
++
++extern "C" long __wrap___isoc23_strtol(const char* s, char** end, int base) { return bun_real_strtol(s, end, base); }
++extern "C" unsigned long __wrap___isoc23_strtoul(const char* s, char** end, int base) { return bun_real_strtoul(s, end, base); }
++extern "C" unsigned long long __wrap___isoc23_strtoull(const char* s, char** end, int base) { return bun_real_strtoull(s, end, base); }
++extern "C" intmax_t __wrap___isoc23_strtoimax(const char* s, char** end, int base) { return bun_real_strtoimax(s, end, base); }
++
++extern "C" int __wrap___isoc23_vsscanf(const char* s, const char* fmt, va_list ap) { return bun_real_vsscanf(s, fmt, ap); }
++extern "C" int __wrap___isoc23_vfscanf(FILE* stream, const char* fmt, va_list ap) { return bun_real_vfscanf(stream, fmt, ap); }
++extern "C" int __wrap___isoc23_vscanf(const char* fmt, va_list ap) { return bun_real_vscanf(fmt, ap); }
++
++extern "C" int __wrap___isoc23_sscanf(const char* s, const char* fmt, ...)
++{
++    va_list ap;
++    va_start(ap, fmt);
++    int rc = bun_real_vsscanf(s, fmt, ap);
++    va_end(ap);
++    return rc;
++}
++extern "C" int __wrap___isoc23_fscanf(FILE* stream, const char* fmt, ...)
++{
++    va_list ap;
++    va_start(ap, fmt);
++    int rc = bun_real_vfscanf(stream, fmt, ap);
++    va_end(ap);
++    return rc;
++}
++
++// The two remaining offenders, glibc's IEEE-128 long double entry points, are
++// wrapped in workaround-ieee128-symbols.cpp: their prototypes need __float128,
++// which clang only defines under -mfloat128, and that flag cannot be used in
++// a TU that includes libstdc++ headers.
++
++#endif // __powerpc64__
++
+ #endif // glibc
+ 
+ // musl
+diff --git a/src/jsc/modules/BunJSCModule.h b/src/jsc/modules/BunJSCModule.h
+index 88f2ea816f2..59c4415ee3d 100644
+--- a/src/jsc/modules/BunJSCModule.h
++++ b/src/jsc/modules/BunJSCModule.h
+@@ -28,7 +28,9 @@
+ #include <JavaScriptCore/JSPromise.h>
+ #include <JavaScriptCore/JavaScript.h>
+ #include <JavaScriptCore/ObjectConstructor.h>
++#if ENABLE(SAMPLING_PROFILER)
+ #include <JavaScriptCore/SamplingProfiler.h>
++#endif
+ #include <JavaScriptCore/TestRunnerUtils.h>
+ #include <JavaScriptCore/VMTrapsInlines.h>
+ #include <algorithm>
+@@ -456,6 +458,8 @@ JSC_DEFINE_HOST_FUNCTION(functionNeverInlineFunction,
+ 
+ extern "C" bool Bun__mkdirp(JSC::JSGlobalObject*, const char*);
+ 
++#if ENABLE(SAMPLING_PROFILER)
++
+ JSC_DECLARE_HOST_FUNCTION(functionStartSamplingProfiler);
+ JSC_DEFINE_HOST_FUNCTION(functionStartSamplingProfiler,
+     (JSC::JSGlobalObject * globalObject,
+@@ -496,6 +500,23 @@ JSC_DEFINE_HOST_FUNCTION(functionStartSamplingProfiler,
+     return JSC::JSValue::encode(jsUndefined());
+ }
+ 
++#else
++
++// ppc64le: JSC is built with ENABLE_SAMPLING_PROFILER=OFF -- JSC::MachineContext has no PPC64 arm (see BunCPUProfiler.cpp).
++JSC_DECLARE_HOST_FUNCTION(functionStartSamplingProfiler);
++JSC_DEFINE_HOST_FUNCTION(functionStartSamplingProfiler, (JSC::JSGlobalObject * globalObject, JSC::CallFrame*))
++{
++    auto& vm = JSC::getVM(globalObject);
++    auto scope = DECLARE_THROW_SCOPE(vm);
++    return JSC::JSValue::encode(throwException(
++        globalObject, scope,
++        createError(globalObject, "The sampling profiler is not available in this build"_s)));
++}
++
++#endif
++
++#if ENABLE(SAMPLING_PROFILER)
++
+ JSC_DECLARE_HOST_FUNCTION(functionSamplingProfilerStackTraces);
+ JSC_DEFINE_HOST_FUNCTION(functionSamplingProfilerStackTraces,
+     (JSC::JSGlobalObject * globalObject,
+@@ -516,6 +537,21 @@ JSC_DEFINE_HOST_FUNCTION(functionSamplingProfilerStackTraces,
+     return result;
+ }
+ 
++#else
++
++// ppc64le: JSC is built with ENABLE_SAMPLING_PROFILER=OFF -- JSC::MachineContext has no PPC64 arm (see BunCPUProfiler.cpp).
++JSC_DECLARE_HOST_FUNCTION(functionSamplingProfilerStackTraces);
++JSC_DEFINE_HOST_FUNCTION(functionSamplingProfilerStackTraces, (JSC::JSGlobalObject * globalObject, JSC::CallFrame*))
++{
++    auto& vm = JSC::getVM(globalObject);
++    auto scope = DECLARE_THROW_SCOPE(vm);
++    return JSC::JSValue::encode(throwException(
++        globalObject, scope,
++        createError(globalObject, "The sampling profiler is not available in this build"_s)));
++}
++
++#endif
++
+ JSC_DECLARE_HOST_FUNCTION(functionGetRandomSeed);
+ JSC_DEFINE_HOST_FUNCTION(functionGetRandomSeed,
+     (JSGlobalObject * globalObject, CallFrame*))
+@@ -603,6 +639,8 @@ JSC_DEFINE_HOST_FUNCTION(functionReleaseWeakRefs,
+     return JSValue::encode(jsUndefined());
+ }
+ 
++#if ENABLE(JIT)
++
+ JSC_DECLARE_HOST_FUNCTION(functionTotalCompileTime);
+ JSC_DEFINE_HOST_FUNCTION(functionTotalCompileTime,
+     (JSGlobalObject*, CallFrame*))
+@@ -610,6 +648,17 @@ JSC_DEFINE_HOST_FUNCTION(functionTotalCompileTime,
+     return JSValue::encode(jsNumber(JIT::totalCompileTime().milliseconds()));
+ }
+ 
++#else
++
++// No JIT tier compiled in, so total compile time is definitionally zero.
++JSC_DECLARE_HOST_FUNCTION(functionTotalCompileTime);
++JSC_DEFINE_HOST_FUNCTION(functionTotalCompileTime, (JSC::JSGlobalObject * globalObject, JSC::CallFrame*))
++{
++    return JSValue::encode(jsNumber(0));
++}
++
++#endif
++
+ JSC_DECLARE_HOST_FUNCTION(functionGetProtectedObjects);
+ JSC_DEFINE_HOST_FUNCTION(functionGetProtectedObjects,
+     (JSGlobalObject * globalObject, CallFrame*))
+@@ -686,6 +735,8 @@ JSC_DEFINE_HOST_FUNCTION(functionSetTimeZone, (JSGlobalObject * globalObject, Ca
+     return JSValue::encode(jsString(vm, timeZoneString));
+ }
+ 
++#if ENABLE(SAMPLING_PROFILER)
++
+ JSC_DEFINE_HOST_FUNCTION(functionRunProfiler, (JSGlobalObject * globalObject, CallFrame* callFrame))
+ {
+     auto& vm = JSC::getVM(globalObject);
+@@ -800,6 +851,21 @@ JSC_DEFINE_HOST_FUNCTION(functionRunProfiler, (JSGlobalObject * globalObject, Ca
+     RELEASE_AND_RETURN(throwScope, JSValue::encode(result));
+ }
+ 
++#else
++
++// ppc64le: JSC is built with ENABLE_SAMPLING_PROFILER=OFF -- JSC::MachineContext has no PPC64 arm (see BunCPUProfiler.cpp).
++JSC_DECLARE_HOST_FUNCTION(functionRunProfiler);
++JSC_DEFINE_HOST_FUNCTION(functionRunProfiler, (JSC::JSGlobalObject * globalObject, JSC::CallFrame*))
++{
++    auto& vm = JSC::getVM(globalObject);
++    auto scope = DECLARE_THROW_SCOPE(vm);
++    return JSC::JSValue::encode(throwException(
++        globalObject, scope,
++        createError(globalObject, "The sampling profiler is not available in this build"_s)));
++}
++
++#endif
++
+ JSC_DECLARE_HOST_FUNCTION(functionGenerateHeapSnapshotForDebugging);
+ JSC_DEFINE_HOST_FUNCTION(functionGenerateHeapSnapshotForDebugging,
+     (JSGlobalObject * globalObject, CallFrame*))
+diff --git a/src/options_types/compile_target.rs b/src/options_types/compile_target.rs
+index e4ca61a31d9..ee64b5ed9d0 100644
+--- a/src/options_types/compile_target.rs
++++ b/src/options_types/compile_target.rs
+@@ -434,6 +434,8 @@ impl CompileTarget {
+         let arch: &'static [u8] = match self.arch {
+             Architecture::X64 => b"\"x64\"",
+             Architecture::Arm64 => b"\"arm64\"",
++            // node spells ppc64le "ppc64" in process.arch.
++            Architecture::Ppc64le => b"\"ppc64\"",
+             Architecture::Wasm => b"\"wasm\"",
+         };
+         const VERSION: &[u8] =
+diff --git a/src/platform/linux.rs b/src/platform/linux.rs
+index 7fc5c01e420..a2469189fea 100644
+--- a/src/platform/linux.rs
++++ b/src/platform/linux.rs
+@@ -71,7 +71,39 @@ unsafe fn raw_syscall6(
+         }
+         return ret;
+     }
+-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
++    #[cfg(target_arch = "powerpc64")]
++    {
++        // PowerPC does NOT use the in-band negative-errno convention the
++        // other two arms get for free: the kernel returns a *positive* errno
++        // in r3 and signals failure out-of-band by setting the summary
++        // overflow bit (SO) of CR0. Reproducing that in inline asm means
++        // reading CR and masking bit 3, which is easy to get subtly wrong.
++        // glibc's `syscall(2)` wrapper already does it, so go through libc
++        // and re-encode the result into the `-errno` form the C caller in
++        // `epoll_kqueue.c` decodes. The extra call is irrelevant here (these
++        // are blocking epoll waits).
++        //
++        // SAFETY: same contract as the other arms — the caller guarantees the
++        // arguments are valid for `nr`.
++        let ret = unsafe {
++            libc::syscall(
++                nr as libc::c_long,
++                a1 as libc::c_long,
++                a2 as libc::c_long,
++                a3 as libc::c_long,
++                a4 as libc::c_long,
++                a5 as libc::c_long,
++                a6 as libc::c_long,
++            )
++        };
++        if ret == -1 {
++            // SAFETY: `__errno_location` is always valid on glibc/musl.
++            let e = unsafe { *libc::__errno_location() };
++            return -(e as isize);
++        }
++        return ret as isize;
++    }
++    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "powerpc64")))]
+     compile_error!("raw_syscall6: unsupported architecture");
+ }
+ 
+diff --git a/src/runtime/bake/BakeGlobalObject.cpp b/src/runtime/bake/BakeGlobalObject.cpp
+index caf5a171603..ba3ac01bd0e 100644
+--- a/src/runtime/bake/BakeGlobalObject.cpp
++++ b/src/runtime/bake/BakeGlobalObject.cpp
+@@ -230,8 +230,14 @@ const JSC::GlobalObjectMethodTable& GlobalObject::globalObjectMethodTable()
+         INHERIT_HOOK_METHOD(scriptExecutionStatus),
+         INHERIT_HOOK_METHOD(reportViolationForUnsafeEval),
+         INHERIT_HOOK_METHOD(defaultLanguage),
++#if ENABLE(WEBASSEMBLY)
+         INHERIT_HOOK_METHOD(compileStreaming),
+         INHERIT_HOOK_METHOD(instantiateStreaming),
++#else
++        // Positional placeholders — see the note in ZigGlobalObject.cpp.
++        nullptr, // compileStreamingPlaceholder
++        nullptr, // instantiateStreamingPlaceholder
++#endif
+         INHERIT_HOOK_METHOD(deriveShadowRealmGlobalObject),
+         INHERIT_HOOK_METHOD(codeForEval),
+         INHERIT_HOOK_METHOD(canCompileStrings),
+diff --git a/src/runtime/cli/upgrade_command.rs b/src/runtime/cli/upgrade_command.rs
+index ac8bcf2d8c7..81f0118bc5e 100644
+--- a/src/runtime/cli/upgrade_command.rs
++++ b/src/runtime/cli/upgrade_command.rs
+@@ -100,6 +100,12 @@ impl Version {
+ 
+     pub(crate) const ARCH_LABEL: &'static str = if cfg!(target_arch = "aarch64") {
+         "aarch64"
++    } else if cfg!(target_arch = "powerpc64") {
++        // There is no bun-linux-ppc64le release artifact. Naming it honestly
++        // makes `bun upgrade` fail with a 404 on a URL that says what it
++        // wanted; the previous `else` arm would have downloaded and installed
++        // an x86-64 binary over a working ppc64le one.
++        "ppc64le"
+     } else {
+         "x64"
+     };
+diff --git a/src/runtime/ffi/ffi_body.rs b/src/runtime/ffi/ffi_body.rs
+index 165996377a8..7f0ae4959ee 100644
+--- a/src/runtime/ffi/ffi_body.rs
++++ b/src/runtime/ffi/ffi_body.rs
+@@ -46,6 +46,45 @@ unsafe extern "C" {
+ 
+ use super::get_dl_error;
+ 
++/// The C compiler `cc()` shells out to where TinyCC is unavailable. `$CC`
++/// wins if it is set — and if it is set and cannot be found, that is an error
++/// rather than a reason to fall through to a different compiler.
++#[cfg(unix)]
++fn resolve_system_cc(buf: &mut bun_paths::PathBuffer) -> Option<ZBox> {
++    let path_env = bun_core::util::getenv_z(zstr!("PATH")).unwrap_or(b"");
++    if let Some(cc) = bun_core::util::getenv_z(zstr!("CC"))
++        && !cc.is_empty()
++    {
++        if bun_core::strings::contains_char(cc, b'/') {
++            return Some(ZBox::from_bytes(cc));
++        }
++        return bun_which::which(buf, path_env, b".", cc).map(|z| ZBox::from_bytes(z.as_bytes()));
++    }
++    for candidate in [b"clang".as_slice(), b"cc".as_slice(), b"gcc".as_slice()] {
++        if let Some(found) = bun_which::which(buf, path_env, b".", candidate) {
++            return Some(ZBox::from_bytes(found.as_bytes()));
++        }
++    }
++    None
++}
++
++/// `<tmpdir>/bun-cc-XXXX.so`, absolute so both the compiler's `-o` and
++/// `dlopen` can use it.
++#[cfg(unix)]
++fn system_cc_output_path() -> Option<ZBox> {
++    let mut name_buf = bun_paths::path_buffer_pool::get();
++    let name =
++        Fs::FileSystem::tmpname(b"bun-cc", &mut name_buf.0, bun_core::fast_random()).ok()?;
++    let mut path = Vec::new();
++    path.extend_from_slice(Fs::RealFS::tmpdir_path());
++    if !path.ends_with(b"/") {
++        path.push(b'/');
++    }
++    path.extend_from_slice(name.as_bytes());
++    path.extend_from_slice(b".so");
++    Some(ZBox::from_bytes(&path))
++}
++
+ /// Run a function that needs to write to JIT-protected memory.
+ ///
+ /// This is dangerous as it allows overwriting executable regions of memory.
+@@ -608,6 +647,117 @@ impl CompileC {
+             .filter(|d| !d.is_empty())
+     }
+ 
++    /// Build the sources into a shared object with the system C compiler and
++    /// return its path. Diagnostics go to bun's own stderr: a real compiler
++    /// has one, unlike TinyCC's error callback, and the user gets clang's
++    /// output verbatim rather than a re-wrapped copy.
++    ///
++    /// No compiler version is required. The flags are `-shared -fPIC`, a
++    /// language standard, and the `-I`/`-D`/`-L`/`-l` the caller asked for;
++    /// all of them predate clang 3.1 and gcc 4.7.
++    #[cfg(unix)]
++    pub(crate) fn compile_with_system_compiler(
++        &mut self,
++        global_this: &JSGlobalObject,
++    ) -> JsResult<ZBox> {
++        let mut which_buf = bun_paths::PathBuffer::ZEROED;
++        let Some(cc) = resolve_system_cc(&mut which_buf) else {
++            return Err(global_this.throw(format_args!(
++                "bun:ffi cc() needs a C compiler on PATH (clang, cc or gcc), or $CC pointing at one. This build has no TinyCC for this target."
++            )));
++        };
++
++        let Some(out_path) = system_cc_output_path() else {
++            return Err(
++                global_this.throw(format_args!("bun:ffi cc(): could not create a temporary file"))
++            );
++        };
++
++        let mut argv: Vec<Vec<u8>> = Vec::new();
++        argv.push(cc.as_bytes().to_vec());
++        argv.push(b"-shared".to_vec());
++        argv.push(b"-fPIC".to_vec());
++
++        // Same precedence as the TinyCC path: an explicit `flags` option
++        // replaces the defaults, otherwise $BUN_CC_OPTIONS, otherwise these.
++        // $BUN_TCC_OPTIONS is deliberately not read here — its documented
++        // value carries TinyCC-only spellings such as
++        // `-Wl,--export-all-symbols`, which a real linker rejects.
++        if !self.flags.is_empty() {
++            for word in bun_core::strings::split_any(self.flags.as_bytes(), b" \t") {
++                if !word.is_empty() {
++                    argv.push(word.to_vec());
++                }
++            }
++        } else if let Some(opts) = bun_core::util::getenv_z(zstr!("BUN_CC_OPTIONS")) {
++            for word in bun_core::strings::split_any(opts, b" \t") {
++                if !word.is_empty() {
++                    argv.push(word.to_vec());
++                }
++            }
++        } else {
++            argv.push(b"-std=c11".to_vec());
++            argv.push(b"-O2".to_vec());
++            argv.push(b"-g".to_vec());
++        }
++
++        for include_dir in self.include_dirs.items.iter() {
++            argv.push(b"-I".to_vec());
++            argv.push(include_dir.as_bytes().to_vec());
++        }
++        for define in self.define.iter() {
++            let mut arg = b"-D".to_vec();
++            arg.extend_from_slice(define[0].as_bytes());
++            if !define[1].is_empty() {
++                arg.push(b'=');
++                arg.extend_from_slice(define[1].as_bytes());
++            }
++            argv.push(arg);
++        }
++
++        match &self.source {
++            Source::File(file) => argv.push(file.as_bytes().to_vec()),
++            Source::Files(files) => {
++                for file in files.iter() {
++                    argv.push(file.as_bytes().to_vec());
++                }
++            }
++        }
++
++        for library_dir in self.library_dirs.items.iter() {
++            argv.push(b"-L".to_vec());
++            argv.push(library_dir.as_bytes().to_vec());
++        }
++        for library in self.libraries.items.iter() {
++            let mut arg = b"-l".to_vec();
++            arg.extend_from_slice(library.as_bytes());
++            argv.push(arg);
++        }
++
++        argv.push(b"-o".to_vec());
++        argv.push(out_path.as_bytes().to_vec());
++
++        let status = match bun_core::util::spawn_sync_inherit_no_stdin(&argv) {
++            Ok(status) => status,
++            Err(_) => {
++                return Err(global_this.throw(format_args!(
++                    "bun:ffi cc(): could not run {}",
++                    BStr::new(cc.as_bytes())
++                )));
++            }
++        };
++        if !status.is_ok() {
++            let _ = bun_sys::unlink(out_path.as_zstr());
++            return Err(global_this.throw(format_args!(
++                "bun:ffi cc(): {} failed to compile {} (its diagnostics are above)",
++                BStr::new(cc.as_bytes()),
++                BStr::new(self.source.first().as_bytes())
++            )));
++        }
++
++        Ok(out_path)
++    }
++
+     pub(crate) fn compile(
+         &mut self,
+         global_this: &JSGlobalObject,
+@@ -994,11 +1144,6 @@ impl FFI {
+                 )
+                 .throw());
+         }
+-        if !bun_core::Environment::ENABLE_TINYCC {
+-            return Err(global_this.throw(format_args!(
+-                "bun:ffi cc() is not available in this build (TinyCC is disabled)"
+-            )));
+-        }
+         let arguments = callframe.arguments();
+         if arguments.is_empty() || !arguments[0].is_object() {
+             return Err(global_this.throw_invalid_arguments(format_args!("Expected object")));
+@@ -1145,6 +1290,10 @@ impl FFI {
+             }
+         }
+ 
++        if !bun_core::Environment::ENABLE_TINYCC {
++            return Self::cc_with_system_compiler(global_this, compile_c);
++        }
++
+         // Now we compile the code with tinycc.
+         let mut tcc_state: Option<NonNull<TCC::State>> = match compile_c.compile(global_this) {
+             Ok(s) => Some(s),
+@@ -1570,6 +1719,126 @@ impl FFI {
+         Ok(js_object)
+     }
+ 
++    /// `cc()` where TinyCC has no code generator for the target
++    /// (`!ENABLE_TINYCC`: ppc64le, android, freebsd).
++    ///
++    /// The sources go to the system C compiler as a shared object, which is
++    /// then loaded exactly like `dlopen()` loads any other library — including
++    /// the JS↔C thunks, which JavaScriptCore builds from the signature
++    /// (`Bun__CreateJSCFFIFunction`). None of TinyCC's scaffolding is
++    /// reproduced: no generated `JSFunctionCall` wrapper, no `FFI.h`, no
++    /// `libtcc1.c` compiler-rt and no `ffi-std*.h` stand-in headers.
++    ///
++    /// `napi_env` is the one thing this cannot carry. TinyCC's wrapper
++    /// materialised it out of an injected symbol; a JSC signature has no slot
++    /// for it (`FFI::Type` reserves the tag). `napi_value` is a JSValue and
++    /// works.
++    #[cfg(unix)]
++    fn cc_with_system_compiler(
++        global_this: &JSGlobalObject,
++        mut compile_c: CompileC,
++    ) -> JsResult<JSValue> {
++        for function in compile_c.symbols.map.values() {
++            if function.arg_types.contains(&ABIType::NapiEnv) {
++                return Err(global_this.throw(format_args!(
++                    "bun:ffi cc(): napi_env arguments need the TinyCC backend, which has no code generator for this target. napi_value works; take the env from a napi_value instead."
++                )));
++            }
++        }
++
++        let object_path = match compile_c.compile_with_system_compiler(global_this) {
++            Ok(path) => path,
++            Err(err) => return Err(err),
++        };
++
++        let dylib = match bun_sys::DynLib::open(object_path.as_bytes()) {
++            Ok(d) => d,
++            Err(_) => {
++                let dlerror_msg = get_dl_error();
++                // The object is only useful for a post-mortem, and only while
++                // it is still on disk.
++                let _ = bun_sys::unlink(object_path.as_zstr());
++                return Err(global_this.throw(format_args!(
++                    "bun:ffi cc(): the compiled object did not load: {}",
++                    BStr::new(&dlerror_msg)
++                )));
++            }
++        };
++        // POSIX keeps the mapping alive across an unlink, so the temporary
++        // does not outlive the process that made it.
++        let _ = bun_sys::unlink(object_path.as_zstr());
++
++        let mut symbols = core::mem::take(&mut compile_c.symbols.map);
++        let mut size = symbols.values().len();
++        if size >= 63 {
++            size = 0;
++        }
++        let obj = JSValue::create_empty_object(global_this, size);
++        let _obj_guard = obj.protected();
++
++        let lib_ptr: *mut FFI = bun_core::heap::into_raw(Box::new(FFI::default()));
++        // SAFETY: `lib_ptr` is the fresh allocation from into_raw above.
++        let js_object = unsafe { FFI::to_js_ptr(lib_ptr, global_this) };
++        let _js_object_guard = js_object.protected();
++
++        for function in symbols.values_mut() {
++            let function_name = ZBox::from_bytes(function.base_name.as_bytes());
++            let Some(target) = dylib.lookup::<*mut c_void>(&function_name) else {
++                let ret = global_this.to_invalid_arguments(format_args!(
++                    "\"{}\" is missing from {}. Was it included in the source code?",
++                    BStr::new(function_name.as_bytes()),
++                    BStr::new(compile_c.source.first().as_bytes())
++                ));
++                dylib.close();
++                // SAFETY: lib_ptr is the live, JS-owned FFI allocation.
++                unsafe { &*lib_ptr }.do_close();
++                return Ok(ret);
++            };
++            function.symbol_from_dynamic_library = Some(target);
++
++            let symbol_name = EncodedSlice::utf8(function_name.as_bytes());
++            let cb = match create_jsc_ffi_function(
++                global_this,
++                &symbol_name,
++                function,
++                target,
++                js_object,
++            ) {
++                Ok(cb) if !cb.is_empty() => cb,
++                result => {
++                    let ret = result.map(|_| {
++                        global_this.to_invalid_arguments(format_args!(
++                            "Failed to create FFI function for symbol \"{}\"",
++                            BStr::new(function_name.as_bytes())
++                        ))
++                    });
++                    dylib.close();
++                    // SAFETY: lib_ptr is the live, JS-owned FFI allocation.
++                    unsafe { &*lib_ptr }.do_close();
++                    return ret;
++                }
++            };
++            obj.put(global_this, symbol_name, cb);
++        }
++
++        // SAFETY: lib_ptr is the live, JS-owned FFI allocation.
++        let lib_ref = unsafe { &*lib_ptr };
++        lib_ref.functions.set(symbols);
++        lib_ref.dylib.set(Some(dylib));
++        symbols_value_set_cached(js_object, global_this, obj);
++        Ok(js_object)
++    }
++
++    #[cfg(not(unix))]
++    fn cc_with_system_compiler(
++        global_this: &JSGlobalObject,
++        _compile_c: CompileC,
++    ) -> JsResult<JSValue> {
++        Err(global_this.throw(format_args!(
++            "bun:ffi cc() is not available in this build (TinyCC is disabled)"
++        )))
++    }
++
+     #[bun_jsc::host_fn(getter)]
+     pub fn get_symbols(_this: &FFI, _: &JSGlobalObject) -> JSValue {
+         // This shouldn't be called. The cachedValue is what should be called.
+diff --git a/src/runtime/server/server_body.rs b/src/runtime/server/server_body.rs
+index 5a3f6ff0a1e..054143062da 100644
+--- a/src/runtime/server/server_body.rs
++++ b/src/runtime/server/server_body.rs
+@@ -516,6 +516,7 @@ pub(crate) mod BunInfo {
+         match arch {
+             Architecture::X64 => b"x64",
+             Architecture::Arm64 => b"arm",
++            Architecture::Ppc64le => b"ppc64",
+             Architecture::Wasm => b"wasm",
+         }
+     }
+diff --git a/src/tcc_sys/tcc.rs b/src/tcc_sys/tcc.rs
+index 0a95ffe74e7..d66c605e8c3 100644
+--- a/src/tcc_sys/tcc.rs
++++ b/src/tcc_sys/tcc.rs
+@@ -27,12 +27,12 @@ pub type ErrorFunc<Ctx> = unsafe extern "C" fn(ctx: *mut Ctx, msg: *const c_char
+ // and `ENABLE_TINYCC` in `scripts/build/buildOptionsRs.ts`.
+ macro_rules! tcc_externs {
+     ($($(#[$attr:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) $(-> $ret:ty)?;)*) => {
+-        #[cfg(not(any(target_os = "android", target_os = "freebsd")))]
++        #[cfg(not(any(target_os = "android", target_os = "freebsd", target_arch = "powerpc64")))]
+         unsafe extern "C" {
+             $($(#[$attr])* fn $name($($arg: $ty),*) $(-> $ret)?;)*
+         }
+         $(
+-            #[cfg(any(target_os = "android", target_os = "freebsd"))]
++            #[cfg(any(target_os = "android", target_os = "freebsd", target_arch = "powerpc64"))]
+             #[allow(unused_variables, clippy::missing_safety_doc)]
+             unsafe extern "C" fn $name($($arg: $ty),*) $(-> $ret)? {
+                 unreachable!(concat!(
+diff --git a/src/windows_sys/externs.rs b/src/windows_sys/externs.rs
+index b84cbfd3a9b..eacabdd4e7f 100644
+--- a/src/windows_sys/externs.rs
++++ b/src/windows_sys/externs.rs
+@@ -1681,6 +1681,13 @@ pub fn teb() -> *mut TEB {
+         core::arch::asm!("mov {}, x18", out(reg) p, options(nostack, pure, readonly));
+         p
+     }
++    // This crate is type-checked on every target, not just Windows, so the
++    // body needs an arm even where no Windows ABI exists. Windows only ships
++    // on x86_64 and aarch64, so nothing can reach this.
++    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
++    {
++        unreachable!("teb() is Windows-only; Windows ships only on x86_64 and aarch64")
++    }
+ }
+ 
+ /// Reads the PEB pointer — `gs:[0x60]` (x64) / `TEB+0x60` (ARM64).
+@@ -1709,6 +1716,11 @@ pub fn peb() -> *const PEB {
+             .cast::<core::ffi::c_void>()
+             .cast::<*const PEB>()
+     }
++    // See teb(): the crate is type-checked on non-Windows targets too.
++    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
++    {
++        unreachable!("peb() is Windows-only; Windows ships only on x86_64 and aarch64")
++    }
+ }
+ 
+ // ── Console ctrl-handler dwCtrlType values (`wincon.h`) ───────────────────
+diff --git a/test/bundler/bun-build-compile.test.ts b/test/bundler/bun-build-compile.test.ts
+index 5398703bc00..9bd9c1c22b1 100644
+--- a/test/bundler/bun-build-compile.test.ts
++++ b/test/bundler/bun-build-compile.test.ts
+@@ -1,5 +1,17 @@
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isArm64, isDebug, isLinux, isMacOS, isMusl, isPosix, isWindows, tempDir } from "harness";
++import {
++  bunArch,
++  bunEnv,
++  bunExe,
++  isArm64,
++  isDebug,
++  isLinux,
++  isMacOS,
++  isMusl,
++  isPosix,
++  isWindows,
++  tempDir,
++} from "harness";
+ import { chmodSync, closeSync, cpSync, existsSync, openSync, readdirSync, readSync } from "node:fs";
+ import { join } from "path";
+ 
+@@ -10,7 +22,7 @@ describe("Bun.build compile", () => {
+     });
+ 
+     const os = isMacOS ? "darwin" : isLinux ? "linux" : isWindows ? "windows" : "unknown";
+-    const arch = isArm64 ? "aarch64" : "x64";
++    const arch = bunArch;
+     const musl = isMusl ? "-musl" : "";
+     const target = `bun-${os}-${arch}${musl}` as any;
+     const outdir = join(dir + "", "out");
+diff --git a/test/cli/install/bun-upgrade.test.ts b/test/cli/install/bun-upgrade.test.ts
+index 6857b47e84b..0b2912b1c2f 100644
+--- a/test/cli/install/bun-upgrade.test.ts
++++ b/test/cli/install/bun-upgrade.test.ts
+@@ -1,7 +1,7 @@
+ import { spawn } from "bun";
+ import { upgrade_test_helpers } from "bun:internal-for-testing";
+ import { describe, expect, it } from "bun:test";
+-import { bunExe, bunEnv as env, isMusl, isWindows, tempDir, tls, tmpdirSync } from "harness";
++import { bunArch, bunExe, bunEnv as env, isMusl, isWindows, tempDir, tls, tmpdirSync } from "harness";
+ import { existsSync, statSync } from "node:fs";
+ import { copyFile, writeFile } from "node:fs/promises";
+ import { basename, join } from "path";
+@@ -12,7 +12,7 @@ const { openTempDirWithoutSharingDelete, closeTempDirHandle } = upgrade_test_hel
+ function allAssetNames(profile = false) {
+   const names: string[] = [];
+   for (const os of ["windows", "linux", "darwin"]) {
+-    for (const arch of ["x64", "aarch64"]) {
++    for (const arch of ["x64", "aarch64", "ppc64le"]) {
+       for (const abi of ["", "-musl"]) {
+         for (const cpu of ["", "-baseline"]) {
+           names.push(`bun-${os}-${arch}${abi}${cpu}${profile ? "-profile" : ""}.zip`);
+@@ -104,9 +104,8 @@ function makeZipStored(entryName: string, data: Buffer, unixMode: number): Buffe
+ // spawns `bun.exe` directly, so the archive has to carry a real PE image.
+ async function writeFakeReleaseZip(outPath: string, version: string): Promise<void> {
+   const os = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
+-  const arch = process.arch === "arm64" ? "aarch64" : "x64";
+   const abi = isMusl ? "-musl" : "";
+-  const folder = `bun-${os}-${arch}${abi}`;
++  const folder = `bun-${os}-${bunArch}${abi}`;
+   if (isWindows) {
+     const exe = Buffer.from(await Bun.file(bunExe()).arrayBuffer());
+     await writeFile(outPath, makeZipStored(`${folder}/bun.exe`, exe, 0o755));
+diff --git a/test/cli/install/registry/packages/test-native-binlink-altpath-target/package.json b/test/cli/install/registry/packages/test-native-binlink-altpath-target/package.json
+index aac96faf989..a2358864c5e 100644
+--- a/test/cli/install/registry/packages/test-native-binlink-altpath-target/package.json
++++ b/test/cli/install/registry/packages/test-native-binlink-altpath-target/package.json
+@@ -15,6 +15,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "_id": "test-native-binlink-altpath-target@1.0.0",
+@@ -34,6 +35,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "_id": "test-native-binlink-altpath-target@2.0.0",
+@@ -53,6 +55,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "_id": "test-native-binlink-altpath-target@3.0.0",
+diff --git a/test/cli/install/registry/packages/test-native-binlink-fallback-target/package.json b/test/cli/install/registry/packages/test-native-binlink-fallback-target/package.json
+index 0726e297a47..54183922abb 100644
+--- a/test/cli/install/registry/packages/test-native-binlink-fallback-target/package.json
++++ b/test/cli/install/registry/packages/test-native-binlink-fallback-target/package.json
+@@ -16,6 +16,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "dist": {
+diff --git a/test/cli/install/registry/packages/test-native-binlink-target/package.json b/test/cli/install/registry/packages/test-native-binlink-target/package.json
+index 1445f333ace..35affd73245 100644
+--- a/test/cli/install/registry/packages/test-native-binlink-target/package.json
++++ b/test/cli/install/registry/packages/test-native-binlink-target/package.json
+@@ -16,6 +16,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "dist": {
+diff --git a/test/cli/install/registry/packages/test-postinstall-skip-native/package.json b/test/cli/install/registry/packages/test-postinstall-skip-native/package.json
+index 0f61958e822..43c823cb0b1 100644
+--- a/test/cli/install/registry/packages/test-postinstall-skip-native/package.json
++++ b/test/cli/install/registry/packages/test-postinstall-skip-native/package.json
+@@ -15,6 +15,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "_id": "test-postinstall-skip-native@1.0.0",
+@@ -34,6 +35,7 @@
+       ],
+       "cpu": [
+         "arm64",
++        "ppc64",
+         "x64"
+       ],
+       "_id": "test-postinstall-skip-native@2.0.0",
+diff --git a/test/cli/run/run-crash-handler.test.ts b/test/cli/run/run-crash-handler.test.ts
+index 7cbae084d05..afc484f4621 100644
+--- a/test/cli/run/run-crash-handler.test.ts
++++ b/test/cli/run/run-crash-handler.test.ts
+@@ -134,6 +134,9 @@ describe.if(isPosix)("terminal signal reflects the crash cause", () => {
+ // x86_64 that detection uses cpuid directly (CPUFeatures.cpp). Every supported
+ // x64 CPU has SSE4.2 and POPCNT, since the baseline build targets Nehalem.
+ // AVX is optional. AVX2 and AVX-512 are reported only with AVX, and after it.
++// arm64 and ppc64le read AT_HWCAP instead; each pattern below lists the
++// features the baseline guarantees, then the optional ones in the order
++// crash_handler/CPUFeatures.rs's NAMED_FLAGS prints them.
+ test("the crash report lists the CPU features", async () => {
+   await using proc = Bun.spawn({
+     cmd: [bunExe(), path.join(import.meta.dir, "fixture-crash.js"), "panic", "--debug-crash-handler-use-trace-string"],
+@@ -145,6 +148,10 @@ test("the crash report lists the CPU features", async () => {
+   const cpuLine = stderr.split(/\r?\n/).find(line => line.startsWith("CPU: "));
+   if (process.arch === "x64") {
+     expect(cpuLine).toMatch(/^CPU: sse42 popcnt(?: avx(?: avx2)?(?: avx512)?)?$/);
++  } else if (process.arch === "ppc64") {
++    // ppc64le is POWER8-and-newer little-endian only, so altivec, vsx and
++    // power8 are always there; power9, crypto and power10 are not.
++    expect(cpuLine).toMatch(/^CPU: altivec vsx power8(?: power9)?(?: crypto)?(?: power10)?$/);
+   } else {
+     expect(cpuLine).toMatch(/^CPU: neon fp( \w+)*$/);
+   }
+diff --git a/test/harness.ts b/test/harness.ts
+index 3e4c5c8c69f..2ecc1553c2a 100644
+--- a/test/harness.ts
++++ b/test/harness.ts
+@@ -63,6 +63,66 @@ function detectASAN(): boolean {
+   return basename(process.execPath).includes("bun-asan");
+ }
+ 
++/**
++ * Whether `bun:ffi`'s `cc()` is backed by TinyCC. Mirrors `cfg.tinycc` in
++ * scripts/build/config.ts: oven-sh/tinycc has no code generator for these
++ * targets, so `cc()` compiles the sources with the system C compiler into a
++ * shared object and loads them instead of JIT-ing in-process.
++ *
++ * Two things follow for tests. The shared-object path takes its JS↔C thunks
++ * from JavaScriptCore, and a JSC FFI signature has no slot for a `napi_env`
++ * argument. And anything that asserts a *TinyCC* behaviour — that
++ * `_Thread_local` is rejected, that a compiler-runtime header directory is
++ * staged — is asserting something a real compiler does not do.
++ */
++export const hasTinyCC = !isAndroid && !isFreeBSD && process.arch !== "ppc64";
++
++/**
++ * The architecture bun names itself with: release assets, the name
++ * `bun upgrade` looks for, and `bun build --compile` targets all use it. Not
++ * `process.arch` — bun spells arm64 "aarch64" and ppc64 "ppc64le"
++ * (`bun_core::env::Architecture`).
++ */
++const BUN_ARCH_NAMES: Record<string, string> = { arm64: "aarch64", ppc64: "ppc64le" };
++export const bunArch: string = BUN_ARCH_NAMES[process.arch] ?? process.arch;
++
++/**
++ * termios `c_lflag` bits, which are per-ABI rather than universal. The generic
++ * Linux layout (x86-64, arm64, riscv64, s390x) puts ICANON at 0x2; powerpc
++ * keeps the older BSD-derived layout, where 0x2 is ECHOE and ICANON is 0x100 —
++ * the same value darwin uses. ECHO is 0x8 in all three. Reading 0x2 as ICANON
++ * on powerpc tests ECHOE instead, which raw mode does not clear, so a raw
++ * terminal looks cooked.
++ */
++export const termios = {
++  ICANON: isMacOS || process.arch === "ppc64" ? 0x100 : 0x2,
++  ECHO: 0x8,
++} as const;
++
++let cachedPageSize: number | undefined;
++
++/**
++ * The kernel page size in bytes: 4 KiB on most hosts, 16 KiB on Apple silicon,
++ * 64 KiB on POWER and some arm64 distributions.
++ *
++ * RSS is accounted in whole pages, and the allocator's expansion steps are
++ * page-quantised too, so a test that bounds an RSS delta has a noise floor that
++ * moves with this number. Scale both the workload and the bound by
++ * `pageSize() / 4096` rather than adding a second hardcoded megabyte figure —
++ * the leak stays the same multiple of the bound on every host.
++ */
++export function pageSize(): number {
++  if (cachedPageSize === undefined) {
++    cachedPageSize = 4096;
++    if (!isWindows) {
++      const probe = Bun.spawnSync({ cmd: ["getconf", "PAGESIZE"], stdout: "pipe", stderr: "ignore" });
++      const parsed = Number(probe.stdout?.toString().trim());
++      if (Number.isSafeInteger(parsed) && parsed > 0) cachedPageSize = parsed;
++    }
++  }
++  return cachedPageSize;
++}
++
+ export const bunEnv: NodeJS.Dict<string> = {
+   ...process.env,
+   // Strip ad-hoc JSC debug options that may be set on CI agents — they leak
+diff --git a/test/internal/source-lints/build-rust.test.ts b/test/internal/source-lints/build-rust.test.ts
+index c35d4cd0353..4573bbd492c 100644
+--- a/test/internal/source-lints/build-rust.test.ts
++++ b/test/internal/source-lints/build-rust.test.ts
+@@ -26,6 +26,7 @@ import {
+ } from "../../../scripts/build/config.ts";
+ import {
+   allRustTargets,
++  rustTargetsNotInCI,
+   cargoBuildInvocation,
+   cargoBuildStdArg,
+   rustTargetIsTier3,
+@@ -105,7 +106,10 @@ describe("allRustTargets", () => {
+       return rustTriple(os, arch, abi);
+     });
+ 
+-    const listed: string[] = [...allRustTargets].sort();
++    // Targets bun supports but CI has no runner for are declared, not implied:
++    // each must really be listed, and everything else has to match the matrix.
++    for (const triple of rustTargetsNotInCI) expect(allRustTargets).toContain(triple);
++    const listed: string[] = allRustTargets.filter(triple => !rustTargetsNotInCI.includes(triple)).sort();
+     expect(listed).toEqual([...new Set(built)].sort());
+   });
+ 
+diff --git a/test/js/bun/ffi/cc.test.ts b/test/js/bun/ffi/cc.test.ts
+index 67be9f3ab45..4921fffc618 100644
+--- a/test/js/bun/ffi/cc.test.ts
++++ b/test/js/bun/ffi/cc.test.ts
+@@ -10,13 +10,14 @@ import {
+   symlinkSync,
+   writeFileSync,
+ } from "fs";
+-import { bunEnv, bunExe, isASAN, isWindows, normalizeBunSnapshot, tempDir, tempDirWithFiles } from "harness";
++import { bunEnv, bunExe, hasTinyCC, isASAN, isWindows, normalizeBunSnapshot, tempDir, tempDirWithFiles } from "harness";
+ import path from "path";
+ 
+ // TODO: we need to install build-essential and Apple SDK in CI.
+ // It can't find includes. It can on machines with that enabled.
+ // TinyCC's setjmp/longjmp error handling conflicts with ASan.
+-it.todoIf(isWindows || isASAN)("can run a .c file", () => {
++// cc-fixture.js takes a napi_env argument, which only the TinyCC backend can supply.
++it.skipIf(!hasTinyCC).todoIf(isWindows || isASAN)("can run a .c file", () => {
+   const result = Bun.spawnSync({
+     cmd: [bunExe(), path.join(__dirname, "cc-fixture.js")],
+     cwd: __dirname,
+@@ -627,7 +628,9 @@ describe.skipIf(isASAN || process.arch !== "x64")("long double varargs inside cc
+ // TinyCC emits Local-Exec TLS, which has no PT_TLS segment to target under
+ // in-memory relocation and would alias the host's own thread block; it must be
+ // rejected up front instead of silently corrupting Bun's thread-locals.
+-describe.skipIf(isASAN)("thread-local storage inside cc()-compiled C", () => {
++// TinyCC rejects thread-local storage; a real C compiler accepts it, so this
++// block asserts a property of the backend rather than of cc().
++describe.skipIf(isASAN || !hasTinyCC)("thread-local storage inside cc()-compiled C", () => {
+   it.each([
+     ["_Thread_local", " = 0"],
+     ["__thread", " = 0"],
+@@ -1021,7 +1024,7 @@ describe("double <-> JSValue conversions", () => {
+   // verbatim, so they are the same boundary. cc()-compiled C resolves napi_*
+   // from the host process; that lookup is only exercised on POSIX today (see
+   // cc-fixture.c).
+-  it.skipIf(isWindows)("impure NaNs through napi_create_double and napi_create_date are purified", async () => {
++  it.skipIf(isWindows || !hasTinyCC)("impure NaNs through napi_create_double and napi_create_date are purified", async () => {
+     using dir = tempDir("bun-ffi-impure-nan-napi", {
+       "impure_napi.c": /* c */ `
+         typedef struct napi_env_fake* napi_env_t;
+@@ -1087,7 +1090,9 @@ describe("double <-> JSValue conversions", () => {
+   });
+ });
+ 
+-describe.skipIf(isASAN)("compiler runtime header directory under BUN_TMPDIR", () => {
++// The staged header directory is TinyCC's missing-compiler-rt workaround; a
++// real C compiler brings its own.
++describe.skipIf(isASAN || !hasTinyCC)("compiler runtime header directory under BUN_TMPDIR", () => {
+   const plantedHeader = "#define bool int\n#define true 100\n#define false 0\n";
+   const files = {
+     "sentinel.txt": "sentinel-unchanged\n",
+diff --git a/test/js/bun/gc/gc-controller-cadence.test.ts b/test/js/bun/gc/gc-controller-cadence.test.ts
+index 74bbd41e762..022256c5926 100644
+--- a/test/js/bun/gc/gc-controller-cadence.test.ts
++++ b/test/js/bun/gc/gc-controller-cadence.test.ts
+@@ -198,7 +198,15 @@ describe("idle release", () => {
+ // Those idle full collections are tagged (GCRequest::isIdle) so JSC may also let idle FTL code — which has no execution
+ // counter of its own and pins every baseline CodeBlock it inlined — age out in them, and only in them: a program that
+ // forces collections itself while running hot code must not lose that code. Eager JIT TTLs make it observable in seconds.
+-describe("idle release lets FTL code age out", () => {
++// Needs an optimizing tier for there to be optimized code to age out. On a
++// Baseline-only JSC (ppc64le has no DFG or FTL lowering) the run() options'
++// `useEagerCodeBlockJettisonTiming` drops the plain baseline FunctionCodeBlocks
++// during the warm-up itself, whatever `optimizedCodeAgingQuietSeconds` says and
++// however short the loop is — measured: `before` is 4, not the 40+ the fixture
++// needs. Nothing here would be testing idle release.
++const hasOptimizingJIT = process.arch !== "ppc64";
++
++describe.skipIf(!hasOptimizingJIT)("idle release lets FTL code age out", () => {
+   const script = /* js */ `
+     const { heapStats, noInline } = require("bun:jsc");
+     const fns = [];
+diff --git a/test/js/bun/http/serve-file-slice-read-error.test.ts b/test/js/bun/http/serve-file-slice-read-error.test.ts
+index 130fc10f185..8a39a13649d 100644
+--- a/test/js/bun/http/serve-file-slice-read-error.test.ts
++++ b/test/js/bun/http/serve-file-slice-read-error.test.ts
+@@ -32,11 +32,15 @@ const SUPERVISOR_C = /* c */ `
+ #include <sys/wait.h>
+ #include <unistd.h>
+ 
+-#if defined(__aarch64__)
++#if defined(__aarch64__) || defined(__powerpc64__)
+   #include <linux/elf.h>
+   #include <sys/uio.h>
+ #endif
+ 
++#if defined(__powerpc64__)
++  #include <asm/ptrace.h>
++#endif
++
+ #if defined(__x86_64__)
+   #define SYS_READ_NR 0
+   typedef struct user_regs_struct regs_t;
+@@ -59,6 +63,25 @@ const SUPERVISOR_C = /* c */ `
+     struct iovec io = { r, sizeof(*r) };
+     return ptrace(PTRACE_SETREGSET, t, (void *)NT_PRSTATUS, &io);
+   }
++#elif defined(__powerpc64__)
++  #define SYS_READ_NR 3
++  /* glibc defines no user_regs_struct on powerpc; NT_PRSTATUS is pt_regs. */
++  typedef struct pt_regs regs_t;
++  static long reg_nr(regs_t *r) { return (long)r->gpr[0]; }
++  static long reg_arg0(regs_t *r) { return (long)r->gpr[3]; }
++  /* Writing the negative errno is enough and is the only thing that works:
++     on the sc path the kernel recomputes CR0.SO from gpr[3] on the way out of
++     the syscall-exit stop, so a positive EIO left in gpr[3] comes back to the
++     tracee as a SUCCESSFUL read of 5 bytes rather than as an error. */
++  static void reg_set_ret(regs_t *r, long v) { r->gpr[3] = (unsigned long)v; }
++  static int get_regs(pid_t t, regs_t *r) {
++    struct iovec io = { r, sizeof(*r) };
++    return ptrace(PTRACE_GETREGSET, t, (void *)NT_PRSTATUS, &io);
++  }
++  static int set_regs(pid_t t, regs_t *r) {
++    struct iovec io = { r, sizeof(*r) };
++    return ptrace(PTRACE_SETREGSET, t, (void *)NT_PRSTATUS, &io);
++  }
+ #else
+   #error unsupported arch
+ #endif
+diff --git a/test/js/bun/perf/linker-order.test.ts b/test/js/bun/perf/linker-order.test.ts
+index 39b270d74da..23cf3d541fc 100644
+--- a/test/js/bun/perf/linker-order.test.ts
++++ b/test/js/bun/perf/linker-order.test.ts
+@@ -289,7 +289,10 @@ describe("deciding whether a build generates its own order file", () => {
+ 
+ const orderfile = join(import.meta.dir, "../../../../scripts/orderfile");
+ const darwin = process.platform === "darwin";
+-const supported = process.platform === "linux" || isWindows || (darwin && process.arch === "arm64");
++// functrace.c's own #error: the tracer is x86-64 INT3 / arm64 BRK, so linux and
++// windows need one of those two architectures, not just the OS.
++const tracerArch = process.arch === "x64" || process.arch === "arm64";
++const supported = ((process.platform === "linux" || isWindows) && tracerArch) || (darwin && process.arch === "arm64");
+ // On windows specifically clang-cl, which is on the CI images: the fixtures
+ // below are linked by lld-link to get the maps the generator reads, the way the
+ // release link writes them. (The generator itself also accepts cl for building
+diff --git a/test/js/bun/terminal/terminal-spawn.test.ts b/test/js/bun/terminal/terminal-spawn.test.ts
+index 690324ccb3c..3f9ea612907 100644
+--- a/test/js/bun/terminal/terminal-spawn.test.ts
++++ b/test/js/bun/terminal/terminal-spawn.test.ts
+@@ -1,6 +1,6 @@
+ import { dlopen, FFIType } from "bun:ffi";
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isMusl, isWindows, tempDir } from "harness";
++import { bunEnv, bunExe, isMusl, isWindows, tempDir, termios } from "harness";
+ import fs from "node:fs";
+ 
+ // Cross-platform Bun.Terminal + Bun.spawn integration tests that don't rely
+@@ -287,10 +287,7 @@ describe("Bun.Terminal subprocess integration", () => {
+     }
+   });
+ 
+-  // termios c_lflag bit layout is platform-specific. These match sys/termios.h:
+-  // Linux uses the "System V" layout; Darwin/BSD share the "4.3BSD" layout.
+-  const ICANON = process.platform === "darwin" ? 0x100 : 0x2;
+-  const ECHO = 0x8; // same on both
++  const { ICANON, ECHO } = termios;
+ 
+   // Regression: a Bun pipeline producer (stdout is a pipe, stdin/stderr are
+   // TTYs) that never calls setRawMode must not write its startup termios
+diff --git a/test/js/bun/terminal/terminal.test.ts b/test/js/bun/terminal/terminal.test.ts
+index 1040e185cc5..fcffba96afe 100644
+--- a/test/js/bun/terminal/terminal.test.ts
++++ b/test/js/bun/terminal/terminal.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isLinux, isWindows, tempDir } from "harness";
++import { bunEnv, bunExe, isLinux, isWindows, tempDir, termios } from "harness";
+ import { readFileSync } from "node:fs";
+ import { join } from "node:path";
+ 
+@@ -299,8 +299,7 @@ describe("Bun.Terminal", () => {
+     // any terminal was raw, setRawMode(true) on a second one returned success
+     // without ever touching that terminal's own PTY.
+     test.skipIf(isWindows)("each terminal keeps its own raw mode", async () => {
+-      const ICANON = process.platform === "darwin" ? 0x100 : 0x2;
+-      const ECHO = 0x8;
++      const { ICANON, ECHO } = termios;
+       const isRaw = (terminal: Bun.Terminal) => (terminal.localFlags & (ICANON | ECHO)) === 0;
+ 
+       await using first = new Bun.Terminal({});
+diff --git a/test/js/node/os/os.test.js b/test/js/node/os/os.test.js
+index 007f92805a6..d58f1798285 100644
+--- a/test/js/node/os/os.test.js
++++ b/test/js/node/os/os.test.js
+@@ -5,7 +5,25 @@ import { isIPv4, isIPv6 } from "node:net";
+ import * as os from "node:os";
+ 
+ it("arch", () => {
+-  expect(["x64", "x86", "arm64"].some(arch => os.arch() === arch)).toBe(true);
++  // os.arch() is documented to return process.arch, whose value set Node
++  // enumerates. Assert against that set rather than the architectures bun
++  // happens to ship binaries for today.
++  const possibleValues = [
++    "arm",
++    "arm64",
++    "ia32",
++    "loong64",
++    "mips",
++    "mipsel",
++    "ppc",
++    "ppc64",
++    "riscv64",
++    "s390",
++    "s390x",
++    "x64",
++  ];
++  expect(possibleValues).toContain(os.arch());
++  expect(os.arch()).toBe(process.arch);
+ });
+ 
+ it("endianness", () => {
+diff --git a/test/js/node/process/process.test.js b/test/js/node/process/process.test.js
+index 74cfcb546a4..d7e3f116ed3 100644
+--- a/test/js/node/process/process.test.js
++++ b/test/js/node/process/process.test.js
+@@ -394,7 +394,8 @@ it("process.hrtime() coerces tuple elements with ToNumber like node", async () =
+ it("process.release", () => {
+   expect(process.release.name).toBe("node");
+   const platform = process.platform == "win32" ? "windows" : process.platform;
+-  const arch = { arm64: "aarch64", x64: "x64" }[process.arch] || process.arch;
++  // Mirrors the release-asset naming bun's own upgrade path uses.
++  const arch = { arm64: "aarch64", x64: "x64", ppc64: "ppc64le" }[process.arch] || process.arch;
+   const abi = familySync() === "musl" ? "-musl" : "";
+   const nonbaseline = `https://github.com/oven-sh/bun/releases/download/bun-v${process.versions.bun}/bun-${platform}-${arch}${abi}.zip`;
+   const baseline = `https://github.com/oven-sh/bun/releases/download/bun-v${process.versions.bun}/bun-${platform}-${arch}${abi}-baseline.zip`;
+@@ -480,6 +481,9 @@ const MIN_ICU_VERSIONS_BY_PLATFORM_ARCH = {
+   "darwin-arm64": "72.1",
+   "linux-x64": "78.3",
+   "linux-arm64": "78.3",
++  // ppc64le links the distro's ICU rather than a pinned one, so this floor is
++  // the same "do not go backwards" guard, not a version bun ships.
++  "linux-ppc64": "78.3",
+   "win32-x64": "78.3",
+   "win32-arm64": "78.3",
+ };
+diff --git a/test/js/node/tty.test.ts b/test/js/node/tty.test.ts
+index 3eca2321a0f..7e8e24395b6 100644
+--- a/test/js/node/tty.test.ts
++++ b/test/js/node/tty.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it, test } from "bun:test";
+-import { bunEnv, bunExe, isWindows } from "harness";
++import { bunEnv, bunExe, isWindows, termios } from "harness";
+ import { WriteStream } from "node:tty";
+ 
+ describe("ReadStream.prototype.setRawMode", () => {
+@@ -88,8 +88,7 @@ describe("ReadStream.prototype.setRawMode", () => {
+   // Bun used to keep one process-wide mode + termios snapshot, which turned
+   // `setRawMode(false)` on a never-raw stream into a real tcsetattr.
+   test.skipIf(isWindows)("a second ReadStream's setRawMode does not disturb process.stdin", async () => {
+-    const ICANON = process.platform === "darwin" ? 0x100 : 0x2;
+-    const ECHO = 0x8;
++    const { ICANON, ECHO } = termios;
+ 
+     const decoder = new TextDecoder();
+     let buffer = "";
+diff --git a/test/js/web/timers/timer-gc-roots.test.ts b/test/js/web/timers/timer-gc-roots.test.ts
+index 73509515e25..4000077dd85 100644
+--- a/test/js/web/timers/timer-gc-roots.test.ts
++++ b/test/js/web/timers/timer-gc-roots.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { bunEnv, bunExe, isASAN, isDebug } from "harness";
++import { bunEnv, bunExe, isASAN, isDebug, pageSize } from "harness";
+ import path from "node:path";
+ 
+ // bun_jsc::Strong handles now live in StrongRootBlock cells (rooted by a
+@@ -85,9 +85,17 @@ describe.concurrent("Strong handles are backed by StrongRootBlock", () => {
+ });
+ 
+ describe.concurrent("AbortSignal.timeout is released when its wrapper is collected", () => {
++  // RSS moves in whole pages and so do the allocator's expansion steps: on a
++  // 64 KiB-page host one step lands ~22 MB at once, and it does not grow with
++  // the number of rounds, so an absolute megabyte bound tuned for 4 KiB pages
++  // cannot tell that step from the ~7 MB-per-round retention this guards
++  // against. Scale the signal and the bound by the same factor and the leak
++  // stays the same multiple of the bound on every host.
++  const pageScale = pageSize() / 4096;
++
+   test("dropped signals without listeners free their native timer", async () => {
+     const src = `
+-      const N = 15000;
++      const N = ${15000 * pageScale};
+       async function round() {
+         for (let i = 0; i < N; i++) AbortSignal.timeout(600000);
+         for (let k = 0; k < 4; k++) {
+@@ -108,10 +116,10 @@ describe.concurrent("AbortSignal.timeout is released when its wrapper is collect
+     const [stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
+     expect(stderr).toBe("");
+     const { deltaMB } = JSON.parse(stdout);
+-    // With the refcount cycle this retains ~7 MB per round (20+ MB over three
+-    // rounds). With the timer freed at wrapper GC, steady-state growth is
+-    // allocator noise.
+-    const limit = isASAN || isDebug ? 14 : 10;
++    // With the refcount cycle this retains ~7 MB per round at the 4 KiB N
++    // (20+ MB over three rounds). With the timer freed at wrapper GC,
++    // steady-state growth is allocator noise.
++    const limit = (isASAN || isDebug ? 14 : 10) * pageScale;
+     expect(deltaMB).toBeLessThan(limit);
+     expect(exitCode).toBe(0);
+   }, 15_000);
+diff --git a/test/js/web/web-globals.test.js b/test/js/web/web-globals.test.js
+index 6d3d8cf1eb5..60496afd1e5 100644
+--- a/test/js/web/web-globals.test.js
++++ b/test/js/web/web-globals.test.js
+@@ -1,6 +1,7 @@
+ import { spawn } from "bun";
+ import { expect, it, test } from "bun:test";
+ import { bunEnv, bunExe, isLinux, isMacOS, isWindows, tempDir, withoutAggressiveGC } from "harness";
++import os from "node:os";
+ 
+ test("exists", () => {
+   expect(typeof URL !== "undefined").toBe(true);
+@@ -307,7 +308,10 @@ test("navigator", () => {
+   } else if (isWindows) {
+     expect(navigator.platform).toBe("Win32");
+   } else if (isLinux) {
+-    expect(navigator.platform).toBe("Linux x86_64");
++    // navigator.platform is "Linux <uname -m>": ZigGlobalObject.cpp has an arm
++    // per CPU() and os.machine() reports the same name, so this tracks the
++    // implementation instead of naming one architecture.
++    expect(navigator.platform).toBe(`Linux ${os.machine()}`);
+   }
+ });
+ 
+diff --git a/test/napi/napi-value-ffi.test.ts b/test/napi/napi-value-ffi.test.ts
+index 3ef934106db..aeb529f2314 100644
+--- a/test/napi/napi-value-ffi.test.ts
++++ b/test/napi/napi-value-ffi.test.ts
+@@ -2,14 +2,17 @@ import { spawnSync } from "bun";
+ import { cc, dlopen } from "bun:ffi";
+ import { beforeAll, describe, expect, it } from "bun:test";
+ import { existsSync } from "fs";
+-import { bunEnv, bunExe, canBuildNodeAddons, isASAN, isWindows, tempDir } from "harness";
++import { bunEnv, bunExe, canBuildNodeAddons, hasTinyCC, isASAN, isWindows, tempDir } from "harness";
+ import { join, resolve } from "path";
+ 
+ import source from "./napi-app/ffi_addon_1.c" with { type: "file" };
+ 
+ // The napi-app fixture needs a toolchain that can compile the reported
+ // Node headers.
+-const isFFIUnavailable = !canBuildNodeAddons();
++// Every symbol here takes a napi_env, which only the TinyCC backend can
++// supply: the shared-object cc() gets its thunks from JavaScriptCore, and a
++// JSC FFI signature has no slot for one.
++const isFFIUnavailable = !canBuildNodeAddons() || !hasTinyCC;
+ 
+ const symbols = {
+   set_instance_data: {
+@@ -53,7 +56,7 @@ beforeAll(() => {
+   }
+   // TinyCC's setjmp/longjmp error handling conflicts with ASan.
+   // Skip cc() calls on ASan, and catch errors on Windows.
+-  if (!isASAN) {
++  if (!isASAN && hasTinyCC) {
+     try {
+       cc1 = cc({
+         source,
