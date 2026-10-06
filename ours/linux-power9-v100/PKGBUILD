@@ -1,0 +1,201 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# ppc64le: Omarchy ppc64le -- see README.md.  The kernel for one machine class:
+# an IBM AC922 (8335-GTG/GTH/GTX) with Tesla V100-SXM2 GPUs on NVLink 2.0,
+# driven by NVIDIA's proprietary 535 driver (nvidia-power9-v100).  It is
+# linux-power9's 64K-page kernel plus nine patches that put back the NVLink
+# path mainline removed and fix what broke on the way to 7.x.
+#
+# It is NOT a replacement for linux-power9 / linux-power9-64k.  Those are the
+# general POWER9 kernels (amdgpu, nova-core for newer NVIDIA cards).  This one
+# turns nova-core, drm-nova and nouveau OFF so nothing but the proprietary
+# module can claim the V100s, and it changes PCI window sizing, module symbol
+# licensing and EEH probing in ways only this hardware needs.
+
+_kernver=7.2.9
+
+pkgbase=linux-power9-v100
+# CONFIG_LOCALVERSION="-v100" makes kernelrelease 7.2.9-v100; pacman has no
+# '-' in pkgver, hence the underscore (the linux-power9-64k convention).
+# prepare() asserts the two still agree.
+pkgver=${_kernver}_v100
+pkgname=("$pkgbase" "$pkgbase-headers")
+# No -api-headers split: linux-power9 (4K) is the one package in the repo
+# that provides linux-api-headers.
+
+# Bump for every change to this directory.  nvidia-power9-v100 is built
+# against this package's headers and must be rebuilt with it.
+pkgrel=1
+pkgdesc='Upstream Linux for the AC922 with NVLink V100s'
+url='https://www.kernel.org/'
+arch=(powerpc64le)
+license=(GPL-2.0-only)
+makedepends=(
+  bc
+  bison
+  cpio
+  flex
+  gettext
+  kmod
+  libelf
+  openssl
+  pahole
+  perl
+  python
+  rsync
+  tar
+)
+# No rust/rust-src/rust-bindgen/clang: CONFIG_RUST is off here (it exists in
+# linux-power9 only for nova-core, which this kernel does not build).
+
+# As linux-power9: !buildflags keeps makepkg.conf's CFLAGS out of the kernel
+# build, !strip because modules are stripped by INSTALL_MOD_STRIP=1 and
+# vmlinuz must not be touched, !debug for no unstripped-vmlinux split.
+options=(!strip !debug !buildflags)
+
+source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kernver.tar.xz"
+        # linux-power9's patches, same files, same order.  Two are absent:
+        # 0006 (eeh_rmv_device self-deadlock) is in mainline 7.2.9 already,
+        # 0008 (Rust on powerpc) is not needed with CONFIG_RUST off.
+        # Then the V100 series, in order (README.md, "The V100 patches").
+        0001-xhci-pci-no-64bit-dma-for-amd-promontory19-43fc.patch
+        0002-powerpc-syscall_exit_restart-return-accumulated-exit_result.patch
+        0003-xhci-pci-trb-overfetch-for-amd-promontory19-43fc.patch
+        0004-powerpc-syscall-keep-seccomp-ptrace-return-value-when-syscall-skipped.patch
+        0005-powerpc-interrupt-clear-exit_flags-before-irqentry_exit-exit-work.patch
+        0007-powerpc-mm-do-not-grow-max_pfn-for-ZONE_DEVICE.patch
+        0009-drm-amdkfd-map-gpu-numa-node-to-cpu-proximity-domain.patch
+        v100-0001-powerpc-powernv-restore-npu2-nvlink-support.patch
+        v100-0002-export-opal-npu-context-calls.patch
+        v100-0003-restore-pnv-npu2-unmap-lpar-dev.patch
+        v100-0004-powerpc-powernv-npu2-destroy-pasid.patch
+        v100-0005-unflag-vma-start-write.patch
+        v100-0006-module-no-proprietary-taint-inheritance.patch
+        v100-0007-pci-reserve-alignment-hole-for-large-sibling-windows.patch
+        v100-0008-powernv-eeh-skip-nvlink-npu-devices-without-pe.patch
+        v100-0009-cpufreq-powernv-boost-on-by-default.patch
+        config)
+sha256sums=('b4c5dfbe51a364a6c7f03869200f88c8e1f77403539005f14b7fc6bc91b8d8ba'
+            '966e5fe6696603044769a3b7781e084aacb262faf7b32c57016504e865989f08'
+            '84cf2930d34a9523f952d5d3311f0a2df6ce26166fa9d850d3c1630b0d5bf63e'
+            '598c846855ed395f496266a022cc8c3ae95143562f152344269932a5e1945356'
+            '6989363b6cf739e25d9283734bbec68d949f27629c8f44cf560565e5a54c84bf'
+            '894d71341824ead1a454ea70d112b45d34cd4c4aa057d4495a133c8cccd44755'
+            '4f24f8bdcbae70eee6098a5161989140c735e838c32a5aa64b17d60d8fbf27f5'
+            '71e86c5b38cb2171c021765c2cf976a61e1787a21f18894f5dcf5b58ddd31b59'
+            'ca06cb261615fc28d8dfd52b646e00b940f8ad696e420126a34294143e803c7f'
+            '52b9222a027ecd5d4a413d757a37445e81d816952db8c0b73a8807142840c120'
+            '31e27b916d1b21e334d79c2e4838faf4ca8d777f2f418c83fb8f4e48379373f6'
+            'a00a30c9ae6973a04b6544078eb12d30258fbcadbede416de3c3319c45ebb6a2'
+            'eb7ee21976008a0b5eda23a0d1da28c5b7cc8f71a0df95248b35d9c38b4ccc06'
+            '65526305900775d8cea7bc919cda4c7fa8efa03dee2c866164a3c83720790746'
+            '8b17d79849cd095978dd8ce16fecf25bd2a52825717be5dc714cd067da3432ba'
+            '611642df2714e1919817b898b9715c4609378f4ec90432bb20743993f8ad8562'
+            '0dc95c82826c8c49180518b4f88db795a808b957038e94045d4095dfaf8cb7ea'
+            '85b16d6028648ef6e477f7d233c83f831d59d2757ade20bdb9ddcbb2f67c6b77')
+
+export KBUILD_BUILD_HOST=omarchy-ppc64le
+export KBUILD_BUILD_USER=$pkgbase
+export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+
+prepare() {
+  cd "linux-$_kernver"
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    echo "Applying patch $src..."
+    patch -Np1 -i "$srcdir/$src"
+  done
+
+  echo "Setting config..."
+  cp "$srcdir/config" .config
+  make olddefconfig
+
+  # The proprietary driver must be the only thing that can bind the V100s,
+  # and the NVLink path needs these; stop rather than ship a kernel that
+  # silently lost one of them to a Kconfig change.
+  local opt
+  for opt in PPC_POWERNV PPC_64K_PAGES PPC_RADIX_MMU MMU_NOTIFIER MEMORY_HOTPLUG; do
+    grep -q "^CONFIG_$opt=y" .config || { echo "CONFIG_$opt is not set" >&2; return 1; }
+  done
+  for opt in NOVA_CORE DRM_NOVA DRM_NOUVEAU; do
+    ! grep -q "^CONFIG_$opt=" .config || { echo "CONFIG_$opt must stay off" >&2; return 1; }
+  done
+
+  make -s kernelrelease > version
+  local rel; rel="$(<version)"
+  if [[ "${rel//-/_}" != "$pkgver" ]]; then
+    echo "kernelrelease '$rel' does not match pkgver '$pkgver'" >&2
+    return 1
+  fi
+  echo "Prepared $pkgbase version $rel"
+}
+
+build() {
+  cd "linux-$_kernver"
+  make KBUILD_BUILD_VERSION="$pkgrel" all
+}
+
+# The splits are linux-power9's, which are the in-tree
+# scripts/package/PKGBUILD's.
+
+_package() {
+  pkgdesc="The $pkgdesc kernel and modules"
+
+  cd "linux-$_kernver"
+  local kernver="$(<version)"
+  local modulesdir="$pkgdir/usr/lib/modules/$kernver"
+
+  echo "Installing boot image..."
+  install -Dm644 "$(make -s image_name)" "$modulesdir/vmlinuz"
+
+  # Read by mkinitcpio's pacman hook: /boot/vmlinuz-linux-power9-v100.
+  echo "$pkgbase" > "$modulesdir/pkgbase"
+
+  echo "Installing modules..."
+  make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
+    DEPMOD=true modules_install
+
+  if [ -d "arch/powerpc/boot/dts" ]; then
+    echo "Installing dtbs..."
+    make INSTALL_DTBS_PATH="$modulesdir/dtb" dtbs_install
+  fi
+
+  # remove build link, it is part of -headers
+  rm -f "$modulesdir/build"
+}
+
+_package-headers() {
+  pkgdesc="Headers and scripts for building modules for the $pkgdesc kernel"
+
+  cd "linux-$_kernver"
+  local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
+
+  if grep -q CONFIG_MODULES=y include/config/auto.conf; then
+    echo "Installing build files..."
+    # See linux-power9: install-extmod-build expects kbuild's environment.
+    srctree="$PWD" SRCARCH=powerpc CC=gcc HOSTCC=gcc MAKE=make \
+      ./scripts/package/install-extmod-build "$builddir"
+  fi
+
+  echo "Installing System.map and config..."
+  mkdir -p "$builddir"
+  cp System.map "$builddir/System.map"
+  cp .config "$builddir/.config"
+  # Not in linux-power9: nvidia-power9-v100 reads the kernel release from
+  # here (/usr/src/linux-power9-v100/version), as Arch's nvidia does.
+  install -Dm644 version "$builddir/version"
+
+  echo "Adding symlink..."
+  mkdir -p "$pkgdir/usr/src"
+  ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
+}
+
+for _p in "${pkgname[@]}"; do
+  eval "package_$_p() {
+    $(declare -f "_package${_p#$pkgbase}")
+    _package${_p#$pkgbase}
+  }"
+done

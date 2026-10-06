@@ -1,0 +1,206 @@
+nvidia-drm: build against Linux 7.x
+
+Local workaround; not ppc64le specific. 7.2 changes that 535.216.03's nvidia-drm does not know:
+struct drm_atomic_state is now struct drm_atomic_commit (helpers renamed to match, drm_atomic_state_free()
+gone); the per-object .state pointer is .state_to_destroy; conftest.sh probes five signatures with the old
+struct name so those verdicts come out negative; <drm/drm_print.h> is no longer pulled in indirectly;
+fb_create() and drm_helper_mode_fill_fb_struct() take a const struct drm_format_info *; struct drm_driver has
+no .date; dma_fence_signal() returns void; connector mode_valid() returns enum drm_mode_status and takes a
+const mode; struct drm_mode_create_dumb is not declared before nv_drm_dumb_create()'s prototype.
+
+Also sets .fop_flags = FOP_UNSIGNED_OFFSET on the driver's file_operations: drm_open() has refused (WARN_ON_ONCE
+plus -EINVAL) any fops without it since 6.12, so the first version of this patch registered /dev/dri/card* that
+nobody could open (seen as a drm_open_helper warning from nvtop).
+
+All behind NV_DRM_7X_COMPAT (LINUX_VERSION_CODE >= 7.2.0) in the new nvidia-drm-7x-compat.h.
+Loaded 2026-10-04 on 7.2.9 with modeset=0: registers /dev/dri/card1-4 and four render nodes, no kernel
+messages at load. modeset=1 and any display use are untested (the V100 has no display outputs).
+
+diff -ruN a/nvidia-drm/nvidia-dma-fence-helper.h b/nvidia-drm/nvidia-dma-fence-helper.h
+--- a/nvidia-drm/nvidia-dma-fence-helper.h
++++ b/nvidia-drm/nvidia-dma-fence-helper.h
+@@ -92,6 +92,9 @@
+ static inline int nv_dma_fence_signal(nv_dma_fence_t *fence) {
+ #if defined(NV_LINUX_FENCE_H_PRESENT)
+     return fence_signal(fence);
++#elif defined(NV_DRM_7X_COMPAT)
++    dma_fence_signal(fence);
++    return 0;
+ #else
+     return dma_fence_signal(fence);
+ #endif
+diff -ruN a/nvidia-drm/nvidia-drm-7x-compat.h b/nvidia-drm/nvidia-drm-7x-compat.h
+--- a/nvidia-drm/nvidia-drm-7x-compat.h	1969-12-31 17:00:00.000000000 -0700
++++ b/nvidia-drm/nvidia-drm-7x-compat.h
+@@ -0,0 +1,66 @@
++/*
++ * AC922 / Linux 7.x compatibility for nvidia-drm 535.216.03.
++ *
++ * Included from the end of nvidia-drm-conftest.h, i.e. before any kernel DRM
++ * header. Local port, not part of the NVIDIA release.
++ */
++
++#ifndef __NVIDIA_DRM_7X_COMPAT_H__
++#define __NVIDIA_DRM_7X_COMPAT_H__
++
++#include <linux/version.h>
++
++/* Tested on 7.2.9 only; where in 6.13..7.2 each change landed was not checked. */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0)
++
++#define NV_DRM_7X_COMPAT 1
++
++/* No longer pulled in indirectly: DRM_ERROR(), DRM_INFO(), DRM_DEBUG*(). */
++#include <drm/drm_print.h>
++
++/* struct drm_mode_create_dumb must be complete before nv_drm_dumb_create(). */
++#include <drm/drm_mode.h>
++
++/*
++ * struct drm_atomic_state is now struct drm_atomic_commit, with its helpers
++ * renamed to match. The kernel headers no longer contain the old names, so
++ * mapping them here cannot change anything inside those headers.
++ */
++#define drm_atomic_state                    drm_atomic_commit
++#define drm_atomic_state_init               drm_atomic_commit_init
++#define drm_atomic_state_alloc              drm_atomic_commit_alloc
++#define drm_atomic_state_clear              drm_atomic_commit_clear
++#define drm_atomic_state_default_clear      drm_atomic_commit_default_clear
++#define drm_atomic_state_default_release    drm_atomic_commit_default_release
++#define drm_atomic_state_get                drm_atomic_commit_get
++#define drm_atomic_state_put                drm_atomic_commit_put
++
++/*
++ * conftest.sh probes these with "struct drm_atomic_state", so on 7.x they all
++ * come out negative. The real answers:
++ */
++#undef  NV_DRM_ATOMIC_STATE_REF_COUNTING_PRESENT
++#define NV_DRM_ATOMIC_STATE_REF_COUNTING_PRESENT
++#undef  NV_DRM_ATOMIC_HELPER_SWAP_STATE_HAS_STALL_ARG
++#define NV_DRM_ATOMIC_HELPER_SWAP_STATE_HAS_STALL_ARG
++#undef  NV_DRM_ATOMIC_HELPER_SWAP_STATE_RETURN_INT
++#define NV_DRM_ATOMIC_HELPER_SWAP_STATE_RETURN_INT
++#undef  NV_DRM_CRTC_ATOMIC_CHECK_HAS_ATOMIC_STATE_ARG
++#define NV_DRM_CRTC_ATOMIC_CHECK_HAS_ATOMIC_STATE_ARG
++#undef  NV_DRM_PLANE_ATOMIC_CHECK_HAS_ATOMIC_STATE_ARG
++#define NV_DRM_PLANE_ATOMIC_CHECK_HAS_ATOMIC_STATE_ARG
++
++/*
++ * The per-object pointer the legacy for_each_*_in_state() iterators read:
++ * "state" became "state_to_destroy" (same meaning: the new state before
++ * drm_atomic_helper_swap_state(), the old one after).
++ */
++#define NV_DRM_OBJ_STATE state_to_destroy
++
++#endif /* >= 7.2 */
++
++#if !defined(NV_DRM_OBJ_STATE)
++#define NV_DRM_OBJ_STATE state
++#endif
++
++#endif /* __NVIDIA_DRM_7X_COMPAT_H__ */
+diff -ruN a/nvidia-drm/nvidia-drm-conftest.h b/nvidia-drm/nvidia-drm-conftest.h
+--- a/nvidia-drm/nvidia-drm-conftest.h
++++ b/nvidia-drm/nvidia-drm-conftest.h
+@@ -61,4 +61,6 @@
+ #undef NV_DRM_FENCE_AVAILABLE
+ #endif
+ 
++#include "nvidia-drm-7x-compat.h"
++
+ #endif /* defined(__NVIDIA_DRM_CONFTEST_H__) */
+diff -ruN a/nvidia-drm/nvidia-drm-connector.c b/nvidia-drm/nvidia-drm-connector.c
+--- a/nvidia-drm/nvidia-drm-connector.c
++++ b/nvidia-drm/nvidia-drm-connector.c
+@@ -313,8 +313,14 @@
+     return count;
+ }
+ 
++#if defined(NV_DRM_7X_COMPAT)
++static enum drm_mode_status
++nv_drm_connector_mode_valid(struct drm_connector *connector,
++                            const struct drm_display_mode *mode)
++#else
+ static int nv_drm_connector_mode_valid(struct drm_connector    *connector,
+                                        struct drm_display_mode *mode)
++#endif
+ {
+     struct drm_device *dev = connector->dev;
+     struct nv_drm_device *nv_dev = to_nv_device(dev);
+diff -ruN a/nvidia-drm/nvidia-drm-drv.c b/nvidia-drm/nvidia-drm-drv.c
+--- a/nvidia-drm/nvidia-drm-drv.c
++++ b/nvidia-drm/nvidia-drm-drv.c
+@@ -154,6 +154,9 @@
+ static struct drm_framebuffer *nv_drm_framebuffer_create(
+     struct drm_device *dev,
+     struct drm_file *file,
++    #if defined(NV_DRM_7X_COMPAT)
++    const struct drm_format_info *info,
++    #endif
+     #if defined(NV_DRM_HELPER_MODE_FILL_FB_STRUCT_HAS_CONST_MODE_CMD_ARG)
+     const struct drm_mode_fb_cmd2 *cmd
+     #else
+@@ -1282,6 +1285,10 @@
+ #endif
+ 
+     .poll           = drm_poll,
++#if defined(NV_DRM_7X_COMPAT)
++    /* drm_open() refuses (WARN + -EINVAL) file_operations without this since 6.12 */
++    .fop_flags      = FOP_UNSIGNED_OFFSET,
++#endif
+     .read           = drm_read,
+ 
+     .llseek         = noop_llseek,
+@@ -1435,7 +1442,9 @@
+     .name                   = "nvidia-drm",
+ 
+     .desc                   = "NVIDIA DRM driver",
++#if !defined(NV_DRM_7X_COMPAT)
+     .date                   = "20160202",
++#endif
+ 
+ #if defined(NV_DRM_DRIVER_HAS_DEVICE_LIST)
+     .device_list            = LIST_HEAD_INIT(nv_drm_driver.device_list),
+diff -ruN a/nvidia-drm/nvidia-drm-fb.c b/nvidia-drm/nvidia-drm-fb.c
+--- a/nvidia-drm/nvidia-drm-fb.c
++++ b/nvidia-drm/nvidia-drm-fb.c
+@@ -259,6 +259,9 @@
+         dev,
+         #endif
+         &nv_fb->base,
++        #if defined(NV_DRM_7X_COMPAT)
++        drm_get_format_info(dev, cmd->pixel_format, cmd->modifier[0]),
++        #endif
+         cmd);
+ 
+     /*
+diff -ruN a/nvidia-drm/nvidia-drm-helper.h b/nvidia-drm/nvidia-drm-helper.h
+--- a/nvidia-drm/nvidia-drm-helper.h
++++ b/nvidia-drm/nvidia-drm-helper.h
+@@ -246,7 +246,7 @@
+        for ((__i) = 0;                                                      \
+             (__i) < (__state)->num_connector &&                             \
+             ((connector) = (__state)->connectors[__i].ptr,                  \
+-            (connector_state) = (__state)->connectors[__i].state, 1);       \
++            (connector_state) = (__state)->connectors[__i].NV_DRM_OBJ_STATE, 1);       \
+             (__i)++)                                                        \
+                for_each_if (connector)
+ #else
+@@ -273,7 +273,7 @@
+        for ((__i) = 0;                                                \
+             (__i) < (__state)->dev->mode_config.num_crtc &&           \
+             ((crtc) = (__state)->crtcs[__i].ptr,                      \
+-            (crtc_state) = (__state)->crtcs[__i].state, 1);           \
++            (crtc_state) = (__state)->crtcs[__i].NV_DRM_OBJ_STATE, 1);           \
+             (__i)++)                                                  \
+                for_each_if (crtc_state)
+ #else
+@@ -298,7 +298,7 @@
+        for ((__i) = 0;                                                   \
+             (__i) < (__state)->dev->mode_config.num_total_plane &&       \
+             ((plane) = (__state)->planes[__i].ptr,                       \
+-            (plane_state) = (__state)->planes[__i].state, 1);            \
++            (plane_state) = (__state)->planes[__i].NV_DRM_OBJ_STATE, 1);            \
+             (__i)++)                                                     \
+                for_each_if (plane_state)
+ #else

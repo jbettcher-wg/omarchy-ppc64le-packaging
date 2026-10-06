@@ -5,8 +5,8 @@
 
 pkgbase=nvidia-utils
 pkgname=('nvidia-utils' 'opencl-nvidia' 'nvidia-dkms')
-pkgver=535.161.08
-pkgrel=1.1
+pkgver=535.216.03
+pkgrel=1
 arch=(powerpc64le)
 url="http://www.nvidia.com/"
 license=('custom')
@@ -18,13 +18,16 @@ source=('nvidia-drm-outputclass.conf'
         'nvidia.rules'
         'systemd-homed-override.conf'
         'systemd-suspend-override.conf'
-        http://ftp.de.debian.org/debian/pool/non-free/n/nvidia-graphics-drivers/nvidia-graphics-drivers_${pkgver}.orig-ppc64el.tar.gz)
+        # NVIDIA's own ppc64le installer (the "tesla" tree is the only place 535.x
+        # ppc64le is published). Was Debian's orig-ppc64el tarball, which wraps the
+        # same .run; Debian dropped that pool entry and never packaged 535.216.03.
+        "https://us.download.nvidia.com/tesla/${pkgver}/${_pkg}.run")
 sha512sums=('de7116c09f282a27920a1382df84aa86f559e537664bb30689605177ce37dc5067748acf9afd66a3269a6e323461356592fdfc624c86523bf105ff8fe47d3770'
             '4b3ad73f5076ba90fe0b3a2e712ac9cde76f469cd8070280f960c3ce7dc502d1927f525ae18d008075c8f08ea432f7be0a6c3a7a6b49c361126dcf42f97ec499'
             'f8f071f5a46c1a5ce5188e104b017808d752e61c0c20de1466feb5d693c0b55a5586314411e78cc2ab9c0e16e2c67afdd358da94c0c75df1f8233f54c280762c'
             'a0183adce78e40853edf7e6b73867e7a8ea5dabac8e8164e42781f64d5232fbe869f850ab0697c3718ebced5cde760d0e807c05da50a982071dfe1157c31d6b8'
             '55def6319f6abb1a4ccd28a89cd60f1933d155c10ba775b8dfa60a2dc5696b4b472c14b252dc0891f956e70264be87c3d5d4271e929a4fc4b1a68a6902814cee'
-            'db1dd5622a9a0379a26cda4ac4ae6454c64688ff02658d7188e70a612f86a679e3f0fe160a0928f71e20a9d222e2ddb46774b4b7d8e0e3c4f467552aafe13462')
+            'f3ba94372d6f1a596b0b8e3f6258b6743d355329e2004ab0f970374f72dd119a5578dfdbb3cc9757e23ee5aab60bb95206298eed07940e6fe13c96c3b694277f')
 
 
 create_links() {
@@ -38,7 +41,7 @@ create_links() {
 }
 
 prepare() {
-    sh "${srcdir}/nvidia-graphics-drivers-${pkgver}.orig-ppc64el/NVIDIA-Linux-ppc64le-${pkgver}.run" --extract-only
+    sh "${srcdir}/${_pkg}.run" --extract-only
     cd "${_pkg}"
     bsdtar -xf nvidia-persistenced-init.tar.bz2
 

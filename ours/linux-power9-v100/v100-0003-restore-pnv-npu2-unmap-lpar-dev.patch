@@ -1,0 +1,113 @@
+powerpc/powernv: restore pnv_npu2_unmap_lpar_dev()
+
+Patch 0001 restored pnv_npu2_map_lpar_dev() but not its inverse.  As a
+result the NPU translation context armed at boot (and re-armed on every
+release-ownership transition once patch 0004 lands) is never destroyed:
+opal_npu_init_context() has no matching opal_npu_destroy_context(), and the
+GPU's BDF is never mapped back to LPAR 0.  On any teardown path -- VFIO
+taking ownership of an NVLink GPU, an NPU PE being released, an unbind --
+that leaks an XTS context in firmware.
+
+Restore the function from v5.12 arch/powerpc/platforms/powernv/npu-dma.c
+lines 669-705, plus declarations in <asm/pci.h> (where v5.12 declared it,
+line 127) and in the powernv-private pci.h.
+
+API adaptations vs v5.12
+------------------------
+1. NVLink1 detection.  v5.12 tested "hose->npu == NULL".  struct
+   pci_controller lost its npu member when the nvlink code was deleted in
+   v5.13 and this series does not re-add it (patch 0004 keeps the NPU
+   descriptor in the powernv-private struct pnv_phb instead).  The test is
+   therefore done on the PHB device-tree node's compatible string,
+   "ibm,ioda2-npu2-phb", exactly as patch 0001's pnv_npu2_map_lpar_dev()
+   already does.  Identical outcome on POWER9/NPU2.
+
+2. No other change.  pci_dev_id(), dev_info_once(), of_device_is_compatible()
+   and opal_npu_destroy_context()/opal_npu_map_lpar() all have unchanged
+   signatures in 6.12.
+
+Risk: LOW.  The function has no in-tree caller until patch 0004; it is dead
+code plus an exported symbol on its own.  It cannot change boot behaviour.
+
+---
+
+--- a/arch/powerpc/include/asm/pci.h
++++ b/arch/powerpc/include/asm/pci.h
+@@ -124,6 +124,7 @@
+ extern struct pci_dev *pnv_pci_get_npu_dev(struct pci_dev *gpdev, int index);
+ extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
+ 				 unsigned long msr);
++extern int pnv_npu2_unmap_lpar_dev(struct pci_dev *gpdev);
+ 
+ #endif	/* __KERNEL__ */
+ 
+--- a/arch/powerpc/platforms/powernv/pci.h
++++ b/arch/powerpc/platforms/powernv/pci.h
+@@ -279,6 +279,7 @@
+ extern void pnv_pci_init_npu_phb(struct device_node *np);
+ extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
+ 				 unsigned long msr);
++extern int pnv_npu2_unmap_lpar_dev(struct pci_dev *gpdev);
+ extern void pnv_npu2_map_lpar(unsigned long msr);
+ extern void pnv_pci_init_npu2_opencapi_phb(struct device_node *np);
+ extern void pnv_pci_reset_secondary_bus(struct pci_dev *dev);
+--- a/arch/powerpc/platforms/powernv/npu-dma.c
++++ b/arch/powerpc/platforms/powernv/npu-dma.c
+@@ -153,6 +153,57 @@
+ }
+ EXPORT_SYMBOL_GPL(pnv_npu2_map_lpar_dev);
+ 
++/*
++ * Tear down the NPU translation context for one GPU.
++ *
++ * The exact inverse of pnv_npu2_map_lpar_dev(): destroy the XTS entry that
++ * opal_npu_init_context() created, then point the GPU's BDF back at LPAR 0.
++ * Without this, every teardown -- VFIO taking ownership of the GPU, an NPU
++ * PE being released, a driver unbind -- leaks the OPAL-side context.
++ *
++ * Behaviour restored from v5.12 npu-dma.c:669-705.  The only change is the
++ * NVLink1 test: v5.12 used "hose->npu == NULL", and struct pci_controller
++ * no longer carries an npu pointer, so the device-tree compatible string is
++ * used instead, exactly as pnv_npu2_map_lpar_dev() above already does.
++ */
++int pnv_npu2_unmap_lpar_dev(struct pci_dev *gpdev)
++{
++	struct pci_dev *npdev = pnv_pci_get_npu_dev(gpdev, 0);
++	struct pci_controller *hose;
++	struct pnv_phb *nphb;
++	int ret;
++
++	if (!npdev)
++		return -ENODEV;
++
++	hose = pci_bus_to_host(npdev->bus);
++	if (!hose->dn ||
++	    !of_device_is_compatible(hose->dn, "ibm,ioda2-npu2-phb")) {
++		dev_info_once(&npdev->dev, "NVLink1 does not support contexts\n");
++		return 0;
++	}
++
++	nphb = hose->private_data;
++
++	dev_dbg(&gpdev->dev, "destroy context opalid=%llu\n", nphb->opal_id);
++	ret = opal_npu_destroy_context(nphb->opal_id, 0 /*__unused*/,
++				       pci_dev_id(gpdev));
++	if (ret < 0) {
++		dev_err(&gpdev->dev, "Failed to destroy context: %d\n", ret);
++		return ret;
++	}
++
++	/* Set LPID to 0 anyway, just to be safe */
++	dev_dbg(&gpdev->dev, "Map LPAR opalid=%llu lparid=0\n", nphb->opal_id);
++	ret = opal_npu_map_lpar(nphb->opal_id, pci_dev_id(gpdev), 0 /*LPID*/,
++				0 /* LPCR bits */);
++	if (ret)
++		dev_err(&gpdev->dev, "Error %d mapping device to LPAR\n", ret);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(pnv_npu2_unmap_lpar_dev);
++
+ /* Every PCI device whose DT node carries an "ibm,npu" phandle is an NVLink GPU. */
+ void pnv_npu2_map_lpar(unsigned long msr)
+ {

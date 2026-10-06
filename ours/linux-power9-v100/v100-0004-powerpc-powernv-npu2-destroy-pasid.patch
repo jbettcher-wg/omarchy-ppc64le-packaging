@@ -1,0 +1,136 @@
+powerpc/powernv: add pnv_npu2_destroy_pasid() for nest-MMU context teardown
+
+The driver-mode ATS implementation in NVIDIA's nvidia-uvm (used on kernels
+>= 5.9, where the in-kernel NPU2 driver was removed) never tears down the
+nest-MMU translation context for a process: the nest MMU arms a context on
+demand when the first translation for a PASID happens, and when the process
+exits nothing destroys it. The nest MMU then keeps the dead PASID's context
+and TLB entries, GPU memory attributed to the process is not freed
+(nvidia-smi keeps reporting it as in use), and a recycled PID can hit stale
+translations.
+
+On 4.18 this teardown happened in-kernel: pnv_npu2_destroy_context()
+issued opal_npu_destroy_context() for the process's PASID as the last step
+of GPU VA space unregistration. This patch restores an equivalent,
+minimal, per-PASID entry point:
+
+  pnv_npu2_destroy_pasid(gpdev, pasid)
+
+    - finds the GPU's NPU brick with pnv_pci_get_npu_dev() (patch 0001)
+    - rejects non-NPU2 PHBs via the "ibm,ioda2-npu2-phb" compatible,
+      exactly as pnv_npu2_map_lpar_dev()/pnv_npu2_unmap_lpar_dev() do
+    - issues opal_npu_destroy_context(opal_id, pasid, PCI_DEVID(gpu))
+
+The TLB flush itself is deliberately NOT done here. In 4.18 the kernel's
+mmu_notifier .release issued the full-PASID ATSD at exit_mmap, and the OPAL
+destroy ran afterwards, in the driver's unregister path. The matching
+driver patch (driver/0002-uvm-ats-exit-teardown-ppc64le.patch) restores the
+same ordering in driver mode: UVM's new mmu_notifier .release performs the
+ATSD flush, and uvm_ats_ibm_unregister_gpu_va_space_driver() calls
+pnv_npu2_destroy_pasid() as the last teardown step.
+
+The symbol is exported non-GPL (EXPORT_SYMBOL) because the only consumer is
+NVIDIA's out-of-tree nvidia-uvm module, which is not GPL and therefore
+cannot link EXPORT_SYMBOL_GPL symbols. This is the same reason
+pnv_pci_get_npu_dev() and pnv_pci_get_gpu_dev() are plain exports.
+
+Apply order: 0001 -> 0002 -> 0003 -> 0004. All hunks require 0003 applied
+first (the npu-dma.c hunk anchors on the unmap function 0003 adds, and the
+header hunks on 0003's declarations).
+
+Risk: LOW. Dead code plus one exported symbol until the matching driver
+patch is built; cannot change boot behaviour. Worst case on a firmware that
+dislikes the OPAL call is a dev_err() line per teardown.
+
+Derived from: v4.18 arch/powerpc/platforms/powernv/npu-dma.c
+pnv_npu2_destroy_context() (OPAL call sequence) and the v5.12 unmap
+structure restored by patch 0003.
+
+---
+NOTE (2026-10-04): nothing calls this any more. nvidia-uvm called it once per process exit, and because
+OPAL's NPU context is per GPU (armed once at boot, PASID argument unused) that removed the GPU's whole
+translation context: the next CUDA context on that GPU hung. The driver patch in nvidia-power9-v100 dropped the
+call. Kept only because the kernel that was boot-tested carried it; a candidate for removal.
+
+--- a/arch/powerpc/include/asm/pci.h
++++ b/arch/powerpc/include/asm/pci.h
+@@ -125,6 +125,7 @@
+ extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
+ 				 unsigned long msr);
+ extern int pnv_npu2_unmap_lpar_dev(struct pci_dev *gpdev);
++extern int pnv_npu2_destroy_pasid(struct pci_dev *gpdev, unsigned int pasid);
+
+ #endif	/* __KERNEL__ */
+
+--- a/arch/powerpc/platforms/powernv/pci.h
++++ b/arch/powerpc/platforms/powernv/pci.h
+@@ -280,6 +280,7 @@
+ extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
+ 				 unsigned long msr);
+ extern int pnv_npu2_unmap_lpar_dev(struct pci_dev *gpdev);
++extern int pnv_npu2_destroy_pasid(struct pci_dev *gpdev, unsigned int pasid);
+ extern void pnv_npu2_map_lpar(unsigned long msr);
+ extern void pnv_pci_init_npu2_opencapi_phb(struct device_node *np);
+ extern void pnv_pci_reset_secondary_bus(struct pci_dev *dev);
+--- a/arch/powerpc/platforms/powernv/npu-dma.c
++++ b/arch/powerpc/platforms/powernv/npu-dma.c
+@@ -204,6 +204,59 @@
+ }
+ EXPORT_SYMBOL_GPL(pnv_npu2_unmap_lpar_dev);
+
++/*
++ * Tear down the nest-MMU translation context that the GPU's nest MMU holds
++ * for one PASID (one process's mm).
++ *
++ * Driver-mode ATS (NVIDIA's nvidia-uvm on kernels where the in-kernel NPU2
++ * driver was removed, >= 5.3) never asks the kernel to create or destroy
++ * per-PASID contexts: the nest MMU arms a context on demand when the first
++ * translation for a PASID happens, and nothing tears it down when the
++ * process exits. The nest MMU then keeps the dead PASID's context and TLB
++ * entries, GPU memory attributed to the process is not freed, and a
++ * recycled PID can hit stale translations.
++ *
++ * This is the inverse of the context arming that 4.18's
++ * pnv_npu2_init_context() did per process; the OPAL call matches the v4.18
++ * teardown in pnv_npu2_destroy_context()
++ * (opal_npu_destroy_context(opal_id, mm->context.id, PCI_DEVID(gpu))).
++ * Like pnv_npu2_unmap_lpar_dev() above, the NVLink1 test uses the PHB
++ * device-tree compatible string because struct pci_controller no longer
++ * carries an npu pointer.
++ *
++ * Exported non-GPL because the only consumer is NVIDIA's out-of-tree
++ * nvidia-uvm module, which is not licensed under the GPL and therefore
++ * cannot link EXPORT_SYMBOL_GPL symbols.
++ */
++int pnv_npu2_destroy_pasid(struct pci_dev *gpdev, unsigned int pasid)
++{
++	struct pci_dev *npdev = pnv_pci_get_npu_dev(gpdev, 0);
++	struct pci_controller *hose;
++	struct pnv_phb *nphb;
++	int ret;
++
++	if (!npdev)
++		return -ENODEV;
++
++	hose = pci_bus_to_host(npdev->bus);
++	if (!hose->dn ||
++	    !of_device_is_compatible(hose->dn, "ibm,ioda2-npu2-phb")) {
++		dev_info_once(&npdev->dev, "NVLink1 does not support contexts\n");
++		return 0;
++	}
++
++	nphb = hose->private_data;
++
++	dev_dbg(&gpdev->dev, "destroy pasid context opalid=%llu pasid=%u\n",
++		nphb->opal_id, pasid);
++	ret = opal_npu_destroy_context(nphb->opal_id, pasid, pci_dev_id(gpdev));
++	if (ret < 0)
++		dev_err(&gpdev->dev, "Failed to destroy pasid context: %d\n", ret);
++
++	return ret;
++}
++EXPORT_SYMBOL(pnv_npu2_destroy_pasid);
++
+ /* Every PCI device whose DT node carries an "ibm,npu" phandle is an NVLink GPU. */
+ void pnv_npu2_map_lpar(unsigned long msr)
+ {

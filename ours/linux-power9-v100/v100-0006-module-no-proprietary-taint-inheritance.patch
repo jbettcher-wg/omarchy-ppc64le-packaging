@@ -1,0 +1,46 @@
+module: do not revoke GPL symbol access via proprietary taint inheritance (7.x)
+
+Forward-port of the 6.12 local patch (ac922-moe-offload/patches/kernel/0003-...). Without it nvidia-uvm
+fails to load on 7.2.9-npu: 'Unknown symbol mmu_notifier_unregister (err -2)' and seven more, because it
+imports one symbol from the proprietary nvidia.ko first and then loses access to GPL-only exports.
+Local build for the AC922 only; not for distribution.
+
+--- a/kernel/module/main.c	2026-10-03 04:43:16.000000000 -0600
++++ b/kernel/module/main.c	2026-10-04 21:04:17.776801373 -0600
+@@ -1242,17 +1242,25 @@
+ 	if (!owner || !test_bit(TAINT_PROPRIETARY_MODULE, &owner->taints))
+ 		return true;
+ 
+-	if (mod->using_gplonly_symbols) {
+-		pr_err("%s: module using GPL-only symbols uses symbols %s from proprietary module %s.\n",
+-			mod->name, name, owner->name);
+-		return false;
+-	}
+-
+-	if (!test_bit(TAINT_PROPRIETARY_MODULE, &mod->taints)) {
+-		pr_warn("%s: module uses symbols %s from proprietary module %s, inheriting taint.\n",
+-			mod->name, name, owner->name);
+-		set_bit(TAINT_PROPRIETARY_MODULE, &mod->taints);
+-	}
++	/*
++	 * AC922 / NVLink local change (forward-port of the 6.12 patch
++	 * 0003-module-disable-proprietary-taint-inheritance).
++	 *
++	 * Upstream propagates TAINT_PROPRIETARY_MODULE from a proprietary
++	 * module to any module importing its symbols, and resolve_symbol()
++	 * derives gplok from that bit, so every later EXPORT_SYMBOL_GPL
++	 * lookup fails with "Unknown symbol (err -2)".
++	 *
++	 * nvidia-uvm (Dual MIT/GPL) imports nvUvmInterfaceDisableAccessCntr
++	 * from nvidia.ko and, with the POWER9 ATS path, also needs
++	 * __mmu_notifier_register, mmu_notifier_unregister, mmput, __mmdrop,
++	 * mmu_psize_defs and of_property_*, all GPL-only. It then fails to
++	 * load, taking unified memory with it.
++	 *
++	 * Keep the diagnostic, drop the revocation. Local build, not distributed.
++	 */
++	pr_warn_once("%s: imports %s from proprietary module %s; taint inheritance disabled by local patch\n",
++		     mod->name, name, owner->name);
+ 	return true;
+ }
+ 

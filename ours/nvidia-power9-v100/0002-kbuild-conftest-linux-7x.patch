@@ -1,0 +1,445 @@
+kbuild, conftest and core shims: build 535.216.03 against Linux 7.x
+
+Local workaround. 535.216.03 predates 7.x; none of this is ppc64le specific.
+
+ - Kbuild: 7.x dropped the "ccflags-y += $(EXTRA_CFLAGS)" compat hook, which silently removed every flag the
+   driver sets (-I for its own headers, -D__KERNEL__ -DMODULE -DNVRM). Re-add it. Give the conftest probes the
+   same preincludes and C dialect kbuild uses (compiler-version.h, kconfig.h, compiler_types.h, -std=gnu11,
+   -fms-extensions), without which ~250 probes fail or invert; keep them out of the version-string probe.
+ - conftest.sh + nvidia.Kbuild: probes for del_timer_sync()/timer_delete_sync(), in_irq(),
+   dma_map_ops.map_phys and strncpy, and address-of forms for probes 7.x made inline.
+ - common/inc/nv-kernel-compat-7x.h (new), nv-linux.h, nv-time.h, nvidia-modeset-linux.c: shims selected by
+   those verdicts (timer_delete_sync, in_hardirq, strscpy).
+ - nvidia/nv-dma.c: use dma_map_ops.map_phys where .map_page is gone.
+ - nvidia.Kbuild, nvidia-modeset.Kbuild: absolute path to the binary objects (7.x resolves $(src) differently
+   for the prebuilt-object rule).
+
+Needs kernel patch v100-0005 (linux-power9-v100): nvidia.ko's vm_flags_set() path reaches
+__vma_start_write, which is GPL-only upstream.
+
+--- a/Kbuild	2026-10-04 23:43:45.688527606 -0600
++++ b/Kbuild	2026-10-04 23:43:46.029947080 -0600
+@@ -115,6 +115,12 @@
+ EXTRA_CFLAGS += -DNV_SPECTRE_V2=$(NV_SPECTRE_V2)
+ EXTRA_CFLAGS += -DNV_KERNEL_INTERFACE_LAYER
+ 
++# Kernels >= v7 dropped the "ccflags-y += $(EXTRA_CFLAGS)" compat hook that v6.12
++# still ships in scripts/Makefile.lib, so every flag in the block above (the -I$(src) pair that
++# carries this tree's own headers, -D__KERNEL__ -DMODULE -DNVRM, the -W set) is silently dropped for
++# this out-of-tree module build. Re-establish it on the driver side so one patch works on 6.x and 7.x.
++ccflags-y += $(EXTRA_CFLAGS)
++
+ #
+ # Detect SGI UV systems and apply system-specific optimizations.
+ #
+@@ -155,6 +161,56 @@
+ NV_CONFTEST_CFLAGS += $(call cc-disable-warning,pointer-sign)
+ NV_CONFTEST_CFLAGS += $(call cc-option,-fshort-wchar,)
+ 
++# The probe flags must mirror what kbuild puts in front of every kernel compile
++# (scripts/Makefile.build 'orig_initial'/'initial_compileflags'), which the probe
++# flags otherwise miss:
++#   -include <tree>/include/linux/compiler-version.h
++#   -include <tree>/include/linux/kconfig.h
++#   -include <tree>/include/linux/compiler_types.h
++#   -std=gnu11  (CC_FLAGS_DIALECT, kernel Makefile:813; also in the working Sep
++#                build's savedcmd nvidia/.nv-acpi.o.cmd)
++# Two consequences of missing them:
++# 1) IS_ENABLED()/ZERO_OR_ONE() is not yet defined when a kernel header first uses
++#    it (7.x include/linux/fortify-string.h:527 'if ((IS_ENABLED(KBUILD_EXTRA_WARN1) ||'
++#    inside fortify_memcpy_chk), so the identifier is a plain C name:
++#      error: 'KBUILD_EXTRA_WARN1' undeclared (first use in this function)
++#    which makes every probe that reaches <linux/string.h> fail -- anything
++#    including <linux/mm.h>. Because the 'functions' verdicts are inverted
++#    (conftest/sh:270), that reported the LEGACY get_user_pages shape as present
++#    and nv-mm.h:104 then called it with 8 arguments:
++#      error: too many arguments to function 'get_user_pages'; expected 4, have 8
++# 2) with gcc-toolset-15 the default dialect is C23-enough, and 7.x's own
++#    headers then stop parsing (stddef.h:11:9 'false' as enumeration constant,
++#    types.h:34:33 'bool' via typedef), corrupting the same verdicts.
++# Replaying one probe shows both fixes together:
++#   gcc -c p.c $(CF)                      -> error: 'bool' cannot be defined ...
++#   gcc -c p.c $(CF) -std=gnu11 -include .../compiler_types.h  -> rc 0
++# The preinclude list and the dialect are taken from the kernel tree so the
++# patch stays correct across kernel versions.
++NV_KERNEL_PREINCLUDE := $(NV_KERNEL_SOURCES)/include/linux/compiler-version.h \
++                        $(NV_KERNEL_SOURCES)/include/linux/kconfig.h \
++                        $(NV_KERNEL_SOURCES)/include/linux/compiler_types.h
++NV_KERNEL_PREINCLUDE_EXISTS := $(foreach h,$(filter $(NV_KERNEL_PREINCLUDE),$(wildcard $(NV_KERNEL_PREINCLUDE))),-include $(h))
++NV_CONFTEST_CFLAGS += $(NV_KERNEL_PREINCLUDE_EXISTS)
++# The version-string fragment must NOT see the preinclude trio: with -E -P every
++# non-directive line of the -included headers is echoed into the '// Kernel version:'
++# comment, which Kbuild:406 then pastes into every generated conftest header. On 7.x
++# that injects real C (include/linux/compiler_types.h:190's struct ftrace_branch_data,
++# include/linux/iversion.h's _context_unsafe_alias) into conftest/{headers,macros,
++#functions,symbols,types,generic}.h, so all ~250 probes then die on:
++#   conftest/headers.h:94:8: error: redefinition of 'struct ftrace_branch_data'
++#   (note: originally defined here include/linux/compiler_types.h:190)
++# and the generated headers' version stamp becomes a 21-line blob. It is only a
++# cosmetic version string, so give it the minimal flag set instead.
++NV_CONFTEST_VERSION_CFLAGS = $(NV_CFLAGS_FROM_CONFTEST) $(NV_KERNEL_C_DIALECT)
++# 7.x also needs the MS-extension dialect flag for include/linux/fs.h:2436's struct
++# filename layout (otherwise: 'declaration does not declare anything' plus the
++# static_assert at fs.h:2440 'sizeof(struct filename) % 64 == 0'); the kernel's own
++# compile line carries it (see savedcmd arch/powerpc/kernel/.align.o.cmd).
++NV_CONFTEST_CFLAGS += $(call cc-option,-fms-extensions,)
++NV_KERNEL_C_DIALECT := $(shell grep -Eo '(-std=[[:alnum:]]+)' $(NV_KERNEL_SOURCES)/Makefile)
++NV_CONFTEST_CFLAGS += $(NV_KERNEL_C_DIALECT)
++
+ NV_CONFTEST_COMPILE_TEST_HEADERS := $(obj)/conftest/macros.h
+ NV_CONFTEST_COMPILE_TEST_HEADERS += $(obj)/conftest/functions.h
+ NV_CONFTEST_COMPILE_TEST_HEADERS += $(obj)/conftest/symbols.h
+@@ -358,7 +414,7 @@
+ 
+ $(obj)/conftest/uts_release: NV_GENERATE_UTS_RELEASE
+ 	@mkdir -p $(dir $@)
+-	@NV_UTS_RELEASE="// Kernel version: `$(NV_CONFTEST_CMD) compile_tests '$(NV_CONFTEST_CFLAGS)' uts_release`"; \
++	@NV_UTS_RELEASE="// Kernel version: `$(NV_CONFTEST_CMD) compile_tests '$(NV_CONFTEST_VERSION_CFLAGS)' uts_release`"; \
+ 	if ! [ -f "$@" ] || [ "$$NV_UTS_RELEASE" != "`cat $@`" ]; \
+ 	then echo "$$NV_UTS_RELEASE" > $@; fi
+ 
+--- a/conftest.sh	2026-10-04 23:43:45.688527606 -0600
++++ b/conftest.sh	2026-10-04 23:43:46.079945373 -0600
+@@ -6283,6 +6283,106 @@
+             compile_check_conftest "$CODE" "NV_IOMMU_SVA_BIND_DEVICE_HAS_DRVDATA_ARG" "" "types"
+         ;;
+ 
++        nv_strncpy_raw_present)
++            #
++            # Determine whether the kernel still declares the raw strncpy()
++            # entry point.  6.12 does (include/linux/string.h:70
++            # 'extern char * strncpy(char *,const char *, __kernel_size_t);');
++            # 7.x fortified-string policy removed both the declaration and the
++            # symbol (System.map has only strncpy_from_user*), which is why
++            # nvidia/os-interface.c:747 reports
++            #   error: implicit declaration of function 'strncpy'
++            # Take the address instead of calling it: an undeclared identifier
++            # is a hard error even where implicit declarations are tolerated.
++            #
++            CODE="
++            #include <linux/string.h>
++            void conftest_nv_strncpy_raw_present(void) {
++                (void *)&strncpy;
++            }"
++
++            compile_check_conftest "$CODE" "NV_STRNCPY_RAW_PRESENT" "" "generic"
++        ;;
++
++        nv_del_timer_sync_present)
++            #
++            # Determine if the 6.x timer-removal entry point is declared.
++            #
++            # Take the address instead of calling it: an undeclared identifier
++            # is a hard error even where implicit function declarations are
++            # tolerated (this tree's probe flags carry
++            # -Wno-implicit-function-declaration, so a *call* form reports
++            # PRESENT for a symbol the tree does not have), and a bare use
++            # does not expand a function-like macro.  "generic" keeps the
++            # plain PASS -> PRESENT mapping.
++            #
++            CODE="
++            #include <linux/timer.h>
++            void conftest_nv_del_timer_sync_present(void) {
++                (void *)&del_timer_sync;
++            }"
++
++            compile_check_conftest "$CODE" "NV_DEL_TIMER_SYNC_PRESENT" "" "generic"
++        ;;
++
++        nv_timer_delete_sync_present)
++            #
++            # Same address-of probe for the 7.x name (include/linux/timer.h:166
++            # 'extern int timer_delete_sync(struct timer_list *timer);').
++            #
++            CODE="
++            #include <linux/timer.h>
++            void conftest_nv_timer_delete_sync_present(void) {
++                (void *)&timer_delete_sync;
++            }"
++
++            compile_check_conftest "$CODE" "NV_TIMER_DELETE_SYNC_PRESENT" "" "generic"
++        ;;
++
++        nv_in_irq_present)
++            #
++            # Determine if the in_irq() call expression used by nv-time.h is
++            # available.  6.12 provides it as the obsolete
++            # include/linux/preempt.h:141 '#define in_irq() (hardirq_count())';
++            # 7.x keeps only hardirq_count()/in_hardirq()
++            # (include/linux/preempt.h:109/:127).  A *call* form would also
++            # compile against an implicit declaration, which this tree's probe
++            # flags tolerate -- build-7x-driver11 showed exactly that, with
++            # nv-time.h:160 still reporting 'implicit declaration of function
++            # in_irq'.  Take the address instead.  On 6.12 in_irq is the
++            # function-like macro from preempt.h:141, which a bare use does not
++            # expand, so the probe reports absent there and nv-time.h installs
++            # its own copy, which is character-for-character 6.12's definition.
++            #
++            CODE="
++            #include <linux/preempt.h>
++            void conftest_nv_in_irq_present(void) {
++                (void *)&in_irq;
++            }"
++
++            compile_check_conftest "$CODE" "NV_IN_IRQ_PRESENT" "" "generic"
++        ;;
++
++        nv_dma_map_ops_has_map_phys_present)
++            #
++            # Determine whether struct dma_map_ops carries the 7.x
++            # map_phys slot.  6.12 spells the same slot map_resource
++            # (include/linux/dma-map-ops.h:49), which is why nv-dma.c:799
++            # reaches for it and 7.x reports
++            #   nvidia/nv-dma.c:799:16: error: 'const struct dma_map_ops'
++            #      has no member named 'map_resource'
++            # sizeof() of the member expression never evaluates the null
++            # dereference, it only forces the member name to exist.
++            #
++            CODE="
++            #include <linux/dma-map-ops.h>
++            size_t conftest_nv_dma_map_ops_has_map_phys_present(void) {
++                return sizeof(((const struct dma_map_ops *)0)->map_phys);
++            }"
++
++            compile_check_conftest "$CODE" "NV_DMA_MAP_OPS_HAS_MAP_PHYS_PRESENT" "" "generic"
++        ;;
++
+         vm_area_struct_has_const_vm_flags)
+             #
+             # Determine if the 'vm_area_struct' structure has
+@@ -6293,13 +6393,30 @@
+             # wrapper functions") in mm-stable branch (2023-02-09)
+             # of the akpm/mm maintainer tree.
+             #
++            #
++            # The 7.x vma rework keeps 'const vm_flags_t vm_flags;'
++            # (include/linux/mm_types.h:946) but drops the '__vm_flags'
++            # half of the v6.3 union wrapper, so the offsetof probe above
++            # reports "not const" for a tree where the member really is
++            # const: nv-mm.h:300 then takes the writable branch and dies
++            # with
++            #   common/inc/nv-mm.h:300:19: error: assignment of read-only
++            #      member 'vm_flags'
++            # Probe the property we actually need instead of the v6.3
++            # implementation detail: try to write the member, and let the
++            # "functions" category's inversion turn the expected compile
++            # failure into PRESENT.  A kernel whose member is writable
++            # compiles the probe and therefore stays not-present.
++            #
+             CODE="
+             #include <linux/mm_types.h>
+             int conftest_vm_area_struct_has_const_vm_flags(void) {
+-                return offsetof(struct vm_area_struct, __vm_flags);
++                struct vm_area_struct *vma;
++                vma->vm_flags |= 1;
++                return 0;
+             }"
+ 
+-            compile_check_conftest "$CODE" "NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS" "" "types"
++            compile_check_conftest "$CODE" "NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS" "" "functions"
+         ;;
+ 
+         drm_driver_has_dumb_destroy)
+--- a/common/inc/nv-linux.h	2026-10-04 23:43:45.709958007 -0600
++++ b/common/inc/nv-linux.h	2026-10-04 23:43:46.139943324 -0600
+@@ -2055,3 +2055,19 @@
+                                          !NV_IS_EXPORT_SYMBOL_GPL_##symbol)
+ 
+ #endif  /* _NV_LINUX_H_ */
++
++// ---------------------------------------------------------------------
++// v7-series timer API: del_timer_sync() no longer exists (it was a
++// deprecated alias of del_timer() removed in the v5.x timer cleanup;
++// v6.12 still provides it in include/linux/timer.h, v7.2.9 does not).
++// The 535 branch has no conftest for it (nvidia/nvidia.Kbuild registers
++// timer_setup but not del_timer_sync), so its call sites are unguarded
++// and the build dies:
++//   nvidia/nv.c:3768:5: error: implicit declaration of function
++//      'del_timer_sync'   (nv_stop_rc_timer)
++//   nvidia/nv.c:3812:      del_timer_sync(&nvl->snapshot_timer.kernel_timer)
++// del_timer() performs the same removal on a non-UMAC kernel, which every
++// ppc64le build is, so map the macro here instead of forking each site.
++// On a 6.x tree this only shadows an alias that already behaves this way.
++// ---------------------------------------------------------------------
++#include "nv-kernel-compat-7x.h"
+--- a/common/inc/nv-time.h	2026-10-04 23:43:45.709958007 -0600
++++ b/common/inc/nv-time.h	2026-10-04 23:43:46.179941958 -0600
+@@ -30,6 +30,21 @@
+ #include <linux/interrupt.h>
+ #include <linux/ktime.h>
+ 
++/*
++ * 7.x dropped the obsolete in_irq() macro that 6.12 still provides in
++ * include/linux/preempt.h:141 ('#define in_irq() (hardirq_count())').
++ * What survives there is the counter it was defined from
++ * (include/linux/preempt.h:109 'hardirq_count()'), so re-create the macro
++ * with exactly its 6.12 definition rather than substituting a constant:
++ * the two nv_sleep_us/nv_sleep_ms sites (nv-time.h:145 and :190) bail out
++ * on an over-long delay in IRQ context, and answering "never in IRQ" would
++ * let that delay run there.  The 0006 probe nv_in_irq_present reports the
++ * kernel's own spelling first, so nothing is defined in that case.
++ */
++#if !defined(in_irq) && !defined(NV_IN_IRQ_PRESENT)
++#define in_irq() (hardirq_count())
++#endif
++
+ #include <nvstatus.h>
+ 
+ #define NV_MAX_ISR_DELAY_US           20000
+--- a/common/inc/nv-kernel-compat-7x.h	1969-12-31 17:00:00.000000000 -0700
++++ b/common/inc/nv-kernel-compat-7x.h	1969-12-31 17:00:00.000000000 -0700
+@@ -0,0 +1,71 @@
++/*
++ * Kernel-API compat shims this driver needs on 7-series trees, shared by the
++ * nvidia/uvm/drm/peermem units (which reach them at nv-linux.h's EOF) and by
++ * the nvidia-modeset unit, which includes conftest.h but never nv-linux.h --
++ * build-7x-driver12 showed that half: nvidia-modeset-linux.c:325 still had an
++ * implicit 'strncpy' (and 'returning int from a function returning char *') and
++ * :655 an implicit 'del_timer_sync'.  Every block is gated on a conftest verdict,
++ * which is why this header must be included *after* conftest.h.
++ */
++
++#ifndef NV_KERNEL_COMPAT_7X_H
++#define NV_KERNEL_COMPAT_7X_H
++
++// ---------------------------------------------------------------------
++// v7-series timer API rename (7.x include/linux/timer.h:165-167):
++//     del_timer_sync() -> timer_delete_sync(),  del_timer() -> timer_delete()
++// 6.12 still ships the old spelling, so this mapping only applies when the
++// 6.x entry point is really gone (probed by 0006's nv_del_timer_sync_present)
++// and the 7.x one is really there (nv_timer_delete_sync_present).  Without
++// this guard the 535 branch dies at its two unguarded call sites:
++//   nvidia/nv.c:3768:5: error: implicit declaration of function
++//      'del_timer_sync'   (nv_stop_rc_timer)
++//   nvidia/nv.c:3812:      del_timer_sync(&nvl->snapshot_timer.kernel_timer)
++//   (nv_stop_snapshot_timer)
++// This replaces the 0005 block, which mapped onto del_timer() -- absent
++// from 7.x just like del_timer_sync(), so it only moved the error.
++// ---------------------------------------------------------------------
++#if !defined(NV_DEL_TIMER_SYNC_PRESENT)
++#if defined(NV_TIMER_DELETE_SYNC_PRESENT)
++#define del_timer_sync(t) timer_delete_sync(t)
++#define del_timer(t) timer_delete(t)
++#else
++#error "this tree has neither the 6.x (del_timer_sync) nor the 7.x (timer_delete_sync) timer-removal API"
++#endif
++#endif
++
++
++// ---------------------------------------------------------------------
++// 7.x's fortified-string policy dropped the raw strncpy() entry point
++// altogether: include/linux/string.h has no declaration for it (6.12:70 has)
++// and System.map keeps only strncpy_from_user*, so nvidia/os-interface.c:747
++// (and linux_nvswitch.c:2028 / :2383, uvm_pmm_gpu.c:3046,
++// nvidia-modeset-linux.c:325) compile against an implicit declaration:
++//   nvidia/os-interface.c:747:5: error: implicit declaration of function
++//      'strncpy'
++// Re-implement it rather than retargeting five call sites: the call sites use
++// strncpy's *return value* too (linux_nvswitch.c:2383 returns it), so a plain
++// strscpy redirect would not type-check.  The copy below is strncpy's
++// documented behaviour verbatim (truncate, then pad the remainder with NULs)
++// built from strnlen()/memcpy()/memset(), which every supported tree has.
++// The 0006-style probe nv_strncpy_raw_present records whether the kernel
++// still declares the real one, so a 6.x tree keeps using it.
++// ---------------------------------------------------------------------
++#if !defined(NV_STRNCPY_RAW_PRESENT)
++static inline char *nv_compat_strncpy(char *dest, const char *src, size_t n)
++{
++    size_t len;
++
++    if (n == 0)
++        return dest;
++
++    len = strnlen(src, n - 1);
++    memcpy(dest, src, len);
++    memset(dest + len, 0, n - len);
++
++    return dest;
++}
++#define strncpy(d, s, n) nv_compat_strncpy(d, s, n)
++#endif
++
++#endif /* NV_KERNEL_COMPAT_7X_H */
+--- a/nvidia/nv-dma.c	2026-10-04 23:43:45.689267843 -0600
++++ b/nvidia/nv-dma.c	2026-10-04 23:43:46.289938202 -0600
+@@ -773,7 +773,7 @@
+     nv_dma_device_t *dma_dev
+ )
+ {
+-#if defined(NV_DMA_MAP_RESOURCE_PRESENT)
++#if defined(NV_DMA_MAP_RESOURCE_PRESENT) || defined(NV_DMA_MAP_OPS_HAS_MAP_PHYS_PRESENT)
+     const struct dma_map_ops *ops = get_dma_ops(dma_dev->dev);
+ #endif
+ 
+@@ -782,7 +782,7 @@
+         return NV_FALSE;
+     }
+ 
+-#if defined(NV_DMA_MAP_RESOURCE_PRESENT)
++#if defined(NV_DMA_MAP_RESOURCE_PRESENT) || defined(NV_DMA_MAP_OPS_HAS_MAP_PHYS_PRESENT)
+     if (ops == NULL)
+     {
+         /* On pre-5.0 kernels, if dma_map_resource() is present, then we
+@@ -796,7 +796,16 @@
+ #endif
+     }
+ 
++#if defined(NV_DMA_MAP_OPS_HAS_MAP_PHYS_PRESENT)
++    /* 7.x renamed this dma_map_ops slot: 6.12's include/linux/dma-map-ops.h:49
++     * 'dma_addr_t (*map_resource)(...)' is this tree's
++     * 'dma_addr_t (*map_phys)(...)'.  Same slot, same meaning -- can this
++     * device map a physical range -- so the peer-BAR remap path stays
++     * enabled; asking for the 6.x name here is the hard error. */
++    return (ops->map_phys != NULL);
++#else
+     return (ops->map_resource != NULL);
++#endif
+ #else
+     return NV_FALSE;
+ #endif
+--- a/nvidia/nvidia.Kbuild	2026-10-04 23:43:45.689958690 -0600
++++ b/nvidia/nvidia.Kbuild	2026-10-04 23:43:46.329936836 -0600
+@@ -37,7 +37,7 @@
+ # and needs to be re-executed.
+ #
+ 
+-NVIDIA_BINARY_OBJECT := $(src)/nvidia/nv-kernel.o_binary
++NVIDIA_BINARY_OBJECT := $(shell realpath $(src)/nvidia/nv-kernel.o_binary)
+ NVIDIA_BINARY_OBJECT_O := nvidia/nv-kernel.o
+ 
+ quiet_cmd_symlink = SYMLINK $@
+@@ -260,6 +260,13 @@
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += nvidia_grid_csp_build
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += get_user_pages
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += get_user_pages_remote
++# 7.x API probes (driver/0006-conftest-7x-api-probes.patch): the driver-side
++# compat shims branch on these verdicts.
++NV_CONFTEST_GENERIC_COMPILE_TESTS += nv_del_timer_sync_present
++NV_CONFTEST_GENERIC_COMPILE_TESTS += nv_timer_delete_sync_present
++NV_CONFTEST_GENERIC_COMPILE_TESTS += nv_in_irq_present
++NV_CONFTEST_GENERIC_COMPILE_TESTS += nv_dma_map_ops_has_map_phys_present
++NV_CONFTEST_GENERIC_COMPILE_TESTS += nv_strncpy_raw_present
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += pin_user_pages
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += pin_user_pages_remote
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += pm_runtime_available
+--- a/nvidia-modeset/nvidia-modeset.Kbuild	2026-10-04 23:43:45.693238627 -0600
++++ b/nvidia-modeset/nvidia-modeset.Kbuild	2026-10-04 23:43:46.379935128 -0600
+@@ -37,7 +37,7 @@
+ # But, the target for the symlink rule should be prepended with $(obj).
+ #
+ 
+-NVIDIA_MODESET_BINARY_OBJECT := $(src)/nvidia-modeset/nv-modeset-kernel.o_binary
++NVIDIA_MODESET_BINARY_OBJECT := $(shell realpath $(src)/nvidia-modeset/nv-modeset-kernel.o_binary)
+ NVIDIA_MODESET_BINARY_OBJECT_O := nvidia-modeset/nv-modeset-kernel.o
+ 
+ quiet_cmd_symlink = SYMLINK $@
+--- a/nvidia-modeset/nvidia-modeset-linux.c	2026-10-04 23:43:45.693238627 -0600
++++ b/nvidia-modeset/nvidia-modeset-linux.c	2026-10-04 23:43:46.429933421 -0600
+@@ -49,6 +49,7 @@
+ #include "nvkms-ioctl.h"
+ 
+ #include "conftest.h"
++#include "nv-kernel-compat-7x.h"
+ #include "nv-procfs.h"
+ #include "nv-kthread-q.h"
+ #include "nv-time.h"

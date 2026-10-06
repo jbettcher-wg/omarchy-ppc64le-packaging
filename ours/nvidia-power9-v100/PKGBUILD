@@ -1,0 +1,72 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# NVIDIA kernel modules for linux-power9-v100, prebuilt. See README.md.
+#
+# This is the one NVIDIA branch that still has a ppc64le build (535 is the
+# last), and the only way to drive the NVLink 2.0 Tesla V100s in an AC922.
+# It is tied to one kernel: rebuild (bump pkgrel) whenever linux-power9-v100
+# changes, and keep _kernpkg's version in depends= in step.
+
+_kernpkg=linux-power9-v100
+pkgname=nvidia-power9-v100
+pkgver=535.216.03
+pkgrel=1
+pkgdesc="NVIDIA kernel modules for linux-power9-v100 (Tesla V100 / NVLink 2.0 on the AC922)"
+arch=(powerpc64le)
+url="https://www.nvidia.com/"
+license=('custom')
+depends=("$_kernpkg" "nvidia-utils=$pkgver")
+makedepends=("$_kernpkg-headers")
+provides=('NVIDIA-MODULE')
+conflicts=('NVIDIA-MODULE' 'nvidia-dkms')
+# The binary objects (nv-kernel.o_binary, nv-modeset-kernel.o_binary) are
+# linked in as shipped; do not let makepkg strip them, package() strips only
+# debug info from the finished modules.
+options=('!strip' '!debug')
+_pkg="NVIDIA-Linux-ppc64le-${pkgver}"
+source=("https://us.download.nvidia.com/tesla/${pkgver}/${_pkg}.run"
+        0001-nvidia-uvm-ppc64le-driver-mode-ats.patch
+        0002-kbuild-conftest-linux-7x.patch
+        0003-nvidia-drm-linux-7x.patch)
+sha256sums=('7e256d2d0fd8976376d46a321e2108ff969929d3919f177e89050fb54f0f74ab'
+            '444913c6edac6c126650216676160f5ea97a11d4641c8f42e6acca6e87ecadc6'
+            '1f9b6c9f53516d537223c3351a113147d444606c34f34b0593091797bc30be5d'
+            '87ccb4e02aaf2fb761576e2d172298b14119a279b60ebc2b1b6858b17d687a49')
+
+prepare() {
+  rm -rf "$_pkg"
+  sh "$_pkg.run" --extract-only
+
+  cd "$_pkg/kernel"
+  local src
+  for src in "${source[@]}"; do
+    [[ $src = *.patch ]] || continue
+    echo "Applying $src..."
+    patch -Np1 -i "$srcdir/$src"
+  done
+}
+
+build() {
+  cd "$_pkg/kernel"
+  # The modules only make sense against the kernel carrying the v100-*
+  # patches (NPU2/NVLink, the OPAL NPU exports, __vma_start_write).
+  local _kver="$(</usr/src/$_kernpkg/version)"
+  [[ $_kver == *-v100 ]] || { echo "unexpected kernel release '$_kver'"; return 1; }
+
+  make SYSSRC="/usr/src/$_kernpkg" modules
+}
+
+package() {
+  local _kver="$(</usr/src/$_kernpkg/version)"
+  local _extradir="/usr/lib/modules/$_kver/extramodules"
+
+  install -Dt "$pkgdir$_extradir" -m644 "$_pkg"/kernel/*.ko
+  find "$pkgdir" -name '*.ko' -exec strip --strip-debug {} +
+
+  # nvidia-utils loads nvidia-uvm; add nvidia-drm so the DRM nodes exist
+  # without anything having to ask for them. modeset stays off (untested,
+  # and the V100 has no outputs).
+  echo "nvidia-drm" | install -Dm644 /dev/stdin "$pkgdir/usr/lib/modules-load.d/$pkgname.conf"
+
+  install -Dm644 "$_pkg/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
