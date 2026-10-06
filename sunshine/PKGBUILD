@@ -39,6 +39,7 @@ _mfx=()
 depends=(
   "${_mfx[@]}"
   'avahi'
+  'boost-libs'
   'curl'
   'gcc-libs'
   'gtk3'
@@ -68,6 +69,7 @@ depends=(
 
 makedepends=(
   'appstream'
+  'boost'
   'appstream-glib'
   'cmake'
   'desktop-file-utils'
@@ -80,10 +82,17 @@ makedepends=(
   'shaderc'
 )
 
-checkdepends=(
-  'gcovr'
-  'imagemagick'
-)
+# gcovr and imagemagick are only reached inside check()'s _run_unit_tests
+# branch; the unconditional part of check() is `sunshine --version` and needs
+# neither. gcovr is in no Arch POWER repo and is not worth packaging to satisfy
+# a coverage run we do not ask for, so declare them only when tests are on.
+checkdepends=()
+if [[ "${_run_unit_tests::1}" == "t" ]]; then
+  checkdepends=(
+    'gcovr'
+    'imagemagick'
+  )
+fi
 
 optdepends=(
   'libva-mesa-driver: AMD GPU encoding support'
@@ -92,8 +101,12 @@ optdepends=(
 provides=()
 conflicts=()
 
-source=("$pkgname::git+https://github.com/LizardByte/Sunshine.git#commit=${_commit}")
-sha256sums=('SKIP')
+source=("$pkgname::git+https://github.com/LizardByte/Sunshine.git#commit=${_commit}"
+        ppc64le-boost-drop-exact-version.patch
+        ppc64le-vite-no-lightningcss.patch)
+sha256sums=('SKIP'
+            'a93e2e8d6f4298065b14d7b42d9a4f6d3cf09cc7e0eb4cb5b29f26eb3a61639a'
+            '5abc94b9bf7fc12706e30b64a4b7438742f5426ea1d85f1c59087cd1459b68ba')
 
 # Options Handling
 if [[ "${_use_cuda::1}" == "d" ]] && pacman -Qi cuda &> /dev/null; then
@@ -128,6 +141,18 @@ fi
 prepare() {
     cd "$pkgname"
     git submodule update --recursive --init --depth 1
+
+    # Upstream asks find_package for Boost EXACT 1.89.0. Nothing ships that any
+    # more, so every build fell through to FetchContent -- and the vendored
+    # Boost.Context build assembles make/jump/ontop_x86_64_sysv_elf_gas.S
+    # regardless of target, which cannot assemble on ppc64le. Relaxing EXACT
+    # lets the system Boost 1.90 satisfy it, so Boost is never vendored and the
+    # x86 assembly is never reached.
+    msg2 "Applying ppc64le patch: ppc64le-boost-drop-exact-version.patch"
+    patch -Np1 -i "$srcdir/ppc64le-boost-drop-exact-version.patch"
+
+    msg2 "Applying ppc64le patch: ppc64le-vite-no-lightningcss.patch"
+    patch -Np1 -i "$srcdir/ppc64le-vite-no-lightningcss.patch"
 }
 
 build() {

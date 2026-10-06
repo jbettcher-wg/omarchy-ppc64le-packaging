@@ -1,0 +1,19 @@
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -65,6 +65,16 @@
+     ],
+     root: resolve(assetsSrcPath),
+     build: {
++        // vite 8 defaults cssMinify to lightningcss, which ships only prebuilt
++        // native node modules and publishes none for ppc64le -- the build dies
++        // on `Cannot find module '../lightningcss.linux-ppc64-gnu.node'`.
++        //
++        // 'esbuild' is not an option either: vite 8 moved to rolldown and no
++        // longer depends on esbuild, so asking for it fails with "Cannot find
++        // package 'esbuild'". Turning minification off needs no native blob at
++        // all, and the only cost is a few unminified KB of CSS on a
++        // self-hosted admin page.
++        cssMinify: false,
+         outDir: resolve(assetsDstPath),
+         rollupOptions: {
+             input: {
