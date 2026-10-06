@@ -31,7 +31,7 @@ source=("https://us.download.nvidia.com/tesla/${pkgver}/${_pkg}.run"
 sha256sums=('7e256d2d0fd8976376d46a321e2108ff969929d3919f177e89050fb54f0f74ab'
             '444913c6edac6c126650216676160f5ea97a11d4641c8f42e6acca6e87ecadc6'
             '1f9b6c9f53516d537223c3351a113147d444606c34f34b0593091797bc30be5d'
-            '335cec63d8c6c941a8f817608f07a421577d2ac7428df0efcb1602620569a963')
+            '87ccb4e02aaf2fb761576e2d172298b14119a279b60ebc2b1b6858b17d687a49')
 
 prepare() {
   rm -rf "$_pkg"

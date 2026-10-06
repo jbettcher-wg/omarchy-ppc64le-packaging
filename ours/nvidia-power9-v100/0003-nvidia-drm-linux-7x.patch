@@ -8,12 +8,17 @@ fb_create() and drm_helper_mode_fill_fb_struct() take a const struct drm_format_
 no .date; dma_fence_signal() returns void; connector mode_valid() returns enum drm_mode_status and takes a
 const mode; struct drm_mode_create_dumb is not declared before nv_drm_dumb_create()'s prototype.
 
+Also sets .fop_flags = FOP_UNSIGNED_OFFSET on the driver's file_operations: drm_open() has refused (WARN_ON_ONCE
+plus -EINVAL) any fops without it since 6.12, so the first version of this patch registered /dev/dri/card* that
+nobody could open (seen as a drm_open_helper warning from nvtop).
+
 All behind NV_DRM_7X_COMPAT (LINUX_VERSION_CODE >= 7.2.0) in the new nvidia-drm-7x-compat.h.
 Loaded 2026-10-04 on 7.2.9 with modeset=0: registers /dev/dri/card1-4 and four render nodes, no kernel
-messages. modeset=1 and any display use are untested (the V100 has no display outputs).
+messages at load. modeset=1 and any display use are untested (the V100 has no display outputs).
 
---- a/nvidia-drm/nvidia-dma-fence-helper.h	2026-10-04 23:43:45.712110697 -0600
-+++ b/nvidia-drm/nvidia-dma-fence-helper.h	2026-10-04 23:43:46.509930689 -0600
+diff -ruN a/nvidia-drm/nvidia-dma-fence-helper.h b/nvidia-drm/nvidia-dma-fence-helper.h
+--- a/nvidia-drm/nvidia-dma-fence-helper.h
++++ b/nvidia-drm/nvidia-dma-fence-helper.h
 @@ -92,6 +92,9 @@
  static inline int nv_dma_fence_signal(nv_dma_fence_t *fence) {
  #if defined(NV_LINUX_FENCE_H_PRESENT)
@@ -24,8 +29,9 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
  #else
      return dma_fence_signal(fence);
  #endif
+diff -ruN a/nvidia-drm/nvidia-drm-7x-compat.h b/nvidia-drm/nvidia-drm-7x-compat.h
 --- a/nvidia-drm/nvidia-drm-7x-compat.h	1969-12-31 17:00:00.000000000 -0700
-+++ b/nvidia-drm/nvidia-drm-7x-compat.h	1969-12-31 17:00:00.000000000 -0700
++++ b/nvidia-drm/nvidia-drm-7x-compat.h
 @@ -0,0 +1,66 @@
 +/*
 + * AC922 / Linux 7.x compatibility for nvidia-drm 535.216.03.
@@ -93,8 +99,9 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
 +#endif
 +
 +#endif /* __NVIDIA_DRM_7X_COMPAT_H__ */
---- a/nvidia-drm/nvidia-drm-conftest.h	2026-10-04 23:43:45.712110697 -0600
-+++ b/nvidia-drm/nvidia-drm-conftest.h	2026-10-04 23:43:46.609927274 -0600
+diff -ruN a/nvidia-drm/nvidia-drm-conftest.h b/nvidia-drm/nvidia-drm-conftest.h
+--- a/nvidia-drm/nvidia-drm-conftest.h
++++ b/nvidia-drm/nvidia-drm-conftest.h
 @@ -61,4 +61,6 @@
  #undef NV_DRM_FENCE_AVAILABLE
  #endif
@@ -102,8 +109,9 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
 +#include "nvidia-drm-7x-compat.h"
 +
  #endif /* defined(__NVIDIA_DRM_CONFTEST_H__) */
---- a/nvidia-drm/nvidia-drm-connector.c	2026-10-04 23:43:45.712110697 -0600
-+++ b/nvidia-drm/nvidia-drm-connector.c	2026-10-04 23:43:46.659925567 -0600
+diff -ruN a/nvidia-drm/nvidia-drm-connector.c b/nvidia-drm/nvidia-drm-connector.c
+--- a/nvidia-drm/nvidia-drm-connector.c
++++ b/nvidia-drm/nvidia-drm-connector.c
 @@ -313,8 +313,14 @@
      return count;
  }
@@ -119,8 +127,9 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
  {
      struct drm_device *dev = connector->dev;
      struct nv_drm_device *nv_dev = to_nv_device(dev);
---- a/nvidia-drm/nvidia-drm-drv.c	2026-10-04 23:43:45.712110697 -0600
-+++ b/nvidia-drm/nvidia-drm-drv.c	2026-10-04 23:43:46.709923860 -0600
+diff -ruN a/nvidia-drm/nvidia-drm-drv.c b/nvidia-drm/nvidia-drm-drv.c
+--- a/nvidia-drm/nvidia-drm-drv.c
++++ b/nvidia-drm/nvidia-drm-drv.c
 @@ -154,6 +154,9 @@
  static struct drm_framebuffer *nv_drm_framebuffer_create(
      struct drm_device *dev,
@@ -131,7 +140,18 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
      #if defined(NV_DRM_HELPER_MODE_FILL_FB_STRUCT_HAS_CONST_MODE_CMD_ARG)
      const struct drm_mode_fb_cmd2 *cmd
      #else
-@@ -1435,7 +1438,9 @@
+@@ -1282,6 +1285,10 @@
+ #endif
+ 
+     .poll           = drm_poll,
++#if defined(NV_DRM_7X_COMPAT)
++    /* drm_open() refuses (WARN + -EINVAL) file_operations without this since 6.12 */
++    .fop_flags      = FOP_UNSIGNED_OFFSET,
++#endif
+     .read           = drm_read,
+ 
+     .llseek         = noop_llseek,
+@@ -1435,7 +1442,9 @@
      .name                   = "nvidia-drm",
  
      .desc                   = "NVIDIA DRM driver",
@@ -141,8 +161,9 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
  
  #if defined(NV_DRM_DRIVER_HAS_DEVICE_LIST)
      .device_list            = LIST_HEAD_INIT(nv_drm_driver.device_list),
---- a/nvidia-drm/nvidia-drm-fb.c	2026-10-04 23:43:45.712110697 -0600
-+++ b/nvidia-drm/nvidia-drm-fb.c	2026-10-04 23:43:46.749922494 -0600
+diff -ruN a/nvidia-drm/nvidia-drm-fb.c b/nvidia-drm/nvidia-drm-fb.c
+--- a/nvidia-drm/nvidia-drm-fb.c
++++ b/nvidia-drm/nvidia-drm-fb.c
 @@ -259,6 +259,9 @@
          dev,
          #endif
@@ -153,8 +174,9 @@ messages. modeset=1 and any display use are untested (the V100 has no display ou
          cmd);
  
      /*
---- a/nvidia-drm/nvidia-drm-helper.h	2026-10-04 23:43:45.712110697 -0600
-+++ b/nvidia-drm/nvidia-drm-helper.h	2026-10-04 23:43:46.799920786 -0600
+diff -ruN a/nvidia-drm/nvidia-drm-helper.h b/nvidia-drm/nvidia-drm-helper.h
+--- a/nvidia-drm/nvidia-drm-helper.h
++++ b/nvidia-drm/nvidia-drm-helper.h
 @@ -246,7 +246,7 @@
         for ((__i) = 0;                                                      \
              (__i) < (__state)->num_connector &&                             \
