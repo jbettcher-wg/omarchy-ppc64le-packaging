@@ -33,9 +33,9 @@
 pkgname=webkit
 pkgdesc='JavaScriptCore for Bun, with the ppc64le JIT backend (source)'
 _commit=cf1b36ec8703d8e87436094d21d478d358c7d886
-_tree=ff503f04599810e66ec5280f4f701e0117c7a79c
+_tree=36a6bbe6700d5bcbecfd9bb18068799ef789df63
 pkgver=0.20260911
-pkgrel=2
+pkgrel=3
 arch=('powerpc64le')
 url='https://github.com/oven-sh/WebKit'
 license=('LGPL-2.1-only' 'BSD-2-Clause')
@@ -52,7 +52,7 @@ source=(
 
 sha256sums=(
   'SKIP'
-  '00e94660a97cf80771660482e01f4e86aba704098d102878902b11faa497eddc'
+  '8d3846ae13ec59bfabe6d7d82c37dcbd1c9bbd1f5ba5d28cc1a8934a46b196e4'
 )
 
 prepare() {

@@ -1,0 +1,78 @@
+From 65286b4a5d01f6968b31d82f822f2d3f76f4a69d Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Tue, 6 Oct 2026 08:52:11 -0600
+Subject: [PATCH] ppc64le: turn FTL on
+
+The two bugs behind FTL's remaining failures are fixed in WebKit, so the tier
+is now measurably at parity with the DFG rather than behind it.
+
+Over JSTests/stress (5833 tests) an FTL build fails 31 where the DFG build
+fails 34, and every one of those 31 fails identically with --useDFGJIT -- so
+there are zero FTL-only failures. No regressions against two reference runs.
+testb3 is 998/1000, the two being the known HellaFloat/HellaDouble f13 fence.
+
+The fixes were both register- and ABI-level rather than algorithmic:
+
+  * the FTL slow-path thunk clobbered r12 before it could be saved. r12 is
+    ELFv2's indirect-call target register AND GPRInfo::regT9, which is
+    allocatable; SlowPathCallContext saves callingConventionRegisters inline
+    but leaves the rest to a thunk that stores them after the call, by which
+    point r12 holds the thunk's own address. 46 of the 47 residue tests.
+  * the direct FFI call path narrowed int32 arguments with castToInt32 when
+    ELFv2 makes the caller extend them. The 47th.
+
+BBQ and OMG do not come with FTL. WEBKIT_OPTION_DEPEND would tie them to it,
+but PlatformEnable.h and Options.cpp both gate them on
+BUN_PPC64_WASM_JIT_WIP, which nothing in this build defines, so wasm stays
+IPInt-only and the VSX vector layer ships as dormant code. That gate is not
+pessimism about the layer: BBQ passes 58 of the 61 upstream simd stress tests
+as the only tier, against IPInt's 60, and its two shortfalls are an
+UNREACHABLE_FOR_PLATFORM() in BBQJIT::emitTailCall rather than anything in the
+vector work. OMG is the one that does not work -- 40 of 61 -- because tier-up
+into Air with live vectors has never been exercised here.
+---
+ scripts/build/deps/webkit.ts | 24 +++++++++++++++---------
+ 1 file changed, 15 insertions(+), 9 deletions(-)
+
+diff --git a/scripts/build/deps/webkit.ts b/scripts/build/deps/webkit.ts
+index 135ead73500..ba48a54bebf 100644
+--- a/scripts/build/deps/webkit.ts
++++ b/scripts/build/deps/webkit.ts
+@@ -327,7 +327,7 @@ export const webkit: Dependency = {
+       PORT: "JSCOnly",
+       ENABLE_STATIC_JSC: "ON",
+       USE_THIN_ARCHIVES: "OFF",
+-      ENABLE_FTL_JIT: cfg.ppc64le ? "OFF" : "ON",
++      ENABLE_FTL_JIT: "ON",
+       // ppc64le: Baseline is the only compiling JIT tier for PowerPC, and
+       // WebAssembly's only tier is IPInt. WebKitFeatures.cmake now has a
+       // WTF_CPU_PPC64LE branch that defaults JIT on, CLoop off, FTL off and
+@@ -345,14 +345,20 @@ export const webkit: Dependency = {
+       // and an object/float workload 854ms -> 288ms, against node 26's 653ms
+       // and 152ms on the same box.
+       //
+-      // FTL stays OFF, and no longer because the Air backend is missing -- it
+-      // is here, testb3 is 998/1000, and FTL builds and runs. It is off
+-      // because it is not clean yet: the same suite shows 79 failures against
+-      // the DFG build's 34, so something like 25-60 FTL-specific ones remain
+-      // (two runs of one binary differ by 18 tests, so a single figure would
+-      // be false precision). WEBKIT_OPTION_DEPEND ties BBQ and OMG to FTL, so
+-      // wasm stays IPInt-only with it off -- and those two additionally need a
+-      // vector layer in MacroAssemblerPPC64.h that does not exist.
++      // FTL is ON too, now that the two bugs behind its residue are fixed.
++      // Over JSTests/stress (5833 tests) an FTL build fails 31 against the DFG
++      // build's 34, and every one of those 31 fails identically with
++      // --useDFGJIT, so there are ZERO FTL-only failures left. testb3 is
++      // 998/1000. The two fixes were the FTL slow-path thunk clobbering r12
++      // (which is ELFv2's indirect-call target AND allocatable as regT9) and
++      // the direct FFI path not applying ELFv2's caller-side int32 extension.
++      //
++      // BBQ and OMG do NOT come with it. WEBKIT_OPTION_DEPEND would tie them
++      // to FTL, but PlatformEnable.h and Options.cpp both gate them on
++      // BUN_PPC64_WASM_JIT_WIP, which nothing here defines -- so wasm stays
++      // IPInt-only and the VSX layer ships as dormant code. BBQ does work
++      // (58 of 61 upstream simd stress tests as the only tier); OMG does not
++      // (40 of 61), which is why the gate stays shut.
+       //
+       // ENABLE_YARR_JIT is decided inside PlatformEnable.h, and is ON.
+       ...(cfg.ppc64le
