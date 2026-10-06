@@ -53,4 +53,8 @@ replacement) is in `~/Development/V100-POWER9-KERNEL/driver/` and
 - **Not** tested: building against the installed `-headers` package instead
   of a full kernel tree (conftest compiles a few hundred probes against it), and
   `makepkg` itself.
-- `modeset=1` and any real display use of `nvidia-drm`.
+- `nvidia-drm` with patch `0003` as it is now (including the `FOP_UNSIGNED_OFFSET` fix) was swapped in on the
+  running `7.2.9-npu` system on 2026-10-05 with CUDA jobs live: it loads on all four GPUs, `/dev/dri/renderD128`
+  opens, and the `drm_open_helper` warning the first version caused is gone. That is the whole test: nothing
+  has rendered through it.
+- **Not** tested: `modeset=1` and any real display use of `nvidia-drm`.
