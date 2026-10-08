@@ -1,0 +1,52 @@
+# Maintainer: Torsten Keßler <tpkessler at archlinux dot org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+
+pkgname=rocm10-composable-kernel
+pkgver=10.0
+pkgrel=1
+pkgdesc="High Performance Composable Kernel for AMD GPUs"
+arch=('x86_64' 'powerpc64le')
+url="https://github.com/ROCm/rocm-libraries"
+license=('MIT')
+depends=('rocm10-core' 'glibc' 'libgcc' 'libstdc++' 'rocm10-hip-runtime-amd')
+makedepends=('git' 'cmake' 'ninja' 'rocm-cmake' 'rocm10-toolchain' 'rocm10-llvm' 'openmp')
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/therock-$pkgver/composablekernel.tar.gz")
+sha256sums=('2ae559e9e321f5fc290b7d46ffd64ce6a9491977f9d33e5fb11742bf50f8d931')
+# Build without default flags as they cause the final linking step to fail
+# https://github.com/ROCmSoftwarePlatform/composable_kernel/issues/736
+options=(!lto !buildflags)
+_dirname=composablekernel
+
+prepare() {
+    # Remove tests as they require a supported AMD GPU to run
+    sed -i '/add_subdirectory(test)/d' "$_dirname/CMakeLists.txt"
+}
+
+build() {
+  local _cmake_args=(
+    -Wno-dev
+    -G Ninja
+    -B build
+    -S "$_dirname"
+    -D CMAKE_CXX_COMPILER=amdclang++
+    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_INSTALL_PREFIX=/opt/rocm
+    # CK doesn't support all targets
+    # -D GPU_ARCHS="$(rocm-supported-gfx)"
+    # RDNA3 + RDNA4 only. Arch lists nine, adding gfx908/gfx90a/gfx942 (CDNA
+    # Instinct) and gfx1030 (RDNA2, dropped by ROCm 10). CK builds a full
+    # instance set per target: nine of them is 2777 ninja targets, 85 minutes
+    # to reach 11%. CK_GPU_ARCHS overrides for a slim build.
+    -D GPU_ARCHS="${CK_GPU_ARCHS:-gfx1100;gfx1101;gfx1102;gfx1200;gfx1201}"
+    -D BUILD_DEV=OFF
+    -D INSTANCES_ONLY=ON
+  )
+  cmake "${_cmake_args[@]}"
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 "$_dirname/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,43 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Meta-package selecting the ROCm 7 generation, for the GPUs ROCm 10 dropped.
+#
+# 7.2.4 still builds gfx900 explicitly (upstream removed it from the default
+# AMDGPU_TARGETS in 7.0 but kept it buildable), which is what the WX9100
+# needs, plus gfx906/1010/1012/1030. See the rocm10 meta for the other half.
+#
+# Mutually exclusive with rocm10; see that recipe for why the conflict is
+# declared rather than left to file collisions.
+
+pkgname=rocm7
+pkgver=7.2.4
+pkgrel=1
+pkgdesc='ROCm 7 for Vega and RDNA1/RDNA2 (gfx900-gfx1030); mutually exclusive with rocm10'
+arch=('any')
+url='https://rocm.docs.amd.com/'
+license=('MIT')
+groups=('rocm')
+depends=(
+  'rocm-core'
+  'rocm-llvm'
+  'rocm-device-libs'
+  'comgr'
+  'hsa-rocr'
+  'rocminfo'
+  'rocm-smi-lib'
+  'hip-runtime-amd'
+  'rocblas'
+  'hipblas'
+)
+conflicts=('rocm10')
+
+package() {
+  install -d "$pkgdir/usr/share/doc/$pkgname"
+  cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'DOC'
+ROCm 7 generation (7.2.4). Built GPU targets in our rocblas:
+  gfx900 gfx906 gfx1010 gfx1012 gfx1030 gfx1100 gfx1101 gfx1102 gfx1200 gfx1201
+gfx900 is the reason this generation exists: ROCm 10 dropped it.
+
+Switch generations with:  pacman -S rocm10
+DOC
+}

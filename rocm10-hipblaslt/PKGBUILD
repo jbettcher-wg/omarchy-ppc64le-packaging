@@ -1,0 +1,104 @@
+# Maintainer: Torsten Keßler <tpkessler at archlinux dot org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+# Contributor: Bob McElrath <bob.mcelrath@gmail.com>
+# Contributor: Lubosz Sarnecki <lubosz@gmail.com>
+
+pkgname=rocm10-hipblaslt
+# Upstream project name, deliberately separate from $pkgname: ours is renamed
+# so the ROCm 7 generation can stay in the pool, while the tarball, the URL
+# and the directory inside the archive still use the upstream name.
+_project=hipblaslt
+pkgver=7.2.4
+pkgrel=1
+pkgdesc='General matrix-matrix operations beyond a traditional BLAS library'
+arch=('x86_64' 'powerpc64le')
+url='https://rocm.docs.amd.com/projects/hipBLASLt/en/latest/index.html'
+license=('MIT')
+depends=(
+  'glibc'
+  'rocm10-hip-runtime-amd'
+  'rocm10-hipblas'
+  'libgcc'
+  'msgpack-cxx'
+  'rocm10-rocblas'
+  'rocm10-core'
+  'rocm10-smi-lib'
+  'yaml-cpp'
+)
+makedepends=(
+  'cmake'
+  'gcc-fortran'
+  'git'
+  'gtest'
+  'rocm10-hipblas-common'
+  'lapack'
+  'ninja'
+  'python'
+  'python-joblib'
+  'python-msgpack'
+  'python-orjson'
+  'python-packaging'
+  'python-pyaml'
+  'python-pyyaml'
+  'python-setuptools'
+  'python-simplejson'
+  'python-ujson'
+  'rocm-cmake'
+  'rocm10-toolchain'
+  'rocm10-llvm'
+  'spdlog'
+)
+_git='https://github.com/ROCm/rocm-libraries'
+source=("rocm-libraries::git+$_git.git#tag=rocm-$pkgver"
+        "hipblaslt-Don-t-fetch-deps-for-rocroller.patch"
+        "rocroller-Always-fetch-libdivide-if-it-s-not-install.patch"
+        "hipblaslt-7.2.3-cstdint-include.patch")
+sha256sums=('b476acbcd0f4017c800e4b05533e6dfb875bde32242729c8df557d4624379623'
+            '81c0f9ac1872e34555c2f9d64eecec75c42fd8813c4acf54cd665b03e59cb752'
+            'b845a96fee02651f2cad2417fc9e8522ab143849b2049b0010d17401e6000e52'
+            '337feb845674f8ec6015c902b27bd01bc51f530035cda769b7dea5ad12d41920')
+_dirname="rocm-libraries/projects/$_project"
+
+options=(!strip)
+
+prepare() {
+  cd rocm-libraries
+  patch -Np1 -i "$srcdir/hipblaslt-Don-t-fetch-deps-for-rocroller.patch"
+  patch -Np1 -i "$srcdir/rocroller-Always-fetch-libdivide-if-it-s-not-install.patch"
+  patch -Np1 -i "$srcdir/hipblaslt-7.2.3-cstdint-include.patch"
+}
+
+build() {
+  export PATH="/opt/rocm/bin:$PATH"
+
+  local cmake_args=(
+    -Wno-dev
+    -G Ninja
+    -B build
+    -S "$_dirname"
+    -D CMAKE_BUILD_TYPE=None
+    -D CMAKE_C_COMPILER=amdclang
+    -D CMAKE_CXX_COMPILER=amdclang++
+    -D CMAKE_INSTALL_PREFIX=/opt/rocm
+    -D HIPBLASLT_ENABLE_CLIENT=OFF
+    # rocTracer is pulled in only by HIPBLASLT_ENABLE_MARKER, which gates the
+    # ROCTX profiler-annotation API -- nothing in the GEMM path. roctracer has
+    # no ppc64le port, and our ROCm 7 rocblas dropped it for the same reason
+    # (client-only). Without this, CMakeLists.txt:118 fails on roctx64.
+    -D HIPBLASLT_ENABLE_MARKER=OFF
+    # Arch leaves this commented, so the build falls back to whatever hipBLASLt
+    # defaults to. Pin it: RDNA3 + RDNA4, matching rocblas, rocwmma and CK, so
+    # the four libraries agree on which cards they are built for.
+    -D GPU_TARGETS="${HIPBLASLT_GPU_TARGETS:-gfx1100;gfx1101;gfx1102;gfx1200;gfx1201}"
+  )
+  # -fcf-protection is not supported by HIP, see
+  # https://rocm.docs.amd.com/projects/llvm-project/en/latest/reference/rocmcc.html#support-status-of-other-clang-options
+  CXXFLAGS="${CXXFLAGS} -fcf-protection=none" cmake "${cmake_args[@]}"
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 "$_dirname/LICENSE.md" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

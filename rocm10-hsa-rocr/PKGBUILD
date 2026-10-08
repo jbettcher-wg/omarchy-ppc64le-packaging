@@ -1,0 +1,60 @@
+# Maintainer: Torsten Keßler <tpkessler at archlinux dot org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+# Contributor: acxz <akashpatel2008 at yahoo dot com>
+# Contributor: Olaf Leidinger <oleid@mescharet.de>
+# Contributor: Bruno Filipe <bmilreu@gmail.com>
+# Contributor: Jakub Okoński <jakub@okonski.org>
+# Contributor: Ranieri Althoff <ranisalt+aur at gmail.com>
+# Contributor: Alexandru M Stan <alex@hypertriangle.com>
+
+pkgname=rocm10-hsa-rocr
+pkgver=10.0
+pkgrel=1
+pkgdesc='HSA Runtime API and runtime for ROCm'
+arch=('x86_64' 'powerpc64le')
+url='https://github.com/ROCm/rocm-systems'
+license=('NCSA')
+depends=(
+    'glibc'
+    'libdrm'
+    'libelf'
+    'libgcc'
+    'numactl'
+    'pciutils'
+    'rocm10-core'
+    'rocm10-device-libs'
+    'rocprofiler-register'
+)
+provides=("hsakmt-roct=$pkgver")
+replaces=('hsakmt-roct')
+# No rocm-llvm-static: our rocm10-llvm is a 3-subpackage build that keeps its
+# static archives (201 of them, libLLVMCore.a included) in the main package,
+# where Arch's 9-way split breaks them out.
+makedepends=('cmake' 'rocm10-llvm' 'xxd')
+source=("rocm-${pkgver}.tar.gz::$url/archive/therock-$pkgver.tar.gz")
+sha256sums=('f30517ed6d9e18cde104eb487f173e62fed0175083a9498ca383f8136a9f4eec')
+_dirname="$(basename "$url")-therock-$pkgver"/projects/rocr-runtime/
+options=(!lto)
+
+build() {
+  # Silence warnings on optional libraries with -DNDEBUG,
+  # https://github.com/RadeonOpenCompute/ROCR-Runtime/issues/89#issuecomment-613788944
+  local cmake_args=(
+    -Wno-dev
+    -S "$_dirname"
+    -B build
+    -D CMAKE_BUILD_TYPE=None
+    -D CMAKE_INSTALL_PREFIX=/opt/rocm
+    -D CMAKE_PREFIX_PATH=/opt/rocm
+    -D Clang_DIR=/opt/rocm/lib/llvm/lib/cmake/clang
+    -D LLVM_DIR=/opt/rocm/lib/llvm/lib/cmake/llvm
+    -D CMAKE_CXX_FLAGS="$CXXFLAGS -DNDEBUG"
+    -DBUILD_SHARED_LIBS=ON)
+  cmake "${cmake_args[@]}"
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$_dirname/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

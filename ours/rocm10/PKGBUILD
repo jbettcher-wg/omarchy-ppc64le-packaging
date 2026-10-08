@@ -1,0 +1,53 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Meta-package selecting the ROCm 10 generation.
+#
+# ROCm 10 dropped gfx900: its supported targets are gfx950/942/90a/908 on
+# Instinct and gfx1201/1200/1101/1100 on Radeon. The WX9100 in this box is
+# Vega 10 (gfx900) and gfx1030 (RDNA2) is gone too, so the older cards need
+# the ROCm 7 generation and cannot simply be carried forward -- hence two
+# generations, selected by which of these two metas is installed.
+#
+# They are mutually exclusive by design. Both generations install to
+# /opt/rocm, so the member packages already conflict file-by-file (both
+# -core packages own /etc/ld.so.conf.d/rocm.conf and /etc/profile.d/rocm.sh);
+# the conflicts() below just make pacman say so in one line instead of
+# listing forty colliding paths.
+
+pkgname=rocm10
+pkgver=10.0
+pkgrel=1
+pkgdesc='ROCm 10 for RDNA3/RDNA4 and CDNA (gfx1100+); mutually exclusive with rocm7'
+arch=('any')
+url='https://rocm.docs.amd.com/'
+license=('MIT')
+groups=('rocm')
+depends=(
+  'rocm10-core'
+  'rocm10-llvm'
+  'rocm10-device-libs'
+  'rocm10-comgr'
+  'rocm10-hsa-rocr'
+  'rocm10-rocminfo'
+  'rocm10-smi-lib'
+  'rocm10-hip-runtime-amd'
+  'rocm10-rocblas'
+  'rocm10-hipblas'
+  'rocm10-hipblaslt'
+  'rocm10-rocwmma'
+  'rocm10-composable-kernel'
+)
+conflicts=('rocm7')
+
+package() {
+  install -d "$pkgdir/usr/share/doc/$pkgname"
+  cat > "$pkgdir/usr/share/doc/$pkgname/README" <<'DOC'
+ROCm 10 generation. Supported GPU targets (upstream ROCm 10.1.0):
+  Instinct: gfx950 gfx942 gfx90a gfx908
+  Radeon:   gfx1201 gfx1200 gfx1101 gfx1100
+gfx900 (Vega, e.g. Radeon PRO WX 9100) and gfx1030 (RDNA2) are NOT supported
+here -- install the rocm7 meta for those.
+
+Switch generations with:  pacman -S rocm7
+DOC
+}

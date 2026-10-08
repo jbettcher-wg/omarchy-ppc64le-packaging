@@ -1,0 +1,50 @@
+# Maintainer: Torsten Keßler <tpkessler at archlinux dot org>
+# Maintainer: Christian Heusel <gromit@archlinux.org>
+# Contributor: Markus Näther <naetherm@cs.uni-freiburg.de>
+# Contributor: Jakub Okoński <jakub@okonski.org>
+# Contributor: Ranieri Althoff <ranisalt+aur at gmail.com>
+# Contributor: acxz <akashpatel2008 at yahoo dot com>
+
+# Upstream project name, kept separate from $pkgname: ours is renamed so the
+# ROCm 7 generation can stay in the pool, but the release tarball and the
+# directory inside it are still called rocminfo.
+_project=rocminfo
+pkgname=rocm10-rocminfo
+pkgver=10.0
+pkgrel=1
+pkgdesc='ROCm Application for Reporting System Info '
+arch=('x86_64' 'powerpc64le')
+url='https://github.com/ROCm/rocm-systems'
+license=('NCSA')
+depends=(
+    'glibc'
+    'rocm10-hsa-rocr'
+    'libgcc'
+    'pciutils'
+    'python'
+    'rocm10-core'
+)
+makedepends=('cmake' 'rocm-cmake')
+source=("$_project-$pkgver.tar.gz::$url/releases/download/therock-$pkgver/$_project.tar.gz")
+sha256sums=('c06c4582145b8453f44cdfe9ba1aa48b3d22f9ad73ea5c07ccfb458a70c63586')
+
+build() {
+  # ROCRTST_BLD_TYPE=Release fixes a build error regarding _FORTIFY_SOURCE=2
+  local cmake_args=(
+    -Wno-dev
+    -S "$_project"
+    -B build
+    -D CMAKE_PREFIX_PATH=/opt/rocm
+    -D ROCRTST_BLD_TYPE=Release
+    -D CMAKE_INSTALL_PREFIX=/opt/rocm
+    -D CMAKE_INSTALL_LIBDIR=lib
+  )
+  cmake "${cmake_args[@]}"
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 "$_project/License.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
