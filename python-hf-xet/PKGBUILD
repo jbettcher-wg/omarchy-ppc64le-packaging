@@ -1,0 +1,39 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# hf_xet -- the Xet content-addressed transfer backend for huggingface_hub.
+# Arch has no recipe for this and PyPI publishes wheels for x86_64, aarch64 and
+# Windows only, so ppc64le builds it from the sdist. It is a maturin/PyO3 Rust
+# extension and the sdist vendors its crates (hf_xet, xet_client, xet_data,
+# xet_core_structures, xet_pkg), so there is nothing to fetch at build time.
+#
+# python-huggingface-hub lists this in depends(), not optdepends(), so the CLI
+# needs it present even though Xet-backed repos are the only thing that uses it.
+
+_name=hf_xet
+pkgname=python-hf-xet
+pkgver=1.7.0
+pkgrel=1
+pkgdesc='Fast transfer of large files with the Hugging Face Hub (Xet backend)'
+arch=('x86_64' 'powerpc64le')
+url='https://github.com/huggingface/xet-core'
+license=('Apache-2.0')
+depends=('python' 'glibc' 'gcc-libs')
+# python-maturin, not maturin: --no-isolation needs the maturin *backend*
+# importable by python-build, which the binary-only package does not provide.
+# Failure without it: "Backend 'maturin' is not available".
+makedepends=('python-build' 'python-installer' 'python-wheel' 'python-maturin' 'rust')
+source=("https://files.pythonhosted.org/packages/source/${_name:0:1}/$_name/$_name-$pkgver.tar.gz")
+sha256sums=('d406ec79053c0871817f700c2ac8c36ba0d87f9c34b7458b0f0063bb218b0466')
+
+build() {
+  cd "$_name-$pkgver"
+  # maturin is the backend; --no-isolation so it uses the system maturin and
+  # rust rather than trying to download a wheel for an arch that has none.
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "$_name-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

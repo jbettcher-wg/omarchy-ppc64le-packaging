@@ -1,0 +1,135 @@
+# Maintainer: Jakub Klinkovský <lahwaacz at archlinux dot org>
+# Contributor: Butui Hu <hot123tea123@gmail.com>
+
+_name=huggingface_hub
+pkgname=python-huggingface-hub
+pkgver=2.1.1
+pkgrel=1
+epoch=1
+pkgdesc='All the open source things related to the Hugging Face Hub'
+arch=(any)
+url='https://github.com/huggingface/huggingface_hub'
+license=(Apache-2.0)
+groups=(huggingface)
+depends=(
+  python
+  python-click
+  python-filelock
+  python-fsspec
+  python-hf-xet
+  python-httpx2
+  python-numpy
+  python-packaging
+  python-pydantic
+  python-tqdm
+  python-typing_extensions
+  python-urllib3
+  python-yaml
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-wheel
+)
+checkdepends=(
+  git
+  git-lfs
+  python-authlib
+  python-duckdb
+  python-fastapi
+  python-itsdangerous
+  python-jedi
+  python-jinja
+  python-pillow
+  python-pytest
+  python-pytest-asyncio
+  python-pytest-env
+  python-pytest-mock
+  python-pytest-timeout
+  python-pytest-vcr
+  python-pytest-xdist
+)
+optdepends=(
+  'python-authlib: for OAuth'
+  'python-fastapi: for OAuth'
+  'python-itsdangerous: for OAuth'
+  'python-gradio: for the webhooks server'
+  'python-duckdb: for hf datasets sql'
+  python-graphviz
+  python-jinja
+  python-mcp
+  python-pillow
+  python-pydot
+  python-pytorch
+  python-safetensors
+  python-fastai
+)
+source=("$_name-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha512sums=('b7ac03a3bade8c1c79d4992cef73a79b5d899309698865c3c0c7fb6ff6e879f911ea1908399249a9d1bed74d8e65d0fe186b914515f19c67af6bb4b2cdf69be8')
+
+build() {
+  cd $_name-$pkgver
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  local pytest_options=(
+    -vv
+    --override-ini="addopts="
+    -W ignore::DeprecationWarning
+    # distribute tests across multiple CPUs
+    -n auto
+    # set timeout limit for each test to prevent hangs
+    --timeout=300
+    # use 'signal' which only kills the offending test
+    --timeout-method signal
+    # skip tests that connect to the real HuggingFace Hub
+    # https://github.com/huggingface/huggingface_hub/issues/2820
+    --deselect tests/test_buckets.py
+    --deselect tests/test_buckets_cli.py
+    --deselect tests/test_buckets_hf_file_system.py
+    --deselect tests/test_cache_layout.py
+    --deselect tests/test_cache_no_symlinks.py
+    --deselect tests/test_cli.py::TestRepoListCommand::test_repo_list
+    --deselect tests/test_cli_discussions.py
+    --deselect tests/test_commit_scheduler.py
+    --deselect tests/test_copy_files.py
+    --deselect tests/test_file_download.py
+    --deselect tests/test_hf_api.py
+    --deselect tests/test_hf_file_system.py
+    --deselect tests/test_inference_client.py
+    --deselect tests/test_kernels.py
+    --deselect tests/test_oauth.py::test_oauth_workflow
+    --deselect tests/test_repocard.py
+    --deselect tests/test_repository.py
+    --deselect tests/test_snapshot_download.py
+    --deselect tests/test_utils_cache.py
+    --deselect tests/test_xet_upload.py
+    # skip tests that require gradio but are not marked as such
+    --deselect tests/test_webhooks_server.py::test_deserialize_payload_example_with_comment
+    --deselect tests/test_webhooks_server.py::test_deserialize_payload_example_without_comment
+    --deselect tests/test_webhooks_server.py::test_deserialize_payload_example_with_updated_refs
+    # EOFError: Ran out of input
+    --deselect tests/test_utils_strict_dataclass.py::test_autocompletion_init_with_kwargs
+    --deselect tests/test_utils_strict_dataclass.py::test_autocompletion_init_without_kwargs
+    --deselect tests/test_utils_strict_dataclass.py::test_autocompletion_attribute_with_kwargs
+    --deselect tests/test_utils_strict_dataclass.py::test_autocompletion_attribute_without_kwargs
+    # subprocess.CalledProcessError: Command '['git', 'config', '--global', 'credential.helper', 'store']' returned non-zero exit status 255.
+    --deselect tests/test_login_utils.py::TestSetGlobalStore::test_set_store_as_git_credential_helper_globally
+    # Failed: Timeout (>300.0s) from pytest-timeout.
+    --deselect tests/test_xet_upload.py::TestXetLargeUpload
+    # causes internal error in pytest
+    --deselect tests/test_cli_output.py
+  )
+
+  cd $_name-$pkgver
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  test-env/bin/python -m pytest "${pytest_options[@]}" tests
+}
+
+package() {
+  cd $_name-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}
