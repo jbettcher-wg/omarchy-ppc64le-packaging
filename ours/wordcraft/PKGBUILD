@@ -1,0 +1,105 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Word reimplemented in Rust, from the storytold suite. Native
+# egui/eframe with wgpu for the canvas -- no webview, no Electron, no bundled
+# JS toolchain, which is why this ports by recompiling rather than by patching.
+#
+# The workspace holds four kinds of crate and we want two of them:
+#   wordcraft       the GUI application
+#   wordcraft-cli   the command line tool
+#   wordcraft-web   a wasm32 target -- not built here
+#   xtask           repo build tooling -- not built here
+# `cargo build --workspace` would take all four and fail on the wasm one, so
+# the packages are named explicitly.
+#
+# ISA: nothing in this tree computes its own -mcpu, so RUSTFLAGS from the
+# buildroot's makepkg.conf governs codegen -- `-C target-cpu=pwr9` for the
+# POWER9 pool and pwr8 for the baseline. Note rustc only *warns* on an
+# unrecognised target-cpu and then silently emits generic ppc64, so the name is
+# pwr8/pwr9, never power8/power9. See tools/makepkg.conf.d/00-power8.conf,
+# which asserts the substitution took.
+
+pkgname=wordcraft
+pkgver=0.3.0
+pkgrel=1
+_commit=7584b9b2930ffddfe7db96b6eba977262e55135c
+pkgdesc='Word processor -- a clean-room reimplementation of Adobe Word in Rust'
+arch=('powerpc64le')
+url='https://github.com/storytold/wordcraft'
+license=('Apache-2.0' 'MIT')
+depends=(
+  glibc
+  gcc-libs
+  fontconfig
+  libxkbcommon
+  wayland
+  libx11
+  libxcursor
+  libxrandr
+  libxi
+  vulkan-icd-loader
+  gtk3
+)
+makedepends=(
+  cargo
+  git
+  pkgconf
+  rust
+)
+source=("$pkgname::git+$url.git#commit=$_commit")
+sha256sums=('SKIP')
+options=('!lto')   # the workspace sets its own release profile
+
+prepare() {
+  cd "$pkgname"
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch --locked
+}
+
+build() {
+  cd "$pkgname"
+  export CARGO_HOME="$srcdir/cargo-home"
+  # rustc takes pwr8/pwr9, NOT power8/power9, and an unrecognised value is a
+  # *warning* followed by silently emitting generic ppc64. Checked before
+  # building rather than after: a wrong name produced 125,763 ignored-processor
+  # warnings in one sweep here and still exited 0.
+  case " ${RUSTFLAGS:-} " in
+    *target-cpu=power*)
+      echo "ERROR: RUSTFLAGS names power8/power9; rustc wants pwr8/pwr9: $RUSTFLAGS" >&2
+      return 1 ;;
+  esac
+  case " ${RUSTFLAGS:-} " in
+    *target-cpu=pwr*) ;;
+    *) echo "ERROR: RUSTFLAGS sets no pwr8/pwr9 target-cpu: ${RUSTFLAGS:-<unset>}" >&2
+       return 1 ;;
+  esac
+
+  cargo build --release --frozen -p wordcraft -p wordcraft-cli
+
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 "target/release/wordcraft"     "$pkgdir/usr/bin/wordcraft"
+  install -Dm755 "target/release/wordcraft-cli" "$pkgdir/usr/bin/wordcraft-cli"
+
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+  install -Dm644 LICENSE-MIT    "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+
+  # Scalable SVG only -- upstream ships no raster sizes, and hicolor's
+  # scalable/ is the right home for that.
+  install -Dm644 "assets/app-icon/wordcraft.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/wordcraft.svg"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/wordcraft.desktop" <<-DESKTOP
+	[Desktop Entry]
+	Type=Application
+	Name=WordCraft
+	GenericName=Word processor
+	Comment=Word processor
+	Exec=wordcraft
+	Icon=wordcraft
+	Terminal=false
+	Categories=Office;WordProcessor;
+	DESKTOP
+}
