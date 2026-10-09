@@ -1,0 +1,51 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] ppc64le: build for POWER8, not POWER9
+
+Applies on top of 0001 and only when _power8_compat=1, i.e. for the
+omarchy-ppc64le baseline pool. The POWER9 pool keeps 0001's power9 floor.
+
+bun has no ppc64le entry in cpuTargetFlags upstream; patch 0001 adds one and
+pins it to POWER9 ("the only ppc64le hardware bun is built/tested on"). That
+pin wins over makepkg's environment: CFLAGS/CXXFLAGS/RUSTFLAGS were correctly
+-mcpu=power8 / -C target-cpu=pwr8 from tools/makepkg.conf.d/00-power8.conf and
+the drop-in's own asserts passed, but bun computes its own flags from this
+table and overrides all of them.
+
+Measured on bun 1.4.3-4 built in the baseline lane: 349,172 ISA 3.0
+instructions by tools/isa30-pkgscan.sh, against 347,558 for the POWER9 build --
+the two were the same binary, ISA-wise. stxv 114906, lxv 93936, stxvx 47608,
+lxvx 29288, vextubrx 18087, xxspltib 6370, cnttzd 4137, extswsli 3144,
+maddld 2576, mtvsrdd 2274; spread uniformly over 62 of the 60.3 MiB of .text
+and present in function prologues as VSX callee-save. Not a jump-table
+artifact, not runtime-gated, and not the LLInt -- an offlineasm-generated
+interpreter would be one contiguous block.
+
+diff --git a/scripts/build/flags.ts b/scripts/build/flags.ts
+index 76fc5f4b..98246883 100644
+--- a/scripts/build/flags.ts
++++ b/scripts/build/flags.ts
+@@ -73,11 +73,20 @@ export const cpuTargetFlags: Flag[] = [
+     desc: "x64: Nehalem (2008) — no AVX, broadest compatibility",
+   },
+   {
+-    // POWER9 is the floor: the only ppc64le hardware bun is built/tested on.
+-    // POWER8 would also work (VSX-2), but nothing has exercised it.
+-    flag: ["-mcpu=power9", "-mtune=power9"],
++    // POWER8 (ISA 2.07) is the floor for the baseline pool, which has to run on
++    // POWER8 through POWER11. This one entry decides all three halves of the
++    // binary, which is why it is the only thing this patch touches:
++    //   - the C++ sources, via computeCpuTargetFlags() into globalFlags;
++    //   - the Rust half, because rustCpuTargetFlags() in rust.ts derives
++    //     -Ctarget-cpu/-Ztune-cpu from this table, and LLVM_CPU_ALIASES already
++    //     maps power8 -> pwr8;
++    //   - the vendored WebKit, which inherits -mcpu through
++    //     computeCpuTargetFlags() and whose JavaScriptCore/CMakeLists.txt reads
++    //     it to set ENABLE_PPC64_ISA30, so offlineasm gets --ppc64-isa=power8
++    //     and the generated LLInt holds no ISA 3.0 either.
++    flag: ["-mcpu=power8", "-mtune=power8"],
+     when: c => c.ppc64le,
+-    desc: "ppc64le: POWER9 (VSX-3, little-endian ELFv2)",
++    desc: "ppc64le: POWER8 (VSX-2, little-endian ELFv2)",
+   },
+ ];
+ 

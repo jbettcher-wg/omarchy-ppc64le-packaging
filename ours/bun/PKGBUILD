@@ -23,7 +23,7 @@ pkgname=bun
 pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager'
 _commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
 pkgver=1.4.3
-pkgrel=3
+pkgrel=5
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
@@ -57,6 +57,7 @@ source=(
   0010-ppc64le-turn-WebAssembly-and-the-sampling-profiler-o.patch
   0011-ppc64le-turn-the-DFG-on.patch
   0012-ppc64le-turn-FTL-on.patch
+  0013-ppc64le-build-for-POWER8-when-_power8_compat-is-set.patch
 )
 
 sha256sums=(
@@ -73,6 +74,7 @@ sha256sums=(
   '2fc51d309ac98829be79324cfacf9448fba0fcac8740b81081f7dfd9a2c35cac'
   'ed01f9b88bf62bb3fff7ec4e41e24508e7cd993d98c839968461d56aaf33f0f3'
   '79813c1392a777fdf0d7bdc94b79cd1575d32d08d5508003a121ebc6b59d17ae'
+  'ec2d08102cfb0002e8c65eb91b603c06bed6ef5698ecff5d7d146ba6164a586c'
 )
 
 prepare() {
@@ -83,9 +85,29 @@ prepare() {
     src="${src%%::*}"
     src="${src##*/}"
     [[ $src = *.patch ]] || continue
+    # 0013 is conditional -- applied below, for the baseline pool only.
+    [[ $src = 0013-* ]] && continue
     printf 'Applying %s\n' "$src"
     patch -Np1 -i "$srcdir/$src"
   done
+
+  # The baseline pool has to run on POWER8 through POWER11. bun computes its
+  # own -mcpu from cpuTargetFlags in scripts/build/flags.ts and that overrides
+  # makepkg's CFLAGS/CXXFLAGS/RUSTFLAGS completely -- the drop-in's asserts
+  # pass and the package still comes out ISA 3.0 throughout. Measured without
+  # this patch: 349,172 ISA 3.0 instructions, which SIGILL on POWER8.
+  if (( _power8_compat )); then
+    printf 'Applying %s (_power8_compat=1)\n' "0013-ppc64le-build-for-POWER8-when-_power8_compat-is-set.patch"
+    patch -Np1 -i "$srcdir/0013-ppc64le-build-for-POWER8-when-_power8_compat-is-set.patch"
+    # Assert rather than trust: this one table drives the C++ flags, the Rust
+    # flags via rust.ts, and WebKit's ENABLE_PPC64_ISA30. If it silently did
+    # not take, the package builds clean and faults on the target hardware.
+    grep -q 'mcpu=power8' scripts/build/flags.ts || {
+      printf 'ERROR: cpuTargetFlags does not name power8 after 0013\n' >&2; return 1; }
+    if grep -q 'mcpu=power9' scripts/build/flags.ts; then
+      printf 'ERROR: cpuTargetFlags still names power9 after 0013\n' >&2; return 1
+    fi
+  fi
 }
 
 build() {
