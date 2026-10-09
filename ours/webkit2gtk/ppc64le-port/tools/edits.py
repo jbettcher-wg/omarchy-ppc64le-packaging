@@ -1736,6 +1736,66 @@ AssemblyHelpers::JumpList AssemblyHelpers::checkWasmStackOverflow(GPRReg instanc
  """    elsif RISCV64 or PPC64
         loadq [buffer], csr0"""),
 
+# --- llint/InPlaceInterpreter64.asm : ELFv2 argument extension -----------
+# ELFv2 requires the CALLER to extend a sub-doubleword integer argument to the
+# full 64-bit register, per the parameter's own signedness. It is the odd one
+# out among this tree's targets: x86-64 SysV and AAPCS64 both let the callee
+# read only the low 32 bits, so `loadi` into an argument register is harmless
+# there and wrong here -- `loadi` lowers to lwz, which ZERO-extends.
+#
+# ipint_extern_ref_test/ref_cast take `int32_t heapType`, and wasm's abstract
+# heap types are NEGATIVE. Zero-extended, funcref arrived as a huge positive,
+# missed Wasm::typeIndexIsType(), and aborted inside
+# ModuleInformation::rtt() on a nonsense signature index. That took out
+# wasm/gc/casts.js, const-exprs.js, exncast.js and br_on_cast.js, all of which
+# pass with a sign-extending load.
+#
+# Harmless on every other target: loadis is a plain sign-extending 32-bit load
+# and the upper bits they ignore are now simply correct.
+('REPLACE*6', J + 'llint/InPlaceInterpreter64.asm',
+ '    loadi IPInt::RefTestCastMetadata::toHeapType[MC], a1',
+ '    loadis IPInt::RefTestCastMetadata::toHeapType[MC], a1'),
+
+# --- b3/B3LowerToAir.cpp : the INTEGER half of the ELFv2 C-call seam ------
+# The port already converts Float at this seam. Int32 needs the same
+# treatment and did not have it. ELFv2 makes the CALLER extend a
+# sub-doubleword integer argument to the full register and lets the callee
+# rely on it; x86-64 SysV and AAPCS64 both let the callee read only the low
+# 32 bits, which is why cCallArgumentRegisterWidth's Width32 is right there
+# and wrong here -- a Width32 shuffle lowers to Move32, which ZERO-extends.
+#
+# operationLoadVarargs takes `int32_t firstElementDest`, a virtual register
+# offset that is NEGATIVE for locals. FTL passed -16 as 0x00000000fffffff0;
+# loadVarargs turned it into a wild address and copyToArguments wrote off the
+# end of the frame. Baseline and DFG extend correctly, so the crash appeared
+# only after tier-up -- the tenth call into that operation, not the first --
+# which made a 22-test arguments/varargs cluster look like an
+# arguments-elimination bug instead of an ABI one.
+('AFTER', J + 'b3/B3LowerToAir.cpp',
+ """                if (isPPC64() && child->type() == Float && src.isTmp()) {
+                    Tmp asDouble = m_code.newTmp(B3::FP);
+                    append(ConvertFloatToDouble, src.tmp(), asDouble);
+                    src = asDouble;
+                    width = Width64;
+                }""",
+ """
+                // The integer half of the same seam. Sign- rather than
+                // zero-extension: the signed parameters are the ones that can
+                // carry a value where the two differ. B3 does not record a C
+                // parameter's signedness, and every unsigned 32-bit parameter
+                // reachable here is a length, index or count that stays below
+                // 2^31, where both extensions agree.
+                if (isPPC64() && child->type() == Int32) {
+                    if (src.isTmp()) {
+                        Tmp extended = m_code.newTmp(B3::GP);
+                        append(SignExtend32To64, src.tmp(), extended);
+                        src = extended;
+                    }
+                    // An Arg::imm already holds the int32 sign-extended into
+                    // its int64 payload, so widening the move is enough.
+                    width = Width64;
+                }"""),
+
 ]
 
 
