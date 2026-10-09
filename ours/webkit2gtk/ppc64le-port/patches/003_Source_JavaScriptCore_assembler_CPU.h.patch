@@ -1,0 +1,29 @@
+diff --git a/Source/JavaScriptCore/assembler/CPU.h b/Source/JavaScriptCore/assembler/CPU.h
+index 0829a580f1..982961d275 100644
+--- a/Source/JavaScriptCore/assembler/CPU.h
++++ b/Source/JavaScriptCore/assembler/CPU.h
+@@ -114,6 +114,15 @@ constexpr bool isRISCV64()
+ #endif
+ }
+ 
++constexpr bool isPPC64()
++{
++#if CPU(PPC64LE)
++    return true;
++#else
++    return false;
++#endif
++}
++
+ constexpr bool isAddress64Bit()
+ {
+     return sizeof(void*) == 8;
+@@ -180,7 +189,7 @@ constexpr size_t prologueStackPointerDelta()
+ #elif CPU(X86_64)
+     // Prologue only saves the framePointerRegister
+     return sizeof(CPURegister);
+-#elif CPU(ARM64) || CPU(RISCV64)
++#elif CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     // Prologue saves the framePointerRegister and linkRegister
+     return 2 * sizeof(CPURegister);
+ #else

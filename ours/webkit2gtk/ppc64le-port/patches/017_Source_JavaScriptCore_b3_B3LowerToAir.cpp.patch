@@ -1,0 +1,279 @@
+diff --git a/Source/JavaScriptCore/b3/B3LowerToAir.cpp b/Source/JavaScriptCore/b3/B3LowerToAir.cpp
+index 084dc1db56..87f7b5e363 100644
+--- a/Source/JavaScriptCore/b3/B3LowerToAir.cpp
++++ b/Source/JavaScriptCore/b3/B3LowerToAir.cpp
+@@ -253,10 +253,24 @@ private:
+         case Opaque:
+             return true;
+         case VectorExtractLane: {
+-            // If VectorExtractLane meets the following conditions,
+-            //   1. an operand is f32x4 or f64x2
+-            //   2. extracting lane is 0
+-            // this is effectively the same to Trunc for V128.
++            // On x86 and ARM64, lane 0 of an f32x4/f64x2 IS the scalar
++            // register image, so extracting it is the same as Trunc for V128
++            // and the value can be propagated with no instruction at all.
++            //
++            // That identity does not hold on ppc64, and the difference is
++            // silent. This port keeps a scalar f64 in ISA doubleword 0, which
++            // is memory bytes 8-15, i.e. f64x2 lane 1; and a scalar f32 as
++            // its raw single in ISA word 1, which is memory word 2, i.e.
++            // f32x4 lane 2. (Both are stated in MacroAssemblerPPC64.h, where
++            // the lane model is defined.) Lane 0 is the OTHER doubleword in
++            // both cases, so propagating here reads the wrong half and
++            // produces a wrong number with no assertion to catch it.
++            //
++            // Take the general path instead: vectorExtractLane() handles
++            // index 0 correctly, because it encodes the memory-to-ISA lane
++            // inversion itself.
++            if (isPPC64())
++                return false;
+             SIMDValue* simdValue = value->as<SIMDValue>();
+             auto lane = simdValue->simdLane();
+             return simdValue->immediate() == 0 && (lane == SIMDLane::f32x4 || lane == SIMDLane::f64x2);
+@@ -1179,6 +1193,26 @@ private:
+             return;
+         }
+ 
++        // A target whose shift needs a scratch register asks for one here, the
++        // same way ARM64 asks for BranchMul's. This is not arch-conditional
++        // code: the form is only declared where it is needed, so only that
++        // target reaches it, and the scratch is an ordinary Tmp that the
++        // register allocator sizes and spills.
++        if (isValidForm(opcode, Arg::Tmp, Arg::Tmp, Arg::Tmp, Arg::Tmp)) {
++            append(opcode, tmp(value), tmp(amount), tmp(m_value), m_code.newTmp(GP));
++            return;
++        }
++
++        // The last resort is x86's fixed shift-count register, and m_ecx is
++        // initialised only under CPU(X86_64) -- everywhere else it is a
++        // default-constructed Tmp, which is null. Appending a null Tmp builds
++        // an Inst that looks well formed and is not: the register allocator
++        // indexes its Tmp-to-group map with it and reads out of bounds, which
++        // is a SIGSEGV three phases later with nothing left to say where it
++        // came from. Say it here instead. A target that reaches this has no
++        // shift form declared for `opcode` at all, and declaring one is the
++        // fix.
++        RELEASE_ASSERT(m_ecx, opcode);
+         append(Move, tmp(value), tmp(m_value));
+         append(Move, tmp(amount), m_ecx);
+         append(opcode, m_ecx, tmp(m_value));
+@@ -3528,7 +3562,13 @@ private:
+             return;
+         }
+         
+-        RELEASE_ASSERT(isARM64());
++        // PPC64 joins ARM64 on the load-linked / store-conditional path. It is the
++        // same position ARM64 is in without LSE: no single-instruction CAS, but
++        // larx/stcx. and a retry loop. The 16 LoadLink*/StoreCond* opcodes are
++        // claimed for this target and MacroAssemblerPPC64 implements them, including
++        // the inverted status polarity the opcode file warns about -- stcx. sets
++        // CR0[EQ] on success, these return 0 on success.
++        RELEASE_ASSERT(isARM64() || isPPC64());
+         // We wish to emit:
+         //
+         // Block #reloop:
+@@ -3683,7 +3723,7 @@ private:
+                 break;
+             }
+         } else {
+-            RELEASE_ASSERT(isARM64());
++            RELEASE_ASSERT(isARM64() || isPPC64());
+             prepareOpcode = loadLinkOpcode(atomic->accessWidth(), atomic->hasFence());
+         }
+         reloopBlock->append(trappingInst(m_value, prepareOpcode, m_value, address, oldValue));
+@@ -3714,7 +3754,7 @@ private:
+             reloopBlock->append(relaxedMoveForType(atomic->type()), m_value, oldValue, m_eax);
+             reloopBlock->append(trappingInst(m_value, casOpcode, m_value, Arg::statusCond(MacroAssembler::Success), m_eax, newValue, address));
+         } else {
+-            RELEASE_ASSERT(isARM64());
++            RELEASE_ASSERT(isARM64() || isPPC64());
+             Tmp boolResult = m_code.newTmp(GP);
+             reloopBlock->append(trappingInst(m_value, storeCondOpcode(atomic->accessWidth(), atomic->hasFence()), m_value, newValue, address, boolResult));
+             reloopBlock->append(BranchTest32, m_value, Arg::resCond(MacroAssembler::Zero), boolResult, boolResult);
+@@ -4525,7 +4565,7 @@ private:
+         }
+             
+         case Depend: {
+-            RELEASE_ASSERT(isARM64());
++            RELEASE_ASSERT(isARM64() || isPPC64());
+             appendUnOp<Depend32, Depend64>(m_value->child(0));
+             return;
+         }
+@@ -5017,7 +5057,12 @@ private:
+             SIMDValue* value = m_value->as<SIMDValue>();
+             auto lane = value->simdLane();
+             auto signMode = value->signMode();
+-            if (value->immediate() == 0 && (lane == SIMDLane::f32x4 || lane == SIMDLane::f64x2)) {
++            // Ask the same predicate that decided whether to copy-propagate
++            // this value, rather than restating its condition. If the two
++            // ever disagreed, the ASSERT below would fire in a debug build
++            // and a release build would emit nothing for a lane that really
++            // does need an extract.
++            if (shouldCopyPropagate(m_value)) {
+                 ASSERT(tmp(m_value->child(0)) == tmp(m_value));
+                 return;
+             }
+@@ -5203,6 +5248,50 @@ private:
+                 return;
+             }
+ 
++            if constexpr (isPPC64()) {
++                auto v = tmp(value->child(0));
++
++                if (value->child(1)->hasInt32()) {
++                    int32_t shiftImm = value->child(1)->asInt32() & mask;
++                    if (!shiftImm) {
++                        append(Air::MoveVector, v, tmp(value));
++                        return;
++                    }
++                    // The immediate forms splat the count themselves, as a
++                    // byte for every lane width, so unlike both other targets
++                    // this case needs no vector Tmp at all.
++                    if (value->opcode() == VectorShl)
++                        append(VectorShl8, Arg::simdInfo(value->simdInfo()), v, Arg::imm(shiftImm), tmp(value));
++                    else
++                        append(value->signMode() == SIMDSignMode::Signed ? VectorSshr8 : VectorUshr8, Arg::simdInfo(value->simdInfo()), v, Arg::imm(shiftImm), tmp(value));
++                    return;
++                }
++
++                auto shift = tmp(value->child(1));
++                Tmp shiftAmount = m_code.newTmp(B3::GP);
++                Tmp shiftVector = m_code.newTmp(B3::FP);
++
++                // And32 has only Tmp, Tmp, Tmp and Tmp, Tmp forms here --
++                // BitImm is arm64-only and Imm is x86-only -- so the mask has
++                // to be materialised. Loading it into the destination and
++                // using the two-operand form costs one Tmp rather than two.
++                append(Move, Arg::imm(mask), shiftAmount);
++                append(And32, shift, shiftAmount);
++
++                // No Neg32. POWER has vsl, vsr and vsra as three separate
++                // instructions, so there is no ARM64 negated-count
++                // convention to undo. The count is a per-lane vector and the
++                // hardware masks it to the lane width, so a byte splat serves
++                // every width -- the same reason the immediate forms above
++                // splat as a byte.
++                append(VectorSplatInt8, shiftAmount, shiftVector);
++                if (value->opcode() == VectorShl)
++                    append(VectorUshl, Arg::simdInfo(value->simdInfo()), v, shiftVector, tmp(value));
++                else
++                    append(value->signMode() == SIMDSignMode::Signed ? VectorSshr : VectorUshr, Arg::simdInfo(value->simdInfo()), v, shiftVector, tmp(value));
++                return;
++            }
++
+             RELEASE_ASSERT_NOT_REACHED();
+         }
+ 
+@@ -6057,6 +6146,41 @@ private:
+         case B3::CCall: {
+             CCallValue* cCall = m_value->as<CCallValue>();
+             bool deferToAfterRegAlloc = m_isRare && m_code.optLevel() >= 2;
++
++            // ppc64le: keep any CCall that touches a Float off the cold path.
++            //
++            // Both halves of the ELFv2 float seam are handled by the in-place
++            // expansion below -- ConvertFloatToDouble into an argument FPR,
++            // ConvertDoubleToFloat out of the result FPR -- because a float
++            // lives in an FPR in DOUBLE format across a C call here while this
++            // port's Float type is the raw single everywhere inside a
++            // procedure. AirLowerAfterRegAlloc's ColdCCall arm builds its pre-
++            // and post-call shuffles with widthForType(), so a Float moves as
++            // Width32 (fmr, raw bits): the callee would read 1.0f as
++            // ~1.06e-314, and a float result would come back as +0.0 because
++            // word 1 of 0x3ff0000000000000 is zero. It runs after register
++            // allocation and so cannot mint the Tmp a conversion needs, and
++            // open-coding one against physical registers there would have to
++            // reason about scratch availability and a stack-homed argument. So
++            // route these through the expansion that is already correct and
++            // already tested instead.
++            //
++            // The cost is that a rare float-taking or float-returning C call
++            // is expanded in place rather than out of line. The calls this
++            // applies to are B3LowerMacrosAfterOptimizations' float math
++            // helpers (ceilFloat, floorFloat, truncFloat, and
++            // sqrtFloat/roundFloat/stdPowFloat behind them), which are small
++            // and few.
++            //
++            // Unreachable until FTL is on: optLevel() >= 2 is an FTL build.
++            if (isPPC64() && deferToAfterRegAlloc) {
++                bool touchesFloat = cCall->type() == Float;
++                for (unsigned i = 1; !touchesFloat && i < cCall->numChildren(); ++i)
++                    touchesFloat = cCall->child(i)->type() == Float;
++                if (touchesFloat)
++                    deferToAfterRegAlloc = false;
++            }
++
+             if (deferToAfterRegAlloc) {
+                 m_procedure.setUsesColdCCall(true);
+ 
+@@ -6106,6 +6230,28 @@ private:
+                 Value* child = cCall->child(i);
+                 Arg src = immOrTmp(child);
+                 Width width = cCallArgumentRegisterWidth(child->type());
++
++                // ELFv2 passes a float in an FPR in DOUBLE format. Every other
++                // target this code serves keeps the raw single there, which is
++                // also what this port's Float type means everywhere inside a
++                // procedure -- so the shuffle below, which moves Width32 with
++                // MoveFloat and lowers to fmr, would hand the callee the raw
++                // bit pattern read as a double: 1.0f arrives as ~1.06e-314.
++                //
++                // Convert at the seam, in Air IR rather than inside
++                // CCallSpecial::generate, so that register allocation and
++                // liveness see it. The seam is the C ABI and nothing else:
++                // this is B3's CCall lowering, which CCallSpecial always
++                // invokes with OperationPtrTag, so wasm-internal and JS calls
++                // -- which carry the raw-bits model IPInt depends on -- do not
++                // pass through here. powerpc64le-handbook
++                // docs/jsc-ppc64le-b3-air.md section 2.5.
++                if (isPPC64() && child->type() == Float && src.isTmp()) {
++                    Tmp asDouble = m_code.newTmp(B3::FP);
++                    append(ConvertFloatToDouble, src.tmp(), asDouble);
++                    src = asDouble;
++                    width = Width64;
++                }
+                 for (unsigned j = 0, len = cCallArgumentRegisterCount(child->type()); j < len; ++j) {
+                     ShufflePair pair(src, destinations[destinationIndex++], width);
+                     hasRegisterSource |= pair.src().isReg();
+@@ -6159,7 +6305,14 @@ private:
+                 append(Move, cCallResult(m_code, cCall, 1), resultDst1);
+                 break;
+             case Float:
+-                append(MoveFloat, cCallResult(m_code, cCall, 0), resultDst0);
++                // The other half of the ELFv2 float seam: a C callee leaves a
++                // float in f1 in double format, so reading it with MoveFloat
++                // (fmr) would take the raw bits of a double -- 1.0f comes back
++                // as +0.0 because word 1 of 0x3ff0000000000000 is zero.
++                if (isPPC64())
++                    append(ConvertDoubleToFloat, cCallResult(m_code, cCall, 0), resultDst0);
++                else
++                    append(MoveFloat, cCallResult(m_code, cCall, 0), resultDst0);
+                 break;
+             case Double:
+                 append(MoveDouble, cCallResult(m_code, cCall, 0), resultDst0);
+@@ -6647,6 +6800,24 @@ private:
+                 append(Ret64, returnValueGPR);
+                 break;
+             case Float:
++                // ELFv2 returns a float in f1 in DOUBLE format. This port's Float is
++                // the raw single (jsc-ppc64le-yarr-wasm.md section 7), so a bare
++                // MoveFloat hands the C caller a denormal: word 1 of 2.0f's encoding
++                // read as a double is ~4e-315, which prints as 0.
++                //
++                // B3's Return carries no ABI of its own, so the arm is gated on who
++                // can reach it. Every emitter of Return(Float) in the tree returns to
++                // a C caller: FTL returns Int64 only (FTLOutput.cpp Output::ret, whose
++                // one caller is compileReturn's lowJSValue), and OMG never emits B3
++                // Return at all -- WasmOMGIRGenerator::addReturn is a terminal Void
++                // Patchpoint that calls emitEpilogue itself. A wasm procedure that did
++                // reach here would want the raw bits, which is the fall-through; that
++                // is what isWasm() guards, and it is unexercised today.
++                if (isPPC64() && !m_procedure.isWasm()) {
++                    append(ConvertFloatToDouble, tmp(value), returnValueFPR);
++                    append(RetDouble, returnValueFPR);
++                    break;
++                }
+                 append(MoveFloat, tmp(value), returnValueFPR);
+                 append(RetFloat, returnValueFPR);
+                 break;

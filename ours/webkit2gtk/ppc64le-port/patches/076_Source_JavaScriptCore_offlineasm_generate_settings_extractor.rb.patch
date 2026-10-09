@@ -1,0 +1,15 @@
+diff --git a/Source/JavaScriptCore/offlineasm/generate_settings_extractor.rb b/Source/JavaScriptCore/offlineasm/generate_settings_extractor.rb
+index 435659a1d5..735efcdc46 100644
+--- a/Source/JavaScriptCore/offlineasm/generate_settings_extractor.rb
++++ b/Source/JavaScriptCore/offlineasm/generate_settings_extractor.rb
+@@ -51,6 +51,10 @@ includeOnlyBackends(inputBackends)
+ $options = {}
+ OptionParser.new do |opts|
+     opts.banner = "Usage: generate_settings_extractor.rb asmFile settingFile [--webkit-additions-path=<path>] [--depfile=<depfile>]"
++    opts.on("--ppc64-isa=ISA", "ppc64le ISA floor for generated code: power8 (default) or power9.") do |isa|
++        raise "Invalid --ppc64-isa=#{isa}; expected power8 or power9" unless ["power8", "power9"].include? isa
++        $options[:ppc64_isa] = isa
++    end
+     opts.on("--webkit-additions-path=PATH", "WebKitAdditions path.") do |path|
+         $options[:webkit_additions_path] = path
+     end

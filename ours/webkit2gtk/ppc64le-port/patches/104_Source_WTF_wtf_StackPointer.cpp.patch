@@ -1,0 +1,28 @@
+diff --git a/Source/WTF/wtf/StackPointer.cpp b/Source/WTF/wtf/StackPointer.cpp
+index e115aa5108..fcaea69d6f 100644
+--- a/Source/WTF/wtf/StackPointer.cpp
++++ b/Source/WTF/wtf/StackPointer.cpp
+@@ -176,6 +176,23 @@ __asm__(
+      ".previous" "\n"
+ );
+ 
++#elif CPU(PPC64LE)
++__asm__(
++    ".text" "\n"
++    ".globl " SYMBOL_STRING(currentStackPointer) "\n"
++    ".type " SYMBOL_STRING(currentStackPointer) ",@function" "\n"
++    SYMBOL_STRING(currentStackPointer) ":" "\n"
++    // ELFv2 has no function descriptors. st_other = 1 means "the local entry
++    // point is the global entry point; the function does not use r2 and
++    // preserves it", which is true of this leaf and lets the linker skip the
++    // TOC save/restore it would otherwise insert around a cross-module call.
++    ".localentry " SYMBOL_STRING(currentStackPointer) ", 1" "\n"
++
++    "mr 3, 1" "\n"
++    "blr" "\n"
++    ".previous" "\n"
++);
++
+ #elif CPU(LOONGARCH64)
+ __asm__(
+     ".text" "\n"

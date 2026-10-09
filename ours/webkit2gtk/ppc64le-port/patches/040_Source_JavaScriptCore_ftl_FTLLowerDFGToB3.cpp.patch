@@ -1,0 +1,64 @@
+diff --git a/Source/JavaScriptCore/ftl/FTLLowerDFGToB3.cpp b/Source/JavaScriptCore/ftl/FTLLowerDFGToB3.cpp
+index 427fea3385..e967478461 100644
+--- a/Source/JavaScriptCore/ftl/FTLLowerDFGToB3.cpp
++++ b/Source/JavaScriptCore/ftl/FTLLowerDFGToB3.cpp
+@@ -15365,9 +15365,21 @@ IGNORE_CLANG_WARNINGS_END
+                     DFG_CRASH(m_graph, node, "Bad FFI argument type for a KnownInt32Use CallFFI child");
+                     break;
+                 }
+-                if constexpr (directCall)
+-                    directOperand = m_out.castToInt32(slotValue);
+-                else
++                if constexpr (directCall) {
++                    // ELFv2 makes the CALLER extend a sub-doubleword integer
++                    // argument to 64 bits; clang compiles an int32_t parameter
++                    // as `signext` and omits the callee-side extension. slotValue
++                    // is already the correctly extended doubleword image, so hand
++                    // B3 that rather than an Int32 operand -- an Int32 reaches the
++                    // register zero-extended (ZDef) and a negative value arrives
++                    // as 2^32-|x|. Stack arguments are doubleword-stride here too,
++                    // so Int64 is right in both homes. The Int32 narrowing exists
++                    // for Darwin/arm64's 4-byte stack packing.
++                    if (isPPC64())
++                        directOperand = slotValue;
++                    else
++                        directOperand = m_out.castToInt32(slotValue);
++                } else
+                     m_out.store64(slotValue, slot);
+                 break;
+             }
+@@ -15492,7 +15504,7 @@ IGNORE_CLANG_WARNINGS_END
+                     directOperands.append(m_out.loadDouble(slotPointer(i)));
+                 else if (type == FFI::Type::Float)
+                     directOperands.append(m_out.loadFloat(slotPointer(i)));
+-                else if (FFI::nativeSizeInBytes(type) <= 4)
++                else if (FFI::nativeSizeInBytes(type) <= 4 && !isPPC64())
+                     directOperands.append(m_out.castToInt32(m_out.load64(slotPointer(i))));
+                 else
+                     directOperands.append(m_out.load64(slotPointer(i)));
+@@ -20268,6 +20280,7 @@ IGNORE_CLANG_WARNINGS_END
+         setBoolean(m_out.phi(Int32, falseResult, operationResult));
+     }
+ 
++#if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
+     void compileRegExpTestInline()
+     {
+         RegExp* regExp = uncheckedDowncast<RegExp>(m_node->cellOperand2()->value());
+@@ -20422,6 +20435,17 @@ IGNORE_CLANG_WARNINGS_END
+         m_out.appendTo(continuation, lastNext);
+         setBoolean(m_out.phi(Int32, inlineresult, operationResult));
+     }
++#else
++    void compileRegExpTestInline()
++    {
++        // Yarr::YarrJITRegisters and Yarr::jitCompileInlinedTest are declared
++        // only under YARR_JIT_REGEXP_TEST_INLINE (YarrJITRegisters.h:193,
++        // YarrJIT.h:443). The node is never produced when that is off --
++        // DFGStrengthReductionPhase's conversion is guarded to match -- so
++        // reaching this is a bug in that guard, not an unsupported case.
++        RELEASE_ASSERT_NOT_REACHED();
++    }
++#endif
+ 
+     void compileRegExpMatchFast()
+     {

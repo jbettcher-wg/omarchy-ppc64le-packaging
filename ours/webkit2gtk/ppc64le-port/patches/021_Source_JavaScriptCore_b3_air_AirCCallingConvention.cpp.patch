@@ -1,0 +1,177 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirCCallingConvention.cpp b/Source/JavaScriptCore/b3/air/AirCCallingConvention.cpp
+index b867ddf00a..0bf784cf58 100644
+--- a/Source/JavaScriptCore/b3/air/AirCCallingConvention.cpp
++++ b/Source/JavaScriptCore/b3/air/AirCCallingConvention.cpp
+@@ -36,6 +36,7 @@
+ #include "B3Procedure.h"
+ #include "B3ProcedureInlines.h"
+ #include "B3ValueInlines.h"
++#include "NativeArgumentCursor.h"
+ 
+ namespace JSC { namespace B3 { namespace Air {
+ 
+@@ -75,17 +76,101 @@ void marshallCCallArgumentImpl(Vector<Arg>& result, unsigned& argumentCount, Val
+ }
+ 
+ 
+-void marshallCCallArgument(Vector<Arg> &result, unsigned& gpArgumentCount, unsigned& fpArgumentCount, Value::OffsetType& stackOffset, Type childType)
++// ELFv2 advances ONE doubleword cursor across both register files, so Air's
++// two independent counters place every argument after a double one register
++// too low -- f(int, double, int) gets r3, f1, r4 where the ABI says r3, f1,
++// r5 -- and its stack base is wrong by the 32-byte linkage area on top of
++// that. Both come from jit/NativeArgumentCursor.h now, the same rule
++// CCallHelpers and bun:ffi consume.
++//
++// The frame this assumes is the one jsc-ppc64le-b3-air.md section 4.3
++// specifies: the linkage area and the parameter save area are reserved in
++// the frame and sp does not move at the call, so Arg::callArg(n) means
++// n bytes from sp and the callee's doubleword i is at 32 + 8i BY
++// CONSTRUCTION rather than by the accident that CCallSpecial::generate
++// happens to push 32 after the argument stores.
++//
++// NOTE: none of this is built today. ENABLE(B3_JIT) is 0 on this port --
++// FTL is off and both compiling wasm tiers are off -- so this file
++// preprocesses to nothing here and the code below has never been compiled,
++// let alone run, on ppc64le. It is written so that whoever turns B3 on
++// inherits the rule rather than rediscovering it.
++static void marshallCCallArgumentPPC64(Vector<Arg>& result, NativeArgumentCursor& cursor, Type childType)
+ {
+-    switch (bankForType(childType)) {
+-    case GP:
+-        marshallCCallArgumentImpl<GPRInfo>(result, gpArgumentCount, stackOffset, childType);
++    const auto registerCount = cCallArgumentRegisterCount(childType);
++    const bool isFloatClassArgument = bankForType(childType) == FP;
++
++    for (unsigned i = 0; i < registerCount; i++) {
++        auto [home, advanced] = cursor.place(isFloatClassArgument ? NativeArgumentClass::Double : NativeArgumentClass::Integer);
++        cursor = advanced;
++
++        switch (home.kind) {
++        case NativeArgumentHome::Kind::GPR:
++            RELEASE_ASSERT(!isFloatClassArgument);
++            result.append(Tmp(nativeIntegerArgumentRegister(home.index)));
++            break;
++        case NativeArgumentHome::Kind::FPR:
++            // f13 is fpTempRegister on this port; the cursor's default
++            // capacity stops at f12 and this is the fence that says so.
++            RELEASE_ASSERT(home.index < NativeArgumentCursor::portFPRCapacity);
++            result.append(Tmp(nativeFloatArgumentRegister(home.index)));
++            break;
++        case NativeArgumentHome::Kind::Stack:
++            // The fence the FPR arm above has and this one lacked.
++            //
++            // ELFv2 passes THIRTEEN float-class arguments in f1-f13 -- measured
++            // against gcc, which loads f1 through f13 and stacks only the
++            // fourteenth, at 32 + 8*13. This port's cursor stops at twelve,
++            // because f13 is fpTempRegister, so a thirteenth float-class
++            // argument homes to the stack here while the C callee still reads
++            // it out of f13. That is a silently wrong value, and it is what
++            // testCallFunctionWithHellaDoubleArguments was measuring once the
++            // linkage area stopped being counted twice.
++            //
++            // Making it loud costs nothing and is not the register-map change
++            // that would make it correct. The other two consumers of this
++            // cursor are already safe: jit/CCallHelpers.h has a compile-time
++            // static_assert on the same bound, and ffi/FFICallingConvention.h
++            // uses all thirteen registers and can, because its thunks load the
++            // argument FPRs in one uninterrupted run. Air has neither
++            // property, and had no guard.
++            //
++            // Measured reachability, which is why this is an assert and not a
++            // fix: across all 757 JSC_DECLARE_JIT_OPERATION declarations in the
++            // tree, the most float-class arguments any one of them takes is
++            // TWO. The only declarations with more are the two 26-argument
++            // functions in testb3.
++            RELEASE_ASSERT(!isFloatClassArgument || home.index >= 13,
++                "A float-class C-call argument homed to the stack at a doubleword ELFv2 passes in f13");
++            result.append(Arg::callArg(static_cast<Value::OffsetType>(home.calleeRelativeOffset())));
++            break;
++        case NativeArgumentHome::Kind::FPRAndGPR:
++            RELEASE_ASSERT_NOT_REACHED();
++            break;
++        }
++    }
++}
++
++void marshallCCallArgument(Vector<Arg> &result, unsigned& gpArgumentCount, unsigned& fpArgumentCount, NativeArgumentCursor& cursor, Value::OffsetType& stackOffset, Type childType)
++{
++    if constexpr (isPPC64()) {
++        UNUSED_PARAM(gpArgumentCount);
++        UNUSED_PARAM(fpArgumentCount);
++        UNUSED_PARAM(stackOffset);
++        marshallCCallArgumentPPC64(result, cursor, childType);
+         return;
+-    case FP:
+-        marshallCCallArgumentImpl<FPRInfo>(result, fpArgumentCount, stackOffset, childType);
+-        return;
++    } else {
++        UNUSED_PARAM(cursor);
++        switch (bankForType(childType)) {
++        case GP:
++            marshallCCallArgumentImpl<GPRInfo>(result, gpArgumentCount, stackOffset, childType);
++            return;
++        case FP:
++            marshallCCallArgumentImpl<FPRInfo>(result, fpArgumentCount, stackOffset, childType);
++            return;
++        }
++        RELEASE_ASSERT_NOT_REACHED();
+     }
+-    RELEASE_ASSERT_NOT_REACHED();
+ }
+ 
+ } // anonymous namespace
+@@ -96,10 +181,16 @@ Vector<Arg> computeCCallingConvention(Code& code, CCallValue* value)
+     result.append(Tmp(CCallSpecial::scratchRegister)); // For callee
+     unsigned gpArgumentCount = 0;
+     unsigned fpArgumentCount = 0;
++    NativeArgumentCursor cursor;
+     Value::OffsetType stackOffset = 0;
+     for (unsigned i = 1; i < value->numChildren(); ++i)
+-        marshallCCallArgument(result, gpArgumentCount, fpArgumentCount, stackOffset, value->child(i)->type());
+-    code.requestCallArgAreaSizeInBytes(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(stackOffset));
++        marshallCCallArgument(result, gpArgumentCount, fpArgumentCount, cursor, stackOffset, value->child(i)->type());
++    if constexpr (isPPC64()) {
++        // The linkage area plus the parameter save area, reserved in the
++        // frame so that sp never moves inside an Inst.
++        code.requestCallArgAreaSizeInBytes(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(32 + cursor.parameterSaveAreaBytes()));
++    } else
++        code.requestCallArgAreaSizeInBytes(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(stackOffset));
+     return result;
+ }
+ 
+@@ -189,8 +280,19 @@ Value* ArgumentValueList::makeCCallValue(B3::BasicBlock* block, Type type, Air::
+     if (type == Int32)
+         val = block->appendNew<Value>(procedure, Trunc, Origin(), val);
+ 
+-    if (type == Float)
+-        val = block->appendNew<Value>(procedure, Trunc, Origin(), val);
++    if (type == Float) {
++        // ELFv2 hands a float argument over in DOUBLE format, so the narrowing is a
++        // real conversion here, not a re-typing. Trunc is bitwise -- B3LowerToAir
++        // lowers it to nothing at all, asserting tmp(child) == tmp(value) -- so it
++        // would read word 1 of that double and turn an incoming 1.0f into 0.0f.
++        //
++        // No isWasm() gate on this side: this function is only reached through
++        // computeCCallArguments/cCallArgumentValues, which are definitionally the C
++        // ABI and have no caller anywhere outside testb3. OMG builds its own F32
++        // prologue with ArgumentRegValue + Trunc and does not come through here,
++        // which is correct under the wasm raw-bits convention.
++        val = block->appendNew<Value>(procedure, isPPC64() ? DoubleToFloat : Trunc, Origin(), val);
++    }
+ 
+     return val;
+ }
+@@ -229,11 +331,12 @@ ArgumentValueList computeCCallArguments(Procedure& procedure, B3::BasicBlock* bl
+     Vector<unsigned> argUnderlyingCounts;
+     unsigned gpArgumentCount = 0;
+     unsigned fpArgumentCount = 0;
++    NativeArgumentCursor cursor;
+     Value::OffsetType stackOffset = 0;
+ 
+     for (auto type : types) {
+         argUnderlyingCounts.append(underlyingArgs.size());
+-        marshallCCallArgument(underlyingArgs, gpArgumentCount, fpArgumentCount, stackOffset, type);
++        marshallCCallArgument(underlyingArgs, gpArgumentCount, fpArgumentCount, cursor, stackOffset, type);
+     }
+ 
+     return ArgumentValueList { procedure, block, types, WTF::move(underlyingArgs), WTF::move(argUnderlyingCounts) };

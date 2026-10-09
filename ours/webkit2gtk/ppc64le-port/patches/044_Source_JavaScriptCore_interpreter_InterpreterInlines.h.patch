@@ -1,0 +1,20 @@
+diff --git a/Source/JavaScriptCore/interpreter/InterpreterInlines.h b/Source/JavaScriptCore/interpreter/InterpreterInlines.h
+index 27d8bfd201..64ef055bd2 100644
+--- a/Source/JavaScriptCore/interpreter/InterpreterInlines.h
++++ b/Source/JavaScriptCore/interpreter/InterpreterInlines.h
+@@ -192,6 +192,15 @@ inline void UnwindFunctorBase::copyCalleeSavesToEntryFrameCalleeSavesBuffer(Stac
+         return;
+ 
+     auto dontCopyRegisters = RegisterSet::stackRegisters();
++    // Registers the VM entry frame preserves itself have no slot in the
++    // calleeSaveRegistersBuffer map, so they must be skipped here exactly like
++    // the stack registers are. Empty except on ppc64le; see
++    // RegisterSet::vmEntryPreservedTemporaries(). Without this the
++    // RELEASE_ASSERT below fires on the first throw through any Air-compiled
++    // (FTL) frame, because AirHandleCalleeSaves merges the MacroAssembler's
++    // two callee-saved temps into every Air procedure's save list on that
++    // target.
++    dontCopyRegisters.merge(RegisterSet::vmEntryPreservedTemporaries());
+     CPURegister* frame = reinterpret_cast<CPURegister*>(callFrame->registers());
+ 
+     unsigned registerCount = currentCalleeSaves->registerCount();

@@ -1,0 +1,94 @@
+diff --git a/Source/JavaScriptCore/jit/AssemblyHelpers.h b/Source/JavaScriptCore/jit/AssemblyHelpers.h
+index 09eeced0dd..f18917bd68 100644
+--- a/Source/JavaScriptCore/jit/AssemblyHelpers.h
++++ b/Source/JavaScriptCore/jit/AssemblyHelpers.h
+@@ -245,7 +245,7 @@ public:
+ 
+     void emitSaveThenMaterializeTagRegisters()
+     {
+-#if CPU(ARM64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         pushPair(GPRInfo::numberTagRegister, GPRInfo::notCellMaskRegister);
+ #else
+         push(GPRInfo::numberTagRegister);
+@@ -256,7 +256,7 @@ public:
+ 
+     void emitRestoreSavedTagRegisters()
+     {
+-#if CPU(ARM64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         popPair(GPRInfo::numberTagRegister, GPRInfo::notCellMaskRegister);
+ #else
+         pop(GPRInfo::notCellMaskRegister);
+@@ -451,6 +451,47 @@ public:
+     }
+ #endif
+ 
++#if CPU(PPC64LE)
++    // PowerPC's link register is an SPR, not a GPR, so there is no
++    // `linkRegister` to pass to pushPair the way ARM64 and RISCV64 do. The
++    // frame this builds is nevertheless byte-for-byte the one they build,
++    // and the one offlineasm's `push cfr, lr` builds in the LLInt:
++    //   [cfr + 0] CallerFrame, [cfr + 8] ReturnPC.
++    // That identity is load-bearing -- JIT code and LLInt code call each
++    // other and unwind through each other's frames.
++    void emitFunctionPrologue()
++    {
++        pushFramePointerAndLinkRegister();
++        move(stackPointerRegister, framePointerRegister);
++    }
++
++    void emitFunctionEpilogueWithEmptyFrame()
++    {
++        popFramePointerAndLinkRegister();
++    }
++
++    void emitFunctionEpilogue()
++    {
++        move(framePointerRegister, stackPointerRegister);
++        emitFunctionEpilogueWithEmptyFrame();
++    }
++
++    ALWAYS_INLINE void preserveReturnAddressAfterCall(RegisterID reg)
++    {
++        moveFromLinkRegister(reg);
++    }
++
++    ALWAYS_INLINE void restoreReturnAddressBeforeReturn(RegisterID reg)
++    {
++        moveToLinkRegister(reg);
++    }
++
++    ALWAYS_INLINE void restoreReturnAddressBeforeReturn(Address address)
++    {
++        loadToLinkRegister(address);
++    }
++#endif
++
+     void getArityPadding(VM&, unsigned numberOfParameters, GPRReg argumentCountIncludingThisGPR, GPRReg paddingOutputGPR, GPRReg scratchGPR0, GPRReg scratchGPR1, JumpList& stackOverflow);
+ 
+     void emitGetFromCallFrameHeaderPtr(VirtualRegister entry, GPRReg to, GPRReg from = GPRInfo::callFrameRegister)
+@@ -974,6 +1015,14 @@ public:
+             GPRInfo::regT10,
+             GPRInfo::regT11,
+             GPRInfo::regT12,
++#elif CPU(PPC64LE)
++            GPRInfo::regT6,
++            GPRInfo::regT7,
++            GPRInfo::regT8,
++            GPRInfo::regT9,
++            GPRInfo::regT10,
++            GPRInfo::regT11,
++            GPRInfo::regT12,
+ #endif
+         };
+ 
+@@ -1658,7 +1707,7 @@ public:
+     }
+ 
+ #if ENABLE(WEBASSEMBLY)
+-#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+     JumpList checkWasmStackOverflow(GPRReg instanceGPR, TrustedImm32, GPRReg framePointerGPR);
+ #endif
+ #endif

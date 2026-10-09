@@ -1,0 +1,168 @@
+diff --git a/Source/JavaScriptCore/jit/GPRInfo.h b/Source/JavaScriptCore/jit/GPRInfo.h
+index 90a8aac9da..dafc6c0c04 100644
+--- a/Source/JavaScriptCore/jit/GPRInfo.h
++++ b/Source/JavaScriptCore/jit/GPRInfo.h
+@@ -518,6 +518,163 @@ public:
+ 
+ #endif // CPU(RISCV64)
+ 
++#if CPU(PPC64LE)
++
++// ELFv2: r3-r10 are the argument/return registers, r11 and r12 the remaining
++// volatiles (r12 is also the indirect-call target), r14-r31 nonvolatile.
++// That is only ten volatile GPRs, three fewer than RISC-V or ARM64 give
++// offlineasm, so t10-t12 come out of the callee-saved file (r25-r27) and the
++// VM entry frame pays for them. This mirrors offlineasm/ppc64.rb exactly;
++// see jsc-ppc64le-port.md section 5.2.
++#define NUMBER_OF_ARGUMENT_REGISTERS 8u
++// This sizes VMEntryRecord::calleeSaveRegistersBuffer, and it MUST equal the
++// number of slots copyCalleeSavesToBuffer() writes in
++// llint/LowLevelInterpreter.asm: regCS0-regCS10 (11) plus fpRegCS0-fpRegCS11
++// (12). Getting it wrong is a silent buffer overflow past the end of the
++// VMEntryRecord -- it cost a debugging session here, where 20 let the
++// callee-save copy on the throw path run three slots past the record and
++// overwrite the entry frame's saved r28/r29/r30.
++#define NUMBER_OF_CALLEE_SAVES_REGISTERS 23u
++
++class GPRInfo {
++public:
++    typedef GPRReg RegisterType;
++    static constexpr unsigned numberOfRegisters = 13;
++    static constexpr unsigned numberOfArgumentRegisters = NUMBER_OF_ARGUMENT_REGISTERS;
++
++    static constexpr GPRReg callFrameRegister = PPC64Registers::r31;
++    static constexpr GPRReg numberTagRegister = PPC64Registers::r22;   // csr8
++    static constexpr GPRReg notCellMaskRegister = PPC64Registers::r23; // csr9
++    static constexpr GPRReg jitDataRegister = PPC64Registers::r21;     // csr7 = PB
++    static constexpr GPRReg wasmIPIntPCRegister = PPC64Registers::r21; // IPInt PC = csr7
++    static constexpr GPRReg metadataTableRegister = PPC64Registers::r20; // csr6
++
++    static constexpr GPRReg regT0 = PPC64Registers::r3;
++    static constexpr GPRReg regT1 = PPC64Registers::r4;
++    static constexpr GPRReg regT2 = PPC64Registers::r5;
++    static constexpr GPRReg regT3 = PPC64Registers::r6;
++    static constexpr GPRReg regT4 = PPC64Registers::r7;
++    static constexpr GPRReg regT5 = PPC64Registers::r8;
++    static constexpr GPRReg regT6 = PPC64Registers::r9;
++    static constexpr GPRReg regT7 = PPC64Registers::r10;
++    static constexpr GPRReg regT8 = PPC64Registers::r11;
++    static constexpr GPRReg regT9 = PPC64Registers::r12;
++    static constexpr GPRReg regT10 = PPC64Registers::r25;
++    static constexpr GPRReg regT11 = PPC64Registers::r26;
++    static constexpr GPRReg regT12 = PPC64Registers::r27;
++
++    static constexpr GPRReg regCS0 = PPC64Registers::r14;
++    static constexpr GPRReg regCS1 = PPC64Registers::r15;
++    static constexpr GPRReg regCS2 = PPC64Registers::r16;
++    static constexpr GPRReg regCS3 = PPC64Registers::r17;
++    static constexpr GPRReg regCS4 = PPC64Registers::r18;
++    static constexpr GPRReg regCS5 = PPC64Registers::r19;
++    static constexpr GPRReg regCS6 = PPC64Registers::r20; // metadataTable in LLInt/Baseline / IPIntMC
++    static constexpr GPRReg regCS7 = PPC64Registers::r21; // jitData / PB / IPIntPC
++    static constexpr GPRReg regCS8 = PPC64Registers::r22; // numberTag
++    static constexpr GPRReg regCS9 = PPC64Registers::r23; // notCellMask
++    static constexpr GPRReg regCS10 = PPC64Registers::r24;
++
++    static constexpr GPRReg argumentGPR0 = PPC64Registers::r3;  // regT0
++    static constexpr GPRReg argumentGPR1 = PPC64Registers::r4;  // regT1
++    static constexpr GPRReg argumentGPR2 = PPC64Registers::r5;  // regT2
++    static constexpr GPRReg argumentGPR3 = PPC64Registers::r6;  // regT3
++    static constexpr GPRReg argumentGPR4 = PPC64Registers::r7;  // regT4
++    static constexpr GPRReg argumentGPR5 = PPC64Registers::r8;  // regT5
++    static constexpr GPRReg argumentGPR6 = PPC64Registers::r9;  // regT6
++    static constexpr GPRReg argumentGPR7 = PPC64Registers::r10; // regT7
++
++    // r11 and r12 are the only volatile non-argument GPRs the ABI leaves.
++    // r12 doubling as the ELFv2 indirect-call target means an indirect call
++    // clobbers regT9; that is legal because every volatile register dies at
++    // a call, but it is a constraint stage c has to respect.
++    static constexpr GPRReg nonArgGPR0 = PPC64Registers::r11; // regT8
++    static constexpr GPRReg nonArgGPR1 = PPC64Registers::r12; // regT9
++
++    static constexpr GPRReg returnValueGPR = PPC64Registers::r3;  // regT0
++    static constexpr GPRReg returnValueGPR2 = PPC64Registers::r4; // regT1
++
++    static constexpr GPRReg nonPreservedNonReturnGPR = PPC64Registers::r5;      // regT2
++    static constexpr GPRReg nonPreservedNonArgumentGPR0 = PPC64Registers::r11;  // regT8
++    static constexpr GPRReg nonPreservedNonArgumentGPR1 = PPC64Registers::r12;  // regT9
++
++    static constexpr GPRReg handlerGPR = GPRInfo::nonPreservedNonArgumentGPR1;
++
++    static constexpr GPRReg wasmScratchGPR0 = PPC64Registers::r12; // regT9
++    static constexpr GPRReg wasmScratchGPR1 = PPC64Registers::r25; // regT10
++    static constexpr GPRReg wasmContextInstancePointer = regCS0;
++    static constexpr GPRReg wasmBaseMemoryPointer = regCS3;
++    static constexpr GPRReg wasmBoundsCheckingSizeRegister = regCS4;
++
++    static constexpr GPRReg regWS0 = PPC64Registers::r12;
++    static constexpr GPRReg regWS1 = PPC64Registers::r25;
++    static constexpr GPRReg regWA0 = PPC64Registers::r3;
++    static constexpr GPRReg regWA1 = PPC64Registers::r4;
++    static constexpr GPRReg regWA2 = PPC64Registers::r5;
++    static constexpr GPRReg regWA3 = PPC64Registers::r6;
++    static constexpr GPRReg regWA4 = PPC64Registers::r7;
++    static constexpr GPRReg regWA5 = PPC64Registers::r8;
++    static constexpr GPRReg regWA6 = PPC64Registers::r9;
++    static constexpr GPRReg regWA7 = PPC64Registers::r10;
++
++    static constexpr GPRReg patchpointScratchRegister = PPC64Registers::r29; // dataTempRegister
++
++    static constexpr GPRReg toRegister(unsigned index)
++    {
++        ASSERT_UNDER_CONSTEXPR_CONTEXT(index < numberOfRegisters);
++        constexpr GPRReg registerForIndex[numberOfRegisters] = {
++            regT0, regT1, regT2, regT3, regT4, regT5, regT6, regT7,
++            regT8, regT9, regT10, regT11, regT12,
++        };
++        return registerForIndex[index];
++    }
++
++    static constexpr GPRReg toArgumentRegister(unsigned index)
++    {
++        ASSERT_UNDER_CONSTEXPR_CONTEXT(index < numberOfArgumentRegisters);
++        constexpr GPRReg registerForIndex[numberOfArgumentRegisters] = {
++            argumentGPR0, argumentGPR1, argumentGPR2, argumentGPR3,
++            argumentGPR4, argumentGPR5, argumentGPR6, argumentGPR7,
++        };
++        return registerForIndex[index];
++    }
++
++    static unsigned toIndex(GPRReg reg)
++    {
++        ASSERT(reg != InvalidGPRReg);
++        ASSERT(static_cast<int>(reg) < 32);
++        // r0 r1 r2 are reserved; r3-r12 are regT0-regT9; r13-r24 are the
++        // thread pointer and the callee-saves; r25-r27 are regT10-regT12;
++        // r28-r31 are the offlineasm/MacroAssembler scratch and cfr.
++        static const unsigned indexForRegister[32] = {
++            InvalidIndex, InvalidIndex, InvalidIndex, 0, 1, 2, 3, 4,
++            5, 6, 7, 8, 9, InvalidIndex, InvalidIndex, InvalidIndex,
++            InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
++            InvalidIndex, 10, 11, 12, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
++        };
++        return indexForRegister[reg];
++    }
++
++    static unsigned toArgumentIndex(GPRReg reg)
++    {
++        ASSERT(reg != InvalidGPRReg);
++        ASSERT(static_cast<int>(reg) < 32);
++        if (reg < argumentGPR0 || reg > argumentGPR7)
++            return InvalidIndex;
++        return static_cast<unsigned>(reg) - 3;
++    }
++
++    static ASCIILiteral debugName(GPRReg reg)
++    {
++        ASSERT(reg != InvalidGPRReg);
++        return MacroAssembler::gprName(reg);
++    }
++
++    static constexpr unsigned InvalidIndex = 0xffffffff;
++};
++
++#endif // CPU(PPC64LE)
++
+ // The baseline JIT uses "accumulator" style execution with regT0 serving as the
+ // accumulator register for passing results of one opcode to the next. Hence:
+ static_assert(GPRInfo::regT0 == GPRInfo::returnValueGPR);

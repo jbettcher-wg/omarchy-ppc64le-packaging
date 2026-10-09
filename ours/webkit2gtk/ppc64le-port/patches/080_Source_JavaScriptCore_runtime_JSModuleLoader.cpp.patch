@@ -1,0 +1,12 @@
+diff --git a/Source/JavaScriptCore/runtime/JSModuleLoader.cpp b/Source/JavaScriptCore/runtime/JSModuleLoader.cpp
+index 547ab27a35..36b4af561b 100644
+--- a/Source/JavaScriptCore/runtime/JSModuleLoader.cpp
++++ b/Source/JavaScriptCore/runtime/JSModuleLoader.cpp
+@@ -50,6 +50,7 @@
+ #include "SyntheticModuleRecord.h"
+ #include "TopExceptionScope.h"
+ #include "VMTrapsInlines.h"
++#include <wtf/Scope.h>
+ #include <wtf/text/MakeString.h>
+ 
+ namespace JSC {

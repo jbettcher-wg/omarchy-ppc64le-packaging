@@ -1,0 +1,43 @@
+diff --git a/Source/JavaScriptCore/b3/B3CheckSpecial.cpp b/Source/JavaScriptCore/b3/B3CheckSpecial.cpp
+index f3393607e6..55a98edf11 100644
+--- a/Source/JavaScriptCore/b3/B3CheckSpecial.cpp
++++ b/Source/JavaScriptCore/b3/B3CheckSpecial.cpp
+@@ -198,7 +198,20 @@ CCallHelpers::Jump CheckSpecial::generate(Inst& inst, CCallHelpers& jit, Generat
+                         GPRReg valueGPR = args[1].gpr();
+                         GPRReg scratchGPR = CCallHelpers::selectScratchGPR(valueGPR);
+                         jit.pushToSave(scratchGPR);
+-                        jit.setCarry(scratchGPR);
++                        // PPC64 may not read XER -- mcrxrx is ISA 3.0 and this port's
++                        // floor is POWER8 -- so setCarry() is a typed refusal there. It
++                        // is also not needed on this path. The add that overflowed was
++                        // x + x, so its carry out is bit 31 of x; and signed overflow of
++                        // x + x means bit 31 of x differs from bit 31 of the result.
++                        // The carry is therefore the complement of the result's sign
++                        // bit, and the result is still in valueGPR. Same shape as
++                        // setCarry: leave 0 or 1 in scratchGPR for the shift below.
++                        if (isPPC64()) {
++                            jit.move(valueGPR, scratchGPR);
++                            jit.urshift32(CCallHelpers::TrustedImm32(31), scratchGPR);
++                            jit.xor32(CCallHelpers::TrustedImm32(1), scratchGPR);
++                        } else
++                            jit.setCarry(scratchGPR);
+                         jit.lshift32(CCallHelpers::TrustedImm32(31), scratchGPR);
+                         jit.urshift32(CCallHelpers::TrustedImm32(1), valueGPR);
+                         jit.or32(scratchGPR, valueGPR);
+@@ -221,7 +234,15 @@ CCallHelpers::Jump CheckSpecial::generate(Inst& inst, CCallHelpers& jit, Generat
+                         GPRReg valueGPR = args[1].gpr();
+                         GPRReg scratchGPR = CCallHelpers::selectScratchGPR(valueGPR);
+                         jit.pushToSave(scratchGPR);
+-                        jit.setCarry(scratchGPR);
++                        // As the 32-bit case above: carry out of x + x is bit 63 of x,
++                        // and signed overflow makes that the complement of the result's
++                        // sign bit.
++                        if (isPPC64()) {
++                            jit.move(valueGPR, scratchGPR);
++                            jit.urshift64(CCallHelpers::TrustedImm32(63), scratchGPR);
++                            jit.xor64(CCallHelpers::TrustedImm32(1), scratchGPR);
++                        } else
++                            jit.setCarry(scratchGPR);
+                         jit.lshift64(CCallHelpers::TrustedImm32(63), scratchGPR);
+                         jit.urshift64(CCallHelpers::TrustedImm32(1), valueGPR);
+                         jit.or64(scratchGPR, valueGPR);

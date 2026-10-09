@@ -1,0 +1,42 @@
+diff --git a/Source/JavaScriptCore/llint/LowLevelInterpreter.cpp b/Source/JavaScriptCore/llint/LowLevelInterpreter.cpp
+index 00c84978a9..12b6b05cfb 100644
+--- a/Source/JavaScriptCore/llint/LowLevelInterpreter.cpp
++++ b/Source/JavaScriptCore/llint/LowLevelInterpreter.cpp
+@@ -473,6 +473,8 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+ #define OFFLINE_ASM_BEGIN_SPACER "brk #" STRINGIZE_VALUE_OF(WTF_FATAL_CRASH_CODE) "\n"
+ #elif CPU(X86_64)
+ #define OFFLINE_ASM_BEGIN_SPACER "int3\n"
++#elif CPU(PPC64LE)
++#define OFFLINE_ASM_BEGIN_SPACER "trap\n"
+ #else
+ #define OFFLINE_ASM_BEGIN_SPACER ".int 0xbadbeef0\n"
+ #endif
+@@ -529,6 +531,19 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+     ".attribute arch, \"rv64gc\"" "\n"          \
+     VISIBILITY(label) "\n"                      \
+     SYMBOL_STRING(label) ":\n"
++#elif CPU(PPC64LE)
++// ELFv2: these entry points never set up or modify r2 (the generated code
++// keeps the caller's TOC pointer live and restores it after every call), so
++// mark them as single-entry functions that preserve r2.
++#define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT, VISIBILITY) \
++    OFFLINE_ASM_TEXT_SECTION                    \
++    ALIGNMENT                                   \
++    ALT_ENTRY(label)                            \
++    ".globl " SYMBOL_STRING(label) "\n"         \
++    ".type " SYMBOL_STRING(label) ", @function\n" \
++    VISIBILITY(label) "\n"                      \
++    SYMBOL_STRING(label) ":\n"                  \
++    ".localentry " SYMBOL_STRING(label) ", 1\n"
+ #else
+ #define OFFLINE_ASM_GLOBAL_LABEL_IMPL(label, ALT_ENTRY, ALIGNMENT, VISIBILITY) \
+     OFFLINE_ASM_TEXT_SECTION                    \
+@@ -563,6 +578,8 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+ #define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balign " #align ", 0xcc\n" // pad with int 3 instructions
+ #elif CPU(RISCV64)
+ #define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balignw " #align ", 0x9002\n" // pad with c.ebreak instructions
++#elif CPU(PPC64LE)
++#define OFFLINE_ASM_ALIGN_TRAP(align) OFFLINE_ASM_BEGIN_SPACER "\n .balignl " #align ", 0x7fe00008\n" // pad with trap instructions
+ #endif
+ 
+ #define OFFLINE_ASM_EXPORT_SYMBOL(symbol)

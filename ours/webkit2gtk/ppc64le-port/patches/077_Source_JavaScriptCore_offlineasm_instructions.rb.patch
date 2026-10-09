@@ -1,0 +1,42 @@
+diff --git a/Source/JavaScriptCore/offlineasm/instructions.rb b/Source/JavaScriptCore/offlineasm/instructions.rb
+index 6f76a44567..50b153e724 100644
+--- a/Source/JavaScriptCore/offlineasm/instructions.rb
++++ b/Source/JavaScriptCore/offlineasm/instructions.rb
+@@ -479,6 +479,28 @@ RISC_INSTRUCTIONS =
+      "remqs"
+     ]
+ 
++# PowerPC (ppc64le, ELFv2) only.
++PPC64_INSTRUCTIONS =
++    [
++     # Call a target that is generated code (LLInt or JIT), not a C function.
++     #
++     # The generic "call" cannot serve here. Its ppc64le lowering has to give
++     # the callee an ELFv2 linkage area -- [sp, sp+32), with the caller's TOC
++     # at 24(sp) -- and at a JS call sp points at the callee's JS frame, where
++     # those bytes are CallerFrame / ReturnPC / CodeBlock / Callee. Generated
++     # code needs no linkage area and never writes r2, so this form is a bare
++     # indirect branch-and-link that leaves sp exactly where it was.
++     #
++     # The operand may also be a label, for the generated-code targets that
++     # are named rather than computed (llint_default_call_trampoline). That
++     # lowers to a bare "bl" with no TOC-restore nop: the target is defined in
++     # the same object as the caller, so the linker has no reason to route it
++     # through a PLT stub, and if it ever did it would fail the link loudly
++     # ("call lacks nop") rather than restore r2 from a slot that is a JS
++     # frame word here.
++     "ppc64JSCall",  # operands: target register or label
++    ]
++
+ MIPS_INSTRUCTIONS =
+     [
+     "la",
+@@ -509,7 +531,7 @@ CXX_INSTRUCTIONS =
+      "cloopDo",              # no operands
+     ]
+ 
+-INSTRUCTIONS = MACRO_INSTRUCTIONS + X86_INSTRUCTIONS + X86_SIMD_INSTRUCTIONS + ARM64_INSTRUCTIONS + ARM64_SIMD_INSTRUCTIONS + RISC_INSTRUCTIONS + MIPS_INSTRUCTIONS + CXX_INSTRUCTIONS
++INSTRUCTIONS = MACRO_INSTRUCTIONS + X86_INSTRUCTIONS + X86_SIMD_INSTRUCTIONS + ARM64_INSTRUCTIONS + ARM64_SIMD_INSTRUCTIONS + RISC_INSTRUCTIONS + PPC64_INSTRUCTIONS + MIPS_INSTRUCTIONS + CXX_INSTRUCTIONS
+ 
+ INSTRUCTION_SET = INSTRUCTIONS.to_set
+ 

@@ -1,0 +1,15 @@
+diff --git a/Source/JavaScriptCore/offlineasm/generate_offset_extractor.rb b/Source/JavaScriptCore/offlineasm/generate_offset_extractor.rb
+index 760b7e2058..3f4ca51b67 100644
+--- a/Source/JavaScriptCore/offlineasm/generate_offset_extractor.rb
++++ b/Source/JavaScriptCore/offlineasm/generate_offset_extractor.rb
+@@ -54,6 +54,10 @@ variants = ARGV.shift.split(/[,\s]+/)
+ $options = {}
+ OptionParser.new do |opts|
+     opts.banner = "Usage: generate_offset_extractor.rb asmFile settingFile outputFileName backends variants [--webkit-additions-path=<path>] [--depfile=<depfile>]"
++    opts.on("--ppc64-isa=ISA", "ppc64le ISA floor for generated code: power8 (default) or power9.") do |isa|
++        raise "Invalid --ppc64-isa=#{isa}; expected power8 or power9" unless ["power8", "power9"].include? isa
++        $options[:ppc64_isa] = isa
++    end
+     opts.on("--webkit-additions-path=PATH", "WebKitAdditions path.") do |path|
+         $options[:webkit_additions_path] = path
+     end

@@ -1,0 +1,31 @@
+diff --git a/Source/JavaScriptCore/assembler/ProbeContext.h b/Source/JavaScriptCore/assembler/ProbeContext.h
+index 79f3dacd4c..b4b42b0e63 100644
+--- a/Source/JavaScriptCore/assembler/ProbeContext.h
++++ b/Source/JavaScriptCore/assembler/ProbeContext.h
+@@ -140,6 +140,8 @@ inline void*& CPUState::pc()
+     return *reinterpret_cast<void**>(&spr(ARM64Registers::pc));
+ #elif CPU(RISCV64)
+     return *reinterpret_cast<void**>(&spr(RISCV64Registers::pc));
++#elif CPU(PPC64LE)
++    return *reinterpret_cast<void**>(&spr(PPC64Registers::pc));
+ #else
+ #error "Unsupported CPU"
+ #endif
+@@ -153,6 +155,8 @@ inline void*& CPUState::fp()
+     return *reinterpret_cast<void**>(&gpr(ARM64Registers::fp));
+ #elif CPU(RISCV64)
+     return *reinterpret_cast<void**>(&gpr(RISCV64Registers::fp));
++#elif CPU(PPC64LE)
++    return *reinterpret_cast<void**>(&gpr(PPC64Registers::fp));
+ #else
+ #error "Unsupported CPU"
+ #endif
+@@ -166,6 +170,8 @@ inline void*& CPUState::sp()
+     return *reinterpret_cast<void**>(&gpr(ARM64Registers::sp));
+ #elif CPU(RISCV64)
+     return *reinterpret_cast<void**>(&gpr(RISCV64Registers::sp));
++#elif CPU(PPC64LE)
++    return *reinterpret_cast<void**>(&gpr(PPC64Registers::sp));
+ #else
+ #error "Unsupported CPU"
+ #endif

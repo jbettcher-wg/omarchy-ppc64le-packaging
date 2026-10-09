@@ -1,0 +1,83 @@
+diff --git a/Source/JavaScriptCore/CMakeLists.txt b/Source/JavaScriptCore/CMakeLists.txt
+index 090be859e8..e9baf89cc5 100644
+--- a/Source/JavaScriptCore/CMakeLists.txt
++++ b/Source/JavaScriptCore/CMakeLists.txt
+@@ -241,6 +241,32 @@ if (USE_APPLE_INTERNAL_SDK)
+     list(APPEND OFFLINE_ASM_ARGS "--webkit-additions-path=${WebKitAdditions_HEADERS_DIR}")
+     list(APPEND OFFLINE_ASM_INCLUDE_DIRS "-I${WebKitAdditions_HEADERS_DIR}")
+ endif ()
++if (WTF_CPU_PPC64LE)
++    # Tell offlineasm which ISA it may emit. Unlike the MacroAssembler, which
++    # asks hasISA30() per call site at run time, offlineasm's output is baked
++    # into LLIntAssembly.h at build time, so the floor has to be chosen here.
++    #
++    # ENABLE_PPC64_ISA30 is the explicit control; when it is not set the value
++    # is derived from this build's own -mcpu, because that is already how the
++    # POWER9-only and baseline package pools differ. Defaulting to the POWER8
++    # floor is the safe direction: clang's integrated assembler encodes ISA 3.0
++    # at -mcpu=power8 without complaint, so guessing POWER9 would produce a
++    # package that builds clean and SIGILLs.
++    if (NOT DEFINED ENABLE_PPC64_ISA30)
++        if ("${CMAKE_CXX_FLAGS} ${CMAKE_C_FLAGS}" MATCHES "-mcpu=(power9|power10|power11|pwr9|pwr10|pwr11)")
++            set(ENABLE_PPC64_ISA30 ON)
++        else ()
++            set(ENABLE_PPC64_ISA30 OFF)
++        endif ()
++    endif ()
++    if (ENABLE_PPC64_ISA30)
++        list(APPEND OFFLINE_ASM_ARGS --ppc64-isa=power9)
++        message(STATUS "offlineasm ppc64le ISA floor: power9 (ISA 3.0)")
++    else ()
++        list(APPEND OFFLINE_ASM_ARGS --ppc64-isa=power8)
++        message(STATUS "offlineasm ppc64le ISA floor: power8 (ISA 2.07)")
++    endif ()
++endif ()
+ 
+ set(LLINT_ASM
+     llint/InPlaceInterpreter.asm
+@@ -261,6 +287,7 @@ set(OFFLINE_ASM
+     offlineasm/offsets.rb
+     offlineasm/opt.rb
+     offlineasm/parser.rb
++    offlineasm/ppc64.rb
+     offlineasm/registers.rb
+     offlineasm/risc.rb
+     offlineasm/riscv64.rb
+@@ -322,6 +349,8 @@ elseif (WTF_CPU_ARM64)
+     endif ()
+ elseif (WTF_CPU_RISCV64)
+     set(OFFLINE_ASM_BACKEND "RISCV64")
++elseif (WTF_CPU_PPC64LE)
++    set(OFFLINE_ASM_BACKEND "PPC64")
+ endif ()
+ 
+ if (NOT ENABLE_JIT)
+@@ -625,9 +654,12 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
+     assembler/MacroAssemblerARM64E.h
+     assembler/MacroAssemblerCodeRef.h
+     assembler/MacroAssemblerHelpers.h
++    assembler/MacroAssemblerPPC64.h
+     assembler/MacroAssemblerRISCV64.h
+     assembler/MacroAssemblerX86_64.h
+     assembler/OSCheck.h
++    assembler/PPC64Assembler.h
++    assembler/PPC64Registers.h
+     assembler/Printer.h
+     assembler/RISCV64Assembler.h
+     assembler/RISCV64Registers.h
+@@ -1061,6 +1093,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
+     jit/JITOperations.h
+     jit/JITStubRoutine.h
+     jit/JITThunks.h
++    jit/NativeArgumentCursor.h
+     jit/OperationResult.h
+     jit/PCToCodeOriginMap.h
+     jit/PolymorphicCallStubRoutine.h
+@@ -1876,6 +1909,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
+     tools/VMInspectorInlines.h
+ 
+     wasm/WasmAddressType.h
++    wasm/WasmAirArgShim.h
+     wasm/WasmBBQDisassembler.h
+     wasm/WasmBBQJIT.h
+     wasm/WasmBBQJIT64.h

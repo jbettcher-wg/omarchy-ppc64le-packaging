@@ -1,0 +1,30 @@
+diff --git a/Source/JavaScriptCore/dfg/DFGSpeculativeJIT64.cpp b/Source/JavaScriptCore/dfg/DFGSpeculativeJIT64.cpp
+index 08ca976c6a..c1d0d90d4f 100644
+--- a/Source/JavaScriptCore/dfg/DFGSpeculativeJIT64.cpp
++++ b/Source/JavaScriptCore/dfg/DFGSpeculativeJIT64.cpp
+@@ -3047,6 +3047,7 @@ void SpeculativeJIT::compileGetByVal(Node* node, const ScopedLambda<std::tuple<G
+     } }
+ }
+ 
++#if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
+ void SpeculativeJIT::compileRegExpTestInline(Node* node)
+ {
+     RegExp* regExp = uncheckedDowncast<RegExp>(node->cellOperand2()->value());
+@@ -3177,6 +3178,17 @@ void SpeculativeJIT::compileRegExpTestInline(Node* node)
+     doneCases.link(this);
+     unblessedBooleanResult(temp0GPR, node);
+ }
++#else
++void SpeculativeJIT::compileRegExpTestInline(Node*)
++{
++    // Yarr::YarrJITRegisters and Yarr::jitCompileInlinedTest are
++    // declared only under YARR_JIT_REGEXP_TEST_INLINE. The node is
++    // never produced when that is off -- DFGStrengthReductionPhase's
++    // conversion is guarded to match -- so reaching this is a bug in
++    // that guard, not an unsupported case.
++    RELEASE_ASSERT_NOT_REACHED();
++}
++#endif
+ 
+ #if USE(LARGE_TYPED_ARRAYS)
+ void SpeculativeJIT::compileNewTypedArrayWithInt52Size(Node* node)

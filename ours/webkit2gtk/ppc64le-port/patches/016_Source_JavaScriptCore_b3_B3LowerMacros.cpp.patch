@@ -1,0 +1,97 @@
+diff --git a/Source/JavaScriptCore/b3/B3LowerMacros.cpp b/Source/JavaScriptCore/b3/B3LowerMacros.cpp
+index d8e7594cbf..7b1cfd808c 100644
+--- a/Source/JavaScriptCore/b3/B3LowerMacros.cpp
++++ b/Source/JavaScriptCore/b3/B3LowerMacros.cpp
+@@ -120,6 +120,12 @@ private:
+             switch (m_value->opcode()) {
+             case Mod: {
+                 if (m_value->isChill()) {
++                    // This arm stays ARM64-only. It appends chill(Div) to a block it
++                    // creates, and this pass does not revisit blocks it inserts, so the
++                    // chill Div reaches B3LowerToAir -- whose case Div answers a chill
++                    // with RELEASE_ASSERT(isARM64()), because only ARM64 gets chill
++                    // semantics from the hardware (sdiv by zero yields zero). PPC64 takes
++                    // makeDivisionChill below, which builds the guards this target needs.
+                     if (isARM64()) {
+                         BasicBlock* before = m_blockInsertionSet.splitForward(m_block, m_index, &m_insertionSet);
+                         BasicBlock* zeroDenCase = m_blockInsertionSet.insertBefore(m_block);
+@@ -272,8 +278,25 @@ private:
+                     break;
+                 }
+ 
+-                if (isARM64()) {
+-                    Value* divResult = m_insertionSet.insert<Value>(m_index, chill(Div), m_origin, m_value->child(0), m_value->child(1));
++                // PPC64 joins ARM64 here: it has divw/divd but no integer modulo
++                // instruction before ISA 3.0, and modud/modsd are POWER9-only, so
++                // they would need a hasISA30() runtime gate on a hot path --
++                // powerpc64le-handbook docs/power8-baseline-power9-paths.md says any
++                // ISA 3.0 path must be exercised both ways or it is not really
++                // dual-path. The Div/Mul/Sub rewrite is target-neutral and is the
++                // POWER8 floor, so it is the right answer regardless. Without this,
++                // a Mod survives to B3LowerToAir's RELEASE_ASSERT(isX86()).
++                if (isARM64() || isPPC64()) {
++                    // ARM64 asks for chill(Div) because it costs nothing there: sdiv
++                    // gives chill semantics in hardware, so B3LowerToAir's case Div
++                    // accepts a chill Div on that target and nowhere else. On PPC64 a
++                    // chill Div would go through makeDivisionChill, which builds its
++                    // guards in a block this pass has already walked past -- the chill
++                    // Div would survive to lowering and hit that RELEASE_ASSERT. A plain
++                    // Div is the right thing regardless: this is the NON-chill Mod, whose
++                    // behaviour on a zero denominator, and on INT_MIN / -1, is already
++                    // undefined. UMod below has always used a plain UDiv for this reason.
++                    Value* divResult = m_insertionSet.insert<Value>(m_index, isARM64() ? chill(Div) : Div, m_origin, m_value->child(0), m_value->child(1));
+                     Value* multipliedBack = m_insertionSet.insert<Value>(m_index, Mul, m_origin, divResult, m_value->child(1));
+                     Value* result = m_insertionSet.insert<Value>(m_index, Sub, m_origin, m_value->child(0), multipliedBack);
+                     m_value->replaceWithIdentity(result);
+@@ -284,7 +307,8 @@ private:
+             }
+ 
+             case UMod: {
+-                if (isARM64()) {
++                // Same as Mod above: no integer modulo before ISA 3.0.
++                if (isARM64() || isPPC64()) {
+                     Value* divResult = m_insertionSet.insert<Value>(m_index, UDiv, m_origin, m_value->child(0), m_value->child(1));
+                     Value* multipliedBack = m_insertionSet.insert<Value>(m_index, Mul, m_origin, divResult, m_value->child(1));
+                     Value* result = m_insertionSet.insert<Value>(m_index, Sub, m_origin, m_value->child(0), multipliedBack);
+@@ -296,7 +320,18 @@ private:
+ 
+             case FMax:
+             case FMin: {
+-                if (isX86()) {
++                // PPC64 takes the x86 expansion rather than ARM64's native fmin/fmax.
++                // It is pure B3 -- Equal, LessThan, GreaterThan, BitAnd/BitOr for the
++                // signed-zero case and Add to propagate a NaN -- so nothing here is
++                // x86-specific, and B3LowerToAir's FMin/FMax arms are
++                // RELEASE_ASSERT(isARM64()) with FloatMin/FloatMax tagged arm64-only.
++                //
++                // The alternative would be VSX xsmaxdp/xsmindp, and it was not taken:
++                // their NaN and signed-zero behaviour is not JS's, the ISA 3.0
++                // xsmaxcdp/xsmincdp would need a hasISA30() gate against the POWER8
++                // floor, and this expansion settles both cases explicitly rather than
++                // inheriting them from the hardware.
++                if (isX86() || isPPC64()) {
+                     bool isMax = m_value->opcode() == FMax;
+ 
+                     Value* a = m_value->child(0);
+@@ -1088,7 +1123,20 @@ private:
+             FrequentedBlock(normalDivCase, FrequencyClass::Normal),
+             FrequentedBlock(shadyDenCase, FrequencyClass::Rare));
+ 
+-        Value* innerResult = normalDivCase->appendNew<Value>(m_proc, nonChillOpcode, m_origin, num, den);
++        // PPC64 has divw/divd but no integer modulo before ISA 3.0, and modud/modsd
++        // are POWER9-only -- a hot-path ISA 3.0 gate that power8-baseline-power9-paths.md
++        // says has to be exercised both ways to be real. So synthesise it, here rather
++        // than in the caller: the branch above has already established that den + 1 is
++        // above 1 unsigned, i.e. den is neither 0 nor -1, so this Div needs no chill of
++        // its own and INT_MIN / -1 cannot arise. Emitting it in this block is also what
++        // keeps it reachable -- the main loop never revisits a block this pass inserts.
++        Value* innerResult;
++        if (nonChillOpcode == Mod && isPPC64()) {
++            Value* divResult = normalDivCase->appendNew<Value>(m_proc, Div, m_origin, num, den);
++            Value* multipliedBack = normalDivCase->appendNew<Value>(m_proc, Mul, m_origin, divResult, den);
++            innerResult = normalDivCase->appendNew<Value>(m_proc, Sub, m_origin, num, multipliedBack);
++        } else
++            innerResult = normalDivCase->appendNew<Value>(m_proc, nonChillOpcode, m_origin, num, den);
+         UpsilonValue* normalResult = normalDivCase->appendNew<UpsilonValue>(
+             m_proc, m_origin,
+             innerResult);

@@ -1,0 +1,21 @@
+diff --git a/Source/JavaScriptCore/assembler/MaxFrameExtentForSlowPathCall.h b/Source/JavaScriptCore/assembler/MaxFrameExtentForSlowPathCall.h
+index afe7041cf2..2e5998bb1d 100644
+--- a/Source/JavaScriptCore/assembler/MaxFrameExtentForSlowPathCall.h
++++ b/Source/JavaScriptCore/assembler/MaxFrameExtentForSlowPathCall.h
+@@ -46,6 +46,16 @@ static constexpr size_t maxFrameExtentForSlowPathCall = 0;
+ // All args in registers.
+ static constexpr size_t maxFrameExtentForSlowPathCall = 0;
+ 
++#elif CPU(PPC64LE)
++// All args are in registers on ELFv2 too, but a call still needs the 32-byte
++// linkage area at the bottom of the CALLER's frame: back chain (0), CR (8),
++// LR (16), TOC (24). The offlineasm PPC64 backend's `call` lowering writes
++// r2 to 24(r1) and reloads it afterwards (jsc-ppc64le-port.md section 5.3),
++// so that slot has to be reserved rather than overlapping JS frame data.
++// 32 also satisfies the alignment assertion below:
++// 32 % 16 == 0 == 16 - sizeof(CallerFrameAndPC) with a 16-byte CallerFrameAndPC.
++static constexpr size_t maxFrameExtentForSlowPathCall = 32;
++
+ #else
+ #error "Unsupported CPU: need value for maxFrameExtentForSlowPathCall"
+ 

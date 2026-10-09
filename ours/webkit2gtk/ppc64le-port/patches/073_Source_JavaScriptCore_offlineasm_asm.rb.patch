@@ -1,0 +1,15 @@
+diff --git a/Source/JavaScriptCore/offlineasm/asm.rb b/Source/JavaScriptCore/offlineasm/asm.rb
+index 93375c5be5..2691583226 100644
+--- a/Source/JavaScriptCore/offlineasm/asm.rb
++++ b/Source/JavaScriptCore/offlineasm/asm.rb
+@@ -309,6 +309,10 @@ OptionParser.new do |opts|
+     opts.on("--platform=[Windows]", "Specify a specific platform for lowering.") do |platform|
+         $options[:platform] = platform
+     end
++    opts.on("--ppc64-isa=ISA", "ppc64le ISA floor for generated code: power8 (default) or power9.") do |isa|
++        raise "Invalid --ppc64-isa=#{isa}; expected power8 or power9" unless ["power8", "power9"].include? isa
++        $options[:ppc64_isa] = isa
++    end
+     opts.on("--webkit-additions-path=PATH", "WebKitAdditions path.") do |path|
+         $options[:webkit_additions_path] = path
+     end

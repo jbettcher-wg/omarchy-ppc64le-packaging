@@ -1,0 +1,48 @@
+diff --git a/Source/JavaScriptCore/b3/air/opcode_generator.rb b/Source/JavaScriptCore/b3/air/opcode_generator.rb
+index 6fd7b4eb2b..d3a1f47eff 100644
+--- a/Source/JavaScriptCore/b3/air/opcode_generator.rb
++++ b/Source/JavaScriptCore/b3/air/opcode_generator.rb
+@@ -233,7 +233,7 @@ def isKind(token)
+ end
+ 
+ def isArch(token)
+-    token =~ /\A((x86_64_avx)|(x86_64)|(arm64e)|(arm64_lse)|(arm64_sha3)|(arm64)|(64))\Z/
++    token =~ /\A((x86_64_avx)|(x86_64)|(arm64e)|(arm64_lse)|(arm64_sha3)|(arm64)|(ppc64)|(64))\Z/
+ end
+ 
+ def isWidth(token)
+@@ -333,6 +333,8 @@ class Parser
+                 result << "ARM64_LSE"
+             when "arm64_sha3"
+                 result << "ARM64_SHA3"
++            when "ppc64"
++                result << "PPC64"
+             when "64"
+                 result << "X86_64"
+                 result << "ARM64"
+@@ -689,7 +691,10 @@ end
+ $runTimeArchs = {
+     "ARM64_LSE" => "ARM64",
+     "ARM64_SHA3" => "ARM64",
+-    "X86_64_AVX" => "X86_64"
++    "X86_64_AVX" => "X86_64",
++    # The compile-time macro is CPU(PPC64LE); the run-time predicate that
++    # assembler/CPU.h:117 supplies is isPPC64(). This maps the one to the other.
++    "PPC64" => "PPC64LE"
+ }
+ def beginArchs(outp, archs)
+     return unless archs
+@@ -1062,7 +1067,12 @@ writeH("OpcodeGenerated") {
+                         outp.puts "OPGEN_RETURN(false);"
+                     end
+                 when "Index"
+-                    outp.puts "if (!Arg::isValidIndexForm(args[#{index}].scale(), args[#{index}].offset(), #{arg.widthCode}))"
++                    # Pass the opcode, exactly as the Addr case above does. An
++                    # indexed address can be legal for one opcode and illegal
++                    # for another on the same target: Lea computes an address
++                    # rather than accessing memory, so on ppc64 it may carry a
++                    # displacement where a real X-form access may not.
++                    outp.puts "if (!Arg::isValidIndexForm(args[#{index}].scale(), args[#{index}].offset(), #{arg.widthCode}, this->kind.opcode))"
+                     outp.puts "OPGEN_RETURN(false);"
+                 when "PreIndex"
+                     outp.puts "if (!Arg::isValidIncrementIndexForm(args[#{index}].offset()))"

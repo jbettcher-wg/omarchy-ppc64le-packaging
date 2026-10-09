@@ -1,0 +1,22 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmAddressType.cpp b/Source/JavaScriptCore/wasm/WasmAddressType.cpp
+index 14a0f74700..435410e381 100644
+--- a/Source/JavaScriptCore/wasm/WasmAddressType.cpp
++++ b/Source/JavaScriptCore/wasm/WasmAddressType.cpp
+@@ -48,7 +48,7 @@ AddressType::AddressType(TypeKind typeKind)
+     }
+ }
+ 
+-#if !PLATFORM(PLAYSTATION) && ENABLE(JIT)
++#if !PLATFORM(PLAYSTATION) && ENABLE(B3_JIT)
+ AddressType::AddressType(B3::Type type)
+ {
+     switch (type.kind()) {
+@@ -88,7 +88,7 @@ Wasm::Type AddressType::asWasmType() const
+     RELEASE_ASSERT_NOT_REACHED(invalidAddressTypeConversion);
+ }
+ 
+-#if !PLATFORM(PLAYSTATION) && ENABLE(JIT)
++#if !PLATFORM(PLAYSTATION) && ENABLE(B3_JIT)
+ B3::TypeKind AddressType::asB3TypeKind() const
+ {
+     switch (m_type) {

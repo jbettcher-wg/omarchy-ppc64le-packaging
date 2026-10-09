@@ -1,0 +1,31 @@
+diff --git a/Source/JavaScriptCore/jit/ExecutableAllocator.cpp b/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
+index d133f03ce6..b084da60d0 100644
+--- a/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
++++ b/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
+@@ -103,12 +103,25 @@ static constexpr size_t fixedExecutableMemoryPoolSize = 128 * MB;
+ #endif
+ #elif CPU(X86_64)
+ static constexpr size_t fixedExecutableMemoryPoolSize = 1 * GB;
++#elif CPU(PPC64LE)
++#if ENABLE(JUMP_ISLANDS)
++// Without islands this had to be <= nearJumpRange (32 MB). With them it does
++// not, and it should not stay at 32 MB: each region gives up islandRegionSize
++// to island space, so a 32 MB pool would allocate only 28 MB. 128 MB of
++// reserved (not committed) address space restores the headroom and then some.
++static constexpr size_t fixedExecutableMemoryPoolSize = 128 * MB;
++#else
++static constexpr size_t fixedExecutableMemoryPoolSize = 32 * MB;
++#endif
+ #else
+ static constexpr size_t fixedExecutableMemoryPoolSize = 32 * MB;
+ #endif
+ 
+ #if ENABLE(JUMP_ISLANDS)
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
++// An island is one unconditional branch: `b` on both targets, 4 bytes on
++// both. The region fraction is ARM64's; on PPC64 it makes each island region
++// 4 MB of a 32 MB nearJumpRange, which is 1,048,576 islands per region.
+ static constexpr double islandRegionSizeFraction = 0.125;
+ static constexpr size_t islandSizeInBytes = 4;
+ #endif

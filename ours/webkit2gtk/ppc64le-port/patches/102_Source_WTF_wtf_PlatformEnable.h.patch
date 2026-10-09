@@ -1,0 +1,94 @@
+diff --git a/Source/WTF/wtf/PlatformEnable.h b/Source/WTF/wtf/PlatformEnable.h
+index f2b6bb9632..00840cc585 100644
+--- a/Source/WTF/wtf/PlatformEnable.h
++++ b/Source/WTF/wtf/PlatformEnable.h
+@@ -723,6 +723,46 @@
+ #define ENABLE_WEBASSEMBLY_BBQJIT 0
+ #endif
+ 
++#if CPU(PPC64LE)
++/* The ppc64le port brings the tiers up one at a time; these are the ones that
++   are not ready yet, forced off here rather than left to the generic defaults
++   so that a JIT build cannot silently drag in a backend that does not exist.
++
++   YARR_JIT was off here on the grounds that YarrJITRegisters wants thirteen
++   simultaneously live CALLER-saved GPRs and ELFv2 provides ten. The premise
++   was wrong: the header wants thirteen registers, and never required them to
++   be volatile. x86_64 SysV has nine caller-saved GPRs -- one fewer than
++   ELFv2 -- and runs the full YARR profile by giving it five callee-saved
++   ones and saving them per pattern, through machinery that is already in
++   YarrJIT.cpp and is not x86-specific. This target now does the same with
++   three (r25-r27) plus the two MacroAssembler temporaries.
++
++   YARR_JIT_REGEXP_TEST_INLINE stays off: it is the DFG's inlined RegExp.test,
++   it allocates its own registers, and it #errors for any CPU it does not
++   know. It follows the DFG.
++
++   WebAssembly is on. The comment this replaces said it needed "at minimum the
++   BBQ or OMG tier, or the wasm LLInt"; in this revision the wasm LLInt no
++   longer exists and the interpreter tier is IPInt, which goes through
++   offlineasm and the MacroAssembler -- both of which this port has.
++
++   The two compiling wasm tiers are NOT decided here any more. BBQ needs the
++   B3 headers and OMG needs the Air backend, both of which are built only
++   under FTL, so the decision belongs after ENABLE_B3_JIT is derived -- see
++   the CPU(PPC64LE) && !ENABLE(B3_JIT) block further down. Forcing them to 0
++   here was wrong once FTL worked: this block runs before ENABLE_FTL_JIT and
++   ENABLE_B3_JIT are settled, so the #undef silently overrode a cmake
++   ENABLE_WEBASSEMBLY_BBQJIT=ON and compiled BBQ out of a build that had
++   asked for it. The symptom was a build that configured with BBQ and OMG ON,
++   reported useBBQJIT=true, and emitted no wasm function code at all -- only
++   the JS->Wasm IC and the two throw stubs -- with timings identical to
++   IPInt's to within noise. */
++#undef ENABLE_YARR_JIT_REGEXP_TEST_INLINE
++#define ENABLE_YARR_JIT_REGEXP_TEST_INLINE 0
++#undef ENABLE_WEBASSEMBLY
++#define ENABLE_WEBASSEMBLY 1
++#endif
++
+ #if !defined(ENABLE_C_LOOP)
+ #if ENABLE(JIT) || CPU(X86_64) || CPU(ARM64)
+ #define ENABLE_C_LOOP 0
+@@ -731,7 +771,12 @@
+ #endif
+ #endif
+ 
+-#if !defined(ENABLE_JUMP_ISLANDS) && ENABLE(JIT) && CPU(ARM64) && CPU(ADDRESS64)
++/* Jump islands are needed by any target whose direct branch cannot reach
++   across the whole executable pool. ARM64's `b` reaches +-128 MiB; PPC64's
++   reaches +-32 MiB, and JSTests asks for pools far larger than that by name
++   (--jitMemoryReservationSize=268435456), so ppc64le needs the same
++   machinery. See jsc-ppc64le-port.md section 16. */
++#if !defined(ENABLE_JUMP_ISLANDS) && ENABLE(JIT) && (CPU(ARM64) || CPU(PPC64LE)) && CPU(ADDRESS64)
+ #define ENABLE_JUMP_ISLANDS 1
+ #endif
+ 
+@@ -843,6 +888,28 @@
+ #define ENABLE_B3_JIT 1
+ #endif
+ 
++/* ppc64le's two compiling wasm tiers are ON, and nothing here forces them off
++   any more.
++
++   They were refused for as long as the VSX MacroAssembler layer they need did
++   not exist: compiling with them on produced 151 errors, almost all of them
++   vector. That layer is now written, and both tiers run -- BBQ and OMG,
++   including wasm SIMD, tail calls, wide arithmetic and the atomic
++   read-modify-writes. JSTests/wasm is FAIL 1 of 1500 with both on, and the one
++   failure (ipint-test-gc-starter) fails on the x86_64 reference engine too.
++
++   The placement lesson is worth keeping even though the override is gone.
++   Anything that forces these two off on this target has to sit AFTER
++   ENABLE_B3_JIT above rather than in the CPU(PPC64LE) block near the top of
++   the file, because cmake's WEBKIT_OPTION_DEPEND ties
++   ENABLE_WEBASSEMBLY_BBQJIT and ENABLE_WEBASSEMBLY_OMGJIT to ENABLE_FTL_JIT,
++   so an FTL build asks for them and a refusal must come after that is known.
++   Forcing them in the early block -- which this port did -- silently overrode
++   an explicit cmake ENABLE_WEBASSEMBLY_BBQJIT=ON: the build configured with
++   BBQ and OMG ON, reported useBBQJIT=true at run time, and emitted no wasm
++   function code at all, only the JS->Wasm IC and the two throw stubs, with
++   timings identical to IPInt's. */
++
+ #if CPU(ARM)
+ #undef ENABLE_WEBASSEMBLY
+ #define ENABLE_WEBASSEMBLY 0

@@ -1,0 +1,56 @@
+diff --git a/Source/JavaScriptCore/yarr/YarrJITRegisters.h b/Source/JavaScriptCore/yarr/YarrJITRegisters.h
+index 0e0e3dc208..34a2d50738 100644
+--- a/Source/JavaScriptCore/yarr/YarrJITRegisters.h
++++ b/Source/JavaScriptCore/yarr/YarrJITRegisters.h
+@@ -142,6 +142,51 @@ public:
+ 
+     static constexpr GPRReg returnRegister = RISCV64Registers::x10;
+     static constexpr GPRReg returnRegister2 = RISCV64Registers::x11;
++#elif CPU(PPC64LE)
++    // A compiled regex is an ordinary ELFv2 C function, so the five arguments
++    // arrive in r3-r7 and the UGPRPair result leaves in r3:r4.
++    //
++    // The four unicode/duplicate-named-group roles are the only ones that do
++    // not fit in the ten volatile registers, and they take r25-r27, which are
++    // callee-saved. That is not a compromise forced by ELFv2 being cramped:
++    // x86_64 SysV has NINE volatile GPRs to ELFv2's ten and gives YARR five
++    // callee-saved ones (rbx, r12-r15), saving them per pattern through the
++    // machinery in generateEnter/generateReturn. This port takes three, on
++    // the same condition x86_64 uses for r13-r15, widened by the duplicate
++    // named group case. See calleeSaveRegisters() in YarrJIT.cpp.
++    //
++    // Argument registers
++    static constexpr GPRReg input = PPC64Registers::r3;
++    static constexpr GPRReg index = PPC64Registers::r4;
++    static constexpr GPRReg length = PPC64Registers::r5;
++    static constexpr GPRReg output = PPC64Registers::r6;
++    // Must be argumentGPR4: YarrJIT.cpp asserts the two are the same register
++    // on every target that does not copy it.
++    static constexpr GPRReg matchingContext = PPC64Registers::r7;
++    // No register to spare for the freelist, as on x86_64 and RISCV64; it
++    // lives in MatchingContextHolder memory instead.
++    static constexpr GPRReg freelistRegister = InvalidGPRReg;
++
++    // Scratch registers, all volatile.
++    static constexpr GPRReg regT0 = PPC64Registers::r8;
++    static constexpr GPRReg regT1 = PPC64Registers::r9;
++    static constexpr GPRReg regT2 = PPC64Registers::r10;
++    static constexpr GPRReg regT3 = PPC64Registers::r11;
++    // r12 is ELFv2's indirect-call register, but YARR bodies make no
++    // indirect calls -- the two thunks are reached by a near bl inside the
++    // 32 MB pool -- so it is free here.
++    static constexpr GPRReg remainingMatchCount = PPC64Registers::r12;
++
++    // Callee-saved, saved per pattern by calleeSaveRegisters().
++    static constexpr GPRReg regUnicodeInputAndTrail = PPC64Registers::r25;
++    static constexpr GPRReg unicodeAndSubpatternIdTemp = PPC64Registers::r26;
++    static constexpr GPRReg endOfStringAddress = PPC64Registers::r27;
++
++    static constexpr GPRReg returnRegister = PPC64Registers::r3;
++    static constexpr GPRReg returnRegister2 = PPC64Registers::r4;
++
++    // No vector registers: canUseVectorScan() is ARM64/X86_64 only, so the
++    // SIMD Boyer-Moore paths are not compiled for this target.
+ #endif
+ };
+ 

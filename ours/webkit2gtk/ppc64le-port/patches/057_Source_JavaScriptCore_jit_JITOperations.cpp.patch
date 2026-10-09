@@ -1,0 +1,13 @@
+diff --git a/Source/JavaScriptCore/jit/JITOperations.cpp b/Source/JavaScriptCore/jit/JITOperations.cpp
+index b9bcc3df5b..5c77d97cae 100644
+--- a/Source/JavaScriptCore/jit/JITOperations.cpp
++++ b/Source/JavaScriptCore/jit/JITOperations.cpp
+@@ -3315,7 +3315,7 @@ JSC_DEFINE_JIT_OPERATION(operationInstanceOfCustom, size_t, (JSGlobalObject* glo
+     OPERATION_RETURN(scope, 0);
+ }
+ 
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+ 
+ JSC_DEFINE_JIT_OPERATION(operationIteratorNextTryFast, UGPRPair, (JSGlobalObject* globalObject, JSObject* iterator, JSCell*, void* metadataPointer))
+ {

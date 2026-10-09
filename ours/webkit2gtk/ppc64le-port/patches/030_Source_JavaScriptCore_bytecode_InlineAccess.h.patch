@@ -1,0 +1,64 @@
+diff --git a/Source/JavaScriptCore/bytecode/InlineAccess.h b/Source/JavaScriptCore/bytecode/InlineAccess.h
+index c08f4ed344..b82a746ca1 100644
+--- a/Source/JavaScriptCore/bytecode/InlineAccess.h
++++ b/Source/JavaScriptCore/bytecode/InlineAccess.h
+@@ -53,6 +53,41 @@ public:
+         return 40;
+ #elif CPU(RISCV64)
+         return 44;
++#elif CPU(PPC64LE)
++        // Measured, not guessed: `testmasm dumpInlineAccessSizes` assembles
++        // each inline-cache shape and prints its byte count. On this port
++        //
++        //     string length                 56
++        //     out of line offset cache      40
++        //     inline offset cache           36
++        //     replace cache                 36
++        //     replace out of line cache     40
++        //     array length                  32
++        //
++        // and the three constants are the maxima of the groups the comments
++        // above describe. The measurement is the worst case for each shape,
++        // because dumpCacheSizesAndCrash uses a deliberately large structure
++        // ID and property offset, and it is exactly the size of those
++        // constants that makes a PowerPC sequence long.
++        //
++        // Re-measure whenever the IC sequences change. Getting these too
++        // small does not corrupt anything -- linkCodeInline just declines to
++        // inline and the IC goes out of line, silently -- which is why the
++        // suite cannot be the control for them and the dump has to be.
++        //
++        // In fact the suite cannot say anything at all about them right now.
++        // This fork's Baseline uses DATA inline caches, and the repatching
++        // path these sizes belong to is unreachable: probes on both ends of
++        // it -- JITByIdGenerator::generateFastCommon, which reserves the
++        // inline area, and InlineAccess::linkCodeInline, which fills it --
++        // counted ZERO calls across a property-access, property-store,
++        // string-length and array-length workload `[MEASURED]`. Setting all
++        // three to 20 changes nothing observable; the whole JSTests/stress
++        // suite still scores identically with undersized ICs made fatal.
++        // These are the right numbers for whenever that path is switched on,
++        // and until then they are dead constants -- which is also why the
++        // previous 108/116/132 cost nothing but were still worth correcting.
++        return 40; // max(inline offset 36, out of line offset 40)
+ #else
+ #error "unsupported platform"
+ #endif
+@@ -67,6 +102,8 @@ public:
+         return 40;
+ #elif CPU(RISCV64)
+         return 52;
++#elif CPU(PPC64LE)
++        return 40; // max(replace 36, replace out of line 40)
+ #else
+ #error "unsupported platform"
+ #endif
+@@ -81,6 +118,8 @@ public:
+         size_t size = 44;
+ #elif CPU(RISCV64)
+         size_t size = 60;
++#elif CPU(PPC64LE)
++        size_t size = 56; // string length 56, array length 32
+ #else
+ #error "unsupported platform"
+ #endif

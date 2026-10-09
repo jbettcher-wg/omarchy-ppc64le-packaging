@@ -1,0 +1,16 @@
+diff --git a/Source/JavaScriptCore/bytecode/CodeBlockInlines.h b/Source/JavaScriptCore/bytecode/CodeBlockInlines.h
+index d04dddf4b3..aaddd726f1 100644
+--- a/Source/JavaScriptCore/bytecode/CodeBlockInlines.h
++++ b/Source/JavaScriptCore/bytecode/CodeBlockInlines.h
+@@ -29,6 +29,11 @@
+ #include "BytecodeStructs.h"
+ #include "CodeBlock.h"
+ #include "DFGJITCode.h"
++// SimpleJumpTable and StringJumpTable are only forward-declared by
++// CodeBlock.h, and this header indexes FixedVectors of them. The complete
++// types arrived transitively through DFGJITCode.h, which is empty when the
++// DFG is off. Depend on them directly.
++#include "JumpTable.h"
+ #include "UnlinkedMetadataTableInlines.h"
+ 
+ namespace JSC {

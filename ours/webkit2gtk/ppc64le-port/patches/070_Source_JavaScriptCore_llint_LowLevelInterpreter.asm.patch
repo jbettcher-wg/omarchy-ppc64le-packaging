@@ -1,0 +1,261 @@
+diff --git a/Source/JavaScriptCore/llint/LowLevelInterpreter.asm b/Source/JavaScriptCore/llint/LowLevelInterpreter.asm
+index ddfd77cb8b..0f4efc458e 100644
+--- a/Source/JavaScriptCore/llint/LowLevelInterpreter.asm
++++ b/Source/JavaScriptCore/llint/LowLevelInterpreter.asm
+@@ -200,7 +200,7 @@ end
+ 
+ const maxFrameExtentForSlowPathCall = constexpr maxFrameExtentForSlowPathCall
+ 
+-if X86_64 or ARM64 or ARM64E or RISCV64
++if X86_64 or ARM64 or ARM64E or RISCV64 or PPC64
+     const CalleeSaveSpaceAsVirtualRegisters = 4
+ elsif C_LOOP
+     const CalleeSaveSpaceAsVirtualRegisters = 1
+@@ -350,7 +350,7 @@ end
+ # - C calls are still given the Instruction* rather than the PC index.
+ #   This requires an add before the call, and a sub after.
+ const PC = t4 # When changing this, make sure LLIntPC is up to date in LLIntPCRanges.h
+-if ARM64 or ARM64E or RISCV64
++if ARM64 or ARM64E or RISCV64 or PPC64
+     const metadataTable = csr6
+     const PB = csr7
+     const numberTag = csr8
+@@ -817,6 +817,15 @@ end
+ 
+ if C_LOOP or ARM64 or ARM64E or X86_64 or RISCV64
+     const CalleeSaveRegisterCount = 0
++elsif PPC64
++    # ELFv2 leaves only r0 and r3-r12 volatile, which is three registers
++    # short of what offlineasm wants: t0-t9 take r3-r12, so t10-t12 come from
++    # r25-r27 and the temporary pool from r28-r30 -- six NONVOLATILE
++    # registers that offlineasm treats as scratch. Every entry point C++ can
++    # call therefore has to hand them back. This reserves the room for them
++    # at the top of the VM entry frame (just below cfr); see
++    # preserveNonvolatileTemporaries / restoreNonvolatileTemporaries below.
++    const CalleeSaveRegisterCount = 6
+ end
+ 
+ const CalleeRegisterSaveSize = CalleeSaveRegisterCount * MachineRegisterSize
+@@ -831,7 +840,7 @@ macro preserveCallerPCAndCFR()
+         push cfr
+     elsif X86_64
+         push cfr
+-    elsif ARM64 or ARM64E or RISCV64
++    elsif ARM64 or ARM64E or RISCV64 or PPC64
+         push cfr, lr
+     else
+         error
+@@ -846,7 +855,7 @@ macro restoreCallerPCAndCFR()
+         pop lr
+     elsif X86_64
+         pop cfr
+-    elsif ARM64 or ARM64E or RISCV64
++    elsif ARM64 or ARM64E or RISCV64 or PPC64
+         pop lr, cfr
+     end
+ end
+@@ -863,7 +872,7 @@ macro preserveCalleeSavesUsedByLLInt()
+         storep csr3, -16[cfr]
+         storep csr2, -24[cfr]
+         storep csr1, -32[cfr]
+-    elsif RISCV64
++    elsif RISCV64 or PPC64
+         storep csr9, -8[cfr]
+         storep csr8, -16[cfr]
+         storep csr7, -24[cfr]
+@@ -882,7 +891,7 @@ macro restoreCalleeSavesUsedByLLInt()
+         loadp -24[cfr], csr2
+         loadp -16[cfr], csr3
+         loadp -8[cfr], csr4
+-    elsif RISCV64
++    elsif RISCV64 or PPC64
+         loadp -32[cfr], csr6
+         loadp -24[cfr], csr7
+         loadp -16[cfr], csr8
+@@ -890,6 +899,44 @@ macro restoreCalleeSavesUsedByLLInt()
+     end
+ end
+ 
++# r25 (t10) and r28-r30 (the offlineasm temporary pool) are nonvolatile in
++# ELFv2 but scratch as far as offlineasm is concerned; r26/r27 (t11/t12) are
++# unused by the interpreter today but are saved anyway so that a future use
++# cannot silently corrupt a C++ caller. These two macros bracket the VM entry:
++# the save area is the CalleeRegisterSaveSize headroom at the top of the entry
++# frame, addressed off cfr (= r31) because sp moves throughout doVMEntry.
++#
++# They are written with `emit` because offlineasm has no names for the
++# temporary pool -- and could not use them if it had, since emitting the save
++# through offlineasm would itself allocate a temporary.
++macro preserveNonvolatileTemporaries()
++    if PPC64
++        emit "std 25, -8(31)"
++        emit "std 26, -16(31)"
++        emit "std 27, -24(31)"
++        emit "std 28, -32(31)"
++        emit "std 29, -40(31)"
++        emit "std 30, -48(31)"
++    end
++end
++
++# Restores the above and leaves sp == cfr, ready for functionEpilogue(). On
++# every other CPU CalleeRegisterSaveSize is 0 and this is the `subp cfr,
++# CalleeRegisterSaveSize, sp` it replaces.
++macro restoreNonvolatileTemporariesAndResetSP()
++    if PPC64
++        emit "ld 25, -8(31)"
++        emit "ld 26, -16(31)"
++        emit "ld 27, -24(31)"
++        emit "ld 28, -32(31)"
++        emit "ld 29, -40(31)"
++        emit "ld 30, -48(31)"
++        move cfr, sp
++    else
++        subp cfr, CalleeRegisterSaveSize, sp
++    end
++end
++
+ macro forEachGPCalleeSave(func)
+     if ARM64 or ARM64E
+         func(csr0, 0)
+@@ -946,7 +993,7 @@ macro copyCalleeSavesToBuffer(buffer)
+         storeq csr2, 16[buffer]
+         storeq csr3, 24[buffer]
+         storeq csr4, 32[buffer]
+-    elsif RISCV64
++    elsif RISCV64 or PPC64
+         storep csr0, [buffer]
+         storep csr1, 8[buffer]
+         storep csr2, 16[buffer]
+@@ -974,7 +1021,7 @@ macro copyCalleeSavesToBuffer(buffer)
+ end
+ 
+ macro copyCalleeSavesToEntryFrameCalleeSavesBuffer(entryFrame)
+-    if ARM64 or ARM64E or X86_64 or RISCV64
++    if ARM64 or ARM64E or X86_64 or RISCV64 or PPC64
+         vmEntryRecord(entryFrame, entryFrame)
+         leap VMEntryRecord::calleeSaveRegistersBuffer[entryFrame], entryFrame
+         copyCalleeSavesToBuffer(entryFrame)
+@@ -982,7 +1029,7 @@ macro copyCalleeSavesToEntryFrameCalleeSavesBuffer(entryFrame)
+ end
+ 
+ macro copyCalleeSavesToVMEntryFrameCalleeSavesBuffer(vm, temp)
+-    if ARM64 or ARM64E or X86_64 or RISCV64
++    if ARM64 or ARM64E or X86_64 or RISCV64 or PPC64
+         loadp VM::topEntryFrame[vm], temp
+         copyCalleeSavesToEntryFrameCalleeSavesBuffer(temp)
+     end
+@@ -1005,7 +1052,7 @@ macro restoreCalleeSavesFromBuffer(buffer)
+         loadq 16[buffer], csr2
+         loadq 24[buffer], csr3
+         loadq 32[buffer], csr4
+-    elsif RISCV64
++    elsif RISCV64 or PPC64
+         loadq [buffer], csr0
+         loadq 8[buffer], csr1
+         loadq 16[buffer], csr2
+@@ -1033,7 +1080,7 @@ macro restoreCalleeSavesFromBuffer(buffer)
+ end
+ 
+ macro restoreCalleeSavesFromVMEntryFrameCalleeSavesBuffer(vm, temp)
+-    if ARM64 or ARM64E or X86_64 or RISCV64
++    if ARM64 or ARM64E or X86_64 or RISCV64 or PPC64
+         loadp VM::topEntryFrame[vm], temp
+         vmEntryRecord(temp, temp)
+         leap VMEntryRecord::calleeSaveRegistersBuffer[temp], temp
+@@ -1042,7 +1089,7 @@ macro restoreCalleeSavesFromVMEntryFrameCalleeSavesBuffer(vm, temp)
+ end
+ 
+ macro preserveReturnAddressAfterCall(destinationRegister)
+-    if C_LOOP or ARM64 or ARM64E or RISCV64
++    if C_LOOP or ARM64 or ARM64E or RISCV64 or PPC64
+         # In C_LOOP case, we're only preserving the bytecode vPC.
+         move lr, destinationRegister
+     elsif X86_64
+@@ -1056,7 +1103,7 @@ macro functionPrologue()
+     tagReturnAddress sp
+     if X86_64
+         push cfr
+-    elsif ARM64 or ARM64E or RISCV64
++    elsif ARM64 or ARM64E or RISCV64 or PPC64
+         push cfr, lr
+     elsif C_LOOP
+         push lr
+@@ -1068,7 +1115,7 @@ end
+ macro functionEpilogue()
+     if X86_64
+         pop cfr
+-    elsif ARM64 or ARM64E or RISCV64
++    elsif ARM64 or ARM64E or RISCV64 or PPC64
+         pop lr, cfr
+     elsif C_LOOP
+         pop cfr
+@@ -1153,6 +1200,12 @@ macro callTargetFunction(opcodeName, size, opcodeStruct, dispatchAfterCall, valu
+ 
+         move callee, t5
+         size(callNarrow, callWide16, callWide32, macro (gen) gen() end)
++    elsif PPC64
++        # The callee is generated code and sp is already the callee's frame:
++        # the generic `call` would reserve an ELFv2 linkage area over it. See
++        # PPC64_INSTRUCTIONS in offlineasm/instructions.rb.
++        move callee, t5
++        ppc64JSCall(t5)
+     else
+         call callee, callPtrTag
+     end
+@@ -1222,7 +1275,7 @@ macro prepareForTailCall(temp1, temp2, temp3, temp4, storeCodeBlock)
+     addi StackAlignment - 1 + CallFrameHeaderSize, temp2
+     andi ~StackAlignmentMask, temp2
+ 
+-    if ARM64 or ARM64E or C_LOOP or RISCV64
++    if ARM64 or ARM64E or C_LOOP or RISCV64 or PPC64
+         subi CallerFrameAndPCSize, temp2
+         loadp CallerFrameAndPC::returnPC[cfr], lr
+     else
+@@ -1504,7 +1557,7 @@ macro prologue(osrSlowPath, traceSlowPath)
+         btpz r0, .recover
+         move cfr, sp # restore the previous sp
+         # pop the callerFrame since we will jump to a function that wants to save it
+-        if ARM64 or RISCV64
++        if ARM64 or RISCV64 or PPC64
+             pop lr, cfr
+         elsif ARM64E
+             # untagReturnAddress will be performed in Gate::entryOSREntry.
+@@ -2156,6 +2209,21 @@ macro entry(kind, initialize)
+     _%kind%_entry:
+         functionPrologue()
+ 
++        if PPC64
++            # Called directly from C++ (JSC::LLInt::initialize). The body
++            # materialises 500-odd opcode addresses through the temporary
++            # pool, so r28-r30 are certainly clobbered. Give them back.
++            # Own frame rather than the cfr headroom: this function has no
++            # VMEntryRecord, and crash() below is a call.
++            emit "addi 1, 1, -80"
++            emit "std 25, 32(1)"
++            emit "std 26, 40(1)"
++            emit "std 27, 48(1)"
++            emit "std 28, 56(1)"
++            emit "std 29, 64(1)"
++            emit "std 30, 72(1)"
++        end
++
+         initPCRelative(kind, t3)
+ 
+         # Include generated bytecode initialization file.
+@@ -2166,6 +2234,16 @@ macro entry(kind, initialize)
+         crash()
+     .notFrozen:
+ 
++        if PPC64
++            emit "ld 25, 32(1)"
++            emit "ld 26, 40(1)"
++            emit "ld 27, 48(1)"
++            emit "ld 28, 56(1)"
++            emit "ld 29, 64(1)"
++            emit "ld 30, 72(1)"
++            emit "addi 1, 1, 80"
++        end
++
+         functionEpilogue()
+         ret
+ end

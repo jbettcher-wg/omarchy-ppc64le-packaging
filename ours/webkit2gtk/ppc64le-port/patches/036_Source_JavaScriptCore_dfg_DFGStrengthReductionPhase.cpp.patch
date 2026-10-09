@@ -1,0 +1,16 @@
+diff --git a/Source/JavaScriptCore/dfg/DFGStrengthReductionPhase.cpp b/Source/JavaScriptCore/dfg/DFGStrengthReductionPhase.cpp
+index 983e69da2f..dd7ab484b5 100644
+--- a/Source/JavaScriptCore/dfg/DFGStrengthReductionPhase.cpp
++++ b/Source/JavaScriptCore/dfg/DFGStrengthReductionPhase.cpp
+@@ -1148,6 +1148,11 @@ private:
+             };
+ 
+             auto convertTestToTestInline = [&] {
++#if !ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
++                // There is no Yarr::jitCompileInlinedTest to lower
++                // RegExpTestInline to on this configuration.
++                return false;
++#endif
+                 if (m_node->op() != RegExpTest)
+                     return false;
+ 

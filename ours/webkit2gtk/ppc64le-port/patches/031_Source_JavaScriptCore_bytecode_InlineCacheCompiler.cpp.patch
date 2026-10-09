@@ -1,0 +1,26 @@
+diff --git a/Source/JavaScriptCore/bytecode/InlineCacheCompiler.cpp b/Source/JavaScriptCore/bytecode/InlineCacheCompiler.cpp
+index fc91292982..94306cdf47 100644
+--- a/Source/JavaScriptCore/bytecode/InlineCacheCompiler.cpp
++++ b/Source/JavaScriptCore/bytecode/InlineCacheCompiler.cpp
+@@ -1390,6 +1390,21 @@ void InlineCacheCompiler::emitDataICPrepareForCall(CCallHelpers& jit)
+ #elif CPU(RISCV64)
+     static_assert(!maxFrameExtentForSlowPathCall);
+     jit.pushPair(CCallHelpers::framePointerRegister, CCallHelpers::linkRegister);
++#elif CPU(PPC64LE)
++    // This arm did not exist, and its absence was not benign. There is no
++    // #else here, so PPC64 emitted nothing at all -- while
++    // emitDataICRestoreAfterCall below unconditionally adds
++    // maxFrameExtentForSlowPathCall back and then pops a frame that was never
++    // pushed. Every other port has that constant at 0, so the asymmetry is
++    // invisible to them; here it is 32, and the epilogue read its return
++    // address out of whatever happened to be on the stack. The observed
++    // symptom was a branch to 0xfffe000000000000 -- JSValue::NumberTag, from
++    // the tag registers saved nearby -- on any property access.
++    //
++    // Both halves must be mirrored: push the frame, then make the outgoing
++    // argument area the restore path expects.
++    jit.pushFramePointerAndLinkRegister();
++    jit.subPtr(CCallHelpers::TrustedImm32(maxFrameExtentForSlowPathCall), CCallHelpers::stackPointerRegister);
+ #endif
+ }
+ 

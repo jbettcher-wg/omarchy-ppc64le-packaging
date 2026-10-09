@@ -1,0 +1,13 @@
+diff --git a/Source/JavaScriptCore/jit/JITOperations.h b/Source/JavaScriptCore/jit/JITOperations.h
+index 1dfb2154aa..dd104bde2a 100644
+--- a/Source/JavaScriptCore/jit/JITOperations.h
++++ b/Source/JavaScriptCore/jit/JITOperations.h
+@@ -403,7 +403,7 @@ JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationExceptionFuzzWithCallFrame, void, (V
+ JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationRetrieveAndClearExceptionIfCatchable, JSCell*, (VM*));
+ JSC_DECLARE_JIT_OPERATION(operationInstanceOfCustom, size_t, (JSGlobalObject*, EncodedJSValue encodedValue, JSObject* constructor, EncodedJSValue encodedHasInstance));
+ 
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+ JSC_DECLARE_JIT_OPERATION(operationIteratorNextTryFast, UGPRPair, (JSGlobalObject*, JSObject*, JSCell*, void*));
+ #endif
+ 

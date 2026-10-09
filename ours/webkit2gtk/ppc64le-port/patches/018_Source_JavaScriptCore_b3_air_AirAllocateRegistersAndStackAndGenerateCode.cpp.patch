@@ -1,0 +1,51 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirAllocateRegistersAndStackAndGenerateCode.cpp b/Source/JavaScriptCore/b3/air/AirAllocateRegistersAndStackAndGenerateCode.cpp
+index c1a0fc3005..4231249a3a 100644
+--- a/Source/JavaScriptCore/b3/air/AirAllocateRegistersAndStackAndGenerateCode.cpp
++++ b/Source/JavaScriptCore/b3/air/AirAllocateRegistersAndStackAndGenerateCode.cpp
+@@ -36,6 +36,7 @@
+ #include "AirStackAllocation.h"
+ #include "AirTmpMap.h"
+ #include "CCallHelpers.h"
++#include "AllowMacroScratchRegisterUsageIf.h"
+ #include "DisallowMacroScratchRegisterUsage.h"
+ #include "Reg.h"
+ #include <wtf/SequesteredMalloc.h>
+@@ -538,6 +539,13 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
+     CompilerTimingScope timingScope("Air"_s, "GenerateAndAllocateRegisters::generate"_s);
+ 
+     DisallowMacroScratchRegisterUsage disallowScratch(*m_jit);
++    // On this target the two MacroAssembler scratch registers are marked
++    // isReserved in PPC64Registers.h, so Air never allocates them and there is
++    // nothing of Air's to corrupt by using them here. That is not true on
++    // ARM64 or x86-64, where ip0/ip1 and r11 are ordinary allocatable
++    // registers -- which is what the Disallow above is for. See
++    // powerpc64le-handbook docs/jsc-ppc64le-air-bringup.md section 5.
++    AllowMacroScratchRegisterUsageIf allowScratchOnPPC64(*m_jit, isPPC64());
+ 
+     buildLiveRanges(*m_liveness);
+ 
+@@ -883,8 +891,22 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
+                         if (arg.isAddr() && arg.isAnyUse(role) && !arg.isValidForm(inst.kind.opcode)) {
+                             GPRReg reg = extendedOffsetAddrRegister();
+                             m_jit->move(CCallHelpers::TrustedImmPtr(arg.offset()), reg);
+-                            m_jit->addPtr(arg.base().gpr(), reg);
+-                            arg = Arg::addr(Tmp(reg));
++
++                            // Try indexing the materialised offset off the base
++                            // register first, exactly as callFrameAddr() above
++                            // already does, and only compute an absolute address
++                            // if that form is rejected. On most targets this is a
++                            // preference; on PPC64 it is the only shape available,
++                            // because the one register Air never allocates is r0
++                            // and r0 in a base position encodes the literal zero
++                            // rather than the register.
++                            auto index = Arg::index(arg.base(), Tmp(reg), 1, 0);
++                            if (index.isValidForm(inst.kind.opcode))
++                                arg = index;
++                            else {
++                                m_jit->addPtr(arg.base().gpr(), reg);
++                                arg = Arg::addr(Tmp(reg));
++                            }
+                             ++pinnedRegisterUses;
+                             RELEASE_ASSERT(pinnedRegisterUses < 2);
+                             return;

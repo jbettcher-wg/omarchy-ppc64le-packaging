@@ -1,0 +1,132 @@
+diff --git a/Source/JavaScriptCore/jit/FPRInfo.h b/Source/JavaScriptCore/jit/FPRInfo.h
+index 4bc1c53654..25ec641042 100644
+--- a/Source/JavaScriptCore/jit/FPRInfo.h
++++ b/Source/JavaScriptCore/jit/FPRInfo.h
+@@ -340,6 +340,127 @@ public:
+ 
+ #endif // CPU(RISCV64)
+ 
++#if CPU(PPC64LE)
++
++// f1-f8 are the ELFv2 FP argument/return registers, f0 and f9-f13 the rest of
++// the volatiles, f14-f31 nonvolatile.
++//
++// The MacroAssembler's two FP temporaries are f13 and f0, which are VOLATILE.
++// They used to be f30/f31, and that was wrong: nothing saves them. The VM
++// entry frame preserves fpRegCS0-fpRegCS11, which is f14-f25, so JIT code
++// clobbering f30/f31 corrupted the floating-point state of whatever C++
++// called into the engine -- silently, and only for code that happened to
++// keep a live value in one of those registers across the call.
++//
++// Keeping the temporaries volatile means they cost nothing to use and can
++// never outlive a call boundary. The price is that the allocatable set is
++// f1-f12 rather than f1-f13. offlineasm uses f9-f12 as its own FP
++// temporaries; the two code streams never have a live one at the same time.
++class FPRInfo {
++public:
++    typedef FPRReg RegisterType;
++    static constexpr unsigned numberOfRegisters = 12;
++    static constexpr unsigned numberOfArgumentRegisters = 8;
++
++    static constexpr FPRReg fpRegT0 = PPC64Registers::f1;
++    static constexpr FPRReg fpRegT1 = PPC64Registers::f2;
++    static constexpr FPRReg fpRegT2 = PPC64Registers::f3;
++    static constexpr FPRReg fpRegT3 = PPC64Registers::f4;
++    static constexpr FPRReg fpRegT4 = PPC64Registers::f5;
++    static constexpr FPRReg fpRegT5 = PPC64Registers::f6;
++    static constexpr FPRReg fpRegT6 = PPC64Registers::f7;
++    static constexpr FPRReg fpRegT7 = PPC64Registers::f8;
++    static constexpr FPRReg fpRegT8 = PPC64Registers::f9;
++    static constexpr FPRReg fpRegT9 = PPC64Registers::f10;
++    static constexpr FPRReg fpRegT10 = PPC64Registers::f11;
++    static constexpr FPRReg fpRegT11 = PPC64Registers::f12;
++
++    static constexpr FPRReg fpRegCS0 = PPC64Registers::f14;
++    static constexpr FPRReg fpRegCS1 = PPC64Registers::f15;
++    static constexpr FPRReg fpRegCS2 = PPC64Registers::f16;
++    static constexpr FPRReg fpRegCS3 = PPC64Registers::f17;
++    static constexpr FPRReg fpRegCS4 = PPC64Registers::f18;
++    static constexpr FPRReg fpRegCS5 = PPC64Registers::f19;
++    static constexpr FPRReg fpRegCS6 = PPC64Registers::f20;
++    static constexpr FPRReg fpRegCS7 = PPC64Registers::f21;
++    static constexpr FPRReg fpRegCS8 = PPC64Registers::f22;
++    static constexpr FPRReg fpRegCS9 = PPC64Registers::f23;
++    static constexpr FPRReg fpRegCS10 = PPC64Registers::f24;
++    static constexpr FPRReg fpRegCS11 = PPC64Registers::f25;
++
++    static constexpr FPRReg argumentFPR0 = PPC64Registers::f1; // fpRegT0
++    static constexpr FPRReg argumentFPR1 = PPC64Registers::f2; // fpRegT1
++    static constexpr FPRReg argumentFPR2 = PPC64Registers::f3; // fpRegT2
++    static constexpr FPRReg argumentFPR3 = PPC64Registers::f4; // fpRegT3
++    static constexpr FPRReg argumentFPR4 = PPC64Registers::f5; // fpRegT4
++    static constexpr FPRReg argumentFPR5 = PPC64Registers::f6; // fpRegT5
++    static constexpr FPRReg argumentFPR6 = PPC64Registers::f7; // fpRegT6
++    static constexpr FPRReg argumentFPR7 = PPC64Registers::f8; // fpRegT7
++
++    static constexpr FPRReg returnValueFPR = PPC64Registers::f1; // fpRegT0
++    static constexpr FPRReg nonPreservedNonArgumentFPR0 = PPC64Registers::f9;
++
++    static FPRReg toRegister(unsigned index)
++    {
++        ASSERT(index < numberOfRegisters);
++        static const FPRReg registerForIndex[numberOfRegisters] = {
++            fpRegT0, fpRegT1, fpRegT2, fpRegT3, fpRegT4, fpRegT5, fpRegT6, fpRegT7,
++            fpRegT8, fpRegT9, fpRegT10, fpRegT11,
++        };
++        return registerForIndex[index];
++    }
++
++    static constexpr FPRReg toArgumentRegister(unsigned index)
++    {
++        ASSERT_UNDER_CONSTEXPR_CONTEXT(index < numberOfArgumentRegisters);
++        constexpr FPRReg registerForIndex[numberOfArgumentRegisters] = {
++            argumentFPR0, argumentFPR1, argumentFPR2, argumentFPR3,
++            argumentFPR4, argumentFPR5, argumentFPR6, argumentFPR7,
++        };
++        return registerForIndex[index];
++    }
++
++    static unsigned toIndex(FPRReg reg)
++    {
++        ASSERT(reg != InvalidFPRReg);
++        // The bound is the TABLE's size, not a literal 32, and the static
++        // assertion ties that size to the register file. Written as
++        // ASSERT(reg < 32) this was an out-of-bounds READ in release builds
++        // for any register past f31 -- silently returning whatever followed
++        // the array, which would look like a plausible allocation index.
++        // Growing the FP file now fails to compile instead.
++        static const unsigned indexForRegister[32] = {
++            InvalidIndex, 0, 1, 2, 3, 4, 5, 6,
++            7, 8, 9, 10, 11, InvalidIndex, InvalidIndex, InvalidIndex,
++            InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
++            InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
++        };
++        static_assert(std::size(indexForRegister) == MacroAssembler::numberOfFPRegisters(),
++            "FPRInfo::toIndex's table must cover the whole FP register file; see jsc-ppc64le-vector-bank.md");
++        RELEASE_ASSERT(static_cast<size_t>(reg) < std::size(indexForRegister));
++        return indexForRegister[reg];
++    }
++
++    static unsigned toArgumentIndex(FPRReg reg)
++    {
++        ASSERT(reg != InvalidFPRReg);
++        ASSERT(static_cast<unsigned>(reg) < MacroAssembler::numberOfFPRegisters());
++        if (reg < argumentFPR0 || reg > argumentFPR7)
++            return InvalidIndex;
++        return static_cast<unsigned>(reg) - 1;
++    }
++
++    static ASCIILiteral debugName(FPRReg reg)
++    {
++        ASSERT(reg != InvalidFPRReg);
++        return MacroAssembler::fprName(reg);
++    }
++
++    static constexpr unsigned InvalidIndex = 0xffffffff;
++};
++
++#endif // CPU(PPC64LE)
++
+ // We use this hack to get the FPRInfo from the FPRReg type in templates because our code is bad and we should feel bad..
+ constexpr FPRInfo toInfoFromReg(FPRReg) { return FPRInfo(); }
+ 

@@ -1,0 +1,232 @@
+DECLTAG|Add64 U:G:64, UD:G:64|64|64 ppc64|+ppc64
+DECLTAG|Add64 U:G:64, U:G:64, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|Sub64 U:G:64, UD:G:64|64|64 ppc64|+ppc64
+FORMTAG|SubDouble U:F:64, U:F:64, D:F:64|Tmp, Tmp, Tmp|0|arm64 x86_64_avx|arm64 ppc64 x86_64_avx|+ppc64
+FORMTAG|SubFloat U:F:32, U:F:32, D:F:32|Tmp, Tmp, Tmp|0|arm64 x86_64_avx|arm64 ppc64 x86_64_avx|+ppc64
+DECLTAG|Neg64 UD:G:64|64|64 ppc64|+ppc64
+DECLTAG|NegateDouble U:F:64, D:F:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|NegateFloat U:F:32, D:F:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|Mul64 U:G:64, UD:G:64|64|64 ppc64|+ppc64
+DECLTAG|Mul64 U:G:64, U:G:64, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|MultiplySub32 U:G:32, U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|MulHigh32 U:G:32, U:G:32, D:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|UMulHigh32 U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|MulHigh64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|UMulHigh64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|Div32 U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|UDiv32 U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|Div64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|UDiv64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|DivDouble U:F:64, U:F:64, D:F:64|arm64 x86_64_avx|arm64 ppc64 x86_64_avx|+ppc64
+DECLTAG|DivFloat U:F:32, U:F:32, D:F:32|arm64 x86_64_avx|arm64 ppc64 x86_64_avx|+ppc64
+DECLTAG|Lea64 UA:G:64, D:G:64|64|64 ppc64|+ppc64
+RENAMEFORM|Lea64 UA:G:64, D:G:64|Index, Tmp as x86Lea64|Index, Tmp as leaIndex64|x86_64|x86_64 ppc64|+ppc64
+DECLTAG|And64 U:G:64, U:G:64, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|Or64 U:G:64, U:G:64, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|Or64 U:G:64, UD:G:64|64|64 ppc64|+ppc64
+FORMTAG|Xor32 U:G:32, U:G:32, ZD:G:32|BitImm, Tmp, Tmp|0|arm64|arm64 ppc64|+ppc64
+DECLTAG|Xor64 U:G:64, U:G:64, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|Xor64 U:G:64, UD:G:64|64|64 ppc64|+ppc64
+DECLTAG|Not32 U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|Not64 U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|AbsDouble U:F:64, D:F:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|AbsFloat U:F:32, D:F:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|ConvertInt64ToDouble U:G:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|ConvertInt64ToFloat U:G:64, D:F:32|64|64 ppc64|+ppc64
+DECLTAG|ConvertUInt32ToDouble U:G:32, D:F:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|CountLeadingZeros64 U:G:64, D:G:64|64|64 ppc64|+ppc64
+FORMTAG|Move32 U:G:32, ZD:G:32|Imm, Addr as store32|0|x86_64|x86_64 ppc64|+ppc64
+FORMTAG|Move32 U:G:32, ZD:G:32|Imm, Index as store32|0|x86_64|x86_64 ppc64|+ppc64
+DECLTAG|SignExtend8To64 U:G:8, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|SignExtend16To64 U:G:16, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|SignExtend32To64 U:G:32, D:G:64|64|64 ppc64|+ppc64
+FORMTAG|MoveFloat U:F:32, D:F:32|FPImm32, Tmp as move32ToFloat|0|64|64 ppc64|+ppc64
+FORMTAG|MoveDouble U:F:64, D:F:64|FPImm64, Tmp as move64ToDouble|0|64|64 ppc64|+ppc64
+DECLTAG|MoveVector U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|MoveVector U:F:128, D:F:128, S:F:128|64|64 ppc64|+ppc64
+DECLTAG|Move64ToDouble U:G:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleTo64 U:F:64, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|LoadAcq8 U:G:8, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreRel8 U:G:8, D:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadAcq8SignedExtendTo32 U:G:8, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadAcq16 U:G:16, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadAcq16SignedExtendTo32 U:G:16, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreRel16 U:G:16, D:G:16 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadAcq32 U:G:32, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreRel32 U:G:32, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadAcq64 U:G:64, ZD:G:64 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreRel64 U:G:64, ZD:G:64 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|ExtractUnsignedBitfield32 U:G:32, U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|ExtractUnsignedBitfield64 U:G:64, U:G:32, U:G:32, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|InsertUnsignedBitfieldInZero32 U:G:32, U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|InsertUnsignedBitfieldInZero64 U:G:64, U:G:32, U:G:32, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|ClearBitsWithMask32 U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|ClearBitsWithMask64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|OrNot32 U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|OrNot64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|XorNot32 U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|XorNot64 U:G:64, U:G:64, D:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|AddUnsignedRightShift32 U:G:32, U:G:32, U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLink8 U:G:8, ZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLinkAcq8 U:G:8, ZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCond8 U:G:8, D:G:8, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCondRel8 U:G:8, D:G:8, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLink16 U:G:16, ZD:G:16 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLinkAcq16 U:G:16, ZD:G:16 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCond16 U:G:16, D:G:16, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCondRel16 U:G:16, D:G:16, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLink32 U:G:32, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLinkAcq32 U:G:32, ZD:G:32 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCond32 U:G:32, D:G:32, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCondRel32 U:G:32, D:G:32, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLink64 U:G:64, ZD:G:64 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|LoadLinkAcq64 U:G:64, ZD:G:64 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCond64 U:G:64, D:G:64, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|StoreCondRel64 U:G:64, D:G:64, EZD:G:8 /effects|arm64|arm64 ppc64|+ppc64
+DECLTAG|Depend32 U:G:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|Depend64 U:G:64, ZD:G:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|Compare64 U:G:32, U:G:64, U:G:64, ZD:G:32|64|64 ppc64|+ppc64
+DECLTAG|Test64 U:G:32, U:G:64, U:G:64, ZD:G:32|64|64 ppc64|+ppc64
+DECLTAG|CompareDoubleWithZero U:G:32, U:F:64, ZD:G:32|arm64|arm64 ppc64|+ppc64
+COMMENT|CompareDoubleWithZero U:G:32, U:F:64, ZD:G:32|# The WithZero family is claimed. It took three attempts, and the middle one is\n# worth leaving here because the symptom pointed away from the cause.\n#\n# Tagging it made three testb3 groups abort inside Inst::generate --\n# testConstDoubleCompareZero, testDoubleLiteralComparison and\n# testConvertDoubleToFloatEqual -- with the Inst being exactly the form\n# declared below (op=296 n=3 kinds DoubleCond, Tmp, Tmp, read out of the Inst's\n# own storage because args() is inlined and `this` is optimised out at the\n# crash). The crash was the TERMINAL RELEASE_ASSERT_NOT_REACHED of\n# Inst::generate, which every non-matching path tail-calls to, so the frame\n# said nothing and the dispatch appeared to contradict itself.\n#\n# It did not. Rebuilding AirGenerated.cpp with #pragma clang optimize off named\n# it in one frame: MacroAssembler::compareDoubleWithZero, the SHARED one.\n# MacroAssembler.h defined it under #if !CPU(X86_64) && !CPU(ARM64) as an\n# UNREACHABLE_FOR_PLATFORM, and since MacroAssembler derives from\n# MacroAssemblerPPC64 that definition HIDES the port's rather than overriding\n# it. The same guard was also hiding the port's compareDouble behind a branchy\n# fallback, silently and without failing anything. Same shape as the\n# pushToSaveByteOffset hiding in jsc-ppc64le-b3-air.md section 8.3; the guard\n# now excludes PPC64LE and an audit of every such guard in MacroAssembler.h\n# found exactly these two live on this target.
+DECLTAG|CompareFloatWithZero U:G:32, U:F:32, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|Branch64 U:G:32, U:G:64, U:G:64 /branch|64|64 ppc64|+ppc64
+DECLTAG|BranchTest64 U:G:32, U:G:64, U:G:64 /branch|64|64 ppc64|+ppc64
+DECLTAG|BranchDoubleWithZero U:G:32, U:F:64 /branch|arm64|arm64 ppc64|+ppc64
+DECLTAG|BranchFloatWithZero U:G:32, U:F:32 /branch|arm64|arm64 ppc64|+ppc64
+DECLTAG|BranchAdd64 U:G:32, U:G:64, U:G:64, ZD:G:64 /branch|64|64 ppc64|+ppc64
+DECLTAG|BranchAdd64 U:G:32, U:G:64, UD:G:64 /branch|64|64 ppc64|+ppc64
+FORMCOMMENT|BranchAdd64 U:G:32, U:G:64, UD:G:64 /branch|ResCond, Imm, Tmp|0|    # This form was held away from ppc64 by declaration while\n    # emitAdd64Overflow clobbered the operand it was handed. That fix is on\n    # the trunk now -- the helper computes r ^ b before r ^ a, and asserts the\n    # aliasing it tolerates -- so the tag comes off and the form is claimed.\n    # Re-measured rather than assumed, because this is the one form in the 64:\n    # set ever shown to produce wrong code that assembles cleanly: with a\n    # positive immediate the broken predicate missed all 8,390,656 real\n    # overflows, and twenty million uniformly random operand pairs produced no\n    # disagreement at all. See powerpc64le-handbook\n    # docs/jsc-ppc64le-air-opcode-tags.md section 4.1.
+FORMTAG|BranchMul32 U:G:32, U:G:32, U:G:32, ZD:G:32 /branch|ResCond, Tmp, Tmp, Tmp|0|arm64|arm64 ppc64|+ppc64
+DECLTAG|BranchMul64 U:G:32, U:G:64, U:G:64, S:G:64, ZD:G:64 /branch|arm64|arm64 ppc64|+ppc64
+DECLTAG|BranchSub64 U:G:32, U:G:64, UD:G:64 /branch|64|64 ppc64|+ppc64
+DECLTAG|BranchNeg64 U:G:32, UZD:G:64 /branch|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionally32 U:G:32, U:G:32, U:G:32, U:G:Ptr, UD:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionally32 U:G:32, U:G:32, U:G:32, U:G:Ptr, U:G:Ptr, D:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionally64 U:G:32, U:G:64, U:G:64, U:G:Ptr, UD:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionally64 U:G:32, U:G:64, U:G:64, U:G:Ptr, U:G:Ptr, D:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyTest32 U:G:32, U:G:32, U:G:32, U:G:Ptr, UD:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyTest32 U:G:32, U:G:32, U:G:32, U:G:Ptr, U:G:Ptr, D:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyTest64 U:G:32, U:G:64, U:G:64, U:G:Ptr, UD:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyTest64 U:G:32, U:G:32, U:G:32, U:G:Ptr, U:G:Ptr, D:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyDouble U:G:32, U:F:64, U:F:64, U:G:Ptr, U:G:Ptr, D:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyDouble U:G:32, U:F:64, U:F:64, U:G:Ptr, UD:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyDoubleWithZero U:G:32, U:F:64, U:G:Ptr, U:G:Ptr, D:G:Ptr|arm64|arm64 ppc64|+ppc64
+DECLTAG|MoveConditionallyDoubleWithZero U:G:32, U:F:64, U:G:Ptr, UD:G:Ptr|arm64|arm64 ppc64|+ppc64
+DECLTAG|MoveConditionallyFloat U:G:32, U:F:32, U:F:32, U:G:Ptr, U:G:Ptr, D:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyFloat U:G:32, U:F:32, U:F:32, U:G:Ptr, UD:G:Ptr|64|64 ppc64|+ppc64
+DECLTAG|MoveConditionallyFloatWithZero U:G:32, U:F:32, U:G:Ptr, U:G:Ptr, D:G:Ptr|arm64|arm64 ppc64|+ppc64
+DECLTAG|MoveConditionallyFloatWithZero U:G:32, U:F:32, U:G:Ptr, UD:G:Ptr|arm64|arm64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionally32 U:G:32, U:G:32, U:G:32, U:F:64, U:F:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionally64 U:G:32, U:G:64, U:G:64, U:F:64, U:F:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionallyTest32 U:G:32, U:G:32, U:G:32, U:F:64, U:F:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionallyTest64 U:G:32, U:G:64, U:G:64, U:F:64, U:F:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionallyDouble U:G:32, U:F:64, U:F:64, U:F:64, U:F:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionallyDoubleWithZero U:G:32, U:F:64, U:F:64, U:F:64, D:F:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionallyFloat U:G:32, U:F:32, U:F:32, U:F:64, U:F:64, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|MoveDoubleConditionallyFloatWithZero U:G:32, U:F:32, U:F:64, U:F:64, D:F:64|arm64|arm64 ppc64|+ppc64
+DECLTAG|Ret64 U:G:64 /return|64|64 ppc64|+ppc64
+DECLTAG|VectorReplaceLaneInt64 U:G:8, U:G:64, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorReplaceLaneInt32 U:G:8, U:G:32, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorReplaceLaneInt16 U:G:8, U:G:16, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorReplaceLaneInt8 U:G:8, U:G:8, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorReplaceLaneFloat64 U:G:8, U:F:64, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorReplaceLaneFloat32 U:G:8, U:F:32, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneInt64 U:G:8, U:F:128, D:G:64|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneInt32 U:G:8, U:F:128, ZD:G:32|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneSignedInt16 U:G:8, U:F:128, D:G:32|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneUnsignedInt16 U:G:8, U:F:128, ZD:G:16|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneSignedInt8 U:G:8, U:F:128, D:G:32|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneUnsignedInt8 U:G:8, U:F:128, ZD:G:8|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneFloat64 U:G:8, U:F:128, D:F:64|64|64 ppc64|+ppc64
+DECLTAG|VectorExtractLaneFloat32 U:G:8, U:F:128, D:F:32|64|64 ppc64|+ppc64
+DECLTAG|VectorSplatInt8 U:G:8, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSplatInt16 U:G:16, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSplatInt32 U:G:32, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSplatInt64 U:G:64, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSplatFloat32 U:F:32, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSplatFloat64 U:F:64, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|CompareFloatingPointVector U:G:32, U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|CompareIntegerVector U:G:32, U:G:Ptr, U:F:128, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorAdd U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSub U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorAddSat U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSubSat U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorMul U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorDiv U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorMin U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorMax U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorPmin U:G:Ptr, U:F:128, U:F:128, D:F:128, S:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorPmax U:G:Ptr, U:F:128, U:F:128, D:F:128, S:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorNarrow U:G:Ptr, U:F:128, U:F:128, D:F:128, S:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorBitwiseSelect U:F:128, U:F:128, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorNot U:G:Ptr, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorAnd U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorAndnot U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorOr U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorXor U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorUshl U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSshr U:G:Ptr, U:F:128, U:F:128, D:F:128|x86_64|x86_64 ppc64|+ppc64
+DECLTAG|VectorUshr U:G:Ptr, U:F:128, U:F:128, D:F:128|x86_64|x86_64 ppc64|+ppc64
+DECLTAG|VectorUshr8 U:G:Ptr, U:F:128, U:G:8, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSshr8 U:G:Ptr, U:F:128, U:G:8, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorShl8 U:G:Ptr, U:F:128, U:G:8, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorExtractPair U:G:Ptr, U:G:8, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorAbs U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorNeg U:G:Ptr, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorPopcnt U:G:Ptr, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorCeil U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorFloor U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorTrunc U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorTruncSat U:G:Ptr, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorConvert U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorConvertLow U:G:Ptr, U:F:64, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorNearest U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorSqrt U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorExtendLow U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorExtendHigh U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorPromote U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorDemote U:G:Ptr, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad8Splat U:G:8, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorLoad16Splat U:G:16, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad32Splat U:G:32, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad64Splat U:G:64, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad8Lane U:G:8, U:G:8, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad16Lane U:G:16, U:G:8, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad32Lane U:G:32, U:G:8, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorLoad64Lane U:G:64, U:G:8, UD:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorStore8Lane U:F:128, U:G:8, U:G:8|64|64 ppc64|+ppc64
+DECLTAG|VectorStore16Lane U:F:128, U:G:16, U:G:8|64|64 ppc64|+ppc64
+DECLTAG|VectorStore32Lane U:F:128, U:G:32, U:G:8|64|64 ppc64|+ppc64
+DECLTAG|VectorStore64Lane U:F:128, U:G:64, U:G:8|64|64 ppc64|+ppc64
+DECLTAG|VectorAnyTrue U:F:128, ZD:G:32|64|64 ppc64|+ppc64
+DECLTAG|VectorAllTrue U:G:8, U:F:128, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorBitmask U:G:8, U:F:128, ZD:G:32|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorExtaddPairwise U:G:8, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorAvgRound U:G:8, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorMulHigh U:G:8, U:F:128, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorMulLow U:G:8, U:F:128, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorMulSat U:F:128, U:F:128, D:F:128|arm64|arm64 ppc64|+ppc64
+DECLTAG|VectorDotProduct U:F:128, U:F:128, D:F:128|x86_64|x86_64 ppc64|+ppc64
+DECLTAG|VectorSwizzle U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorFusedMulAdd U:G:Ptr, U:F:128, U:F:128, U:F:128, D:F:128, S:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorFusedNegMulAdd U:G:Ptr, U:F:128, U:F:128, U:F:128, D:F:128, S:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorRelaxedMin U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorRelaxedMax U:G:Ptr, U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorRelaxedQ15Mulr U:F:128, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorRelaxedDotI8x16I7x16 U:F:128, U:F:128, D:F:128, S:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorRelaxedDotI8x16I7x16Add U:F:128, U:F:128, U:F:128, D:F:128, S:F:128, S:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorDupElementInt32 U:G:8, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorDupElementInt64 U:G:8, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorDupElementFloat32 U:G:8, U:F:128, D:F:128|64|64 ppc64|+ppc64
+DECLTAG|VectorDupElementFloat64 U:G:8, U:F:128, D:F:128|64|64 ppc64|+ppc64
+ADDBLOCK|Lshift32 U:G:32, U:G:32, ZD:G:32|\n# POWER's shift instructions do not mask their count the way x86 and ARM64 do\n# -- a count of 32 or more yields zero rather than count & 31 -- so the mask is\n# a real instruction and it needs a register to put the result in. Air\n# generates with the MacroAssembler's scratch registers forbidden\n# (AirGenerate.cpp DisallowMacroScratchRegisterUsage), because the allocator\n# may have given r29 or r30 to a live Tmp, so the register has to come from\n# Air. It is declared here the way ARM64 declares BranchMul's scratch and the\n# way the spill-to-spill Move above declares its own: a fourth operand in the\n# Scratch role, which the allocator sizes and spills like any other Tmp.\n#\n# Only the register form is declared. The immediate form needs no scratch, and\n# is unreachable here until Arg::isValidImmForm answers for this target.\nppc64: Lshift32 U:G:32, U:G:32, ZD:G:32, S:G:32\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|Lshift64 U:G:64, U:G:64, D:G:64|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: Lshift64 U:G:64, U:G:64, D:G:64, S:G:64\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|Rshift32 U:G:32, U:G:32, ZD:G:32|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: Rshift32 U:G:32, U:G:32, ZD:G:32, S:G:32\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|Rshift64 U:G:64, U:G:64, D:G:64|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: Rshift64 U:G:64, U:G:64, D:G:64, S:G:64\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|Urshift32 U:G:32, U:G:32, ZD:G:32|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: Urshift32 U:G:32, U:G:32, ZD:G:32, S:G:32\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|Urshift64 U:G:64, U:G:64, D:G:64|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: Urshift64 U:G:64, U:G:64, D:G:64, S:G:64\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|RotateRight32 U:G:32, U:G:32, ZD:G:32|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: RotateRight32 U:G:32, U:G:32, ZD:G:32, S:G:32\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|RotateRight64 U:G:64, U:G:64, D:G:64|\n# A Scratch operand for the masked shift count, as for Lshift32 above.\nppc64: RotateRight64 U:G:64, U:G:64, D:G:64, S:G:64\n    Tmp, Tmp, Tmp, Tmp
+ADDBLOCK|RotateLeft32 U:G:32, UZD:G:32|\n# No Scratch operand, unlike RotateRight above: rotate left is the native\n# direction here, so there is no width - n to compute.\nppc64: RotateLeft32 U:G:32, U:G:32, ZD:G:32\n    Tmp, Tmp, Tmp\n    Tmp, Imm, Tmp
+ADDBLOCK|RotateLeft64 U:G:64, UD:G:64|\nppc64: RotateLeft64 U:G:64, U:G:64, D:G:64\n    Tmp, Tmp, Tmp\n    Tmp, Imm, Tmp

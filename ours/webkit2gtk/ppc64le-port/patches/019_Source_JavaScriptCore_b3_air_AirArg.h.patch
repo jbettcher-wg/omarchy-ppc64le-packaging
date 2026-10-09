@@ -1,0 +1,174 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirArg.h b/Source/JavaScriptCore/b3/air/AirArg.h
+index c2423476b5..a423c92c37 100644
+--- a/Source/JavaScriptCore/b3/air/AirArg.h
++++ b/Source/JavaScriptCore/b3/air/AirArg.h
+@@ -656,6 +656,13 @@ public:
+         case 1:
+             if (isX86() || isARM64())
+                 return true;
++            // POWER's indexed addressing is the X-form, base + index, with no
++            // shift and no displacement: ldx RT,RA,RB is RA + RB and nothing
++            // else. Scale 1 is therefore the only scale that exists here, and
++            // it exists for every width. Measured with the assembler as the
++            // encodability oracle: `ldx 3,4,8(5)` is rejected outright.
++            if (isPPC64())
++                return true;
+             return false;
+         case 2:
+         case 4:
+@@ -1329,10 +1336,46 @@ public:
+         return tmp().tmpIndex();
+     }
+ 
++    // The ppc64 answer is x86's, and the reason it is safe to give now is that
++    // r29 and r30 are reserved. This was measured twice, either side of that.
++    //
++    // MacroAssemblerPPC64 can honour any value because it materialises what
++    // does not fit an immediate field, and Air::Arg holds an Imm as an int32
++    // that Inst::generate reads back with asTrustedImm32, so that is the
++    // bound.
++    //
++    // What answering FALSE cost, which is why this matters more than codegen
++    // quality: it did not make immediates go away, it made them INVALID.
++    // B3LowerToAir::imm() returned an invalid Arg which B3LowerToAir.cpp:5913
++    // appended anyway, one line after an ASSERT(Arg::isValidImmForm(0)) that
++    // upstream takes for granted on every target, and Air's own validator
++    // rejected `Move $42, %r3` (AirValidate.cpp:86). Under ENABLE_ASSERTS that
++    // was 63 of 70 testair failures and 110 of 281 testb3 failures. B3 also
++    // never folded a constant into an operand, so every `x + 1` materialised
++    // 1 into a register first.
++    //
++    // Measured BEFORE the two scratch registers were reserved: teaching this
++    // took testb3 from 716 of 998 groups to 692, with 33 groups going from
++    // passing to failing against 9 the other way, and every regression was
++    // RELEASE_ASSERT(m_allowScratchRegister) -- emitCompare64 staging an
++    // out-of-range immediate, storeImmImpl staging one because POWER has no
++    // store-immediate instruction, and addImmediate64 reaching
++    // immediateScratch.
++    //
++    // Measured AFTER: 812 to 819, one group the other way. The predicate was
++    // never the problem; the forbidden scratch register was. See
++    // powerpc64le-handbook docs/jsc-ppc64le-air-bringup.md section 5.
++    //
++    // BranchAdd64's immediate form is held away from this target by a
++    // form-level tag in AirOpcode.opcodes rather than by this predicate, so
++    // the emitAdd64Overflow defect does not gate it either.
+     static bool isValidImmForm(int64_t value)
+     {
+         if (isX86())
+             return WTF::isRepresentableAs<int32_t>(value);
++        if (isPPC64())
++            return WTF::isRepresentableAs<int32_t>(value);
++
+         if (isARM64()) {
+             if (isUInt12(value) || isUInt12(toTwosComplement(value)))
+                 return true;
+@@ -1348,6 +1391,20 @@ public:
+     {
+         if (isX86())
+             return WTF::isRepresentableAs<int32_t>(value);
++        if (isPPC64()) {
++            // MacroAssemblerPPC64's xor32(TrustedImm32, src, dest) casts to
++            // uint32_t and lands in xorImmediate64's 32-bit arm, which is
++            // xoris/xori/move and takes NO scratch register -- xorImmediate64
++            // only reaches constantScratch() for a value with bits above 32,
++            // which this form cannot present. That matters because Air
++            // generates under DisallowMacroScratchRegisterUsage.
++            //
++            // Only Xor32 declares a BitImm form for this target. And32 and
++            // Or32 keep theirs arm64-only until their immediate paths are
++            // audited the same way, so widening this predicate cannot reach
++            // them.
++            return WTF::isRepresentableAs<int32_t>(value);
++        }
+         if (isARM64())
+             return ARM64LogicalImmediate::create32(value).isValid();
+         return false;
+@@ -1508,6 +1565,41 @@ public:
+         if (isX86())
+             return true;
+ 
++        if (isPPC64()) {
++            // This arm has to sit ABOVE the `if (!width) return true;` below.
++            // Inst::isValidForm(), which opcode_generator.rb emits, calls this
++            // WITHOUT a width, so an arm placed next to the isARM64() block
++            // would return true before ever being reached.
++            //
++            // The displacement rule on this target is per instruction form,
++            // not per width, and all three were measured against the
++            // assembler:
++            //   DS-form  ld, std, lwa         signed 16-bit AND low two bits clear
++            //   D-form   lwz, stw, lbz, lfd   signed 16-bit, any alignment
++            //   X-form   lxsiwzx, stxsiwx     no displacement field at all
++            //
++            // One rule covers all three, and the X-form is why. When an offset
++            // does not fit its form, MacroAssemblerPPC64::resolveAddress folds
++            // the address into memoryTempRegister -- and that register IS
++            // available to Air here, because AirGenerate.cpp and
++            // AirAllocateRegistersAndStackAndGenerateCode.cpp both re-enable
++            // the macro scratch under isPPC64(), r29 and r30 being isReserved
++            // so the allocator never hands them to a Tmp. An X-form access
++            // with a displacement therefore costs one fold rather than being
++            // unencodable, so there is nothing left for a per-opcode answer to
++            // say and the opcode is not consulted.
++            //
++            // DS-form is then the tightest rule any reachable form imposes,
++            // and taking it for every opcode keeps this answer consistent with
++            // B3LowerToAir::addr(), which re-checks the finished Arg against
++            // Air::Move rather than against the opcode it was built for. A
++            // word or byte access at a 2-aligned offset pays one legalizing
++            // Add for that consistency. Answering false is always safe:
++            // B3LegalizeMemoryOffsets turns the rejected offset into an
++            // explicit Add that the allocator can see.
++            return offset >= -32768 && offset <= 32767 && !(offset & 3);
++        }
++
+         if (!width)
+             return true;
+ 
+@@ -1532,8 +1624,12 @@ public:
+         return false;
+     }
+ 
++    // The opcode is optional here, unlike in isValidAddrForm: the callers in
++    // B3LowerToAir that build an index for a memory access do not have one to
++    // hand, and the memory answer is the conservative one, so defaulting to
++    // Air::Nop keeps them exactly as they were.
+     template<IsLegalOffset Int>
+-    static bool isValidIndexForm(unsigned scale, Int offset, std::optional<Width> width = std::nullopt)
++    static bool isValidIndexForm(unsigned scale, Int offset, std::optional<Width> width = std::nullopt, Air::Opcode opcode = Air::Nop)
+     {
+         if (!isValidScale(scale, width))
+             return false;
+@@ -1541,6 +1637,22 @@ public:
+             return true;
+         if (isARM64())
+             return !offset;
++        if (isPPC64()) {
++            // Lea is the one opcode here that does not touch memory: it is an
++            // address COMPUTATION, so leaIndex64 adds base and index into the
++            // destination and then adds the displacement with an addi. A
++            // displacement therefore costs one instruction rather than being
++            // unencodable, and saying so is what lets tryAppendLea fold
++            // Add(Add(@x, @y), $c) on this target.
++            //
++            // Every other opcode reaching here IS a memory access, and the
++            // X-form has no displacement field at all for any width -- so the
++            // answer is ARM64's, for the opposite reason: ARM64 has a
++            // displacement and cannot scale it here, POWER has none to scale.
++            if (opcode == Air::Lea32 || opcode == Air::Lea64)
++                return true;
++            return !offset;
++        }
+         return false;
+     }
+ 
+@@ -1586,7 +1698,7 @@ public:
+         case CallArg:
+             return isValidAddrForm(opcode, offset(), width);
+         case Index:
+-            return isValidIndexForm(scale(), offset(), width);
++            return isValidIndexForm(scale(), offset(), width, opcode);
+         case PreIndex:
+         case PostIndex:
+             return isValidIncrementIndexForm(offset());

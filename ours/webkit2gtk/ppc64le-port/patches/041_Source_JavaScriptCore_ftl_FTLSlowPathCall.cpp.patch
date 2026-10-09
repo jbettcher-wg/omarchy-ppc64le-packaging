@@ -1,0 +1,34 @@
+diff --git a/Source/JavaScriptCore/ftl/FTLSlowPathCall.cpp b/Source/JavaScriptCore/ftl/FTLSlowPathCall.cpp
+index c3df4f893a..caaacc40c1 100644
+--- a/Source/JavaScriptCore/ftl/FTLSlowPathCall.cpp
++++ b/Source/JavaScriptCore/ftl/FTLSlowPathCall.cpp
+@@ -67,6 +67,29 @@ SlowPathCallContext::SlowPathCallContext(
+         callingConventionRegisters.add(GPRInfo::returnValueGPR, IgnoreVectors);
+     if (indirectCallTargetRegister != InvalidGPRReg)
+         callingConventionRegisters.add(indirectCallTargetRegister, IgnoreVectors);
++#if CPU(PPC64LE)
++    // r12 is clobbered before the call, not by the callee, so the thunk cannot
++    // be the thing that saves it.
++    //
++    // emitPointerCallSitePlaceholder() (PPC64Assembler.h) materialises the
++    // target in r12 and branches through ctr, for EVERY tag -- r12 is ELFv2's
++    // indirect-call target register. It is also GPRInfo::regT9, which is
++    // allocatable, so Air may hold a live value there across this patchpoint.
++    // GPRInfo.h says as much where it names it: "an indirect call clobbers
++    // regT9; that is legal because every volatile register dies at a call, but
++    // it is a constraint stage c has to respect". This is the place that has to
++    // respect it, because the FTL slow-path protocol is the one caller that
++    // saves part of its register set AFTER the call instruction -- everything
++    // outside callingConventionRegisters goes into m_thunkSaveSet and is stored
++    // by slowPathCallThunkGenerator (FTLThunks.cpp), by which point r12 holds
++    // the thunk's own address and the live value is gone. The thunk then
++    // faithfully restores what it saved, so the corruption is silent.
++    //
++    // Adding r12 here moves it to the inline save, before the call; the
++    // filter() below keeps it only when it is actually live, and the
++    // destructor restores it.
++    callingConventionRegisters.add(PPC64Registers::r12, IgnoreVectors);
++#endif
+     callingConventionRegisters.filter(usedRegisters);
+     m_callingConventionRegisters = callingConventionRegisters.toScalarRegisterSet();
+         

@@ -1,0 +1,25 @@
+diff --git a/Source/JavaScriptCore/llint/LLIntOfflineAsmConfig.h b/Source/JavaScriptCore/llint/LLIntOfflineAsmConfig.h
+index 3bf82d6630..7879fa9b63 100644
+--- a/Source/JavaScriptCore/llint/LLIntOfflineAsmConfig.h
++++ b/Source/JavaScriptCore/llint/LLIntOfflineAsmConfig.h
+@@ -37,6 +37,7 @@
+ #define OFFLINE_ASM_ARM64E 0
+ #define OFFLINE_ASM_X86_64 0
+ #define OFFLINE_ASM_RISCV64 0
++#define OFFLINE_ASM_PPC64 0
+ 
+ #else // ENABLE(C_LOOP)
+ 
+@@ -68,6 +69,12 @@
+ #define OFFLINE_ASM_RISCV64 0
+ #endif
+ 
++#if CPU(PPC64LE)
++#define OFFLINE_ASM_PPC64 1
++#else
++#define OFFLINE_ASM_PPC64 0
++#endif
++
+ #endif // ENABLE(C_LOOP)
+ 
+ #if USE(BIGINT32)

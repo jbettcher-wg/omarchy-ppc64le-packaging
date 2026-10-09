@@ -1,0 +1,26 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirGenerate.cpp b/Source/JavaScriptCore/b3/air/AirGenerate.cpp
+index c94ba5272d..16031966af 100644
+--- a/Source/JavaScriptCore/b3/air/AirGenerate.cpp
++++ b/Source/JavaScriptCore/b3/air/AirGenerate.cpp
+@@ -50,6 +50,7 @@
+ #include "B3Procedure.h"
+ #include "CCallHelpers.h"
+ #include "CompilerTimingScope.h"
++#include "AllowMacroScratchRegisterUsageIf.h"
+ #include "DisallowMacroScratchRegisterUsage.h"
+ #include <wtf/IndexMap.h>
+ 
+@@ -181,6 +182,13 @@ static void generateWithAlreadyAllocatedRegisters(Code& code, CCallHelpers& jit)
+     CompilerTimingScope timingScope("Air"_s, "generateWithAlreadyAllocatedRegisters"_s);
+ 
+     DisallowMacroScratchRegisterUsage disallowScratch(jit);
++    // On this target the two MacroAssembler scratch registers are marked
++    // isReserved in PPC64Registers.h, so Air never allocates them and there is
++    // nothing of Air's to corrupt by using them here. That is not true on
++    // ARM64 or x86-64, where ip0/ip1 and r11 are ordinary allocatable
++    // registers -- which is what the Disallow above is for. See
++    // powerpc64le-handbook docs/jsc-ppc64le-air-bringup.md section 5.
++    AllowMacroScratchRegisterUsageIf allowScratchOnPPC64(jit, isPPC64());
+ 
+     // And now, we generate code.
+     GenerationContext context;

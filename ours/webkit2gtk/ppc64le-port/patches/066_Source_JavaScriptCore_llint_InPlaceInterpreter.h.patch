@@ -1,0 +1,61 @@
+diff --git a/Source/JavaScriptCore/llint/InPlaceInterpreter.h b/Source/JavaScriptCore/llint/InPlaceInterpreter.h
+index 7e3e279371..00dbd34b86 100644
+--- a/Source/JavaScriptCore/llint/InPlaceInterpreter.h
++++ b/Source/JavaScriptCore/llint/InPlaceInterpreter.h
+@@ -783,7 +783,7 @@ extern "C" void SYSV_ABI ipint_entry();
+     m(0x11, uint_stack_vector) \
+     m(0x12, uint_ret) \
+ 
+-#if !ENABLE(C_LOOP) && (CPU(ADDRESS64) && (CPU(ARM64) || CPU(X86_64)))
++#if !ENABLE(C_LOOP) && (CPU(ADDRESS64) && (CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)))
+ FOR_EACH_IPINT_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
+ FOR_EACH_IPINT_GC_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
+ FOR_EACH_IPINT_CONVERSION_OPCODE(IPINT_VALIDATE_DEFINE_FUNCTION);
+@@ -802,14 +802,47 @@ namespace JSC { namespace IPInt {
+ // which can push the largest handlers past 256 bytes. Double the slot size in tracing
+ // builds so the dispatch table stays valid.
+ constexpr uint64_t alignIPInt = 512;
++#elif CPU(PPC64LE)
++// Measured: ipint_f32_min and ipint_f32_max are 260 bytes here, four over the
++// slot, and IPInt::initialize() aborts at startup on both. They each do three
++// float compares, and a float compare on this target costs four instructions
++// more than a double one -- fcmpu is scalar and double-only, and xvcmp*sp
++// yields lane masks rather than CR bits, so both operands are widened into
++// the double model first (jsc-ppc64le-yarr-wasm.md section 7.5 D predicted
++// exactly this). Nothing else in the 256-byte families is within 48 bytes of
++// the edge.
++//
++// The remedy is section 3.4's: a per-architecture width, the same mechanism
++// LLINT_TRACING uses above. The alternative -- moving an arm of those two
++// handlers out of line -- would put a PPC64 arm in shared code for four
++// bytes, which is the per-site divergence the float model exists to avoid.
++// The cost is dispatch-table size, not correctness, and the validator keeps
++// it honest at every build.
++constexpr uint64_t alignIPInt = 512;
+ #else
+ constexpr uint64_t alignIPInt = 256;
+ #endif
+ // FIXME: adding an adds instruction to offlineasm could shrink atomic handlers back to 256 bytes
+ constexpr uint64_t alignAtomicIPInt = 2 * alignIPInt;
++#if CPU(PPC64LE)
++// The argument/return mini-interpreters are the tightest slots in IPInt: 64
++// bytes is sixteen instructions, and the argumINT/mINT/uINT dispatch alone is
++// seven of them on this backend (a TOC pair for pcrtoaddr, shift, add, mtctr,
++// bctr). Measured on the generated code, eight handlers -- the stack and
++// vector forms of all three families and the dec_sp forms of the call family
++// -- land between 64 and 128 bytes, and IPInt::initialize() aborts at startup
++// on every one of them. Doubling the width the same way LLINT_TRACING does
++// keeps the layout contract coherent by construction: the .asm reads these
++// through constexpr and the validator uses the same constants. The cost is
++// dispatch-table size, not correctness.
++constexpr uint64_t alignArgumInt = 128;
++constexpr uint64_t alignUInt = 128;
++constexpr uint64_t alignMInt = 128;
++#else
+ constexpr uint64_t alignArgumInt = 64;
+ constexpr uint64_t alignUInt = 64;
+ constexpr uint64_t alignMInt = 64;
++#endif
+ 
+ 
+ void initialize();

@@ -1,0 +1,56 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirHandleCalleeSaves.cpp b/Source/JavaScriptCore/b3/air/AirHandleCalleeSaves.cpp
+index d04f5bbdfa..c1fcf6161c 100644
+--- a/Source/JavaScriptCore/b3/air/AirHandleCalleeSaves.cpp
++++ b/Source/JavaScriptCore/b3/air/AirHandleCalleeSaves.cpp
+@@ -29,6 +29,7 @@
+ #if ENABLE(B3_JIT)
+ 
+ #include "AirCode.h"
++#include "CPU.h"
+ #include "AirInstInlines.h"
+ #include "RegisterSet.h"
+ 
+@@ -63,6 +64,43 @@ void handleCalleeSaves(Code& code, RegisterSet usedCalleeSaves)
+     usedCalleeSaves.filter(code.mutableRegs());
+     usedCalleeSaves.exclude(RegisterSet::stackRegisters()); // We don't need to save FP here.
+ 
++    // The MacroAssembler's own scratch registers, which no Inst names.
++    //
++    // Neither caller of this function can see them: the graph-colouring path
++    // scans the Insts, and the linear-scan path passes every callee save and
++    // then filters by mutableRegs(), which is the allocation pool that r29 and
++    // r30 are now reserved out of. They are merged AFTER those filters,
++    // because the filters are about what the allocator touched and this is
++    // about what the assembler touched.
++    //
++    // It matters here and almost nowhere else, because on ppc64le the two
++    // scratch registers are r29 and r30 and ELFv2 makes them NON-VOLATILE.
++    // This is also a pre-existing hole that reserving them turned from
++    // intermittent into deterministic: before, a procedure the allocator
++    // happened to give r29 got a save as a side effect, and one it did not,
++    // did not.
++    //
++    // The alternative was measured rather than argued. Leaving them out --
++    // relying on this port's standing contract that r29 and r30 are clobbered
++    // by all JIT code and saved once at VM entry (jsc-ppc64le-port.md section
++    // 5.2), which is how the LLInt, Baseline and DFG already work -- gives
++    // testb3 796 of 998 groups with 25 SIGSEGVs. Saving them here gives 812
++    // with 15. The contract holds for a JIT caller and not for testb3 and
++    // testair, which enter Air code from C++ with live values in both.
++    //
++    // The 15 that remain are the CheckValue family, and they are the cost of
++    // this choice rather than a defect in it: their generators end
++    // `jit.emitFunctionEpilogue(); jit.ret();`, which restores fp and lr and
++    // not the callee saves. Upstream can write that because on x86-64 and
++    // ARM64 those small procedures have no callee-save area; giving every Air
++    // procedure on this target one invalidates it. Air's own epilogue
++    // (AirCode.cpp emitEpilogue) does emitRestore first and is correct.
++    if (isPPC64()) {
++        RegisterSet macroScratch = RegisterSet::macroClobberedGPRs();
++        macroScratch.filter(RegisterSet::calleeSaveRegisters());
++        usedCalleeSaves.merge(macroScratch);
++    }
++
+     auto calleSavesToSave = usedCalleeSaves;
+ 
+     if (!calleSavesToSave.numberOfSetRegisters())

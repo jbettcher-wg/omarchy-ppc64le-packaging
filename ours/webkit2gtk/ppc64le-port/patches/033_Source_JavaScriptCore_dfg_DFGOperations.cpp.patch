@@ -1,0 +1,37 @@
+diff --git a/Source/JavaScriptCore/dfg/DFGOperations.cpp b/Source/JavaScriptCore/dfg/DFGOperations.cpp
+index c743effaba..91bc0c88c5 100644
+--- a/Source/JavaScriptCore/dfg/DFGOperations.cpp
++++ b/Source/JavaScriptCore/dfg/DFGOperations.cpp
+@@ -5681,8 +5681,31 @@ JSC_DEFINE_JIT_OPERATION(operationStringFromCodePointUntyped, EncodedJSValue, (J
+     double codePointAsDouble = value.toNumber(globalObject);
+     OPERATION_RETURN_IF_EXCEPTION(scope, encodedJSValue());
+ 
++    // Range-check the double BEFORE narrowing it. static_cast<uint32_t> of a
++    // negative double is undefined behaviour, and clang acts on it: at -O2 it
++    // folds the `codePoint != codePointAsDouble` round-trip check away, since
++    // the cast being well defined would imply the value was already in
++    // [0, 2^32). On ppc64le the cast lowers to fctiwuz, which SATURATES a
++    // negative to zero, so the surviving code built the string for code point
++    // 0 -- String.fromCodePoint(-1.0) returned "\u0000" instead of throwing,
++    // while -0.5 still threw because the fractional part kept the check alive.
++    // Measured with the same expression and the same compiler on POWER9:
++    // at -O0 `cp != d` is 1 and it throws; at -O2 it is 0 and it does not.
++    //
++    // This is reached only from the DFG's UntypedUse path for a double
++    // argument, which is why the Int32Use path was unaffected and the stress
++    // test only failed once the DFG was on.
++    //
++    // The form below is NaN-safe: every ordered comparison against NaN is
++    // false, so the negation throws, which is what the old round-trip check
++    // did for NaN too.
++    if (!(codePointAsDouble >= 0 && codePointAsDouble <= UCHAR_MAX_VALUE)) [[unlikely]] {
++        throwRangeError(globalObject, scope, "Arguments contain a value that is out of range of code points"_s);
++        OPERATION_RETURN(scope, encodedJSValue());
++    }
++
+     uint32_t codePoint = static_cast<uint32_t>(codePointAsDouble);
+-    if (codePoint != codePointAsDouble || codePoint > UCHAR_MAX_VALUE) [[unlikely]] {
++    if (codePoint != codePointAsDouble) [[unlikely]] {
+         throwRangeError(globalObject, scope, "Arguments contain a value that is out of range of code points"_s);
+         OPERATION_RETURN(scope, encodedJSValue());
+     }

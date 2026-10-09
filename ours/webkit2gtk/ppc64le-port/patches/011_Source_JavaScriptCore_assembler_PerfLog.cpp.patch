@@ -1,0 +1,14 @@
+diff --git a/Source/JavaScriptCore/assembler/PerfLog.cpp b/Source/JavaScriptCore/assembler/PerfLog.cpp
+index 935c61c064..b2ea1cb41c 100644
+--- a/Source/JavaScriptCore/assembler/PerfLog.cpp
++++ b/Source/JavaScriptCore/assembler/PerfLog.cpp
+@@ -91,6 +91,9 @@ static constexpr uint32_t elfMachine = 0x3E;
+ static constexpr uint32_t elfMachine = 0xB7;
+ #elif CPU(RISCV64)
+ static constexpr uint32_t elfMachine = 0xF3;
++#elif CPU(PPC64LE)
++// EM_PPC64 = 21. The little-endian ABI does not get a separate e_machine.
++static constexpr uint32_t elfMachine = 0x15;
+ #endif
+ 
+ } // namespace Constants

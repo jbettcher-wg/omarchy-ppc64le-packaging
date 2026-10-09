@@ -1,0 +1,637 @@
+diff --git a/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.cpp b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.cpp
+new file mode 100644
+index 0000000000..c3b2a29def
+--- /dev/null
++++ b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.cpp
+@@ -0,0 +1,631 @@
++/*
++ * Copyright (C) 2026 Justin Bettcher. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "config.h"
++#include "MacroAssembler.h"
++
++#if ENABLE(ASSEMBLER) && CPU(PPC64LE)
++
++#include "OperationResult.h"
++#include "ProbeContext.h"
++#include <wtf/InlineASM.h>
++
++namespace JSC {
++
++JSC_DECLARE_NOEXCEPT_JIT_OPERATION(ctiMasmProbeTrampoline, void, ());
++// Note: there is deliberately no JSC_ANNOTATE_JIT_OPERATION_PROBE here. That
++// macro registers a pointer with the ARM64E pointer-authentication validation
++// list and is not defined in this tree outside that configuration.
++
++using namespace PPC64Registers;
++
++// ===================================================================
++// MacroAssembler::probe() for ELFv2 / ppc64le.
++//
++// The probe spills the entire CPUState to a Probe::State on the stack, calls
++// executeJSCJITProbe(), and then reloads every register from that state --
++// so a probe handler can read AND write the machine state, including sp and
++// pc. jsc-ppc64le-port.md section 16 records the design; the ELFv2-specific
++// parts are:
++//
++//  * The LINKAGE AREA. ELFv2 gives the CALLEE the right to write 16(r1) and
++//    24(r1) of its caller's frame (the LR and TOC save slots). JIT code does
++//    not reserve that area (jsc-ppc64le-port.md section 5.3: every C call
++//    carries its own), so this trampoline reserves 32 bytes at the bottom of
++//    its own frame and keeps the invariant r27 == r1 + LINKAGE_AREA_SIZE
++//    everywhere it makes a call.
++//
++//  * The BACK CHAIN. 0(r1) is stored with the previous r1 so the frame chain
++//    a debugger walks stays intact. Note this is the ORDINARY back chain, not
++//    the cfr-in-the-back-chain trick emitCCallLinkageAreaSetup() plays for
++//    JIT operations: executeJSCJITProbe() is a plain extern "C" function and
++//    does not use DECLARE_CALL_FRAME.
++//
++//  * r2 / the TOC. Generated code keeps r2 = the process TOC invariant, so it
++//    is already correct on entry here. It is saved to 24(r1) and reloaded
++//    around each outgoing call, which is correct whatever the linker does
++//    with the call site, and the symbol is marked `.localentry ..., 1`
++//    ("single entry, does not set up r2, preserves r2") exactly as the LLInt
++//    entry points and WTF::currentStackPointer() are.
++//
++//  * LR and CTR are SPRs, not GPRs. The probe site must spill LR (the call to
++//    this trampoline overwrites it) and CTR (the mtctr/bctrl call sequence
++//    overwrites it) before making the call, because by the time the
++//    trampoline runs both are already gone.
++//
++//  * CR and XER need no spill at the site. Nothing between the probe site and
++//    the first instruction of this trampoline writes either: the site emits
++//    only addi/std/mflr/mfctr/the li-ladder/mtctr/bctrl, and none of those is
++//    a record form or a carry/overflow form. They are captured here instead.
++//
++//  * Returning. PowerPC has TWO indirect branch registers, so unlike ARM64 --
++//    which must choose between honouring a modified lr and a modified pc --
++//    this implementation resumes through CTR (bctr) while loading LR from the
++//    state, and therefore supports a probe that changes BOTH lr and pc in one
++//    invocation. The cost is the mirror image: cpu.spr(ctr) is captured for
++//    inspection but is NOT restored, because CTR is the register the return
++//    branch itself uses. CTR is volatile in ELFv2 and is live only inside a
++//    call sequence, so nothing in JSC observes it across a probe.
++//
++//  * The FPRs are saved with stfd and reloaded with lfd, which move all 64
++//    bits without conversion. That is the whole of the floating-point state
++//    this port's CPUState models: under the raw-bits f32 model
++//    (jsc-ppc64le-yarr-wasm.md section 7) an f32 in an FPR is its 32-bit
++//    single pattern in the low word of doubleword 0 and "the other 96 bits of
++//    the VSR are don't-care", so doubleword 0 is exactly the observable
++//    state. VSR high halves, VMX v32-v63 and FPSCR are not modelled by
++//    Probe::CPUState on this target and are not saved.
++// ===================================================================
++
++#define PTR_SIZE 8
++#define GPREG_SIZE 8
++#define FPREG_SIZE 8
++
++#define PROBE_PROBE_FUNCTION_OFFSET (0 * PTR_SIZE)
++#define PROBE_ARG_OFFSET (1 * PTR_SIZE)
++#define PROBE_INITIALIZE_STACK_FUNCTION_OFFSET (2 * PTR_SIZE)
++#define PROBE_INITIALIZE_STACK_ARG_OFFSET (3 * PTR_SIZE)
++#define PROBE_CONTEXT_STATE_SIZE (4 * PTR_SIZE)
++
++#define PROBE_FIRST_GPREG_OFFSET PROBE_CONTEXT_STATE_SIZE
++#define PROBE_CPU_R0_OFFSET (PROBE_FIRST_GPREG_OFFSET + (0 * GPREG_SIZE))
++#define PROBE_CPU_R1_OFFSET (PROBE_FIRST_GPREG_OFFSET + (1 * GPREG_SIZE))
++#define PROBE_CPU_R2_OFFSET (PROBE_FIRST_GPREG_OFFSET + (2 * GPREG_SIZE))
++#define PROBE_CPU_R3_OFFSET (PROBE_FIRST_GPREG_OFFSET + (3 * GPREG_SIZE))
++#define PROBE_CPU_R4_OFFSET (PROBE_FIRST_GPREG_OFFSET + (4 * GPREG_SIZE))
++#define PROBE_CPU_R5_OFFSET (PROBE_FIRST_GPREG_OFFSET + (5 * GPREG_SIZE))
++#define PROBE_CPU_R6_OFFSET (PROBE_FIRST_GPREG_OFFSET + (6 * GPREG_SIZE))
++#define PROBE_CPU_R7_OFFSET (PROBE_FIRST_GPREG_OFFSET + (7 * GPREG_SIZE))
++#define PROBE_CPU_R8_OFFSET (PROBE_FIRST_GPREG_OFFSET + (8 * GPREG_SIZE))
++#define PROBE_CPU_R9_OFFSET (PROBE_FIRST_GPREG_OFFSET + (9 * GPREG_SIZE))
++#define PROBE_CPU_R10_OFFSET (PROBE_FIRST_GPREG_OFFSET + (10 * GPREG_SIZE))
++#define PROBE_CPU_R11_OFFSET (PROBE_FIRST_GPREG_OFFSET + (11 * GPREG_SIZE))
++#define PROBE_CPU_R12_OFFSET (PROBE_FIRST_GPREG_OFFSET + (12 * GPREG_SIZE))
++#define PROBE_CPU_R13_OFFSET (PROBE_FIRST_GPREG_OFFSET + (13 * GPREG_SIZE))
++#define PROBE_CPU_R14_OFFSET (PROBE_FIRST_GPREG_OFFSET + (14 * GPREG_SIZE))
++#define PROBE_CPU_R15_OFFSET (PROBE_FIRST_GPREG_OFFSET + (15 * GPREG_SIZE))
++#define PROBE_CPU_R16_OFFSET (PROBE_FIRST_GPREG_OFFSET + (16 * GPREG_SIZE))
++#define PROBE_CPU_R17_OFFSET (PROBE_FIRST_GPREG_OFFSET + (17 * GPREG_SIZE))
++#define PROBE_CPU_R18_OFFSET (PROBE_FIRST_GPREG_OFFSET + (18 * GPREG_SIZE))
++#define PROBE_CPU_R19_OFFSET (PROBE_FIRST_GPREG_OFFSET + (19 * GPREG_SIZE))
++#define PROBE_CPU_R20_OFFSET (PROBE_FIRST_GPREG_OFFSET + (20 * GPREG_SIZE))
++#define PROBE_CPU_R21_OFFSET (PROBE_FIRST_GPREG_OFFSET + (21 * GPREG_SIZE))
++#define PROBE_CPU_R22_OFFSET (PROBE_FIRST_GPREG_OFFSET + (22 * GPREG_SIZE))
++#define PROBE_CPU_R23_OFFSET (PROBE_FIRST_GPREG_OFFSET + (23 * GPREG_SIZE))
++#define PROBE_CPU_R24_OFFSET (PROBE_FIRST_GPREG_OFFSET + (24 * GPREG_SIZE))
++#define PROBE_CPU_R25_OFFSET (PROBE_FIRST_GPREG_OFFSET + (25 * GPREG_SIZE))
++#define PROBE_CPU_R26_OFFSET (PROBE_FIRST_GPREG_OFFSET + (26 * GPREG_SIZE))
++#define PROBE_CPU_R27_OFFSET (PROBE_FIRST_GPREG_OFFSET + (27 * GPREG_SIZE))
++#define PROBE_CPU_R28_OFFSET (PROBE_FIRST_GPREG_OFFSET + (28 * GPREG_SIZE))
++#define PROBE_CPU_R29_OFFSET (PROBE_FIRST_GPREG_OFFSET + (29 * GPREG_SIZE))
++#define PROBE_CPU_R30_OFFSET (PROBE_FIRST_GPREG_OFFSET + (30 * GPREG_SIZE))
++#define PROBE_CPU_R31_OFFSET (PROBE_FIRST_GPREG_OFFSET + (31 * GPREG_SIZE))
++#define PROBE_CPU_GPREG_ARRAY_SIZE (32 * GPREG_SIZE)
++
++#define PROBE_FIRST_SPREG_OFFSET (PROBE_CONTEXT_STATE_SIZE + PROBE_CPU_GPREG_ARRAY_SIZE)
++#define PROBE_CPU_PC_OFFSET (PROBE_FIRST_SPREG_OFFSET + (0 * GPREG_SIZE))
++#define PROBE_CPU_LR_OFFSET (PROBE_FIRST_SPREG_OFFSET + (1 * GPREG_SIZE))
++#define PROBE_CPU_CTR_OFFSET (PROBE_FIRST_SPREG_OFFSET + (2 * GPREG_SIZE))
++#define PROBE_CPU_CR_OFFSET (PROBE_FIRST_SPREG_OFFSET + (3 * GPREG_SIZE))
++#define PROBE_CPU_XER_OFFSET (PROBE_FIRST_SPREG_OFFSET + (4 * GPREG_SIZE))
++#define PROBE_CPU_SPREG_ARRAY_SIZE (5 * GPREG_SIZE)
++
++#define PROBE_FIRST_FPREG_OFFSET (PROBE_CONTEXT_STATE_SIZE + PROBE_CPU_GPREG_ARRAY_SIZE + PROBE_CPU_SPREG_ARRAY_SIZE)
++#define PROBE_CPU_F0_OFFSET (PROBE_FIRST_FPREG_OFFSET + (0 * FPREG_SIZE))
++#define PROBE_CPU_F1_OFFSET (PROBE_FIRST_FPREG_OFFSET + (1 * FPREG_SIZE))
++#define PROBE_CPU_F2_OFFSET (PROBE_FIRST_FPREG_OFFSET + (2 * FPREG_SIZE))
++#define PROBE_CPU_F3_OFFSET (PROBE_FIRST_FPREG_OFFSET + (3 * FPREG_SIZE))
++#define PROBE_CPU_F4_OFFSET (PROBE_FIRST_FPREG_OFFSET + (4 * FPREG_SIZE))
++#define PROBE_CPU_F5_OFFSET (PROBE_FIRST_FPREG_OFFSET + (5 * FPREG_SIZE))
++#define PROBE_CPU_F6_OFFSET (PROBE_FIRST_FPREG_OFFSET + (6 * FPREG_SIZE))
++#define PROBE_CPU_F7_OFFSET (PROBE_FIRST_FPREG_OFFSET + (7 * FPREG_SIZE))
++#define PROBE_CPU_F8_OFFSET (PROBE_FIRST_FPREG_OFFSET + (8 * FPREG_SIZE))
++#define PROBE_CPU_F9_OFFSET (PROBE_FIRST_FPREG_OFFSET + (9 * FPREG_SIZE))
++#define PROBE_CPU_F10_OFFSET (PROBE_FIRST_FPREG_OFFSET + (10 * FPREG_SIZE))
++#define PROBE_CPU_F11_OFFSET (PROBE_FIRST_FPREG_OFFSET + (11 * FPREG_SIZE))
++#define PROBE_CPU_F12_OFFSET (PROBE_FIRST_FPREG_OFFSET + (12 * FPREG_SIZE))
++#define PROBE_CPU_F13_OFFSET (PROBE_FIRST_FPREG_OFFSET + (13 * FPREG_SIZE))
++#define PROBE_CPU_F14_OFFSET (PROBE_FIRST_FPREG_OFFSET + (14 * FPREG_SIZE))
++#define PROBE_CPU_F15_OFFSET (PROBE_FIRST_FPREG_OFFSET + (15 * FPREG_SIZE))
++#define PROBE_CPU_F16_OFFSET (PROBE_FIRST_FPREG_OFFSET + (16 * FPREG_SIZE))
++#define PROBE_CPU_F17_OFFSET (PROBE_FIRST_FPREG_OFFSET + (17 * FPREG_SIZE))
++#define PROBE_CPU_F18_OFFSET (PROBE_FIRST_FPREG_OFFSET + (18 * FPREG_SIZE))
++#define PROBE_CPU_F19_OFFSET (PROBE_FIRST_FPREG_OFFSET + (19 * FPREG_SIZE))
++#define PROBE_CPU_F20_OFFSET (PROBE_FIRST_FPREG_OFFSET + (20 * FPREG_SIZE))
++#define PROBE_CPU_F21_OFFSET (PROBE_FIRST_FPREG_OFFSET + (21 * FPREG_SIZE))
++#define PROBE_CPU_F22_OFFSET (PROBE_FIRST_FPREG_OFFSET + (22 * FPREG_SIZE))
++#define PROBE_CPU_F23_OFFSET (PROBE_FIRST_FPREG_OFFSET + (23 * FPREG_SIZE))
++#define PROBE_CPU_F24_OFFSET (PROBE_FIRST_FPREG_OFFSET + (24 * FPREG_SIZE))
++#define PROBE_CPU_F25_OFFSET (PROBE_FIRST_FPREG_OFFSET + (25 * FPREG_SIZE))
++#define PROBE_CPU_F26_OFFSET (PROBE_FIRST_FPREG_OFFSET + (26 * FPREG_SIZE))
++#define PROBE_CPU_F27_OFFSET (PROBE_FIRST_FPREG_OFFSET + (27 * FPREG_SIZE))
++#define PROBE_CPU_F28_OFFSET (PROBE_FIRST_FPREG_OFFSET + (28 * FPREG_SIZE))
++#define PROBE_CPU_F29_OFFSET (PROBE_FIRST_FPREG_OFFSET + (29 * FPREG_SIZE))
++#define PROBE_CPU_F30_OFFSET (PROBE_FIRST_FPREG_OFFSET + (30 * FPREG_SIZE))
++#define PROBE_CPU_F31_OFFSET (PROBE_FIRST_FPREG_OFFSET + (31 * FPREG_SIZE))
++#define PROBE_CPU_FPREG_ARRAY_SIZE (32 * FPREG_SIZE)
++
++#define PROBE_SIZE (PROBE_CONTEXT_STATE_SIZE + PROBE_CPU_GPREG_ARRAY_SIZE + PROBE_CPU_SPREG_ARRAY_SIZE + PROBE_CPU_FPREG_ARRAY_SIZE)
++
++#define PROBE_SAVED_RETURN_PC_OFFSET PROBE_SIZE
++#define PROBE_SAVED_RETURN_PC_SIZE (1 * GPREG_SIZE)
++
++// These static_asserts are the whole reason the offsets above may be written
++// as literals in the asm: if Probe::State's layout ever moves, the build
++// stops here rather than the trampoline silently spilling to wrong slots.
++#define PROBE_OFFSETOF(x) offsetof(struct Probe::State, x)
++
++static_assert(PROBE_OFFSETOF(probeFunction) == PROBE_PROBE_FUNCTION_OFFSET);
++static_assert(PROBE_OFFSETOF(arg) == PROBE_ARG_OFFSET);
++static_assert(PROBE_OFFSETOF(initializeStackFunction) == PROBE_INITIALIZE_STACK_FUNCTION_OFFSET);
++static_assert(PROBE_OFFSETOF(initializeStackArg) == PROBE_INITIALIZE_STACK_ARG_OFFSET);
++
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r0]) == PROBE_CPU_R0_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r1]) == PROBE_CPU_R1_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r2]) == PROBE_CPU_R2_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r3]) == PROBE_CPU_R3_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r4]) == PROBE_CPU_R4_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r5]) == PROBE_CPU_R5_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r6]) == PROBE_CPU_R6_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r7]) == PROBE_CPU_R7_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r8]) == PROBE_CPU_R8_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r9]) == PROBE_CPU_R9_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r10]) == PROBE_CPU_R10_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r11]) == PROBE_CPU_R11_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r12]) == PROBE_CPU_R12_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r13]) == PROBE_CPU_R13_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r14]) == PROBE_CPU_R14_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r15]) == PROBE_CPU_R15_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r16]) == PROBE_CPU_R16_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r17]) == PROBE_CPU_R17_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r18]) == PROBE_CPU_R18_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r19]) == PROBE_CPU_R19_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r20]) == PROBE_CPU_R20_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r21]) == PROBE_CPU_R21_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r22]) == PROBE_CPU_R22_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r23]) == PROBE_CPU_R23_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r24]) == PROBE_CPU_R24_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r25]) == PROBE_CPU_R25_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r26]) == PROBE_CPU_R26_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r27]) == PROBE_CPU_R27_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r28]) == PROBE_CPU_R28_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r29]) == PROBE_CPU_R29_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r30]) == PROBE_CPU_R30_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.gprs[PPC64Registers::r31]) == PROBE_CPU_R31_OFFSET);
++
++static_assert(PROBE_OFFSETOF(cpu.sprs[PPC64Registers::pc]) == PROBE_CPU_PC_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.sprs[PPC64Registers::lr]) == PROBE_CPU_LR_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.sprs[PPC64Registers::ctr]) == PROBE_CPU_CTR_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.sprs[PPC64Registers::cr]) == PROBE_CPU_CR_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.sprs[PPC64Registers::xer]) == PROBE_CPU_XER_OFFSET);
++
++static_assert(PROBE_OFFSETOF(cpu.fprs.fprs[PPC64Registers::f0]) == PROBE_CPU_F0_OFFSET);
++static_assert(PROBE_OFFSETOF(cpu.fprs.fprs[PPC64Registers::f31]) == PROBE_CPU_F31_OFFSET);
++
++static_assert(sizeof(Probe::State) == PROBE_SIZE);
++
++#undef PROBE_OFFSETOF
++
++#define PROBE_ALIGNED_STACK_SIZE (PROBE_SIZE + PROBE_SAVED_RETURN_PC_SIZE)
++static_assert(!(PROBE_ALIGNED_STACK_SIZE & 0xf));
++
++// ELFv2's linkage area: the 32 bytes at 0(r1) that belong to any function
++// this frame calls (back chain, CR save, LR save at 16, TOC save at 24).
++#define LINKAGE_AREA_SIZE 32
++
++// What MacroAssembler::probe() spills at the probe site so that the
++// trampoline has scratch registers and can recover what the call destroyed.
++// r0 and r12 are in here because the trampoline needs two free registers
++// before it has saved anything, and on this port BOTH are live values at a
++// probe site: r12 is t9 / GPRInfo::handlerGPR, and r0 is a legitimate holder
++// of a value even though it cannot be used as a base register.
++struct IncomingProbeRecord {
++    UCPURegister lr;
++    UCPURegister ctr;
++    UCPURegister r0;
++    UCPURegister r12;
++    UCPURegister r25;
++    UCPURegister r26;
++    UCPURegister r27;
++    UCPURegister padding;
++};
++
++#define IN_LR_OFFSET  (0 * GPREG_SIZE)
++#define IN_CTR_OFFSET (1 * GPREG_SIZE)
++#define IN_R0_OFFSET  (2 * GPREG_SIZE)
++#define IN_R12_OFFSET (3 * GPREG_SIZE)
++#define IN_R25_OFFSET (4 * GPREG_SIZE)
++#define IN_R26_OFFSET (5 * GPREG_SIZE)
++#define IN_R27_OFFSET (6 * GPREG_SIZE)
++#define IN_SIZE       (8 * GPREG_SIZE)
++
++static_assert(offsetof(IncomingProbeRecord, lr) == IN_LR_OFFSET);
++static_assert(offsetof(IncomingProbeRecord, ctr) == IN_CTR_OFFSET);
++static_assert(offsetof(IncomingProbeRecord, r0) == IN_R0_OFFSET);
++static_assert(offsetof(IncomingProbeRecord, r12) == IN_R12_OFFSET);
++static_assert(offsetof(IncomingProbeRecord, r25) == IN_R25_OFFSET);
++static_assert(offsetof(IncomingProbeRecord, r26) == IN_R26_OFFSET);
++static_assert(offsetof(IncomingProbeRecord, r27) == IN_R27_OFFSET);
++static_assert(sizeof(IncomingProbeRecord) == IN_SIZE);
++static_assert(!(IN_SIZE & 0xf));
++
++// The values that have to survive the last few instructions of the return
++// ramp, staged just below the stack pointer the probe asked to resume with.
++// Everything else is already back in its register by then.
++#define OUT_CR_OFFSET  (0 * GPREG_SIZE)
++#define OUT_XER_OFFSET (1 * GPREG_SIZE)
++#define OUT_PC_OFFSET  (2 * GPREG_SIZE)
++#define OUT_LR_OFFSET  (3 * GPREG_SIZE)
++#define OUT_R0_OFFSET  (4 * GPREG_SIZE)
++#define OUT_R27_OFFSET (5 * GPREG_SIZE)
++#define OUT_SIZE       (6 * GPREG_SIZE)
++static_assert(!(OUT_SIZE & 0xf));
++
++#define PROBE_FRAME_SIZE (LINKAGE_AREA_SIZE + PROBE_ALIGNED_STACK_SIZE + OUT_SIZE)
++static_assert(!(PROBE_FRAME_SIZE & 0xf));
++
++__asm__(
++    ".text" "\n"
++    ".balign 4" "\n"
++    ".globl " SYMBOL_STRING(ctiMasmProbeTrampoline) "\n"
++    ".type " SYMBOL_STRING(ctiMasmProbeTrampoline) ",@function" "\n"
++    HIDE_SYMBOL(ctiMasmProbeTrampoline) "\n"
++    SYMBOL_STRING(ctiMasmProbeTrampoline) ":" "\n"
++    // ELFv2 st_other = 1: the local entry point is the global entry point,
++    // this function does not set up its own r2, and it preserves r2. True
++    // here, and the same declaration the LLInt entry points carry.
++    ".localentry " SYMBOL_STRING(ctiMasmProbeTrampoline) ", 1" "\n"
++
++    // On entry:
++    //   r1  -> IncomingProbeRecord
++    //   r25 =  probe function
++    //   r26 =  probe arg
++    //   r27 =  scratch (held the address of this trampoline)
++    //   r0, r12 = free (spilled to the record by the probe site)
++    //   LR  =  the address to resume at, i.e. the pc after the probe
++    //   r2  =  the process TOC
++
++    "mflr  0" "\n"                       // the resume pc
++    "mr    12, 1" "\n"                   // r12 = &IncomingProbeRecord
++    "addi  1, 1, -" STRINGIZE_VALUE_OF(PROBE_FRAME_SIZE) "\n"
++    "std   12, 0(1)" "\n"                // back chain
++    "addi  27, 1, " STRINGIZE_VALUE_OF(LINKAGE_AREA_SIZE) "\n" // r27 = Probe::State*
++
++    "std   25, " STRINGIZE_VALUE_OF(PROBE_PROBE_FUNCTION_OFFSET) "(27)" "\n"
++    "std   26, " STRINGIZE_VALUE_OF(PROBE_ARG_OFFSET) "(27)" "\n"
++
++    // The resume pc, in the state (which the probe may change) and in a
++    // saved copy (which it may not).
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_PC_OFFSET) "(27)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_SAVED_RETURN_PC_OFFSET) "(27)" "\n"
++
++    // CR and XER, still exactly as they were at the probe site.
++    "mfcr  0" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_CR_OFFSET) "(27)" "\n"
++    "mfxer 0" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_XER_OFFSET) "(27)" "\n"
++
++    // What the probe site had to spill.
++    "ld    0, " STRINGIZE_VALUE_OF(IN_LR_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_LR_OFFSET) "(27)" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(IN_CTR_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_CTR_OFFSET) "(27)" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(IN_R0_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_R0_OFFSET) "(27)" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(IN_R25_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_R25_OFFSET) "(27)" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(IN_R26_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_R26_OFFSET) "(27)" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(IN_R27_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_R27_OFFSET) "(27)" "\n"
++
++    // sp as it was before the probe site pushed the IncomingProbeRecord.
++    "addi  0, 12, " STRINGIZE_VALUE_OF(IN_SIZE) "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_R1_OFFSET) "(27)" "\n"
++
++    // r12 last, because it is the pointer to the record everything above
++    // came out of.
++    "ld    0, " STRINGIZE_VALUE_OF(IN_R12_OFFSET) "(12)" "\n"
++    "std   0, " STRINGIZE_VALUE_OF(PROBE_CPU_R12_OFFSET) "(27)" "\n"
++
++    // The rest straight out of the register file.
++    "std   2, " STRINGIZE_VALUE_OF(PROBE_CPU_R2_OFFSET) "(27)" "\n"
++    "std   3, " STRINGIZE_VALUE_OF(PROBE_CPU_R3_OFFSET) "(27)" "\n"
++    "std   4, " STRINGIZE_VALUE_OF(PROBE_CPU_R4_OFFSET) "(27)" "\n"
++    "std   5, " STRINGIZE_VALUE_OF(PROBE_CPU_R5_OFFSET) "(27)" "\n"
++    "std   6, " STRINGIZE_VALUE_OF(PROBE_CPU_R6_OFFSET) "(27)" "\n"
++    "std   7, " STRINGIZE_VALUE_OF(PROBE_CPU_R7_OFFSET) "(27)" "\n"
++    "std   8, " STRINGIZE_VALUE_OF(PROBE_CPU_R8_OFFSET) "(27)" "\n"
++    "std   9, " STRINGIZE_VALUE_OF(PROBE_CPU_R9_OFFSET) "(27)" "\n"
++    "std   10, " STRINGIZE_VALUE_OF(PROBE_CPU_R10_OFFSET) "(27)" "\n"
++    "std   11, " STRINGIZE_VALUE_OF(PROBE_CPU_R11_OFFSET) "(27)" "\n"
++    "std   13, " STRINGIZE_VALUE_OF(PROBE_CPU_R13_OFFSET) "(27)" "\n"
++    "std   14, " STRINGIZE_VALUE_OF(PROBE_CPU_R14_OFFSET) "(27)" "\n"
++    "std   15, " STRINGIZE_VALUE_OF(PROBE_CPU_R15_OFFSET) "(27)" "\n"
++    "std   16, " STRINGIZE_VALUE_OF(PROBE_CPU_R16_OFFSET) "(27)" "\n"
++    "std   17, " STRINGIZE_VALUE_OF(PROBE_CPU_R17_OFFSET) "(27)" "\n"
++    "std   18, " STRINGIZE_VALUE_OF(PROBE_CPU_R18_OFFSET) "(27)" "\n"
++    "std   19, " STRINGIZE_VALUE_OF(PROBE_CPU_R19_OFFSET) "(27)" "\n"
++    "std   20, " STRINGIZE_VALUE_OF(PROBE_CPU_R20_OFFSET) "(27)" "\n"
++    "std   21, " STRINGIZE_VALUE_OF(PROBE_CPU_R21_OFFSET) "(27)" "\n"
++    "std   22, " STRINGIZE_VALUE_OF(PROBE_CPU_R22_OFFSET) "(27)" "\n"
++    "std   23, " STRINGIZE_VALUE_OF(PROBE_CPU_R23_OFFSET) "(27)" "\n"
++    "std   24, " STRINGIZE_VALUE_OF(PROBE_CPU_R24_OFFSET) "(27)" "\n"
++    "std   28, " STRINGIZE_VALUE_OF(PROBE_CPU_R28_OFFSET) "(27)" "\n"
++    "std   29, " STRINGIZE_VALUE_OF(PROBE_CPU_R29_OFFSET) "(27)" "\n"
++    "std   30, " STRINGIZE_VALUE_OF(PROBE_CPU_R30_OFFSET) "(27)" "\n"
++    "std   31, " STRINGIZE_VALUE_OF(PROBE_CPU_R31_OFFSET) "(27)" "\n"
++
++    "stfd  0, " STRINGIZE_VALUE_OF(PROBE_CPU_F0_OFFSET) "(27)" "\n"
++    "stfd  1, " STRINGIZE_VALUE_OF(PROBE_CPU_F1_OFFSET) "(27)" "\n"
++    "stfd  2, " STRINGIZE_VALUE_OF(PROBE_CPU_F2_OFFSET) "(27)" "\n"
++    "stfd  3, " STRINGIZE_VALUE_OF(PROBE_CPU_F3_OFFSET) "(27)" "\n"
++    "stfd  4, " STRINGIZE_VALUE_OF(PROBE_CPU_F4_OFFSET) "(27)" "\n"
++    "stfd  5, " STRINGIZE_VALUE_OF(PROBE_CPU_F5_OFFSET) "(27)" "\n"
++    "stfd  6, " STRINGIZE_VALUE_OF(PROBE_CPU_F6_OFFSET) "(27)" "\n"
++    "stfd  7, " STRINGIZE_VALUE_OF(PROBE_CPU_F7_OFFSET) "(27)" "\n"
++    "stfd  8, " STRINGIZE_VALUE_OF(PROBE_CPU_F8_OFFSET) "(27)" "\n"
++    "stfd  9, " STRINGIZE_VALUE_OF(PROBE_CPU_F9_OFFSET) "(27)" "\n"
++    "stfd  10, " STRINGIZE_VALUE_OF(PROBE_CPU_F10_OFFSET) "(27)" "\n"
++    "stfd  11, " STRINGIZE_VALUE_OF(PROBE_CPU_F11_OFFSET) "(27)" "\n"
++    "stfd  12, " STRINGIZE_VALUE_OF(PROBE_CPU_F12_OFFSET) "(27)" "\n"
++    "stfd  13, " STRINGIZE_VALUE_OF(PROBE_CPU_F13_OFFSET) "(27)" "\n"
++    "stfd  14, " STRINGIZE_VALUE_OF(PROBE_CPU_F14_OFFSET) "(27)" "\n"
++    "stfd  15, " STRINGIZE_VALUE_OF(PROBE_CPU_F15_OFFSET) "(27)" "\n"
++    "stfd  16, " STRINGIZE_VALUE_OF(PROBE_CPU_F16_OFFSET) "(27)" "\n"
++    "stfd  17, " STRINGIZE_VALUE_OF(PROBE_CPU_F17_OFFSET) "(27)" "\n"
++    "stfd  18, " STRINGIZE_VALUE_OF(PROBE_CPU_F18_OFFSET) "(27)" "\n"
++    "stfd  19, " STRINGIZE_VALUE_OF(PROBE_CPU_F19_OFFSET) "(27)" "\n"
++    "stfd  20, " STRINGIZE_VALUE_OF(PROBE_CPU_F20_OFFSET) "(27)" "\n"
++    "stfd  21, " STRINGIZE_VALUE_OF(PROBE_CPU_F21_OFFSET) "(27)" "\n"
++    "stfd  22, " STRINGIZE_VALUE_OF(PROBE_CPU_F22_OFFSET) "(27)" "\n"
++    "stfd  23, " STRINGIZE_VALUE_OF(PROBE_CPU_F23_OFFSET) "(27)" "\n"
++    "stfd  24, " STRINGIZE_VALUE_OF(PROBE_CPU_F24_OFFSET) "(27)" "\n"
++    "stfd  25, " STRINGIZE_VALUE_OF(PROBE_CPU_F25_OFFSET) "(27)" "\n"
++    "stfd  26, " STRINGIZE_VALUE_OF(PROBE_CPU_F26_OFFSET) "(27)" "\n"
++    "stfd  27, " STRINGIZE_VALUE_OF(PROBE_CPU_F27_OFFSET) "(27)" "\n"
++    "stfd  28, " STRINGIZE_VALUE_OF(PROBE_CPU_F28_OFFSET) "(27)" "\n"
++    "stfd  29, " STRINGIZE_VALUE_OF(PROBE_CPU_F29_OFFSET) "(27)" "\n"
++    "stfd  30, " STRINGIZE_VALUE_OF(PROBE_CPU_F30_OFFSET) "(27)" "\n"
++    "stfd  31, " STRINGIZE_VALUE_OF(PROBE_CPU_F31_OFFSET) "(27)" "\n"
++
++    // executeJSCJITProbe(Probe::State*). r1 already has 32 free bytes at 0(r1)
++    // for the callee's LR and TOC saves.
++    "mr    3, 27" "\n"
++    "std   2, 24(1)" "\n"
++    "bl    " SYMBOL_STRING(executeJSCJITProbe) "\n"
++    "nop" "\n"                           // the linker's TOC-restore slot
++    "ld    2, 24(1)" "\n"
++
++    // If the probe moved sp down to at or below where the Probe::State lives,
++    // move the state below the new sp first, so that filling in the stack
++    // cannot overwrite the register values still to be restored.
++    "ld    4, " STRINGIZE_VALUE_OF(PROBE_CPU_R1_OFFSET) "(27)" "\n"
++    "addi  5, 27, " STRINGIZE_VALUE_OF(PROBE_ALIGNED_STACK_SIZE + OUT_SIZE) "\n"
++    "cmpld cr7, 4, 5" "\n"
++    "bge   cr7, " LOCAL_LABEL_STRING(ctiMasmProbeTrampolineProbeStateIsSafe) "\n"
++
++    "addi  4, 4, -" STRINGIZE_VALUE_OF(PROBE_FRAME_SIZE) "\n"
++    "rldicr 4, 4, 0, 59" "\n"            // 16-byte align downwards
++    "mr    6, 1" "\n"
++    "mr    1, 4" "\n"                    // publish the new sp before copying
++    "std   6, 0(1)" "\n"                 // back chain
++    "addi  6, 1, " STRINGIZE_VALUE_OF(LINKAGE_AREA_SIZE) "\n"
++
++    // Copy low address to high: the destination is below the source.
++    "mr    8, 27" "\n"
++    "mr    10, 6" "\n"
++    "addi  9, 27, " STRINGIZE_VALUE_OF(PROBE_ALIGNED_STACK_SIZE) "\n"
++    LOCAL_LABEL_STRING(ctiMasmProbeTrampolineCopyLoop) ":" "\n"
++    "ld    11, 0(8)" "\n"
++    "std   11, 0(10)" "\n"
++    "addi  8, 8, 8" "\n"
++    "addi  10, 10, 8" "\n"
++    "cmpld cr7, 8, 9" "\n"
++    "blt   cr7, " LOCAL_LABEL_STRING(ctiMasmProbeTrampolineCopyLoop) "\n"
++    "mr    27, 6" "\n"
++
++    LOCAL_LABEL_STRING(ctiMasmProbeTrampolineProbeStateIsSafe) ":" "\n"
++
++    // Call initializeStackFunction if the probe asked for one. r12 is the
++    // ELFv2 indirect-call target register, which is what a global entry
++    // point uses to compute its own TOC.
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_INITIALIZE_STACK_FUNCTION_OFFSET) "(27)" "\n"
++    "cmpdi cr7, 12, 0" "\n"
++    "beq   cr7, " LOCAL_LABEL_STRING(ctiMasmProbeTrampolineRestoreRegisters) "\n"
++    "mr    3, 27" "\n"
++    "mtctr 12" "\n"
++    "std   2, 24(1)" "\n"
++    "bctrl" "\n"
++    "ld    2, 24(1)" "\n"
++
++    LOCAL_LABEL_STRING(ctiMasmProbeTrampolineRestoreRegisters) ":" "\n"
++
++    // Stage the values that must outlive the register file, just below the
++    // sp the probe asked to resume with. r26 is the pointer because r0 cannot
++    // be a base register (RA = 0 means the literal zero).
++    "ld    26, " STRINGIZE_VALUE_OF(PROBE_CPU_R1_OFFSET) "(27)" "\n"
++    "addi  26, 26, -" STRINGIZE_VALUE_OF(OUT_SIZE) "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_CR_OFFSET) "(27)" "\n"
++    "std   12, " STRINGIZE_VALUE_OF(OUT_CR_OFFSET) "(26)" "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_XER_OFFSET) "(27)" "\n"
++    "std   12, " STRINGIZE_VALUE_OF(OUT_XER_OFFSET) "(26)" "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_PC_OFFSET) "(27)" "\n"
++    "std   12, " STRINGIZE_VALUE_OF(OUT_PC_OFFSET) "(26)" "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_LR_OFFSET) "(27)" "\n"
++    "std   12, " STRINGIZE_VALUE_OF(OUT_LR_OFFSET) "(26)" "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_R0_OFFSET) "(27)" "\n"
++    "std   12, " STRINGIZE_VALUE_OF(OUT_R0_OFFSET) "(26)" "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_R27_OFFSET) "(27)" "\n"
++    "std   12, " STRINGIZE_VALUE_OF(OUT_R27_OFFSET) "(26)" "\n"
++    "mr    1, 26" "\n"
++
++    "lfd   0, " STRINGIZE_VALUE_OF(PROBE_CPU_F0_OFFSET) "(27)" "\n"
++    "lfd   1, " STRINGIZE_VALUE_OF(PROBE_CPU_F1_OFFSET) "(27)" "\n"
++    "lfd   2, " STRINGIZE_VALUE_OF(PROBE_CPU_F2_OFFSET) "(27)" "\n"
++    "lfd   3, " STRINGIZE_VALUE_OF(PROBE_CPU_F3_OFFSET) "(27)" "\n"
++    "lfd   4, " STRINGIZE_VALUE_OF(PROBE_CPU_F4_OFFSET) "(27)" "\n"
++    "lfd   5, " STRINGIZE_VALUE_OF(PROBE_CPU_F5_OFFSET) "(27)" "\n"
++    "lfd   6, " STRINGIZE_VALUE_OF(PROBE_CPU_F6_OFFSET) "(27)" "\n"
++    "lfd   7, " STRINGIZE_VALUE_OF(PROBE_CPU_F7_OFFSET) "(27)" "\n"
++    "lfd   8, " STRINGIZE_VALUE_OF(PROBE_CPU_F8_OFFSET) "(27)" "\n"
++    "lfd   9, " STRINGIZE_VALUE_OF(PROBE_CPU_F9_OFFSET) "(27)" "\n"
++    "lfd   10, " STRINGIZE_VALUE_OF(PROBE_CPU_F10_OFFSET) "(27)" "\n"
++    "lfd   11, " STRINGIZE_VALUE_OF(PROBE_CPU_F11_OFFSET) "(27)" "\n"
++    "lfd   12, " STRINGIZE_VALUE_OF(PROBE_CPU_F12_OFFSET) "(27)" "\n"
++    "lfd   13, " STRINGIZE_VALUE_OF(PROBE_CPU_F13_OFFSET) "(27)" "\n"
++    "lfd   14, " STRINGIZE_VALUE_OF(PROBE_CPU_F14_OFFSET) "(27)" "\n"
++    "lfd   15, " STRINGIZE_VALUE_OF(PROBE_CPU_F15_OFFSET) "(27)" "\n"
++    "lfd   16, " STRINGIZE_VALUE_OF(PROBE_CPU_F16_OFFSET) "(27)" "\n"
++    "lfd   17, " STRINGIZE_VALUE_OF(PROBE_CPU_F17_OFFSET) "(27)" "\n"
++    "lfd   18, " STRINGIZE_VALUE_OF(PROBE_CPU_F18_OFFSET) "(27)" "\n"
++    "lfd   19, " STRINGIZE_VALUE_OF(PROBE_CPU_F19_OFFSET) "(27)" "\n"
++    "lfd   20, " STRINGIZE_VALUE_OF(PROBE_CPU_F20_OFFSET) "(27)" "\n"
++    "lfd   21, " STRINGIZE_VALUE_OF(PROBE_CPU_F21_OFFSET) "(27)" "\n"
++    "lfd   22, " STRINGIZE_VALUE_OF(PROBE_CPU_F22_OFFSET) "(27)" "\n"
++    "lfd   23, " STRINGIZE_VALUE_OF(PROBE_CPU_F23_OFFSET) "(27)" "\n"
++    "lfd   24, " STRINGIZE_VALUE_OF(PROBE_CPU_F24_OFFSET) "(27)" "\n"
++    "lfd   25, " STRINGIZE_VALUE_OF(PROBE_CPU_F25_OFFSET) "(27)" "\n"
++    "lfd   26, " STRINGIZE_VALUE_OF(PROBE_CPU_F26_OFFSET) "(27)" "\n"
++    "lfd   27, " STRINGIZE_VALUE_OF(PROBE_CPU_F27_OFFSET) "(27)" "\n"
++    "lfd   28, " STRINGIZE_VALUE_OF(PROBE_CPU_F28_OFFSET) "(27)" "\n"
++    "lfd   29, " STRINGIZE_VALUE_OF(PROBE_CPU_F29_OFFSET) "(27)" "\n"
++    "lfd   30, " STRINGIZE_VALUE_OF(PROBE_CPU_F30_OFFSET) "(27)" "\n"
++    "lfd   31, " STRINGIZE_VALUE_OF(PROBE_CPU_F31_OFFSET) "(27)" "\n"
++
++    // Every GPR except r0, r1 and r27 (staged above), and except r2 and r13.
++    // r2 is the TOC pointer and r13 the thread pointer: no probe has any
++    // business changing either, and not reloading them means a corrupted
++    // Probe::State cannot take the process with it. This mirrors RISCV64
++    // leaving gp and tp alone and ARM64 leaving x18 alone.
++    "ld    3, " STRINGIZE_VALUE_OF(PROBE_CPU_R3_OFFSET) "(27)" "\n"
++    "ld    4, " STRINGIZE_VALUE_OF(PROBE_CPU_R4_OFFSET) "(27)" "\n"
++    "ld    5, " STRINGIZE_VALUE_OF(PROBE_CPU_R5_OFFSET) "(27)" "\n"
++    "ld    6, " STRINGIZE_VALUE_OF(PROBE_CPU_R6_OFFSET) "(27)" "\n"
++    "ld    7, " STRINGIZE_VALUE_OF(PROBE_CPU_R7_OFFSET) "(27)" "\n"
++    "ld    8, " STRINGIZE_VALUE_OF(PROBE_CPU_R8_OFFSET) "(27)" "\n"
++    "ld    9, " STRINGIZE_VALUE_OF(PROBE_CPU_R9_OFFSET) "(27)" "\n"
++    "ld    10, " STRINGIZE_VALUE_OF(PROBE_CPU_R10_OFFSET) "(27)" "\n"
++    "ld    11, " STRINGIZE_VALUE_OF(PROBE_CPU_R11_OFFSET) "(27)" "\n"
++    "ld    12, " STRINGIZE_VALUE_OF(PROBE_CPU_R12_OFFSET) "(27)" "\n"
++    "ld    14, " STRINGIZE_VALUE_OF(PROBE_CPU_R14_OFFSET) "(27)" "\n"
++    "ld    15, " STRINGIZE_VALUE_OF(PROBE_CPU_R15_OFFSET) "(27)" "\n"
++    "ld    16, " STRINGIZE_VALUE_OF(PROBE_CPU_R16_OFFSET) "(27)" "\n"
++    "ld    17, " STRINGIZE_VALUE_OF(PROBE_CPU_R17_OFFSET) "(27)" "\n"
++    "ld    18, " STRINGIZE_VALUE_OF(PROBE_CPU_R18_OFFSET) "(27)" "\n"
++    "ld    19, " STRINGIZE_VALUE_OF(PROBE_CPU_R19_OFFSET) "(27)" "\n"
++    "ld    20, " STRINGIZE_VALUE_OF(PROBE_CPU_R20_OFFSET) "(27)" "\n"
++    "ld    21, " STRINGIZE_VALUE_OF(PROBE_CPU_R21_OFFSET) "(27)" "\n"
++    "ld    22, " STRINGIZE_VALUE_OF(PROBE_CPU_R22_OFFSET) "(27)" "\n"
++    "ld    23, " STRINGIZE_VALUE_OF(PROBE_CPU_R23_OFFSET) "(27)" "\n"
++    "ld    24, " STRINGIZE_VALUE_OF(PROBE_CPU_R24_OFFSET) "(27)" "\n"
++    "ld    25, " STRINGIZE_VALUE_OF(PROBE_CPU_R25_OFFSET) "(27)" "\n"
++    "ld    28, " STRINGIZE_VALUE_OF(PROBE_CPU_R28_OFFSET) "(27)" "\n"
++    "ld    29, " STRINGIZE_VALUE_OF(PROBE_CPU_R29_OFFSET) "(27)" "\n"
++    "ld    30, " STRINGIZE_VALUE_OF(PROBE_CPU_R30_OFFSET) "(27)" "\n"
++    "ld    31, " STRINGIZE_VALUE_OF(PROBE_CPU_R31_OFFSET) "(27)" "\n"
++    "ld    26, " STRINGIZE_VALUE_OF(PROBE_CPU_R26_OFFSET) "(27)" "\n"
++
++    // The tail. CTR carries the resume pc, so a probe that changed both lr
++    // and pc gets both. Nothing below writes CR, so restoring it first is
++    // safe.
++    "ld    0, " STRINGIZE_VALUE_OF(OUT_CR_OFFSET) "(1)" "\n"
++    "mtcrf 255, 0" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(OUT_XER_OFFSET) "(1)" "\n"
++    "mtxer 0" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(OUT_PC_OFFSET) "(1)" "\n"
++    "mtctr 0" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(OUT_LR_OFFSET) "(1)" "\n"
++    "mtlr  0" "\n"
++    "ld    27, " STRINGIZE_VALUE_OF(OUT_R27_OFFSET) "(1)" "\n"
++    "ld    0, " STRINGIZE_VALUE_OF(OUT_R0_OFFSET) "(1)" "\n"
++    "addi  1, 1, " STRINGIZE_VALUE_OF(OUT_SIZE) "\n"
++    "bctr" "\n"
++    ".previous" "\n"
++);
++
++void MacroAssembler::probe(Probe::Function function, void* arg)
++{
++    // Emitted with the assembler directly rather than through the
++    // MacroAssembler's helpers on purpose: every GPR is live at a probe site,
++    // and a helper that quietly resolved an address through
++    // memoryTempRegister would corrupt one of them. Each instruction below
++    // writes only r1 or a register already spilled into the record.
++    m_assembler.addi(PPC64Registers::r1, PPC64Registers::r1, -static_cast<int32_t>(sizeof(IncomingProbeRecord)));
++    m_assembler.std(PPC64Registers::r0, PPC64Registers::r1, IN_R0_OFFSET);
++    m_assembler.std(PPC64Registers::r12, PPC64Registers::r1, IN_R12_OFFSET);
++    m_assembler.std(PPC64Registers::r25, PPC64Registers::r1, IN_R25_OFFSET);
++    m_assembler.std(PPC64Registers::r26, PPC64Registers::r1, IN_R26_OFFSET);
++    m_assembler.std(PPC64Registers::r27, PPC64Registers::r1, IN_R27_OFFSET);
++
++    // LR and CTR are SPRs. Both are destroyed by the call this function is
++    // about to emit (bctrl writes LR, mtctr writes CTR), so they have to be
++    // read here; by the time the trampoline runs they are already gone.
++    m_assembler.mflr(PPC64Registers::r27);
++    m_assembler.std(PPC64Registers::r27, PPC64Registers::r1, IN_LR_OFFSET);
++    m_assembler.mfctr(PPC64Registers::r27);
++    m_assembler.std(PPC64Registers::r27, PPC64Registers::r1, IN_CTR_OFFSET);
++
++    move(TrustedImmPtr(reinterpret_cast<void*>(ctiMasmProbeTrampoline)), PPC64Registers::r27);
++    move(TrustedImmPtr(reinterpret_cast<void*>(function)), PPC64Registers::r25);
++    move(TrustedImmPtr(arg), PPC64Registers::r26);
++
++    // Not call(): the trampoline is neither a C function wanting the ELFv2
++    // linkage area nor ordinary JIT code. It builds its own frame and
++    // preserves r2 itself, so a bare mtctr/bctrl is exactly right, and
++    // routing through call() would make the emitted sequence depend on how
++    // some PtrTag happens to be classified.
++    emitIndirectCall(PPC64Registers::r27, /* isNativeCallee */ false);
++
++    // Nothing to clean up: the trampoline restores sp from the saved state,
++    // reloads LR from the saved state, and resumes through CTR. Unlike ARM64
++    // and RISCV64 there is no link-register restoration record for the probe
++    // site to pop, because PowerPC has a second branch register to return
++    // through.
++}
++
++} // namespace JSC
++
++#endif // ENABLE(ASSEMBLER) && CPU(PPC64LE)

@@ -1,0 +1,91 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmFunctionParser.h b/Source/JavaScriptCore/wasm/WasmFunctionParser.h
+index eaccd41b09..eb05d8d894 100644
+--- a/Source/JavaScriptCore/wasm/WasmFunctionParser.h
++++ b/Source/JavaScriptCore/wasm/WasmFunctionParser.h
+@@ -30,7 +30,7 @@
+ 
+ #if ENABLE(WEBASSEMBLY)
+ 
+-#include "AirArg.h"
++#include "WasmAirArgShim.h"
+ #include "WasmOpcodeCounter.h"
+ #include "WasmParser.h"
+ #include "WasmTypeDefinitionInlines.h"
+@@ -291,10 +291,8 @@ private:
+     [[nodiscard]] PartialResult atomicNotify(ExtAtomicOpType);
+     [[nodiscard]] PartialResult atomicFence(ExtAtomicOpType);
+ 
+-#if ENABLE(B3_JIT)
+     template<bool isReachable, typename = void>
+     [[nodiscard]] PartialResult simd(SIMDLaneOperation, SIMDLane, SIMDSignMode, B3::Air::Arg optionalRelation = { });
+-#endif
+ 
+     [[nodiscard]] PartialResult parseTableIndex(unsigned&);
+     [[nodiscard]] PartialResult parseElementIndex(unsigned&);
+@@ -981,7 +979,6 @@ auto FunctionParser<Context>::atomicFence(ExtAtomicOpType op) -> PartialResult
+     return { };
+ }
+ 
+-#if ENABLE(B3_JIT)
+ template<typename Context>
+ template<bool isReachable, typename>
+ auto FunctionParser<Context>::simd(SIMDLaneOperation op, SIMDLane lane, SIMDSignMode signMode, B3::Air::Arg optionalRelation) -> PartialResult
+@@ -1575,7 +1572,6 @@ auto FunctionParser<Context>::simd(SIMDLaneOperation op, SIMDLane lane, SIMDSign
+     }
+     return { };
+ }
+-#endif
+ 
+ template<typename Context>
+ auto FunctionParser<Context>::parseTableIndex(unsigned& result) -> PartialResult
+@@ -3916,7 +3912,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
+ 
+         return { };
+     }
+-#if ENABLE(B3_JIT)
+     case ExtSIMD: {
+         WASM_PARSER_FAIL_IF(!Options::useWasmSIMD(), "wasm-simd is not enabled"_s);
+         m_context.notifyFunctionUsesSIMD();
+@@ -3926,8 +3921,10 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
+         constexpr bool isReachable = true;
+ 
+         ExtSIMDOpType op = static_cast<ExtSIMDOpType>(m_currentExtOp);
++#if ENABLE(WEBASSEMBLY_OMGJIT)
+         if (Options::dumpWasmOpcodeStatistics()) [[unlikely]]
+             WasmOpcodeCounter::singleton().increment(op);
++#endif
+ 
+         switch (op) {
+         #define CREATE_SIMD_CASE(name, _, laneOp, lane, signMode) case ExtSIMDOpType::name: return simd<isReachable>(SIMDLaneOperation::laneOp, lane, signMode);
+@@ -3942,11 +3939,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
+         }
+         return { };
+     }
+-#else
+-    case ExtSIMD:
+-        WASM_PARSER_FAIL_IF(true, "wasm-simd is not supported"_s);
+-        return { };
+-#endif
+     }
+ 
+     ASSERT_NOT_REACHED();
+@@ -4558,7 +4550,6 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
+     }
+ #undef CREATE_ATOMIC_CASE
+ 
+-#if ENABLE(B3_JIT)
+     case ExtSIMD: {
+         WASM_PARSER_FAIL_IF(!Options::useWasmSIMD(), "wasm-simd is not enabled"_s);
+         m_context.notifyFunctionUsesSIMD();
+@@ -4581,11 +4572,6 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
+         }
+         return { };
+     }
+-#else
+-    case ExtSIMD:
+-        WASM_PARSER_FAIL_IF(true, "wasm-simd is not supported"_s);
+-        return { };
+-#endif
+ 
+     // no immediate cases
+     FOR_EACH_WASM_BINARY_OP(CREATE_CASE)

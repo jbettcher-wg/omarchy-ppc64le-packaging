@@ -1,0 +1,33 @@
+diff --git a/Source/JavaScriptCore/jit/CallFrameShuffler.cpp b/Source/JavaScriptCore/jit/CallFrameShuffler.cpp
+index d6df2e6501..f222930e94 100644
+--- a/Source/JavaScriptCore/jit/CallFrameShuffler.cpp
++++ b/Source/JavaScriptCore/jit/CallFrameShuffler.cpp
+@@ -347,11 +347,16 @@ void CallFrameShuffler::prepareForTailCall()
+     m_oldFrameBase = MacroAssembler::stackPointerRegister;
+     m_oldFrameOffset = numLocals();
+     m_newFrameBase = acquireGPR();
+-#if CPU(ARM64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     // We load the frame pointer and link register manually. We
+     // could ask the algorithm to load the link register for us
+     // (which would allow for its use as an extra temporary), but
+     // since its not in GPRInfo, we can't do it.
++    //
++    // On PPC64 the link register is not merely absent from GPRInfo, it is an
++    // SPR; `loadToLinkRegister` below is the mflr/mtlr-shaped equivalent of
++    // the ARM64 load. The frame is the same shape either way, because
++    // `pushFramePointerAndLinkRegister` builds exactly the ARM64 pair.
+ 
+     // sp will point to head2 since the callee's prologue pushes the
+     // call frame and link register
+@@ -398,7 +403,9 @@ void CallFrameShuffler::prepareForTailCall()
+         m_newFrameBase);
+ 
+     // We load the link register manually for architectures that have one
+-#if CPU(ARM64) || CPU(RISCV64)
++#if CPU(PPC64LE)
++    m_jit.loadToLinkRegister(MacroAssembler::Address(MacroAssembler::framePointerRegister, CallFrame::returnPCOffset()));
++#elif CPU(ARM64) || CPU(RISCV64)
+     m_jit.loadPtr(MacroAssembler::Address(MacroAssembler::framePointerRegister, CallFrame::returnPCOffset()),
+         MacroAssembler::linkRegister);
+ #if CPU(ARM64E)

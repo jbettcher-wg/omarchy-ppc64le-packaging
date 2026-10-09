@@ -1,0 +1,16 @@
+diff --git a/Source/JavaScriptCore/heap/MachineStackMarker.cpp b/Source/JavaScriptCore/heap/MachineStackMarker.cpp
+index 9c95d17c77..2be5cdb0cf 100644
+--- a/Source/JavaScriptCore/heap/MachineStackMarker.cpp
++++ b/Source/JavaScriptCore/heap/MachineStackMarker.cpp
+@@ -58,6 +58,11 @@ static inline int NODELETE osRedZoneAdjustment()
+ #if CPU(X86_64)
+     // See http://people.freebsd.org/~obrien/amd64-elf-abi.pdf Section 3.2.2.
+     redZoneAdjustment = -128;
++#elif CPU(PPC64LE)
++    // The ELFv2 ABI reserves a 512-byte protected zone below r1 which a
++    // leaf function may use without adjusting the stack pointer, so a
++    // cell's only reference can live there.
++    redZoneAdjustment = -512;
+ #elif CPU(ARM64)
+ #if OS(DARWIN)
+     // See https://developer.apple.com/library/ios/documentation/Xcode/Conceptual/iPhoneOSABIReference/Articles/ARM64FunctionCallingConventions.html#//apple_ref/doc/uid/TP40013702-SW7

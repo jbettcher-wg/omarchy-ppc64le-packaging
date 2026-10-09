@@ -1,0 +1,1768 @@
+diff --git a/Source/JavaScriptCore/assembler/PPC64Assembler.h b/Source/JavaScriptCore/assembler/PPC64Assembler.h
+new file mode 100644
+index 0000000000..e185f5c8b0
+--- /dev/null
++++ b/Source/JavaScriptCore/assembler/PPC64Assembler.h
+@@ -0,0 +1,1762 @@
++/*
++ * Copyright (C) 2026 Justin Bettcher. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#pragma once
++
++#include <wtf/Platform.h>
++
++#if ENABLE(ASSEMBLER) && CPU(PPC64LE)
++
++#include "AssemblerBuffer.h"
++#include "AssemblerCommon.h"
++#include "PPC64Registers.h"
++#include "SIMDInfo.h"
++#include <wtf/Vector.h>
++
++#if OS(LINUX)
++#include <sys/auxv.h>
++#endif
++
++// A 64-bit little-endian PowerPC (ELFv2) instruction encoder.
++//
++// Every field packer below states the big-endian bit numbering the Power ISA
++// uses, because the ISA book numbers bits from the most significant end and
++// the shifts here are from the least significant end. `bit BE n` is
++// `1u << (31 - n)`.
++//
++// The encodings are re-derived from Power ISA v3.0B, Book I, and checked
++// against the assemblers rather than against the author's memory. The
++// encoding oracle lives in the handbook repository
++// (tools/ppc64-encoding-oracle/): it lifts the form packers and instruction
++// emitters below verbatim into a standalone harness, emits every instruction
++// with distinctive operands, assembles the same mnemonics with clang's
++// integrated assembler and with GNU as, and diffs the words. As of
++// 2026-09-11 that is 223/223 identical against both, and a one-bit change to
++// an extended opcode is caught (negative control run). A form packer that is
++// wrong is a silent miscompile that no MacroAssembler unit test would
++// localise, so the oracle, not the reading, is the evidence.
++
++namespace JSC {
++
++namespace PPC64Registers {
++
++enum RegisterID : int8_t {
++#define REGISTER_ID(id, name, r, cs) id,
++    FOR_EACH_GP_REGISTER(REGISTER_ID)
++#undef REGISTER_ID
++
++#define REGISTER_ALIAS(id, name, alias) id = alias,
++    FOR_EACH_REGISTER_ALIAS(REGISTER_ALIAS)
++#undef REGISTER_ALIAS
++
++    InvalidGPRReg = -1,
++};
++
++enum SPRegisterID : int8_t {
++#define REGISTER_ID(id, name) id,
++    FOR_EACH_SP_REGISTER(REGISTER_ID)
++#undef REGISTER_ID
++
++    InvalidSPReg = -1,
++};
++
++enum FPRegisterID : int8_t {
++#define REGISTER_ID(id, name, r, cs) id,
++    FOR_EACH_FP_REGISTER(REGISTER_ID)
++#undef REGISTER_ID
++
++    InvalidFPRReg = -1,
++};
++
++// ---------------------------------------------------------------------
++// VMX / Altivec register numbers, and why they are a separate type.
++//
++// POWER has two overlapping views of one 64-register file. VSX instructions
++// carry 6-bit fields naming all 64 VSRs; VMX instructions carry 5-bit fields
++// naming vr0-vr31, and vr(n) IS VSR(32+n). The same field VALUE therefore
++// means a different physical register depending on which encoding space the
++// instruction belongs to -- `vspltb 8,9,7` is v8 and v9, while
++// `xxlor 40,41,42` is the same two registers under their VSR names.
++//
++// FPRegisterID is a VSR number. VRegisterID is a VMX number. They are
++// deliberately distinct types so that passing one where the other is wanted
++// does not compile, because the failure mode if it did would be a silently
++// wrong register rather than a diagnostic.
++enum VRegisterID : uint8_t {
++    vr0 = 0, vr1, vr2, vr3, vr4, vr5, vr6, vr7,
++    vr8, vr9, vr10, vr11, vr12, vr13, vr14, vr15,
++    vr16, vr17, vr18, vr19, vr20, vr21, vr22, vr23,
++    vr24, vr25, vr26, vr27, vr28, vr29, vr30, vr31,
++};
++
++// The one legitimate crossing between the two spaces.
++static constexpr FPRegisterID vsrForVR(VRegisterID vr)
++{
++    return static_cast<FPRegisterID>(32 + static_cast<unsigned>(vr));
++}
++
++} // namespace PPC64Registers
++
++// Condition-register field and bit. cr0 is the working field for integer
++// compares; cr7 is where composed floating-point conditions land (a cror
++// must not write the field it reads, and cr1-cr4 are either callee-saved or
++// the FP-status field).
++enum class CRField : uint8_t { CR0 = 0, CR1, CR2, CR3, CR4, CR5, CR6, CR7 };
++enum class CRBit : uint8_t { LT = 0, GT = 1, EQ = 2, SO = 3 };
++
++constexpr unsigned crBitIndex(CRField field, CRBit bit)
++{
++    return unsigned(field) * 4 + unsigned(bit);
++}
++
++// Special-purpose register numbers used by the encoder.
++enum class SPRNumber : uint32_t { XER = 1, LR = 8, CTR = 9 };
++
++class PPC64Assembler {
++public:
++    using RegisterID = PPC64Registers::RegisterID;
++    using SPRegisterID = PPC64Registers::SPRegisterID;
++    using FPRegisterID = PPC64Registers::FPRegisterID;
++    // A VMX register number, distinct from FPRegisterID's VSR number: vr(n)
++    // IS VSR(32+n), so the same value names a different register in each space.
++    using VRegisterID = PPC64Registers::VRegisterID;
++
++    static constexpr RegisterID firstRegister() { return PPC64Registers::r0; }
++    static constexpr RegisterID lastRegister() { return PPC64Registers::r31; }
++    static constexpr unsigned numberOfRegisters() { return lastRegister() - firstRegister() + 1; }
++
++    static constexpr SPRegisterID firstSPRegister() { return PPC64Registers::pc; }
++    static constexpr SPRegisterID lastSPRegister() { return PPC64Registers::xer; }
++    static constexpr unsigned numberOfSPRegisters() { return lastSPRegister() - firstSPRegister() + 1; }
++
++    static constexpr FPRegisterID firstFPRegister() { return PPC64Registers::f0; }
++    static constexpr FPRegisterID lastFPRegister() { return PPC64Registers::f31; }
++    static constexpr unsigned numberOfFPRegisters() { return lastFPRegister() - firstFPRegister() + 1; }
++
++    static ASCIILiteral gprName(RegisterID id)
++    {
++        ASSERT(id >= firstRegister() && id <= lastRegister());
++        static constexpr ASCIILiteral nameForRegister[numberOfRegisters()] = {
++#define REGISTER_NAME(id, name, r, cs) name,
++            FOR_EACH_GP_REGISTER(REGISTER_NAME)
++#undef REGISTER_NAME
++        };
++        return nameForRegister[id];
++    }
++
++    static ASCIILiteral sprName(SPRegisterID id)
++    {
++        ASSERT(id >= firstSPRegister() && id <= lastSPRegister());
++        static constexpr ASCIILiteral nameForRegister[numberOfSPRegisters()] = {
++#define REGISTER_NAME(id, name) name,
++            FOR_EACH_SP_REGISTER(REGISTER_NAME)
++#undef REGISTER_NAME
++        };
++        return nameForRegister[id];
++    }
++
++    static ASCIILiteral fprName(FPRegisterID id)
++    {
++        ASSERT(id >= firstFPRegister() && id <= lastFPRegister());
++        static constexpr ASCIILiteral nameForRegister[numberOfFPRegisters()] = {
++#define REGISTER_NAME(id, name, r, cs) name,
++            FOR_EACH_FP_REGISTER(REGISTER_NAME)
++#undef REGISTER_NAME
++        };
++        return nameForRegister[id];
++    }
++
++    PPC64Assembler() { }
++
++    AssemblerBuffer& buffer() LIFETIME_BOUND { return m_buffer; }
++
++    // ------------------------------------------------------------------
++    // Immediate predicates. PowerPC's D-form displacement is a signed 16-bit
++    // field; DS-form (ld/ldu/lwa/std/stdu) drops the low two bits, so its
++    // displacement must additionally be a multiple of 4. Logical immediates
++    // (andi./ori/xori and their "is" forms) are UNSIGNED 16-bit -- a negative
++    // value must go through a register. Getting these two families confused
++    // is the single easiest way to emit a silently wrong instruction, so the
++    // predicates are named for the form, not for the width.
++    // ------------------------------------------------------------------
++
++    static constexpr bool isValidSigned16(int64_t value)
++    {
++        return value >= -0x8000 && value <= 0x7fff;
++    }
++
++    static constexpr bool isValidUnsigned16(int64_t value)
++    {
++        return value >= 0 && value <= 0xffff;
++    }
++
++    static constexpr bool isValidDForm(int64_t offset)
++    {
++        return isValidSigned16(offset);
++    }
++
++    static constexpr bool isValidDSForm(int64_t offset)
++    {
++        return isValidSigned16(offset) && !(offset & 3);
++    }
++
++    static constexpr bool isValidSigned32(int64_t value)
++    {
++        return value >= INT64_C(-0x80000000) && value <= INT64_C(0x7fffffff);
++    }
++
++    // A value that `lis`+`ori` (or a bare addi/lis) can materialise without
++    // the full five-instruction ladder.
++    static constexpr bool isValidLoadImmediateShort(int64_t value)
++    {
++        if (isValidSigned16(value))
++            return true;
++        if (isValidSigned32(value) && !(value & 0xffff))
++            return true;
++        return false;
++    }
++
++    // ------------------------------------------------------------------
++    // Form packers. Power ISA v3.0B Book I chapter 1.6.
++    // ------------------------------------------------------------------
++
++    // I-form: OPCD(0:5) LI(6:29) AA(30) LK(31)
++    static uint32_t formI(uint32_t opcd, int32_t li, bool aa, bool lk)
++    {
++        ASSERT(!(li & 3));
++        ASSERT(li >= -0x2000000 && li <= 0x1fffffc);
++        return (opcd << 26) | (uint32_t(li) & 0x03fffffc) | (uint32_t(aa) << 1) | uint32_t(lk);
++    }
++
++    // B-form: OPCD(0:5) BO(6:10) BI(11:15) BD(16:29) AA(30) LK(31)
++    static uint32_t formB(uint32_t opcd, uint32_t bo, uint32_t bi, int32_t bd, bool aa, bool lk)
++    {
++        ASSERT(!(bd & 3));
++        ASSERT(bd >= -0x8000 && bd <= 0x7ffc);
++        ASSERT(bo < 32 && bi < 32);
++        return (opcd << 26) | (bo << 21) | (bi << 16) | (uint32_t(bd) & 0xfffc) | (uint32_t(aa) << 1) | uint32_t(lk);
++    }
++
++    // D-form: OPCD(0:5) RT(6:10) RA(11:15) D(16:31)
++    static uint32_t formD(uint32_t opcd, uint32_t rt, uint32_t ra, int32_t d)
++    {
++        ASSERT(rt < 32 && ra < 32);
++        return (opcd << 26) | (rt << 21) | (ra << 16) | (uint32_t(d) & 0xffff);
++    }
++
++    // DS-form: OPCD(0:5) RT(6:10) RA(11:15) DS(16:29) XO(30:31)
++    static uint32_t formDS(uint32_t opcd, uint32_t rt, uint32_t ra, int32_t ds, uint32_t xo)
++    {
++        ASSERT(rt < 32 && ra < 32 && xo < 4);
++        ASSERT(!(ds & 3));
++        return (opcd << 26) | (rt << 21) | (ra << 16) | (uint32_t(ds) & 0xfffc) | xo;
++    }
++
++    // X-form: OPCD(0:5) RT(6:10) RA(11:15) RB(16:20) XO(21:30) Rc(31)
++    static uint32_t formX(uint32_t opcd, uint32_t rt, uint32_t ra, uint32_t rb, uint32_t xo, bool rc)
++    {
++        ASSERT(rt < 32 && ra < 32 && rb < 32 && xo < 1024);
++        return (opcd << 26) | (rt << 21) | (ra << 16) | (rb << 11) | (xo << 1) | uint32_t(rc);
++    }
++
++    // XO-form: OPCD(0:5) RT(6:10) RA(11:15) RB(16:20) OE(21) XO(22:30) Rc(31)
++    static uint32_t formXO(uint32_t opcd, uint32_t rt, uint32_t ra, uint32_t rb, bool oe, uint32_t xo, bool rc)
++    {
++        ASSERT(rt < 32 && ra < 32 && rb < 32 && xo < 512);
++        return (opcd << 26) | (rt << 21) | (ra << 16) | (rb << 11) | (uint32_t(oe) << 10) | (xo << 1) | uint32_t(rc);
++    }
++
++    // XL-form: OPCD(0:5) BT(6:10) BA(11:15) BB(16:20) XO(21:30) LK(31)
++    static uint32_t formXL(uint32_t opcd, uint32_t bt, uint32_t ba, uint32_t bb, uint32_t xo, bool lk)
++    {
++        ASSERT(bt < 32 && ba < 32 && bb < 32 && xo < 1024);
++        return (opcd << 26) | (bt << 21) | (ba << 16) | (bb << 11) | (xo << 1) | uint32_t(lk);
++    }
++
++    // XFX-form for mfspr/mtspr: the 10-bit SPR field is stored with its two
++    // 5-bit halves SWAPPED (spr(5:9) then spr(0:4)). Power ISA v3.0B says
++    // "the order of the two 5-bit halves of the SPR number is reversed".
++    static uint32_t formXFXSPR(uint32_t opcd, uint32_t rst, uint32_t spr, uint32_t xo)
++    {
++        ASSERT(rst < 32 && spr < 1024);
++        uint32_t encoded = ((spr & 0x1f) << 5) | ((spr >> 5) & 0x1f);
++        return (opcd << 26) | (rst << 21) | (encoded << 11) | (xo << 1);
++    }
++
++    // XFX-form for mfocrf/mtocrf: FXM(12:19) with bit 11 set to 1.
++    static uint32_t formXFXCR(uint32_t opcd, uint32_t rst, uint32_t fxm, bool oneBit, uint32_t xo)
++    {
++        ASSERT(rst < 32 && fxm < 256);
++        return (opcd << 26) | (rst << 21) | (uint32_t(oneBit) << 20) | (fxm << 12) | (xo << 1);
++    }
++
++    // M-form: OPCD(0:5) RS(6:10) RA(11:15) RB/SH(16:20) MB(21:25) ME(26:30) Rc(31)
++    static uint32_t formM(uint32_t opcd, uint32_t rs, uint32_t ra, uint32_t shb, uint32_t mb, uint32_t me, bool rc)
++    {
++        RELEASE_ASSERT(shb < 32 && mb < 32 && me < 32);
++        return (opcd << 26) | (rs << 21) | (ra << 16) | (shb << 11) | (mb << 6) | (me << 1) | uint32_t(rc);
++    }
++
++    // MD-form: OPCD(0:5) RS(6:10) RA(11:15) sh(16:20) mb(21:26) XO(27:29) sh[5](30) Rc(31)
++    // Both the 6-bit shift and the 6-bit mask boundary are split, high bit
++    // last. This is the form of rldicl/rldicr/rldic/rldimi.
++    static uint32_t formMD(uint32_t rs, uint32_t ra, uint32_t sh, uint32_t mbme, uint32_t xo, bool rc)
++    {
++        RELEASE_ASSERT(sh < 64 && mbme < 64 && xo < 8);
++        uint32_t shLow = sh & 0x1f;
++        uint32_t shHigh = (sh >> 5) & 1;
++        uint32_t mLow = mbme & 0x1f;
++        uint32_t mHigh = (mbme >> 5) & 1;
++        return (30u << 26) | (rs << 21) | (ra << 16) | (shLow << 11) | (mLow << 6) | (mHigh << 5) | (xo << 2) | (shHigh << 1) | uint32_t(rc);
++    }
++
++    // MDS-form: OPCD(0:5) RS(6:10) RA(11:15) RB(16:20) mb(21:26) XO(27:30) Rc(31)
++    static uint32_t formMDS(uint32_t rs, uint32_t ra, uint32_t rb, uint32_t mbme, uint32_t xo, bool rc)
++    {
++        RELEASE_ASSERT(mbme < 64 && xo < 16);
++        uint32_t mLow = mbme & 0x1f;
++        uint32_t mHigh = (mbme >> 5) & 1;
++        return (30u << 26) | (rs << 21) | (ra << 16) | (rb << 11) | (mLow << 6) | (mHigh << 5) | (xo << 1) | uint32_t(rc);
++    }
++
++    // XS-form (sradi only): OPCD RS RA sh(16:20) XO(21:29) sh[5](30) Rc(31)
++    static uint32_t formXS(uint32_t rs, uint32_t ra, uint32_t sh, uint32_t xo, bool rc)
++    {
++        RELEASE_ASSERT(sh < 64);
++        uint32_t shLow = sh & 0x1f;
++        uint32_t shHigh = (sh >> 5) & 1;
++        return (31u << 26) | (rs << 21) | (ra << 16) | (shLow << 11) | (xo << 2) | (shHigh << 1) | uint32_t(rc);
++    }
++
++    // A-form (floating point): OPCD FRT FRA FRB FRC XO(26:30) Rc(31)
++    static uint32_t formA(uint32_t opcd, uint32_t frt, uint32_t fra, uint32_t frb, uint32_t frc, uint32_t xo, bool rc)
++    {
++        ASSERT(xo < 32);
++        return (opcd << 26) | (frt << 21) | (fra << 16) | (frb << 11) | (frc << 6) | (xo << 1) | uint32_t(rc);
++    }
++
++    // XX2-form (VSX, one source): OPCD T(6:10) reserved(11:15) B(16:20) XO(21:29) BX(30) TX(31)
++    static uint32_t formXX2(uint32_t opcd, uint32_t t, uint32_t b, uint32_t xo)
++    {
++        uint32_t tx = (t >> 5) & 1;
++        uint32_t bx = (b >> 5) & 1;
++        return (opcd << 26) | ((t & 0x1f) << 21) | ((b & 0x1f) << 11) | (xo << 2) | (bx << 1) | tx;
++    }
++
++    // XX2-form with a 5-bit sub-opcode in the reserved field: OPCD T(6:10)
++    // SUB(11:15) B(16:20) XO(21:29) BX(30) TX(31). The half-precision
++    // conversions are one XO (347) split by that field -- 16 is xscvhpdp,
++    // 17 is xscvdphp -- which is why formXX2, whose 11:15 is always zero,
++    // cannot express them.
++    static uint32_t formXX2Sub(uint32_t opcd, uint32_t t, uint32_t sub, uint32_t b, uint32_t xo)
++    {
++        ASSERT(sub < 32);
++        uint32_t tx = (t >> 5) & 1;
++        uint32_t bx = (b >> 5) & 1;
++        return (opcd << 26) | ((t & 0x1f) << 21) | (sub << 16) | ((b & 0x1f) << 11) | (xo << 2) | (bx << 1) | tx;
++    }
++
++    // XX3-form (VSX, two sources): OPCD T A B XO(22:28) AX(29) BX(30) TX(31)
++    static uint32_t formXX3(uint32_t opcd, uint32_t t, uint32_t a, uint32_t b, uint32_t xo)
++    {
++        uint32_t tx = (t >> 5) & 1;
++        uint32_t ax = (a >> 5) & 1;
++        uint32_t bx = (b >> 5) & 1;
++        return (opcd << 26) | ((t & 0x1f) << 21) | ((a & 0x1f) << 16) | ((b & 0x1f) << 11) | (xo << 3) | (ax << 2) | (bx << 1) | tx;
++    }
++
++    // XX2-form with a 2-bit UIM (xxspltw only): OPCD T(6:10) /(11:13)
++    // UIM(14:15) B(16:20) XO(21:29) BX(30) TX(31)
++    static uint32_t formXX2UIM(uint32_t opcd, uint32_t t, uint32_t uim, uint32_t b, uint32_t xo)
++    {
++        RELEASE_ASSERT(uim < 4);
++        uint32_t tx = (t >> 5) & 1;
++        uint32_t bx = (b >> 5) & 1;
++        return (opcd << 26) | ((t & 0x1f) << 21) | (uim << 16) | ((b & 0x1f) << 11) | (xo << 2) | (bx << 1) | tx;
++    }
++
++    // XX1-form (indexed VSX load/store): OPCD T(6:10) RA(11:15) RB(16:20)
++    // XO(21:30) TX(31). There is no displacement: EA = (RA|0) + RB.
++    static uint32_t formXX1(uint32_t opcd, uint32_t t, uint32_t ra, uint32_t rb, uint32_t xo)
++    {
++        uint32_t tx = (t >> 5) & 1;
++        return (opcd << 26) | ((t & 0x1f) << 21) | (ra << 16) | (rb << 11) | (xo << 1) | tx;
++    }
++
++    // X-form with a VSR destination or source (mtvsrd / mfvsrd family): the
++    // VSR number's high bit is the last bit of the instruction.
++    static uint32_t formXVSRGPR(uint32_t vsr, uint32_t ra, uint32_t xo)
++    {
++        uint32_t x = (vsr >> 5) & 1;
++        return (31u << 26) | ((vsr & 0x1f) << 21) | (ra << 16) | (xo << 1) | x;
++    }
++
++    // ------------------------------------------------------------------
++    // Instruction emitters
++    // ------------------------------------------------------------------
++
++    void insn(uint32_t instruction) { m_buffer.putInt(instruction); }
++
++    // --- fixed-point arithmetic -------------------------------------------
++    void addi(RegisterID rt, RegisterID ra, int32_t si) { insn(formD(14, rt, ra, si)); }
++    void addis(RegisterID rt, RegisterID ra, int32_t si) { insn(formD(15, rt, ra, si)); }
++    void addic(RegisterID rt, RegisterID ra, int32_t si) { insn(formD(12, rt, ra, si)); }
++    void addic_(RegisterID rt, RegisterID ra, int32_t si) { insn(formD(13, rt, ra, si)); }
++    void subfic(RegisterID rt, RegisterID ra, int32_t si) { insn(formD(8, rt, ra, si)); }
++    void mulli(RegisterID rt, RegisterID ra, int32_t si) { insn(formD(7, rt, ra, si)); }
++
++    // `li rt, si` and `lis rt, si` are addi/addis with RA=0, where RA=0 means
++    // the literal zero rather than r0.
++    void li(RegisterID rt, int32_t si) { insn(formD(14, rt, 0, si)); }
++    void lis(RegisterID rt, int32_t si) { insn(formD(15, rt, 0, si)); }
++
++    void add(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 266, false)); }
++    void add_(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 266, true)); }
++    void addo(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, true, 266, false)); }
++    void addc(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 10, false)); }
++    void adde(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 138, false)); }
++    void addze(RegisterID rt, RegisterID ra) { insn(formXO(31, rt, ra, 0, false, 202, false)); }
++    void subf(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 40, false)); }
++    void subf_(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 40, true)); }
++    void subfo(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, true, 40, false)); }
++    void subfc(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 8, false)); }
++    void subfe(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 136, false)); }
++    void neg(RegisterID rt, RegisterID ra) { insn(formXO(31, rt, ra, 0, false, 104, false)); }
++    void nego(RegisterID rt, RegisterID ra) { insn(formXO(31, rt, ra, 0, true, 104, false)); }
++
++    void mullw(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 235, false)); }
++    void mullwo(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, true, 235, false)); }
++    void mulld(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 233, false)); }
++    void mulldo(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, true, 233, false)); }
++    void mulhw(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 75, false)); }
++    void mulhwu(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 11, false)); }
++    void mulhd(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 73, false)); }
++    void mulhdu(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 9, false)); }
++    void divw(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 491, false)); }
++    void divwu(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 459, false)); }
++    void divd(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 489, false)); }
++    void divdu(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formXO(31, rt, ra, rb, false, 457, false)); }
++
++    // ISA 3.0 (POWER9). Callers must gate on hasISA30().
++    void modsw(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 779, false)); }
++    void moduw(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 267, false)); }
++    void modsd(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 777, false)); }
++    void modud(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 265, false)); }
++
++    // --- logical ----------------------------------------------------------
++    void andi_(RegisterID ra, RegisterID rs, uint32_t ui) { insn(formD(28, rs, ra, int32_t(ui))); }
++    void andis_(RegisterID ra, RegisterID rs, uint32_t ui) { insn(formD(29, rs, ra, int32_t(ui))); }
++    void ori(RegisterID ra, RegisterID rs, uint32_t ui) { insn(formD(24, rs, ra, int32_t(ui))); }
++    void oris(RegisterID ra, RegisterID rs, uint32_t ui) { insn(formD(25, rs, ra, int32_t(ui))); }
++    void xori(RegisterID ra, RegisterID rs, uint32_t ui) { insn(formD(26, rs, ra, int32_t(ui))); }
++    void xoris(RegisterID ra, RegisterID rs, uint32_t ui) { insn(formD(27, rs, ra, int32_t(ui))); }
++
++    void and_(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 28, false)); }
++    void and__(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 28, true)); }
++    void andc(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 60, false)); }
++    void or_(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 444, false)); }
++    void orc(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 412, false)); }
++    void xor_(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 316, false)); }
++    void nand(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 476, false)); }
++    void nor(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 124, false)); }
++    void eqv(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 284, false)); }
++
++    void mr(RegisterID ra, RegisterID rs) { or_(ra, rs, rs); }
++    void nop() { ori(PPC64Registers::r0, PPC64Registers::r0, 0); }
++
++    void extsb(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 954, false)); }
++    void extsh(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 922, false)); }
++    void extsw(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 986, false)); }
++    void cntlzw(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 26, false)); }
++    void cntlzd(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 58, false)); }
++    void cnttzw(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 538, false)); } // ISA 3.0
++    void cnttzd(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 570, false)); } // ISA 3.0
++    void popcntw(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 378, false)); }
++    void popcntd(RegisterID ra, RegisterID rs) { insn(formX(31, rs, ra, 0, 506, false)); }
++
++    // --- shifts and rotates -----------------------------------------------
++    void slw(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 24, false)); }
++    void srw(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 536, false)); }
++    void sraw(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 792, false)); }
++    void srawi(RegisterID ra, RegisterID rs, uint32_t sh) { RELEASE_ASSERT(sh < 32); insn(formX(31, rs, ra, sh, 824, false)); }
++    void sld(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 27, false)); }
++    void srd(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 539, false)); }
++    void srad(RegisterID ra, RegisterID rs, RegisterID rb) { insn(formX(31, rs, ra, rb, 794, false)); }
++    void sradi(RegisterID ra, RegisterID rs, uint32_t sh) { insn(formXS(rs, ra, sh, 413, false)); }
++
++    void rlwinm(RegisterID ra, RegisterID rs, uint32_t sh, uint32_t mb, uint32_t me) { insn(formM(21, rs, ra, sh, mb, me, false)); }
++    void rlwnm(RegisterID ra, RegisterID rs, RegisterID rb, uint32_t mb, uint32_t me) { insn(formM(23, rs, ra, rb, mb, me, false)); }
++    void rlwimi(RegisterID ra, RegisterID rs, uint32_t sh, uint32_t mb, uint32_t me) { insn(formM(20, rs, ra, sh, mb, me, false)); }
++
++    void rldicl(RegisterID ra, RegisterID rs, uint32_t sh, uint32_t mb) { insn(formMD(rs, ra, sh, mb, 0, false)); }
++    void rldicr(RegisterID ra, RegisterID rs, uint32_t sh, uint32_t me) { insn(formMD(rs, ra, sh, me, 1, false)); }
++    void rldic(RegisterID ra, RegisterID rs, uint32_t sh, uint32_t mb) { insn(formMD(rs, ra, sh, mb, 2, false)); }
++    void rldimi(RegisterID ra, RegisterID rs, uint32_t sh, uint32_t mb) { insn(formMD(rs, ra, sh, mb, 3, false)); }
++    void rldcl(RegisterID ra, RegisterID rs, RegisterID rb, uint32_t mb) { insn(formMDS(rs, ra, rb, mb, 8, false)); }
++    void rldcr(RegisterID ra, RegisterID rs, RegisterID rb, uint32_t me) { insn(formMDS(rs, ra, rb, me, 9, false)); }
++
++    // Common extended mnemonics, spelled out so that call sites read as the
++    // operation rather than as a rotate-and-mask puzzle.
++    void sldi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 64); rldicr(ra, rs, n, 63 - n); }
++    void srdi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 64); rldicl(ra, rs, 64 - n, n); }
++    void slwi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 32); rlwinm(ra, rs, n, 0, 31 - n); }
++    void srwi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 32); rlwinm(ra, rs, 32 - n, n, 31); }
++    void clrldi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 64); rldicl(ra, rs, 0, n); }
++    void rotldi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 64); rldicl(ra, rs, n, 0); }
++    void rotlwi(RegisterID ra, RegisterID rs, uint32_t n) { RELEASE_ASSERT(n < 32); rlwinm(ra, rs, n, 0, 31); }
++
++    // --- compares ---------------------------------------------------------
++    // L=0 selects a 32-bit compare (cmpw/cmplw), L=1 a 64-bit one
++    // (cmpd/cmpld). The 32-bit compares read only the low word, which is why
++    // the zero-extension invariant of section 5.4 costs nothing at compares.
++    void cmpd(CRField bf, RegisterID ra, RegisterID rb) { insn(formX(31, (unsigned(bf) << 2) | 1, ra, rb, 0, false)); }
++    void cmpw(CRField bf, RegisterID ra, RegisterID rb) { insn(formX(31, unsigned(bf) << 2, ra, rb, 0, false)); }
++    void cmpld(CRField bf, RegisterID ra, RegisterID rb) { insn(formX(31, (unsigned(bf) << 2) | 1, ra, rb, 32, false)); }
++    void cmplw(CRField bf, RegisterID ra, RegisterID rb) { insn(formX(31, unsigned(bf) << 2, ra, rb, 32, false)); }
++    void cmpdi(CRField bf, RegisterID ra, int32_t si) { insn(formD(11, (unsigned(bf) << 2) | 1, ra, si)); }
++    void cmpwi(CRField bf, RegisterID ra, int32_t si) { insn(formD(11, unsigned(bf) << 2, ra, si)); }
++    void cmpldi(CRField bf, RegisterID ra, uint32_t ui) { insn(formD(10, (unsigned(bf) << 2) | 1, ra, int32_t(ui))); }
++    void cmplwi(CRField bf, RegisterID ra, uint32_t ui) { insn(formD(10, unsigned(bf) << 2, ra, int32_t(ui))); }
++
++    // --- condition register -----------------------------------------------
++    void crand(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 257, false)); }
++    void cror(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 449, false)); }
++    void crxor(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 193, false)); }
++    void crnand(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 225, false)); }
++    void crnor(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 33, false)); }
++    void creqv(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 289, false)); }
++    void crandc(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 129, false)); }
++    void crorc(unsigned bt, unsigned ba, unsigned bb) { insn(formXL(19, bt, ba, bb, 417, false)); }
++    void mcrf(CRField bf, CRField bfa) { insn(formXL(19, unsigned(bf) << 2, unsigned(bfa) << 2, 0, 0, false)); }
++
++    void mfcr(RegisterID rt) { insn(formXFXCR(31, rt, 0, false, 19)); }
++    void mfocrf(RegisterID rt, uint32_t fxm) { insn(formXFXCR(31, rt, fxm, true, 19)); }
++    void mtocrf(uint32_t fxm, RegisterID rs) { insn(formXFXCR(31, rs, fxm, true, 144)); }
++    void mcrxrx(CRField bf) { insn(formX(31, unsigned(bf) << 2, 0, 0, 576, false)); } // ISA 3.0
++    void setb(RegisterID rt, CRField bfa) { insn(formX(31, rt, unsigned(bfa) << 2, 0, 128, false)); } // ISA 3.0
++    void isel(RegisterID rt, RegisterID ra, RegisterID rb, unsigned crb) { insn((31u << 26) | (unsigned(rt) << 21) | (unsigned(ra) << 16) | (unsigned(rb) << 11) | (crb << 6) | (15u << 1)); }
++
++    // --- special-purpose registers ----------------------------------------
++    void mflr(RegisterID rt) { insn(formXFXSPR(31, rt, uint32_t(SPRNumber::LR), 339)); }
++    void mtlr(RegisterID rs) { insn(formXFXSPR(31, rs, uint32_t(SPRNumber::LR), 467)); }
++    void mfctr(RegisterID rt) { insn(formXFXSPR(31, rt, uint32_t(SPRNumber::CTR), 339)); }
++    void mtctr(RegisterID rs) { insn(formXFXSPR(31, rs, uint32_t(SPRNumber::CTR), 467)); }
++    void mfxer(RegisterID rt) { insn(formXFXSPR(31, rt, uint32_t(SPRNumber::XER), 339)); }
++    void mtxer(RegisterID rs) { insn(formXFXSPR(31, rs, uint32_t(SPRNumber::XER), 467)); }
++
++    // --- loads and stores -------------------------------------------------
++    void lbz(RegisterID rt, RegisterID ra, int32_t d) { insn(formD(34, rt, ra, d)); }
++    void lhz(RegisterID rt, RegisterID ra, int32_t d) { insn(formD(40, rt, ra, d)); }
++    void lha(RegisterID rt, RegisterID ra, int32_t d) { insn(formD(42, rt, ra, d)); }
++    void lwz(RegisterID rt, RegisterID ra, int32_t d) { insn(formD(32, rt, ra, d)); }
++    void lwa(RegisterID rt, RegisterID ra, int32_t ds) { insn(formDS(58, rt, ra, ds, 2)); }
++    void ld(RegisterID rt, RegisterID ra, int32_t ds) { insn(formDS(58, rt, ra, ds, 0)); }
++    void stb(RegisterID rs, RegisterID ra, int32_t d) { insn(formD(38, rs, ra, d)); }
++    void sth(RegisterID rs, RegisterID ra, int32_t d) { insn(formD(44, rs, ra, d)); }
++    void stw(RegisterID rs, RegisterID ra, int32_t d) { insn(formD(36, rs, ra, d)); }
++    void std(RegisterID rs, RegisterID ra, int32_t ds) { insn(formDS(62, rs, ra, ds, 0)); }
++    void stdu(RegisterID rs, RegisterID ra, int32_t ds) { insn(formDS(62, rs, ra, ds, 1)); }
++
++    void lbzx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 87, false)); }
++    void lhzx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 279, false)); }
++    void lhax(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 343, false)); }
++    void lwzx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 23, false)); }
++    void lwax(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 341, false)); }
++    void ldx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 21, false)); }
++    void stbx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 215, false)); }
++    void sthx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 407, false)); }
++    void stwx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 151, false)); }
++    void stdx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 149, false)); }
++
++    void lhbrx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 790, false)); }
++    void lwbrx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 534, false)); }
++    void ldbrx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 532, false)); }
++    void sthbrx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 918, false)); }
++    void stwbrx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 662, false)); }
++    void stdbrx(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 660, false)); }
++
++    void lfs(FPRegisterID frt, RegisterID ra, int32_t d) { insn(formD(48, frt, ra, d)); }
++    void lfd(FPRegisterID frt, RegisterID ra, int32_t d) { insn(formD(50, frt, ra, d)); }
++    void stfs(FPRegisterID frs, RegisterID ra, int32_t d) { insn(formD(52, frs, ra, d)); }
++    void stfd(FPRegisterID frs, RegisterID ra, int32_t d) { insn(formD(54, frs, ra, d)); }
++    void lfsx(FPRegisterID frt, RegisterID ra, RegisterID rb) { insn(formX(31, frt, ra, rb, 535, false)); }
++    void lfdx(FPRegisterID frt, RegisterID ra, RegisterID rb) { insn(formX(31, frt, ra, rb, 599, false)); }
++    void stfsx(FPRegisterID frs, RegisterID ra, RegisterID rb) { insn(formX(31, frs, ra, rb, 663, false)); }
++    void stfdx(FPRegisterID frs, RegisterID ra, RegisterID rb) { insn(formX(31, frs, ra, rb, 727, false)); }
++
++    // --- atomics and barriers ---------------------------------------------
++    // The larx/stcx. family. The sub-word forms are ISA 2.07, which is
++    // POWER8, which is this port's floor: GNU as accepts lbarx/lharx/stbcx./
++    // sthcx. from -mpower8 and rejects them at -mpower7, and gcc at
++    // -mcpu=power7 falls back to a twenty-instruction masked lwarx word loop.
++    // So there is no hasISA30() gate here and nothing to test twice -- both
++    // generations execute identical code. See powerpc64le-handbook
++    // jsc-ppc64le-atomics-cas.md section 2.3 for the assembler gate and the
++    // encodings, which were checked against objdump before they were written.
++    //
++    // Every larx below encodes EH = 0, the "fetch and operate" hint, which is
++    // what Atomics.* on a shared typed array is and what gcc and clang emit
++    // for every __atomic builtin; EH = 1 is the lock-acquisition hint.
++    void lbarx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 52, false)); }
++    void lharx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 116, false)); }
++    void lwarx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 20, false)); }
++    void ldarx(RegisterID rt, RegisterID ra, RegisterID rb) { insn(formX(31, rt, ra, rb, 84, false)); }
++    void stbcx_(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 694, true)); }
++    void sthcx_(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 726, true)); }
++    void stwcx_(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 150, true)); }
++    void stdcx_(RegisterID rs, RegisterID ra, RegisterID rb) { insn(formX(31, rs, ra, rb, 214, true)); }
++    void sync() { insn(formX(31, 0, 0, 0, 598, false)); }
++    void lwsync() { insn(formX(31, 1, 0, 0, 598, false)); }
++    void isync() { insn(formXL(19, 0, 0, 0, 150, false)); }
++    void eieio() { insn(formX(31, 0, 0, 0, 854, false)); }
++    void dcbst(RegisterID ra, RegisterID rb) { insn(formX(31, 0, ra, rb, 54, false)); }
++    void icbi(RegisterID ra, RegisterID rb) { insn(formX(31, 0, ra, rb, 982, false)); }
++
++    // --- traps ------------------------------------------------------------
++    // `trap` is `tw 31, r0, r0` = 0x7fe00008, the unconditional trap word the
++    // offlineasm backend also uses for the LLInt spacer and alignment padding.
++    static constexpr uint32_t trapInstruction = 0x7fe00008;
++    void trap() { insn(trapInstruction); }
++    void tw(uint32_t to, RegisterID ra, RegisterID rb) { insn(formX(31, to, ra, rb, 4, false)); }
++
++    // --- branches ---------------------------------------------------------
++    // BO encodings (Power ISA v3.0B Book I 2.4): 12 = branch if CR bit set,
++    // 4 = branch if CR bit clear, 20 = branch always.
++    static constexpr uint32_t BOAlways = 20;
++    static constexpr uint32_t BOTrue = 12;
++    static constexpr uint32_t BOFalse = 4;
++
++    void b(int32_t displacement) { insn(formI(18, displacement, false, false)); }
++    void bl(int32_t displacement) { insn(formI(18, displacement, false, true)); }
++    void bc(uint32_t bo, unsigned bi, int32_t displacement) { insn(formB(16, bo, bi, displacement, false, false)); }
++    void bclr(uint32_t bo, unsigned bi) { insn(formXL(19, bo, bi, 0, 16, false)); }
++    void bcctr(uint32_t bo, unsigned bi) { insn(formXL(19, bo, bi, 0, 528, false)); }
++    void bcctrl(uint32_t bo, unsigned bi) { insn(formXL(19, bo, bi, 0, 528, true)); }
++    void blr() { bclr(BOAlways, 0); }
++    void bctr() { bcctr(BOAlways, 0); }
++    void bctrl() { bcctrl(BOAlways, 0); }
++
++    // --- floating point ---------------------------------------------------
++    void fadd(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formA(63, frt, fra, frb, 0, 21, false)); }
++    void fsub(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formA(63, frt, fra, frb, 0, 20, false)); }
++    void fmul(FPRegisterID frt, FPRegisterID fra, FPRegisterID frc) { insn(formA(63, frt, fra, 0, frc, 25, false)); }
++    void fdiv(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formA(63, frt, fra, frb, 0, 18, false)); }
++    void fsqrt(FPRegisterID frt, FPRegisterID frb) { insn(formA(63, frt, 0, frb, 0, 22, false)); }
++    void fsel(FPRegisterID frt, FPRegisterID fra, FPRegisterID frc, FPRegisterID frb) { insn(formA(63, frt, fra, frb, frc, 23, false)); }
++    void fmadd(FPRegisterID frt, FPRegisterID fra, FPRegisterID frc, FPRegisterID frb) { insn(formA(63, frt, fra, frb, frc, 29, false)); }
++    void fmsub(FPRegisterID frt, FPRegisterID fra, FPRegisterID frc, FPRegisterID frb) { insn(formA(63, frt, fra, frb, frc, 28, false)); }
++    void fadds(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formA(59, frt, fra, frb, 0, 21, false)); }
++    void fsubs(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formA(59, frt, fra, frb, 0, 20, false)); }
++    void fmuls(FPRegisterID frt, FPRegisterID fra, FPRegisterID frc) { insn(formA(59, frt, fra, 0, frc, 25, false)); }
++    void fdivs(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formA(59, frt, fra, frb, 0, 18, false)); }
++    void fsqrts(FPRegisterID frt, FPRegisterID frb) { insn(formA(59, frt, 0, frb, 0, 22, false)); }
++
++    void fmr(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 72, false)); }
++    void fneg(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 40, false)); }
++    void fabs_(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 264, false)); }
++    void fnabs(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 136, false)); }
++    void fcpsgn(FPRegisterID frt, FPRegisterID fra, FPRegisterID frb) { insn(formX(63, frt, fra, frb, 8, false)); }
++    void frsp(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 12, false)); }
++
++    void fcmpu(CRField bf, FPRegisterID fra, FPRegisterID frb) { insn(formX(63, unsigned(bf) << 2, fra, frb, 0, false)); }
++    void fcmpo(CRField bf, FPRegisterID fra, FPRegisterID frb) { insn(formX(63, unsigned(bf) << 2, fra, frb, 32, false)); }
++
++    void fctiw(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 14, false)); }
++    void fctiwz(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 15, false)); }
++    void fctiwuz(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 143, false)); }
++    void fctid(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 814, false)); }
++    void fctidz(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 815, false)); }
++    void fctiduz(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 943, false)); }
++    void fcfid(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 846, false)); }
++    void fcfidu(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 974, false)); }
++    // The single-precision forms: same conversion, result rounded to single
++    // and left in double format. Primary opcode 59, not 63.
++    void fcfids(FPRegisterID frt, FPRegisterID frb) { insn(formX(59, frt, 0, frb, 846, false)); }
++    void fcfidus(FPRegisterID frt, FPRegisterID frb) { insn(formX(59, frt, 0, frb, 974, false)); }
++
++    // frin is ties-AWAY-from-zero, which is not JavaScript's rounding. The
++    // ties-to-even round is xsrdpic (current rounding mode, default
++    // round-to-nearest-even); see jsc-ppc64le-port.md section 5.6.
++    void frin(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 392, false)); }
++    void friz(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 424, false)); }
++    void frip(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 456, false)); }
++    void frim(FPRegisterID frt, FPRegisterID frb) { insn(formX(63, frt, 0, frb, 488, false)); }
++
++    // --- VSX (FPR n is VSR n) ---------------------------------------------
++    void mfvsrd(RegisterID ra, FPRegisterID xs) { insn(formXVSRGPR(xs, ra, 51)); }
++    void mfvsrwz(RegisterID ra, FPRegisterID xs) { insn(formXVSRGPR(xs, ra, 115)); }
++    void mtvsrd(FPRegisterID xt, RegisterID ra) { insn(formXVSRGPR(xt, ra, 179)); }
++    void mtvsrwa(FPRegisterID xt, RegisterID ra) { insn(formXVSRGPR(xt, ra, 211)); }
++    void mtvsrwz(FPRegisterID xt, RegisterID ra) { insn(formXVSRGPR(xt, ra, 243)); }
++    void xsrdpic(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 107)); }
++    void xscvdpspn(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 267)); }
++    void xscvspdpn(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 331)); }
++    void xxland(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 130)); }
++    void xxlor(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 146)); }
++    void xxlxor(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 154)); }
++    void xxlandc(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 138)); }
++    void xxlnor(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 162)); }
++
++    // XX4-form, four VSR operands (xxsel only): OPCD T(6:10) A(11:15)
++    // B(16:20) C(21:25) XO(26:27) CX(28) AX(29) BX(30) TX(31).
++    static uint32_t formXX4(uint32_t t, uint32_t a, uint32_t b, uint32_t c, uint32_t xo)
++    {
++        return (60u << 26) | ((t & 0x1f) << 21) | ((a & 0x1f) << 16) | ((b & 0x1f) << 11)
++            | ((c & 0x1f) << 6) | (xo << 4) | (((c >> 5) & 1) << 3) | (((a >> 5) & 1) << 2)
++            | (((b >> 5) & 1) << 1) | ((t >> 5) & 1);
++    }
++    // XT = (XA & ~XC) | (XB & XC): a zero selector bit takes XA, a one takes XB.
++    void xxsel(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb, FPRegisterID xc) { insn(formXX4(xt, xa, xb, xc, 3)); }
++
++    // --- VSX single-precision: the f32 register model -----------------------
++    //
++    // A wasm/JS float in an FPR is the raw 32-bit IEEE single in the low word
++    // of doubleword 0 -- ISA word 1, the word mfvsrwz reads and stfd puts at
++    // byte offset 0 -- and the other 96 bits of the VSR are don't-care. See
++    // jsc-ppc64le-yarr-wasm.md section 7. lxsiwzx/stxsiwx move that word to
++    // and from memory; xxspltw broadcasts it so the xv*sp vector family, which
++    // computes each lane independently, operates on it in place; and
++    // xscvspdpn/xscvdpsp are the two conversions to and from the double model.
++    void lxsiwzx(FPRegisterID xt, RegisterID ra, RegisterID rb) { insn(formXX1(31, xt, ra, rb, 12)); }
++    void stxsiwx(FPRegisterID xs, RegisterID ra, RegisterID rb) { insn(formXX1(31, xs, ra, rb, 140)); }
++    void xxspltw(FPRegisterID xt, FPRegisterID xb, uint32_t uim) { insn(formXX2UIM(60, xt, uim, xb, 164)); }
++
++    // xscvdpsp ROUNDS a double to single (and is what convertDoubleToFloat
++    // needs); xscvdpspn above is a non-signalling format move that does not
++    // round, and differs from it on a third of all inputs.
++    void xscvdpsp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 265)); }
++
++    // --- VSX half precision: the f16 register model ------------------------
++    //
++    // IEEE binary16 is ISA 3.0 (POWER9), NOT ISA 3.1 -- it is bfloat16 that
++    // arrives with POWER10's xvcvbf16spn/xvcvspbf16. All four of these are
++    // rejected by `as -mpower8` and assemble and execute on the AC922.
++    // Callers must gate on hasISA30().
++    //
++    // A half in an FPR is its raw 16-bit IEEE pattern in HALFWORD 3 of
++    // doubleword 0 -- bits 48:63, the low half of the word the f32 model
++    // above already uses -- and the other 112 bits are don't-care. This is
++    // the port's raw-bits model narrowed by one width, and it is the same
++    // invariant ARM64's `h` view of a `v` register provides, so shared
++    // type-blind copies hold without arms.
++    //
++    // Encodings measured on the AC922 and reproduced exactly by these
++    // expressions; see powerpc64le-handbook/probes/jsc-c-call-cursor/
++    // as-power9.log. xscvhpdp/xscvdphp share XO 347 and differ only in the
++    // 5-bit sub-opcode: `xscvhpdp vs1,vs2` is f0 30 15 6c (0xf030156c) and
++    // `xscvdphp vs1,vs2` is f0 31 15 6c (0xf031156c).
++    void xscvhpdp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2Sub(60, xt, 16, xb, 347)); }
++    void xscvdphp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2Sub(60, xt, 17, xb, 347)); }
++
++    // Scalar halfword load/store to halfword 3, X-form like lxsiwzx/stxsiwx:
++    // `lxsihzx vs1,r2,r3` is 5a 1e 22 7c (0x7c221e5a), `stxsihx vs1,r2,r3`
++    // is 5a 1f 22 7c (0x7c221f5a).
++    void lxsihzx(FPRegisterID xt, RegisterID ra, RegisterID rb) { insn(formXX1(31, xt, ra, rb, 813)); }
++    void stxsihx(FPRegisterID xs, RegisterID ra, RegisterID rb) { insn(formXX1(31, xs, ra, rb, 941)); }
++
++    // ------------------------------------------------------------------
++    // 128-bit VSX load/store and doubleword permute.
++    //
++    // lxvx/stxvx are ISA 3.0 and are byte-order preserving: ISA byte k is
++    // memory byte 15-k on this little-endian target, which is what makes
++    // wasm lane order come out right. Callers MUST gate them on hasISA30().
++    //
++    // lxvd2x/stxvd2x are the POWER8 floor. They are NOT equivalent: they
++    // swap the two doublewords on little-endian, so a following/preceding
++    // xxswapd is required. `as -mpower8` accepts the lxvx MNEMONIC and
++    // silently assembles it as lxvd2x, which is why this port emits raw
++    // encodings and gates at run time instead of trusting the assembler --
++    // see jsc-ppc64le-wasm-simd.md section 6.
++    void lxvx(FPRegisterID xt, RegisterID ra, RegisterID rb) { insn(formXX1(31, xt, ra, rb, 268)); }
++    void stxvx(FPRegisterID xs, RegisterID ra, RegisterID rb) { insn(formXX1(31, xs, ra, rb, 396)); }
++    void lxvd2x(FPRegisterID xt, RegisterID ra, RegisterID rb) { insn(formXX1(31, xt, ra, rb, 844)); }
++    void stxvd2x(FPRegisterID xs, RegisterID ra, RegisterID rb) { insn(formXX1(31, xs, ra, rb, 972)); }
++
++    // ------------------------------------------------------------------
++    // VMX (Altivec) VX-form.
++    //
++    // THE NUMBERING SEAM. VMX instructions carry 5-bit register fields that
++    // name vr0-vr31, and vr(n) IS VSR(32+n). VSX instructions carry 6-bit
++    // fields naming all 64 VSRs. This port's FPRegisterID space is VSR 0-31,
++    // so a VMX instruction CANNOT name a JSC vector register -- vr0 is `0` to
++    // vspltb and `32` to xxlor. Verified with the assembler rather than
++    // reasoned: `vspltb 8,9,7` disassembles as `vspltb v8,v9,7` while
++    // `xxlor 40,41,42` disassembles as `xxlor vs40,vs41,vs42`.
++    //
++    // These encoders therefore take a VRegisterID, not an FPRegisterID, so
++    // the two spaces cannot be confused at a call site -- the compiler
++    // rejects it rather than the hardware silently using another register.
++    static uint32_t formVX(uint32_t opcd, uint32_t vrt, uint32_t a, uint32_t vrb, uint32_t xo)
++    {
++        return (opcd << 26) | ((vrt & 0x1f) << 21) | ((a & 0x1f) << 16) | ((vrb & 0x1f) << 11) | xo;
++    }
++    void vspltb(VRegisterID vrt, VRegisterID vrb, uint32_t uim) { RELEASE_ASSERT(uim < 16); insn(formVX(4, vrt, uim, vrb, 524)); }
++    void vsplth(VRegisterID vrt, VRegisterID vrb, uint32_t uim) { RELEASE_ASSERT(uim < 8); insn(formVX(4, vrt, uim, vrb, 588)); }
++    void vspltw(VRegisterID vrt, VRegisterID vrb, uint32_t uim) { RELEASE_ASSERT(uim < 4); insn(formVX(4, vrt, uim, vrb, 652)); }
++
++    // VA-form: four VMX registers and a 6-bit XO. vmladduhm is the only one
++    // this port needs -- wasm's i16x8.mul, with a zero addend.
++    static uint32_t formVA(uint32_t vrt, uint32_t vra, uint32_t vrb, uint32_t vrc, uint32_t xo)
++    {
++        return (4u << 26) | ((vrt & 0x1f) << 21) | ((vra & 0x1f) << 16) | ((vrb & 0x1f) << 11)
++            | ((vrc & 0x1f) << 6) | xo;
++    }
++    void vmladduhm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, VRegisterID vrc) { insn(formVA(vrt, vra, vrb, vrc, 34)); }
++
++    // Integer vector add and subtract, per lane width. All ISA 2.07 or older.
++    void vaddubm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 0)); }
++    void vadduhm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 64)); }
++    void vadduwm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 128)); }
++    void vaddudm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 192)); }
++    void vsububm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1024)); }
++    void vsubuhm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1088)); }
++    void vsubuwm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1152)); }
++    void vsubudm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1216)); }
++
++    void vmuluwm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 137)); }
++
++    // Signed maxima, which is how absolute value is built: max(a, 0-a) --
++    // and, with the other three quadrants below, the integer min/max family.
++    // The doubleword forms are ISA 2.07.
++    void vmaxsb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 258)); }
++    void vmaxsh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 322)); }
++    void vmaxsw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 386)); }
++    void vmaxsd(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 450)); }
++    void vmaxub(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 2)); }
++    void vmaxuh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 66)); }
++    void vmaxuw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 130)); }
++    void vmaxud(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 194)); }
++    void vminsb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 770)); }
++    void vminsh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 834)); }
++    void vminsw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 898)); }
++    void vminsd(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 962)); }
++    void vminub(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 514)); }
++    void vminuh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 578)); }
++    void vminuw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 642)); }
++    void vminud(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 706)); }
++
++    // vxor against itself is how a zero vector is made: no constant, no load.
++    void vxor(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1220)); }
++
++    // ---- the widening / narrowing / saturating VMX group ----
++    //
++    // Every extended opcode below was read off clang's integrated assembler
++    // for powerpc64le and is checked back against it by the encoding oracle
++    // (powerpc64le-handbook/tools/ppc64-encoding-oracle). All are ISA 2.07 or
++    // older -- vupk*sw, vmulosw/vmulouw, vpkudum, vpopcntb and vgbbd are the
++    // 2.07 (POWER8) ones -- except vpermr, which is ISA 3.0 and whose callers
++    // must gate on hasISA30() and fall back to vperm.
++
++    // Splat a 5-bit signed immediate. The vector of ones that extadd_pairwise
++    // and the relaxed dot products multiply against, and the 15 that swizzle
++    // compares its indices with, both come from here with no memory access.
++    void vspltisb(VRegisterID vrt, int32_t simm) { RELEASE_ASSERT(simm >= -16 && simm < 16); insn(formVX(4, vrt, static_cast<uint32_t>(simm) & 0x1f, 0, 780)); }
++    void vspltish(VRegisterID vrt, int32_t simm) { RELEASE_ASSERT(simm >= -16 && simm < 16); insn(formVX(4, vrt, static_cast<uint32_t>(simm) & 0x1f, 0, 844)); }
++
++    // Saturating add and subtract, byte and halfword, both signednesses.
++    void vaddsbs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 768)); }
++    void vaddshs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 832)); }
++    void vaddubs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 512)); }
++    void vadduhs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 576)); }
++    void vsubsbs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1792)); }
++    void vsubshs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1856)); }
++    void vsububs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1536)); }
++    void vsubuhs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1600)); }
++
++    // Sign-extending unpacks. "high" is ISA elements 0..n/2-1, which is the
++    // memory-HIGH half, so vupkh* is wasm extend_high and vupkl* extend_low
++    // (jsc-ppc64le-wasm-simd.md section 2, probed).
++    void vupkhsb(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 526)); }
++    void vupklsb(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 654)); }
++    void vupkhsh(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 590)); }
++    void vupklsh(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 718)); }
++    void vupkhsw(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 1614)); }
++    void vupklsw(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 1742)); }
++
++    // Merges. vmrglb t,a,b interleaves the ISA-low halves as a0 b0 a1 b1 ...;
++    // against a zero VRA that is a zero-extending unpack of VRB's memory-low
++    // half, and vmrgh* the same for the memory-high half.
++    void vmrghb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 12)); }
++    void vmrglb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 268)); }
++    void vmrghh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 76)); }
++    void vmrglh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 332)); }
++    void vmrghw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 140)); }
++    void vmrglw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 396)); }
++
++    // Saturating packs: VRA's lanes land in the memory-HIGH half and VRB's in
++    // the low, so wasm's (lower, upper) narrow is vpk*(t, upper, lower). The
++    // "us" forms take SIGNED input and saturate it to the unsigned range,
++    // which is exactly wasm narrow_u. vpkudum is the modulo doubleword-to-word
++    // pack the *_zero conversions use to select one word per doubleword.
++    void vpkshss(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 398)); }
++    void vpkshus(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 270)); }
++    void vpkswss(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 462)); }
++    void vpkswus(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 334)); }
++    void vpkudum(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1102)); }
++
++    // Rounding unsigned averages: (a + b + 1) >> 1 with no overflow.
++    void vavgub(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1026)); }
++    void vavguh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1090)); }
++
++    // Even/odd widening multiplies. "even" is ISA-even, which is memory-ODD
++    // (section 2 again); the callers pair an even and an odd form and add, or
++    // duplicate words first so the odd form reads the wanted pair.
++    void vmulesb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 776)); }
++    void vmulosb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 264)); }
++    void vmuleub(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 520)); }
++    void vmuloub(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 8)); }
++    void vmulosw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 392)); }
++    void vmulouw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 136)); }
++
++    // Logical forms the VSX group lacks a convenient equivalent for inside a
++    // VMX sequence: vnor builds the POWER8 vperm control (~i == 31 - i in the
++    // five bits vperm reads) and vandc masks swizzle's out-of-range lanes.
++    void vnor(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1284)); }
++    void vandc(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1092)); }
++
++    // Per-byte population count, and the 8x8 bit transpose within each
++    // doubleword that bitmask is built on: result byte i bit j is source byte
++    // j bit i, so the top byte of each doubleword collects the sign bits.
++    void vpopcntb(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 1795)); }
++    void vgbbd(VRegisterID vrt, VRegisterID vrb) { insn(formVX(4, vrt, 0, vrb, 1292)); }
++
++    // VA-form, four registers. vmhraddshs with a zero addend is q15mulr_sat_s
++    // -- the rounding and the saturation are both in the instruction.
++    // vmsumshm/vmsumuhm against a zero addend are the halfword dot products,
++    // and against a vector of ones the pairwise widening adds.
++    void vmhraddshs(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, VRegisterID vrc) { insn(formVA(vrt, vra, vrb, vrc, 33)); }
++    void vmsumshm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, VRegisterID vrc) { insn(formVA(vrt, vra, vrb, vrc, 40)); }
++    void vmsumuhm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, VRegisterID vrc) { insn(formVA(vrt, vra, vrb, vrc, 38)); }
++
++    // The two permutes. vperm indexes ISA bytes of VRA||VRB (index k is memory
++    // byte 15-k), vpermr (ISA 3.0) indexes them in memory order -- wasm's
++    // numbering exactly. Both read only the low five bits of each control byte.
++    void vperm(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, VRegisterID vrc) { insn(formVA(vrt, vra, vrb, vrc, 43)); }
++    // VA-form, but the VRC field holds a 4-bit shift rather than a register:
++    // SHB is bits 22-25, and bit 21 is reserved and must be zero. Passing SHB
++    // where formVA wants VRC is therefore correct precisely because SHB < 16
++    // leaves that reserved bit clear. VMX, so POWER8 needs no fallback.
++    void vsldoi(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, uint32_t shb) { RELEASE_ASSERT(shb < 16); insn(formVA(vrt, vra, vrb, shb, 44)); }
++    void vpermr(VRegisterID vrt, VRegisterID vra, VRegisterID vrb, VRegisterID vrc) { insn(formVA(vrt, vra, vrb, vrc, 59)); }
++
++    // ---- VSX word merges, widening conversions and fused multiply-add ----
++    //
++    // xxmrghw/xxmrglw interleave words the way vmrghw/vmrglw do, but address
++    // all 64 VSRs, so promote needs no bridge. The dp<->sp and the
++    // doubleword-integer conversions all operate per doubleword and leave
++    // their word-sized results duplicated across the doubleword; vpkudum
++    // undoes that. xvmadda*: XT = XA * XB + XT; xvnmsuba*: XT = XT - XA * XB,
++    // but note that its exact-zero result carries the sign of -(XA*XB - XT),
++    // which is -0 where fma(-a, b, c) gives +0; the MacroAssembler negates
++    // first and uses xvmadda* for that reason.
++    void xxmrghw(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 18)); }
++    void xxmrglw(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 50)); }
++    void xvcvsxddp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 504)); }
++    void xvcvuxddp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 488)); }
++    void xvcvdpsxws(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 216)); }
++    void xvcvdpuxws(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 200)); }
++    void xvcvdpsp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 393)); }
++    void xvcvspdp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 457)); }
++    void xvmaddasp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 65)); }
++    void xvmaddadp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 97)); }
++    void xvnmsubasp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 209)); }
++    void xvnmsubadp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 241)); }
++
++    // The double-precision halves whose single halves already exist above.
++    void xvsubdp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 104)); }
++    void xvmuldp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 112)); }
++    void xvnegdp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 505)); }
++    void xvabsdp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 473)); }
++
++    // Integer vector compares. Equality and signed/unsigned greater-than per
++    // lane width; everything else in the wasm set is built from these by
++    // swapping operands or complementing with xxlnor.
++    //
++    // THE RECORDING FORMS ARE SEPARATELY NAMED, with a trailing underscore as
++    // addic_ already does, because the difference is CR6 and the difference is
++    // SILENT BOTH WAYS: emit a recording form where it is not wanted and CR6
++    // is clobbered while the vector result is identical, so every SIMD test
++    // still passes; emit a plain form where CR6 IS wanted and a stale field is
++    // read. Only any_true and all_true want CR6. Measured, not read:
++    // vcmpequb. against a zero vector gives CR6 = 8 when every lane is zero
++    // (bit 0, all compared equal), 2 when no lane is zero (bit 2, none equal),
++    // and 0 for a mixture -- while the plain vcmpequb left a pre-seeded CR6
++    // untouched.
++    void vcmpequb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 6)); }
++    void vcmpequh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 70)); }
++    void vcmpequw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 134)); }
++    void vcmpequd(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 199)); }
++
++    // The Rc bit is 0x400 of the 11-bit XO field, so each recording form is
++    // its plain counterpart plus 1024.
++    void vcmpequb_(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 6 + 1024)); }
++    void vcmpequh_(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 70 + 1024)); }
++    void vcmpequw_(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 134 + 1024)); }
++    void vcmpequd_(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 199 + 1024)); }
++
++    void vcmpgtsb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 774)); }
++    void vcmpgtsh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 838)); }
++    void vcmpgtsw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 902)); }
++    void vcmpgtsd(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 967)); }
++    void vcmpgtub(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 518)); }
++    void vcmpgtuh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 582)); }
++    void vcmpgtuw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 646)); }
++    void vcmpgtud(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 711)); }
++
++    void xvcmpgesp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 83)); }
++    void xvcmpgedp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 115)); }
++
++    // Vector shifts. The count is a VECTOR -- one count per lane -- and the
++    // hardware takes it modulo the lane width, measured at 0, 1, w-1, w and
++    // w+1 for every width: a byte count of 8 gives the same result as 0, a
++    // word count of 32 the same as 0, a doubleword count of 64 the same as 0.
++    // POWER has left, logical-right and arithmetic-right as three separate
++    // instructions, so unlike ARM64 there is no negated-count convention.
++    void vslb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 260)); }
++    void vslh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 324)); }
++    void vslw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 388)); }
++    void vsld(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1476)); }
++    void vsrb(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 516)); }
++    void vsrh(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 580)); }
++    void vsrw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 644)); }
++    void vsrd(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 1732)); }
++    void vsrab(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 772)); }
++    void vsrah(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 836)); }
++    void vsraw(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 900)); }
++    void vsrad(VRegisterID vrt, VRegisterID vra, VRegisterID vrb) { insn(formVX(4, vrt, vra, vrb, 964)); }
++
++    // XX3-form with a 2-bit DM at bits 22:23 (xxpermdi only).
++    static uint32_t formXX3DM(uint32_t t, uint32_t a, uint32_t b, uint32_t dm)
++    {
++        RELEASE_ASSERT(dm < 4);
++        return formXX3(60, t, a, b, 10) | (dm << 8);
++    }
++    void xxpermdi(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb, uint32_t dm) { insn(formXX3DM(xt, xa, xb, dm)); }
++    // Exchange the two doublewords of a single register.
++    void xxswapd(FPRegisterID xt, FPRegisterID xb) { xxpermdi(xt, xb, xb, 2); }
++    // Register-to-register 128-bit move. There is no xxmr; it is xxlor x,a,a.
++    void xxlor_move(FPRegisterID xt, FPRegisterID xa) { xxlor(xt, xa, xa); }
++
++    void xvaddsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 64)); }
++    void xvsubsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 72)); }
++    void xvmulsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 80)); }
++    void xvdivsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 88)); }
++
++    void xvsqrtsp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 139)); }
++    void xvabssp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 409)); }
++    void xvnegsp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 441)); }
++
++    // xvrspic is ties-to-even in the default rounding mode (rintf); xvrspi is
++    // ties-away and is not what JavaScript wants, so it is not emitted here.
++    void xvrspiz(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 153)); }
++    void xvrspip(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 169)); }
++    void xvrspim(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 185)); }
++    void xvrspic(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 171)); }
++
++    // The double-precision halves of the same families. The DP extended
++    // opcodes are the SP ones plus 64 throughout, but that is a pattern, not
++    // a proof -- each is checked against the assembler by the encoding oracle.
++    void xvdivdp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 120)); }
++    void xvsqrtdp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 203)); }
++    void xvrdpiz(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 217)); }
++    void xvrdpip(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 233)); }
++    void xvrdpim(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 249)); }
++    void xvrdpic(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 235)); }
++
++    // Saturating float-to-int, and int-to-float (the sp forms of the latter
++    // already exist above). Extended opcodes read off the assembler rather
++    // than a table, then checked back against it by the encoding oracle.
++    void xvcvspsxws(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 152)); }
++    void xvcvspuxws(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 136)); }
++
++    // Vector compares. These are the NON-recording forms: the Rc bit is the
++    // top bit of the XO field here, so every value below is under 128 and CR6
++    // is left alone. A recording form would be a different, silent contract.
++    void xvcmpeqsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 67)); }
++    void xvcmpeqdp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 99)); }
++    void xvcmpgtsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 75)); }
++    void xvcmpgtdp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 107)); }
++
++    void xvminsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 200)); }
++    void xvmaxsp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 192)); }
++    void xvmindp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 232)); }
++    void xvmaxdp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 224)); }
++    void xvadddp(FPRegisterID xt, FPRegisterID xa, FPRegisterID xb) { insn(formXX3(60, xt, xa, xb, 96)); }
++
++    void xvcvsxwsp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 184)); }
++    void xvcvuxwsp(FPRegisterID xt, FPRegisterID xb) { insn(formXX2(60, xt, xb, 168)); }
++
++    // ------------------------------------------------------------------
++    // 64-bit immediate materialisation. The ladder is the standard five-word
++    // one (lis/ori/rldicr/oris/ori), shortened whenever the value permits.
++    // Any shorter path must produce EXACTLY the same register contents; the
++    // sign extension of addi/addis is what the compensations below are for.
++    // ------------------------------------------------------------------
++
++    static unsigned sizeOfLoadImmediate64(int64_t value)
++    {
++        if (PPC64Assembler::isValidSigned16(value))
++            return 1;
++        if (PPC64Assembler::isValidSigned32(value))
++            return (value & 0xffff) ? 2 : 1;
++        if (!(value >> 32) || (value >> 32) == -1)
++            return 2;
++        unsigned count = 1; // lis for bits 48:63
++        if ((value >> 32) & 0xffff)
++            count++; // ori
++        count++; // rldicr
++        if ((value >> 16) & 0xffff)
++            count++; // oris
++        if (value & 0xffff)
++            count++; // ori
++        return count;
++    }
++
++    void loadImmediate64(RegisterID rd, int64_t value)
++    {
++        if (isValidSigned16(value)) {
++            li(rd, int32_t(value));
++            return;
++        }
++
++        if (isValidSigned32(value)) {
++            // addis sign-extends its 16-bit field into bits 32:47 and beyond,
++            // which is exactly right for a signed 32-bit value.
++            lis(rd, int32_t(int16_t(value >> 16)));
++            if (value & 0xffff)
++                ori(rd, rd, uint32_t(value) & 0xffff);
++            return;
++        }
++
++        int32_t hi32 = int32_t(value >> 32);
++        uint32_t lo32 = uint32_t(uint64_t(value) & 0xffffffff);
++
++        lis(rd, int16_t(hi32 >> 16));
++        if (uint32_t(hi32) & 0xffff)
++            ori(rd, rd, uint32_t(hi32) & 0xffff);
++        rldicr(rd, rd, 32, 31);
++        if (lo32 >> 16)
++            oris(rd, rd, lo32 >> 16);
++        if (lo32 & 0xffff)
++            ori(rd, rd, lo32 & 0xffff);
++    }
++
++    // Write a 64-bit constant into an already-emitted fixed-width ladder.
++    // The ladder written here is always five words, so that a repatch never
++    // has to move anything: unused slots become `nop`. `patchLoadImmediate64`
++    // and `readLoadImmediate64` are the only two functions that may assume
++    // this layout.
++    static constexpr unsigned fixedLoadImmediate64Size = 5;
++
++    static void writeFixedLoadImmediate64(uint32_t* where, RegisterID rd, int64_t value)
++    {
++        uint32_t hi32 = uint32_t(uint64_t(value) >> 32);
++        uint32_t lo32 = uint32_t(uint64_t(value) & 0xffffffff);
++        where[0] = formD(15, rd, 0, int32_t(int16_t(hi32 >> 16)));                // lis rd, hi16
++        where[1] = formD(24, rd, rd, int32_t(hi32 & 0xffff));                     // ori rd, rd, hi lo16
++        where[2] = formMD(rd, rd, 32, 31, 1, false);                              // rldicr rd, rd, 32, 31
++        where[3] = formD(25, rd, rd, int32_t(lo32 >> 16));                        // oris rd, rd, lo hi16
++        where[4] = formD(24, rd, rd, int32_t(lo32 & 0xffff));                     // ori rd, rd, lo lo16
++    }
++
++    // The destination register of a fixed ladder, read back out of it.
++    //
++    // Every word of the ladder -- and of the placeholder that stands in for
++    // one before linking -- is a D-form instruction whose RT field is the
++    // destination, so bits 21:25 of word 0 identify it in both states. A
++    // patcher MUST recover the register this way instead of assuming one:
++    // moveWithPatch() emits the ladder into whatever register its caller
++    // asked for, and only the call-site placeholder uses r12.
++    static RegisterID readFixedLoadImmediate64Register(const uint32_t* where)
++    {
++        return static_cast<RegisterID>((where[0] >> 21) & 0x1f);
++    }
++
++    static int64_t readFixedLoadImmediate64(const uint32_t* where)
++    {
++        uint64_t hi = uint64_t(uint16_t(where[0] & 0xffff)) << 16;
++        hi |= uint16_t(where[1] & 0xffff);
++        uint64_t lo = uint64_t(uint16_t(where[3] & 0xffff)) << 16;
++        lo |= uint16_t(where[4] & 0xffff);
++        return int64_t((hi << 32) | lo);
++    }
++
++    void emitFixedLoadImmediate64(RegisterID rd, int64_t value)
++    {
++        uint32_t words[fixedLoadImmediate64Size];
++        writeFixedLoadImmediate64(words, rd, value);
++        for (unsigned i = 0; i < fixedLoadImmediate64Size; ++i)
++            insn(words[i]);
++    }
++
++    // ------------------------------------------------------------------
++    // Labels, jumps and patching.
++    //
++    // Every linkable jump/branch site is a FIXED TWO WORDS:
++    //
++    //     word 0:  the guard   -- `nop` for an unconditional jump,
++    //                             `bc !cond, +8` for a conditional branch
++    //     word 1:  `b target` / `bl target`   (patched at link time)
++    //
++    // The condition is baked into word 0 at EMISSION time and is never
++    // rewritten, so one link routine serves both conditional and
++    // unconditional sites: it only ever rewrites word 1. That is what makes
++    // Jump::link() -- which does not know whether the site it is linking was
++    // conditional -- correct here without having to recover the condition by
++    // disassembling the site, the way RISCV64Assembler::LinkBranchImpl has to.
++    //
++    // Two words is enough even though the executable pool can be larger than
++    // `b` reaches. `b` covers +-32 MiB (nearJumpRange), and JSTests asks for
++    // pools well past that by name (--jitMemoryReservationSize=268435456), so
++    // ENABLE(JUMP_ISLANDS) is on for this target: when a link or relink finds
++    // its target out of reach, writeJumpSite() retargets the branch at an
++    // ISLAND -- a single `b` allocated in the island region of the
++    // neighbouring RegionAllocator -- and islands chain to span any distance.
++    // The branch word itself stays one word wide, which is what keeps the
++    // site two words and keeps relinking a single aligned store.
++    //
++    // An island needs nothing from ELFv2: it is a plain branch, so no linkage
++    // area, no r12 entry-point register and no TOC save. It cannot disturb
++    // r2, and the conditional guard in word 0 is untouched by any of this.
++    // jsc-ppc64le-port.md section 16 records the design.
++    //
++    // Calls whose target is NOT in the pool -- i.e. calls to C++ -- do not use
++    // this site at all. They use the seven-word pointer-call site below, whose
++    // first five words are the 64-bit constant ladder that linkPointer() and
++    // repatchPointer() rewrite, followed by `mtctr r12 ; bctrl`. r12 is the
++    // ELFv2 indirect-call target register, which is exactly what the callee's
++    // global entry point expects.
++    // ------------------------------------------------------------------
++
++    static constexpr unsigned jumpSiteWords = 2;
++    static constexpr ptrdiff_t jumpSizeInBytes = jumpSiteWords * sizeof(uint32_t);
++
++    // The seven-word site used only by call(PtrTag), where the target is a
++    // C++ function outside the executable pool.
++    static constexpr unsigned pointerCallSiteWords = fixedLoadImmediate64Size + 2;
++
++    static constexpr ptrdiff_t maxJumpReplacementSize() { return jumpSizeInBytes; }
++    static constexpr ptrdiff_t patchableJumpSize() { return jumpSizeInBytes; }
++
++    static constexpr bool isValidNearBranchOffset(int64_t offset)
++    {
++        return !(offset & 3) && offset >= INT64_C(-0x2000000) && offset <= INT64_C(0x1fffffc);
++    }
++
++    // Can a single `b` at `from` reach `to`? `from` is the address of the
++    // BRANCH WORD, not of the two-word site, because that is what the
++    // displacement is measured from. ExecutableAllocator uses this to decide
++    // whether one more island is needed to continue a chain.
++    static ALWAYS_INLINE bool canEmitJump(void* from, void* to)
++    {
++        return isValidNearBranchOffset(reinterpret_cast<intptr_t>(to) - reinterpret_cast<intptr_t>(from));
++    }
++
++    // Write the body of an island: one unconditional branch, nothing else.
++    // islandSizeInBytes in ExecutableAllocator.cpp is 4 for this target and
++    // this is the function that has to agree with it.
++    template<RepatchingInfo repatch>
++    static void fillNearTailCall(void* from, void* to)
++    {
++        static_assert((*repatch).contains(RepatchingFlag::Flush));
++        uint32_t* location = static_cast<uint32_t*>(from);
++        RELEASE_ASSERT(roundUpToMultipleOf<sizeof(uint32_t)>(location) == location);
++        intptr_t offset = reinterpret_cast<intptr_t>(to) - reinterpret_cast<intptr_t>(location);
++        RELEASE_ASSERT(isValidNearBranchOffset(offset));
++        uint32_t branch = formI(18, int32_t(offset), false, false);
++        machineCodeCopy<noFlush(repatch)>(location, &branch, sizeof(uint32_t));
++        cacheFlush(location, sizeof(uint32_t));
++    }
++
++    static void* getRelocatedAddress(void* code, AssemblerLabel label)
++    {
++        ASSERT(label.isSet());
++        return reinterpret_cast<void*>(reinterpret_cast<ptrdiff_t>(code) + label.offset());
++    }
++
++    static int getDifferenceBetweenLabels(AssemblerLabel a, AssemblerLabel b)
++    {
++        return b.offset() - a.offset();
++    }
++
++    size_t codeSize() const { return m_buffer.codeSize(); }
++
++    static unsigned getCallReturnOffset(AssemblerLabel call)
++    {
++        ASSERT(call.isSet());
++        return call.offset();
++    }
++
++    AssemblerLabel labelIgnoringWatchpoints() { return m_buffer.label(); }
++
++    AssemblerLabel labelForWatchpoint()
++    {
++        AssemblerLabel result = m_buffer.label();
++        if (static_cast<int>(result.offset()) != m_indexOfLastWatchpoint)
++            result = label();
++        m_indexOfLastWatchpoint = result.offset();
++        m_indexOfTailOfLastWatchpoint = result.offset() + maxJumpReplacementSize();
++        return result;
++    }
++
++    AssemblerLabel label()
++    {
++        AssemblerLabel result = m_buffer.label();
++        while (static_cast<int>(result.offset()) < m_indexOfTailOfLastWatchpoint) [[unlikely]] {
++            nop();
++            result = m_buffer.label();
++        }
++        return result;
++    }
++
++    unsigned debugOffset() { return m_buffer.debugOffset(); }
++
++    // The placeholder word is `ori r0, r0, tag`: a nop with a tag in its
++    // immediate field, so an unlinked site is recognisable and a site that is
++    // executed unlinked does nothing rather than branching somewhere random.
++    enum class PlaceholderTag : uint32_t { Jump = 1, Call = 2, TailCall = 3, Branch = 4, Pointer = 5 };
++
++    static uint32_t placeholderInsn(PlaceholderTag tag)
++    {
++        return formD(24, 0, 0, int32_t(uint32_t(tag)));
++    }
++
++    // The placeholder for a five-word constant ladder, which unlike the other
++    // placeholders has to remember which register the ladder will target:
++    // linkPointer() reads it back out of RT. `ori rd, rd, tag` keeps the tag
++    // in the immediate field, so an unlinked site is still recognisable, and
++    // keeps the instruction harmless if it is ever executed unlinked.
++    static uint32_t pointerPlaceholderInsn(RegisterID rd)
++    {
++        return formD(24, rd, rd, int32_t(uint32_t(PlaceholderTag::Pointer)));
++    }
++
++    static constexpr uint32_t nopInsn() { return formD(24, 0, 0, 0); }
++
++    // Emit the guard word of a two-word site. `guard` is either a nop (for an
++    // unconditional jump or a call) or an already-encoded `bc !cond, +8`.
++    // The caller then emits the branch word through one of the helpers below.
++    void emitJumpSiteGuard(uint32_t guard) { insn(guard); }
++
++    // The unlinked branch word. It is a self-branch (`b .`), NOT a nop: a site
++    // that is somehow executed before being linked then hangs at a single
++    // known address instead of falling through into whatever follows, which
++    // would be an arbitrary wrong execution. Linking always overwrites it.
++    static constexpr uint32_t unlinkedBranchInsn(bool link)
++    {
++        return formI(18, 0, false, link);
++    }
++
++    // A conditional guard: branch AROUND the following `b` when the condition
++    // is FALSE, i.e. invert the caller's condition. `bo`/`bi` must already be
++    // the inverted test.
++    static uint32_t conditionalGuardInsn(uint32_t bo, unsigned bi)
++    {
++        return formB(16, bo, bi, 8, false, false); // skip the next word
++    }
++
++    template<typename F>
++    void jumpPlaceholder(const F& functor)
++    {
++        insn(nopInsn());
++        functor();
++    }
++
++    template<typename F>
++    void branchPlaceholder(const F& functor)
++    {
++        // The functor emits BOTH words of a conditional site: the guard and
++        // the branch. Unlike RISCV64's, this placeholder adds nothing of its
++        // own, because the condition has to be in the guard from the start.
++        functor();
++    }
++
++    template<typename F>
++    void nearCallPlaceholder(const F& functor)
++    {
++        insn(nopInsn());
++        functor();
++    }
++
++    // ---- the two-word jump/branch site ----
++
++    // Rewrite word 1 of a two-word site so it branches to `target`. Word 0 --
++    // the condition guard -- is deliberately left alone.
++    template<RepatchingInfo repatch = jitMemcpyRepatchFlush>
++    static void writeJumpSite(uint32_t* location, void* target, bool link)
++    {
++        uint32_t* branchWord = &location[jumpSiteWords - 1];
++#if ENABLE(JUMP_ISLANDS)
++        // Out of `b` range: go via an island instead. The Memcpy flag selects
++        // which writer the island body is published with, exactly as on
++        // ARM64 -- this path is taken at link time (JIT memcpy) and at
++        // repatch time (either), and the two must not be confused under a
++        // configuration that write-protects JIT memory.
++        if (!canEmitJump(branchWord, target)) [[unlikely]] {
++            if constexpr ((*repatch).contains(RepatchingFlag::Memcpy))
++                target = ExecutableAllocator::singleton().getJumpIslandToUsingMemcpy(branchWord, target);
++            else
++                target = ExecutableAllocator::singleton().getJumpIslandToUsingJITMemcpy(branchWord, target);
++        }
++#endif
++        intptr_t offset = reinterpret_cast<intptr_t>(target) - reinterpret_cast<intptr_t>(branchWord);
++        // Not an ASSERT: out of range here is a silently truncated branch to
++        // the wrong address. With islands enabled the hook above has already
++        // brought the target into range, so this firing means the island
++        // machinery itself handed back something unreachable.
++        RELEASE_ASSERT(isValidNearBranchOffset(offset));
++        *branchWord = formI(18, int32_t(offset), false, link);
++    }
++
++    static void* readJumpSite(const uint32_t* location)
++    {
++        uint32_t last = location[jumpSiteWords - 1];
++        RELEASE_ASSERT((last >> 26) == 18);
++        int32_t field = int32_t(last & 0x03fffffc);
++        if (field & 0x02000000)
++            field |= int32_t(0xfc000000);
++        return reinterpret_cast<void*>(reinterpret_cast<intptr_t>(&location[jumpSiteWords - 1]) + field);
++    }
++
++    static void linkJump(void* code, AssemblerLabel from, void* to)
++    {
++        ASSERT(from.isSet());
++        if (!from.isSet())
++            return;
++        uint32_t* location = reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(code) + from.offset());
++        writeJumpSite(location, to, false);
++    }
++
++    void linkJump(AssemblerLabel from, AssemblerLabel to)
++    {
++        RELEASE_ASSERT(from.isSet() && to.isSet());
++        if (!from.isSet() || !to.isSet())
++            return;
++        void* target = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_buffer.data()) + to.offset());
++        linkJump(m_buffer.data(), from, target);
++    }
++
++    static void linkCall(void* code, AssemblerLabel from, void* to)
++    {
++        uint32_t* location = reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(code) + from.offset());
++        writeJumpSite(location, to, true);
++    }
++
++    // ---- the seven-word pointer-call site (calls out to C++) ----
++
++    void emitPointerCallSitePlaceholder()
++    {
++        for (unsigned i = 0; i < fixedLoadImmediate64Size; ++i)
++            insn(pointerPlaceholderInsn(PPC64Registers::r12));
++        mtctr(PPC64Registers::r12);
++        bctrl();
++    }
++
++    static void linkPointer(void* code, AssemblerLabel where, void* valuePtr)
++    {
++        uint32_t* location = reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(code) + where.offset());
++        writeFixedLoadImmediate64(location, readFixedLoadImmediate64Register(location), reinterpret_cast<int64_t>(valuePtr));
++    }
++
++    static void* readPointer(void* where)
++    {
++        return reinterpret_cast<void*>(readFixedLoadImmediate64(static_cast<const uint32_t*>(where)));
++    }
++
++    static void repatchPointer(void* where, void* valuePtr)
++    {
++        uint32_t* location = static_cast<uint32_t*>(where);
++        writeFixedLoadImmediate64(location, readFixedLoadImmediate64Register(location), reinterpret_cast<int64_t>(valuePtr));
++        cacheFlush(location, sizeof(uint32_t) * fixedLoadImmediate64Size);
++    }
++
++    template<RepatchingInfo repatch = jitMemcpyRepatchFlush>
++    static void relinkJump(void* from, void* to)
++    {
++        writeJumpSite<repatch>(static_cast<uint32_t*>(from), to, false);
++        if constexpr ((*repatch).contains(RepatchingFlag::Flush))
++            flushJump(from);
++    }
++
++    template<RepatchingInfo repatch = jitMemcpyRepatchFlush>
++    static void relinkCall(void* from, void* to)
++    {
++        writeJumpSite<repatch>(static_cast<uint32_t*>(from), to, true);
++        if constexpr ((*repatch).contains(RepatchingFlag::Flush))
++            flushCall(from);
++    }
++
++    template<RepatchingInfo repatch = jitMemcpyRepatchFlush>
++    static void relinkTailCall(void* from, void* to)
++    {
++        relinkJump<repatch>(from, to);
++    }
++
++    static void flushJump(void* from) { cacheFlush(from, jumpSizeInBytes); }
++    static void flushCall(void* from) { cacheFlush(from, jumpSizeInBytes); }
++    static void flushTailCall(void* from) { flushJump(from); }
++
++#if ENABLE(JUMP_ISLANDS)
++    // Used by prepareForAtomicRepatchNearCallConcurrently(): resolve the
++    // destination NOW, so that the subsequent relink is a single store of an
++    // already-in-range branch and never has to allocate anything while
++    // another thread is executing the site.
++    //
++    // Unlike ARM64's pair, the jump and call forms are identical here. On
++    // ARM64 a near call's CodeLocation points PAST the branch, so the call
++    // form has to step back one instruction; on this port both nearCall() and
++    // nearTailCall() label the START of the two-word site, which is also what
++    // relinkCall() and relinkJump() are handed.
++    static void* prepareForAtomicRelinkJumpConcurrently(void* from, void* to)
++    {
++        uint32_t* branchWord = &static_cast<uint32_t*>(from)[jumpSiteWords - 1];
++        if (canEmitJump(branchWord, to))
++            return to;
++        return ExecutableAllocator::singleton().getJumpIslandToConcurrently(branchWord, to);
++    }
++
++    static void* prepareForAtomicRelinkCallConcurrently(void* from, void* to)
++    {
++        return prepareForAtomicRelinkJumpConcurrently(from, to);
++    }
++#endif
++
++    static void replaceWithVMHalt(void* where)
++    {
++        uint32_t* location = static_cast<uint32_t*>(where);
++        location[0] = trapInstruction;
++        cacheFlush(location, sizeof(uint32_t));
++    }
++
++    // Unlike writeJumpSite(), this one also clears the guard word: the site
++    // being replaced was not necessarily a jump site at all, so word 0 must
++    // be made unconditional rather than left as whatever was there.
++    static void replaceWithJump(void* from, void* to)
++    {
++        uint32_t* location = static_cast<uint32_t*>(from);
++        uint32_t* branchWord = &location[jumpSiteWords - 1];
++#if ENABLE(JUMP_ISLANDS)
++        if (!canEmitJump(branchWord, to)) [[unlikely]]
++            to = ExecutableAllocator::singleton().getJumpIslandToUsingJITMemcpy(branchWord, to);
++#endif
++        intptr_t offset = reinterpret_cast<intptr_t>(to) - reinterpret_cast<intptr_t>(branchWord);
++        RELEASE_ASSERT(isValidNearBranchOffset(offset));
++        // Publish the branch word BEFORE the guard word. Until the guard is
++        // overwritten the site still does whatever it did before; once the
++        // guard becomes a nop the branch beneath it is already the correct
++        // one. The reverse order would expose a nop followed by a stale word.
++        uint32_t branch = formI(18, int32_t(offset), false, false);
++        machineCodeCopy<memcpyRepatch>(branchWord, &branch, sizeof(uint32_t));
++        cacheFlush(branchWord, sizeof(uint32_t));
++        uint32_t guard = nopInsn();
++        machineCodeCopy<memcpyRepatch>(&location[0], &guard, sizeof(uint32_t));
++        cacheFlush(location, jumpSizeInBytes);
++    }
++
++    static void replaceWithNops(void* from, size_t memoryToFillWithNopsInBytes)
++    {
++        fillNops(from, memoryToFillWithNopsInBytes);
++        cacheFlush(from, memoryToFillWithNopsInBytes);
++    }
++
++    // Unlike linkPointer/repatchPointer this one cannot read the destination
++    // register back out of the site: replaceWithJump has overwritten word 0
++    // with a branch. The register comes from the caller, which generic JSC
++    // code hands it.
++    static void revertJumpReplacementToPatch(void* from, RegisterID rd, void* valuePtr)
++    {
++        uint32_t* location = static_cast<uint32_t*>(from);
++        writeFixedLoadImmediate64(location, rd, reinterpret_cast<int64_t>(valuePtr));
++        cacheFlush(location, sizeof(uint32_t) * fixedLoadImmediate64Size);
++    }
++
++    // The counterpart of repatchPointer(): a CodeLocationCall produced by
++    // call(PtrTag) points at the five-word constant ladder, not at a branch.
++    static void* readCallTarget(void* from)
++    {
++        return reinterpret_cast<void*>(readFixedLoadImmediate64(static_cast<const uint32_t*>(from)));
++    }
++
++    static void fillNops(void* base, size_t size)
++    {
++        uint32_t* ptr = static_cast<uint32_t*>(base);
++        RELEASE_ASSERT(roundUpToMultipleOf<sizeof(uint32_t)>(ptr) == ptr);
++        RELEASE_ASSERT(!(size % sizeof(uint32_t)));
++
++        uint32_t nopInsn = formD(24, 0, 0, 0);
++        for (size_t i = 0, n = size / sizeof(uint32_t); i < n; ++i)
++            machineCodeCopy<memcpyRepatch>(&ptr[i], &nopInsn, sizeof(uint32_t));
++    }
++
++    // ------------------------------------------------------------------
++    // Instruction cache publication.
++    //
++    // __builtin___clear_cache() performs NO cache maintenance on ppc64le:
++    // gcc 16.1 expands it to nothing, and clang 22.1 lowers it to
++    // __clear_cache@GCC_3.0 in libgcc_s, which is a prologue and a blr.
++    // Measured on this box, 2026-08-13; the SpiderMonkey ppc64 port found the
++    // same. POWER's instruction cache is not coherent with the data cache, so
++    // the sequence from Power ISA Book II ("Synchronization Requirements for
++    // Instruction Storage") has to be written out by hand.
++    //
++    // The stride is the SMALLER of AT_DCACHEBSIZE and AT_ICACHEBSIZE: dcbst
++    // and icbi operate on blocks of their own cache and the two sizes are not
++    // architecturally required to match. A stride below the true block size
++    // is redundant work, never incorrect, so a missing or non-power-of-two
++    // auxv value falls back to 32.
++    //
++    // Residual and inherent: a thread already executing inside the modified
++    // range does not run the isync, so it can retire the old instruction.
++    // Callers that patch live code must keep both the old and the new word
++    // correct.
++    // ------------------------------------------------------------------
++
++    static size_t cacheLineSize()
++    {
++        // Constant-initialised, so no __cxa_guard_acquire: cacheFlush is
++        // reachable from contexts where re-entering a guard would deadlock.
++        static std::atomic<size_t> cached { 0 };
++        size_t size = cached.load(std::memory_order_relaxed);
++        if (size) [[likely]]
++            return size;
++
++        unsigned long chosen = 0;
++#if OS(LINUX)
++        unsigned long dblock = ::getauxval(AT_DCACHEBSIZE);
++        unsigned long iblock = ::getauxval(AT_ICACHEBSIZE);
++        if (dblock && iblock)
++            chosen = std::min(dblock, iblock);
++        else
++            chosen = dblock ? dblock : iblock;
++#endif
++        if (!chosen || (chosen & (chosen - 1)))
++            chosen = 32;
++
++        size = static_cast<size_t>(chosen);
++        cached.store(size, std::memory_order_relaxed);
++        return size;
++    }
++
++    static void cacheFlush(void* code, size_t size)
++    {
++        if (!size)
++            return;
++
++        const size_t blockSize = cacheLineSize();
++        const uintptr_t base = reinterpret_cast<uintptr_t>(code);
++        const uintptr_t end = base + size;
++        const uintptr_t begin = base & ~static_cast<uintptr_t>(blockSize - 1);
++
++        for (uintptr_t p = begin; p < end; p += blockSize)
++            asm volatile("dcbst 0,%0" :: "r"(p) : "memory");
++        asm volatile("sync" ::: "memory");
++        for (uintptr_t p = begin; p < end; p += blockSize)
++            asm volatile("icbi 0,%0" :: "r"(p) : "memory");
++        asm volatile("sync; isync" ::: "memory");
++    }
++
++    // POWER9 / ISA 3.0 gating, the SpiderMonkey pattern. The LLInt as
++    // generated uses no ISA 3.0 mnemonic, so this only matters once the
++    // MacroAssembler starts emitting mcrxrx / cnttz* / setb / mod*.
++    // Forcing the POWER8 path on POWER9 silicon is the only way the
++    // fallbacks stay tested: a path reachable only on hardware nobody runs
++    // CI on is untested code (power8-baseline-power9-paths.md). testmasm
++    // flips this to exercise both arms of every hasISA30() seam.
++    static bool& forcePOWER8Paths()
++    {
++        static bool force = false;
++        return force;
++    }
++
++    static bool hasISA30()
++    {
++        if (forcePOWER8Paths()) [[unlikely]]
++            return false;
++#if OS(LINUX) && defined(PPC_FEATURE2_ARCH_3_00)
++        static std::atomic<int> cached { -1 };
++        int value = cached.load(std::memory_order_relaxed);
++        if (value < 0) {
++            value = (::getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_3_00) ? 1 : 0;
++            cached.store(value, std::memory_order_relaxed);
++        }
++        return !!value;
++#else
++        return false;
++#endif
++    }
++
++    // ------------------------------------------------------------------
++    // Conditions.
++    //
++    // On PowerPC a compare and a branch are separate instructions and the
++    // signedness lives in the COMPARE, not in the branch. The Condition here
++    // therefore has to carry both: which compare to emit, and which CR bit to
++    // test. MacroAssemblerPPC64 keeps that pairing.
++    // ------------------------------------------------------------------
++
++    enum Condition {
++        ConditionEQ,
++        ConditionNE,
++        ConditionLT,   // signed
++        ConditionLE,   // signed
++        ConditionGT,   // signed
++        ConditionGE,   // signed
++        ConditionLTU,  // unsigned
++        ConditionLEU,  // unsigned
++        ConditionGTU,  // unsigned
++        ConditionGEU,  // unsigned
++    };
++
++    static constexpr Condition invert(Condition cond)
++    {
++        switch (cond) {
++        case ConditionEQ: return ConditionNE;
++        case ConditionNE: return ConditionEQ;
++        case ConditionLT: return ConditionGE;
++        case ConditionLE: return ConditionGT;
++        case ConditionGT: return ConditionLE;
++        case ConditionGE: return ConditionLT;
++        case ConditionLTU: return ConditionGEU;
++        case ConditionLEU: return ConditionGTU;
++        case ConditionGTU: return ConditionLEU;
++        case ConditionGEU: return ConditionLTU;
++        }
++        return ConditionEQ;
++    }
++
++    static constexpr bool isUnsignedCondition(Condition cond)
++    {
++        return cond >= ConditionLTU;
++    }
++
++protected:
++    AssemblerBuffer m_buffer;
++    int m_indexOfLastWatchpoint { INT_MIN };
++    int m_indexOfTailOfLastWatchpoint { INT_MIN };
++};
++
++} // namespace JSC
++
++#endif // ENABLE(ASSEMBLER) && CPU(PPC64LE)

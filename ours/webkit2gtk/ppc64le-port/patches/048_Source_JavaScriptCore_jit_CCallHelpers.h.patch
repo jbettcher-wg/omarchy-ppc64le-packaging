@@ -1,0 +1,204 @@
+diff --git a/Source/JavaScriptCore/jit/CCallHelpers.h b/Source/JavaScriptCore/jit/CCallHelpers.h
+index 3c4f27a7f0..3f8a5b60b9 100644
+--- a/Source/JavaScriptCore/jit/CCallHelpers.h
++++ b/Source/JavaScriptCore/jit/CCallHelpers.h
+@@ -37,6 +37,7 @@
+ #include "StackAlignment.h"
+ #include <wtf/FunctionTraits.h>
+ #include <wtf/ScopedLambda.h>
++#include "NativeArgumentCursor.h"
+ #include <wtf/TZoneMalloc.h>
+ 
+ namespace JSC {
+@@ -291,6 +292,21 @@ private:
+         ASSERT(currentGPRArgument >= GPRInfo::numberOfArgumentRegisters || currentFPRArgument >= FPRInfo::numberOfArgumentRegisters);
+         IGNORE_WARNINGS_END
+ 
++        if constexpr (isPPC64()) {
++            // ELFv2 numbers the stack by the argument's own doubleword, not
++            // by how many arguments overflowed before it: the slot is
++            // i - 8, not a running count. The cursor owns that arithmetic.
++            NativeArgumentCursor cursor {
++                .ordinal = currentGPRArgument + currentFPRArgument,
++                .gprsUsed = currentGPRArgument,
++                .fprsUsed = currentFPRArgument,
++            };
++            // The class does not matter here: this is only ever asked about
++            // an argument that already missed its register file, and both
++            // arms of place() give a stack home the same doubleword.
++            return POKE_ARGUMENT_OFFSET + extraPoke + cursor.place(NativeArgumentClass::Integer).first.pokeIndex();
++        }
++
+         unsigned pokeOffset = POKE_ARGUMENT_OFFSET + extraPoke;
+         pokeOffset += std::max(currentGPRArgument, numberOfGPArgumentRegisters) - numberOfGPArgumentRegisters;
+         pokeOffset += std::max(currentFPRArgument, numberOfFPArgumentRegisters) - numberOfFPArgumentRegisters;
+@@ -328,13 +344,42 @@ private:
+     template<typename OperationType, unsigned numGPRArgs, unsigned numGPRSources, unsigned numFPRArgs, unsigned numFPRSources, unsigned numCrossSources, unsigned nonArgGPRs, unsigned extraPoke, typename RegType, typename... Args>
+     ALWAYS_INLINE void marshallArgumentRegister(ArgCollection<numGPRArgs, numGPRSources, numFPRArgs, numFPRSources, numCrossSources, nonArgGPRs, extraPoke> argSourceRegs, RegType arg, Args... args)
+     {
+-        using InfoType = InfoTypeForReg<RegType>;
+-        unsigned numArgRegisters = InfoType::numberOfArgumentRegisters;
+-        unsigned currentArgCount = argSourceRegs.argCount(arg);
+-        if (currentArgCount < numArgRegisters) {
+-            auto updatedArgSourceRegs = argSourceRegs.pushRegArg(arg, InfoType::toArgumentRegister(currentArgCount));
+-            setupArgumentsImpl<OperationType>(updatedArgSourceRegs, args...);
+-            return;
++        // The argument cursor, which on ELFv2 IS the argument ordinal. The
++        // ArgCollection already carries everything it needs: numGPRArgs +
++        // numFPRArgs is the ordinal (it is what CURRENT_ARGUMENT_TYPE
++        // indexes the signature with), and numFPRArgs is k. No new template
++        // state is added.
++        //
++        // On every other target place() takes its independent-counter arm
++        // and hands back exactly what argCount(arg) and
++        // InfoType::toArgumentRegister(currentArgCount) produced before, so
++        // this is a refactor everywhere but here.
++        constexpr bool argumentIsFloatClass = std::is_same_v<RegType, FPRReg>;
++        constexpr NativeArgumentCursor cursor {
++            .ordinal = numGPRArgs + numFPRArgs,
++            .gprsUsed = numGPRArgs,
++            .fprsUsed = numFPRArgs,
++        };
++        constexpr auto placed = cursor.place(argumentIsFloatClass ? NativeArgumentClass::Double : NativeArgumentClass::Integer);
++        constexpr NativeArgumentHome home = placed.first;
++
++        if constexpr (argumentIsFloatClass) {
++            // A float-class argument never homes to a GPR on any convention
++            // this marshaller serves; on ELFv2 that is a theorem for scalar
++            // argument lists rather than a convention (handbook 2.3).
++            static_assert(home.kind != NativeArgumentHome::Kind::FPRAndGPR, "JIT operations are prototyped by construction; a variadic home should be unreachable");
++            static_assert(home.kind != NativeArgumentHome::Kind::GPR, "A float-class argument must never be marshalled into a GPR");
++            if constexpr (home.kind == NativeArgumentHome::Kind::FPR) {
++                auto updatedArgSourceRegs = argSourceRegs.pushRegArg(arg, nativeFloatArgumentRegister(home.index));
++                setupArgumentsImpl<OperationType>(updatedArgSourceRegs, args...);
++                return;
++            }
++        } else {
++            if constexpr (home.kind == NativeArgumentHome::Kind::GPR) {
++                auto updatedArgSourceRegs = argSourceRegs.pushRegArg(arg, nativeIntegerArgumentRegister(home.index));
++                setupArgumentsImpl<OperationType>(updatedArgSourceRegs, args...);
++                return;
++            }
+         }
+ 
+         pokeForArgument(arg, numGPRArgs, numFPRArgs, numCrossSources, nonArgGPRs, extraPoke);
+@@ -362,11 +407,17 @@ private:
+         // If we ever needed to support immediate floating point arguments we would need to duplicate this logic for both types, which sounds
+         // gross so it's probably better to do that marshalling before the call operation...
+         static_assert(!std::is_floating_point_v<CURRENT_ARGUMENT_TYPE>, "We don't support immediate floats/doubles in setupArguments");
+-        auto numArgRegisters = GPRInfo::numberOfArgumentRegisters;
+-        auto currentArgCount = numGPRArgs;
+-        if (currentArgCount < numArgRegisters) {
++        // Same cursor as marshallArgumentRegister: the destination is chosen
++        // by the ORDINAL, not by the count of integer arguments before it.
++        constexpr NativeArgumentCursor cursor {
++            .ordinal = numGPRArgs + numFPRArgs,
++            .gprsUsed = numGPRArgs,
++            .fprsUsed = numFPRArgs,
++        };
++        constexpr NativeArgumentHome home = cursor.place(NativeArgumentClass::Integer).first;
++        if constexpr (home.kind == NativeArgumentHome::Kind::GPR) {
+             setupArgumentsImpl<OperationType>(argSourceRegs.addGPRArg(), args...);
+-            move(arg, GPRInfo::toArgumentRegister(currentArgCount));
++            move(arg, nativeIntegerArgumentRegister(home.index));
+             return;
+         }
+ 
+@@ -408,11 +459,16 @@ private:
+     ALWAYS_INLINE void setupArgumentsImpl(ArgCollection<numGPRArgs, numGPRSources, numFPRArgs, numFPRSources, numCrossSources, nonArgGPRs, extraPoke> argSourceRegs, Arg arg, Args... args)
+     {
+         static_assert(!std::is_floating_point_v<CURRENT_ARGUMENT_TYPE>, "We don't support immediate floats/doubles in setupArguments");
+-        auto numArgRegisters = GPRInfo::numberOfArgumentRegisters;
+-        auto currentArgCount = numGPRArgs;
+-        if (currentArgCount < numArgRegisters) {
++        // Same cursor again, for a ConstantMaterializer destination.
++        constexpr NativeArgumentCursor cursor {
++            .ordinal = numGPRArgs + numFPRArgs,
++            .gprsUsed = numGPRArgs,
++            .fprsUsed = numFPRArgs,
++        };
++        constexpr NativeArgumentHome home = cursor.place(NativeArgumentClass::Integer).first;
++        if constexpr (home.kind == NativeArgumentHome::Kind::GPR) {
+             setupArgumentsImpl<OperationType>(argSourceRegs.addGPRArg(), args...);
+-            arg.materialize(*this, GPRInfo::toArgumentRegister(currentArgCount));
++            arg.materialize(*this, nativeIntegerArgumentRegister(home.index));
+             return;
+         }
+ 
+@@ -440,10 +496,31 @@ private:
+             // RV64 calling convention requires all 32-bit values to be sign-extended into the whole register.
+             // JSC JIT is tailored for other ISAs that pass these values in 32-bit-wide registers, which RISC-V
+             // doesn't support, so any 32-bit value passed in argument registers has to be manually sign-extended.
+-            if (isRISCV64() && gprIndex < GPRInfo::numberOfArgumentRegisters
+-                && std::is_integral_v<ArgumentType> && sizeof(ArgumentType) == 4) {
+-                GPRReg argReg = GPRInfo::toArgumentRegister(gprIndex);
+-                signExtend32ToPtr(argReg, argReg);
++            //
++            // PowerPC ELFv2 has the same requirement: a 32-bit integer argument must arrive sign-extended in
++            // its 64-bit parameter register. This port holds 32-bit values ZERO-extended everywhere else (see
++            // MacroAssemblerPPC64.h), so without this the callee would read a negative int as a large positive
++            // one -- a wrong answer, not a crash, and only for negative values.
++            if constexpr (isPPC64()) {
++                // The register this argument actually landed in is chosen by
++                // its ORDINAL -- arityIndex -- not by gprIndex, which counts
++                // only the non-double parameters before it. Walking gprIndex
++                // here was wrong in exactly the way the marshaller was: for
++                // operationDoubleToString(JSGlobalObject*, double, int32_t)
++                // it sign-extended r4, which is dead, and left the radix in
++                // r5 unextended. It was adapted from the RISC-V arm above,
++                // where independent counters ARE the rule.
++                if constexpr (arityIndex < NativeArgumentCursor::defaultGPRCapacity
++                    && std::is_integral_v<ArgumentType> && sizeof(ArgumentType) == 4) {
++                    GPRReg argReg = nativeIntegerArgumentRegister(arityIndex);
++                    signExtend32ToPtr(argReg, argReg);
++                }
++            } else if constexpr (isRISCV64()) {
++                if (gprIndex < GPRInfo::numberOfArgumentRegisters
++                    && std::is_integral_v<ArgumentType> && sizeof(ArgumentType) == 4) {
++                    GPRReg argReg = GPRInfo::toArgumentRegister(gprIndex);
++                    signExtend32ToPtr(argReg, argReg);
++                }
+             }
+ 
+             finalizeGPRArguments<OperationType, gprIndex + 1>(NextIndexSequenceType());
+@@ -478,6 +555,24 @@ private:
+         static_assert(gprArgsCount<TraitsType>(std::make_index_sequence<TraitsType::arity>()) == numGPRArgs);
+         static_assert(fprArgsCount<TraitsType>(std::make_index_sequence<TraitsType::arity>()) == numFPRArgs);
+ 
++        if constexpr (isPPC64()) {
++            // The two capacities this port adds on top of the ABI's.
++            //
++            // f13 is the ABI's thirteenth FP argument register and this
++            // port's fpTempRegister, which shuffleRegisters uses to break
++            // FPR cycles, so a general marshaller may only hand out f1-f12.
++            static_assert(numFPRArgs <= NativeArgumentCursor::portFPRCapacity,
++                "This operation needs f13, which is the MacroAssembler's floating-point scratch on this target");
++            // maxFrameExtentForSlowPathCall is 32 bytes here -- doublewords
++            // 8 through 11 -- and that is the poke area the C-call sequence
++            // turns into the callee's parameter save area. An operation
++            // whose highest ordinal reaches 12 needs that extent raised;
++            // this assert is what says so, rather than a silent overwrite of
++            // whatever lies above the poke area.
++            static_assert(numGPRArgs + numFPRArgs + extraPoke < 12,
++                "This operation's argument cursor runs past maxFrameExtentForSlowPathCall (32 bytes) on this target");
++        }
++
+         shuffleRegisters<GPRReg, numGPRSources>(clampArrayToSize<numGPRSources, GPRReg>(argSourceRegs.gprSources), clampArrayToSize<numGPRSources, GPRReg>(argSourceRegs.gprDestinations));
+         static_assert(!numCrossSources, "shouldn't be used on this architecture.");
+ 
+@@ -637,7 +732,14 @@ public:
+ 
+         // We don't need the current frame beyond this point. Masquerade as our
+         // caller.
+-#if CPU(ARM64) || CPU(RISCV64)
++#if CPU(PPC64LE)
++        // Same shape as the ARM64/RISCV64 arm: the return address goes back
++        // into the link register because that is where a PowerPC callee's
++        // prologue will look for it. It is an SPR here, so it is loaded via
++        // loadToLinkRegister rather than into a named GPR.
++        loadToLinkRegister(Address(framePointerRegister, CallFrame::returnPCOffset()));
++        subPtr(TrustedImm32(2 * sizeof(void*)), newFrameSizeGPR);
++#elif CPU(ARM64) || CPU(RISCV64)
+         loadPtr(Address(framePointerRegister, CallFrame::returnPCOffset()), linkRegister);
+         subPtr(TrustedImm32(2 * sizeof(void*)), newFrameSizeGPR);
+ #if CPU(ARM64E)

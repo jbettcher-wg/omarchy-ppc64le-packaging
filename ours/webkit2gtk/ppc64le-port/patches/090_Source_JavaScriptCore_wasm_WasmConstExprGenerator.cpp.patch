@@ -1,0 +1,14 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmConstExprGenerator.cpp b/Source/JavaScriptCore/wasm/WasmConstExprGenerator.cpp
+index cf5116f733..d0bfaff732 100644
+--- a/Source/JavaScriptCore/wasm/WasmConstExprGenerator.cpp
++++ b/Source/JavaScriptCore/wasm/WasmConstExprGenerator.cpp
+@@ -881,9 +881,7 @@ public:
+     [[nodiscard]] PartialResult addSIMDI_V(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType&) CONST_EXPR_STUB
+     [[nodiscard]] PartialResult addSIMDV_V(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType&) CONST_EXPR_STUB
+     [[nodiscard]] PartialResult addSIMDBitwiseSelect(ExpressionType, ExpressionType, ExpressionType, ExpressionType&) CONST_EXPR_STUB
+-#if ENABLE(B3_JIT)
+     [[nodiscard]] PartialResult addSIMDRelOp(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType, B3::Air::Arg, ExpressionType&) CONST_EXPR_STUB
+-#endif
+     [[nodiscard]] PartialResult addSIMDV_VV(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType, ExpressionType&) CONST_EXPR_STUB
+     [[nodiscard]] PartialResult addSIMDRelaxedFMA(SIMDLaneOperation, SIMDInfo, ExpressionType, ExpressionType, ExpressionType, ExpressionType&) CONST_EXPR_STUB
+ 

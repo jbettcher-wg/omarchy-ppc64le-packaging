@@ -1,0 +1,148 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmOMGIRGenerator.cpp b/Source/JavaScriptCore/wasm/WasmOMGIRGenerator.cpp
+index c042cd74a5..88522a9195 100644
+--- a/Source/JavaScriptCore/wasm/WasmOMGIRGenerator.cpp
++++ b/Source/JavaScriptCore/wasm/WasmOMGIRGenerator.cpp
+@@ -1676,8 +1676,13 @@ auto OMGIRGenerator::addArguments(const RTT& signature) -> PartialResult
+                         dataLog(context.gpr(src.gpr()), " / ", (int) context.gpr(src.gpr()));
+                     else if (src.isFPR() && width <= Width::Width64)
+                         dataLog(context.fpr(src.fpr()));
+-                    else if (src.isFPR())
++                    else if (src.isFPR()) {
++#if CPU(X86_64) || CPU(ARM64)
+                         dataLog(context.vector(src.fpr()));
++#else
++                        dataLog("<v128: this target's probe captures 64 bits of an FPR>");
++#endif
++                    }
+                     else
+                         dataLog(fpl[src.offsetFromFP() / sizeof(uint64_t)], " / ", fpi[src.offsetFromFP() / sizeof(uint32_t)],  " / ", RawHex(fpi[src.offsetFromFP() / sizeof(uint32_t)]), " / ", std::bit_cast<double>(fpl[src.offsetFromFP() / sizeof(uint64_t)]), " at ", RawPointer(&fpi[src.offsetFromFP() / sizeof(uint32_t)]));
+                     dataLogLn();
+@@ -3578,7 +3583,11 @@ auto OMGIRGenerator::addI64Add128(ExpressionType lhsLoVar, ExpressionType lhsHiV
+         GPRReg aHi = params[3].gpr();
+         GPRReg bLo = params[4].gpr();
+         GPRReg bHi = params[5].gpr();
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
++        // POWER carries the bit in XER[CA] via addc/adde, in the same operand
++        // order, and the two must stay adjacent -- see add64AndSetFlags in
++        // MacroAssemblerPPC64.h. A patchpoint is exactly the right shape for
++        // that, because nothing is scheduled between them.
+         jit.add64AndSetFlags(aLo, bLo, resLo);
+         jit.addCarry64(aHi, bHi, resHi);
+ #elif CPU(X86_64)
+@@ -3616,7 +3625,9 @@ auto OMGIRGenerator::addI64Sub128(ExpressionType lhsLoVar, ExpressionType lhsHiV
+         GPRReg aHi = params[3].gpr();
+         GPRReg bLo = params[4].gpr();
+         GPRReg bHi = params[5].gpr();
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
++        // subfc/subfe, and POWER's CA is the complement of a borrow just as
++        // ARM64's carry is, so the same pair is correct here.
+         jit.sub64AndSetFlags(aLo, bLo, resLo);
+         jit.subBorrow64(aHi, bHi, resHi);
+ #elif CPU(X86_64)
+@@ -3638,7 +3649,10 @@ auto OMGIRGenerator::addI64MulWideU(ExpressionType lhsVar, ExpressionType rhsVar
+     Value* lhs = get(lhsVar);
+     Value* rhs = get(rhsVar);
+ 
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
++    // Pure B3: Air declares MulHigh64 and UMulHigh64 for this target too
++    // (mulhd / mulhdu), so no patchpoint is needed and B3 gets to schedule
++    // the two products.
+     resultLo = push(m_currentBlock->appendNew<Value>(m_proc, Mul, origin(), lhs, rhs));
+     resultHi = push(m_currentBlock->appendNew<Value>(m_proc, UMulHigh, origin(), lhs, rhs));
+ 
+@@ -3666,7 +3680,10 @@ auto OMGIRGenerator::addI64MulWideS(ExpressionType lhsVar, ExpressionType rhsVar
+     Value* lhs = get(lhsVar);
+     Value* rhs = get(rhsVar);
+ 
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
++    // Pure B3: Air declares MulHigh64 and UMulHigh64 for this target too
++    // (mulhd / mulhdu), so no patchpoint is needed and B3 gets to schedule
++    // the two products.
+     resultLo = push(m_currentBlock->appendNew<Value>(m_proc, Mul, origin(), lhs, rhs));
+     resultHi = push(m_currentBlock->appendNew<Value>(m_proc, MulHigh, origin(), lhs, rhs));
+ 
+@@ -4497,7 +4514,25 @@ auto OMGIRGenerator::addSIMDExtmul(SIMDLaneOperation op, SIMDInfo info, Expressi
+ 
+ auto OMGIRGenerator::addSIMDShuffle(v128_t imm, ExpressionType a, ExpressionType b, ExpressionType& result) -> PartialResult
+ {
+-    if constexpr (isX86()) {
++    // ppc64 takes the x86 route, not the ARM64 one. Both compute the same
++    // shuffle; what differs is what each asks of the target.
++    //
++    // The ARM64 route emits ONE three-child VectorSwizzle over the pair
++    // (a, b), which Air lowers through a register-pinned custom form --
++    // B3LowerToAir's VectorSwizzle2 asserts isARM64() and pins q30/q31, and
++    // Air::isVectorSwizzle2Valid() returns false off ARM64, so that form
++    // would fail validation here even if it were declared.
++    //
++    // The x86 route emits TWO two-child swizzles and an Or, and relies on
++    // just one property: the wasm rule that a swizzle index >= 16 selects
++    // zero. vectorSwizzle() implements that directly with its vcmpgtub mask,
++    // so this needs no index fixup -- fixupOutOfBoundsIndicesForSwizzle stays
++    // isX86()-only on purpose.
++    //
++    // A single vpermr over a||b would be cheaper and is the natural POWER
++    // lowering; it needs a ppc64 arm here plus a ppc64 branch in the Air
++    // lowering, and is a perf item rather than a correctness one.
++    if constexpr (isX86() || isPPC64()) {
+         v128_t leftImm = imm;
+         v128_t rightImm = imm;
+         for (unsigned i = 0; i < 16; ++i) {
+@@ -5821,8 +5856,13 @@ static inline void prepareForTailCallImpl(unsigned functionIndex, CCallHelpers&
+                     dataLog(context.gpr(src.gpr()), " / ", (int) context.gpr(src.gpr()));
+                 else if (src.isFPR() && width <= Width64)
+                     dataLog(context.fpr(src.fpr()));
+-                else if (src.isFPR())
++                else if (src.isFPR()) {
++#if CPU(X86_64) || CPU(ARM64)
+                     dataLog(context.vector(src.fpr()));
++#else
++                    dataLog("<v128: this target's probe captures 64 bits of an FPR>");
++#endif
++                }
+                 else if (src.isConstant())
+                     dataLog(src.value(), " / ", src.doubleValue());
+                 else
+@@ -6228,6 +6268,23 @@ static inline void prepareForTailCallImpl(unsigned functionIndex, CCallHelpers&
+ #endif
+ #endif
+ 
++#if CPU(PPC64LE)
++    // The shuffle above could not put the return PC in the link register the
++    // way ARM64 does, because LR is an SPR here and cannot be a
++    // ShuffleLocation -- so this target took the stack-slot destination and
++    // the value is still sitting in the callee's ReturnPC slot. Move it into
++    // LR now, while SP is still the old SP that newReturnPCOffset is relative
++    // to. Without this the callee returns through whatever LR happened to
++    // hold, which is how the five tail-call tests that pass under BBQ alone
++    // were segfaulting under OMG.
++    //
++    // Doing it here rather than after the SP adjustment keeps the offset the
++    // one already computed, and nothing between here and the jump writes LR:
++    // the remaining code is SP arithmetic and debug probes, and the jump is
++    // mtctr/bctr or a plain branch.
++    jit.loadToLinkRegister(CCallHelpers::Address(MacroAssembler::stackPointerRegister, newReturnPCOffset));
++#endif
++
+     {
+         jit.addPtr(MacroAssembler::TrustedImm32(newSPAtPrologueOffsetFromSP), MacroAssembler::stackPointerRegister);
+ 
+@@ -6256,8 +6313,13 @@ static inline void prepareForTailCallImpl(unsigned functionIndex, CCallHelpers&
+                         dataLog(context.gpr(arg.location.gpr()), " / ", (int) context.gpr(arg.location.gpr()));
+                     else if (arg.location.isFPR() && arg.width <= Width::Width64)
+                         dataLog(context.fpr(arg.location.fpr()));
+-                    else if (arg.location.isFPR())
++                    else if (arg.location.isFPR()) {
++#if CPU(X86_64) || CPU(ARM64)
+                         dataLog(context.vector(arg.location.fpr()));
++#else
++                        dataLog("<v128: this target's probe captures 64 bits of an FPR>");
++#endif
++                    }
+                     else
+                         dataLog(fpl[src.offsetFromFP() / sizeof(*fpl)], " / ", fpi[src.offsetFromFP() / sizeof(*fpi)],  " / ", RawHex(fpi[src.offsetFromFP() / sizeof(*fpi)]), " / ", std::bit_cast<double>(fpl[src.offsetFromFP() / sizeof(*fpl)]), " at ", RawPointer(&fpi[src.offsetFromFP() / sizeof(*fpi)]));
+                     dataLogLn();

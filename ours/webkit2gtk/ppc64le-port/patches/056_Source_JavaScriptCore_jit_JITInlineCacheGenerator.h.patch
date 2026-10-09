@@ -1,0 +1,21 @@
+diff --git a/Source/JavaScriptCore/jit/JITInlineCacheGenerator.h b/Source/JavaScriptCore/jit/JITInlineCacheGenerator.h
+index b9e4e530f1..f5fc2faa74 100644
+--- a/Source/JavaScriptCore/jit/JITInlineCacheGenerator.h
++++ b/Source/JavaScriptCore/jit/JITInlineCacheGenerator.h
+@@ -56,7 +56,16 @@ enum class AccessType : int8_t;
+ enum class CacheType : int8_t;
+ enum class JITType : uint8_t;
+ 
++// DFG::UnlinkedPropertyInlineCache is defined in dfg/DFGJITCode.h, which is
++// not compiled when the DFG is off, so naming it as a variant alternative
++// leaves WTF::visit instantiating setUpPropertyInlineCache on an incomplete
++// type. ENABLE_JIT=ON with ENABLE_DFG_JIT=OFF is the ppc64le port's
++// Baseline-only configuration and is the first thing to build it.
++#if ENABLE(DFG_JIT)
+ using CompileTimePropertyInlineCache = Variant<PropertyInlineCache*, BaselineUnlinkedPropertyInlineCache*, DFG::UnlinkedPropertyInlineCache*>;
++#else
++using CompileTimePropertyInlineCache = Variant<PropertyInlineCache*, BaselineUnlinkedPropertyInlineCache*>;
++#endif
+ 
+ class JITInlineCacheGenerator {
+ protected:

@@ -1,0 +1,20 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmOperations.cpp b/Source/JavaScriptCore/wasm/WasmOperations.cpp
+index 7e1b3be052..8cea5e554a 100644
+--- a/Source/JavaScriptCore/wasm/WasmOperations.cpp
++++ b/Source/JavaScriptCore/wasm/WasmOperations.cpp
+@@ -850,6 +850,15 @@ static void doOSREntry(JSWebAssemblyInstance* instance, Probe::Context& context,
+     context.gpr(RISCV64Registers::ra) = std::bit_cast<UCPURegister>(*(framePointer + 1));
+     context.sp() = framePointer + 2;
+     static_assert(prologueStackPointerDelta() == sizeof(void*) * 2);
++#elif CPU(PPC64LE)
++    // move(framePointerRegister, stackPointerRegister);
++    // popFramePointerAndLinkRegister(): [cfr + 0] CallerFrame, [cfr + 8] ReturnPC.
++    // The link register is an SPR on PowerPC, not a GPR, and the probe's
++    // return path restores it from cpu.sprs[lr] (MacroAssemblerPPC64.cpp).
++    context.fp() = std::bit_cast<UCPURegister*>(*framePointer);
++    context.spr(PPC64Registers::lr) = std::bit_cast<UCPURegister>(*(framePointer + 1));
++    context.sp() = framePointer + 2;
++    static_assert(prologueStackPointerDelta() == sizeof(void*) * 2);
+ #else
+ #error Unsupported architecture.
+ #endif

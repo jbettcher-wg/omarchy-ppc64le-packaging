@@ -1,0 +1,92 @@
+diff --git a/Source/JavaScriptCore/runtime/MachineContext.h b/Source/JavaScriptCore/runtime/MachineContext.h
+index 4fa423f26d..3aab2e57bb 100644
+--- a/Source/JavaScriptCore/runtime/MachineContext.h
++++ b/Source/JavaScriptCore/runtime/MachineContext.h
+@@ -34,6 +34,21 @@
+ #include <wtf/PointerPreparations.h>
+ #include <wtf/StdLibExtras.h>
+ 
++#if OS(LINUX) && CPU(PPC64LE)
++// glibc's <sys/ucontext.h> gives powerpc an mcontext_t with a 48-entry
++// gp_regs[], but the names of the slots (PT_R1, PT_NIP, ...) live in the
++// kernel's UAPI header, not in glibc's. The indices below were confirmed on
++// the machine rather than read off: a probe planted sentinels in r31 and r7,
++// took SIGTRAP inline so the interrupted frame was its own, read the slots
++// back, and stepped PT_NIP over the trap to resume -- which also proves that
++// slot is the one the kernel resumes from. An earlier version of that probe
++// called raise() and measured libc's r31 instead of its own, which is the
++// same mistake in miniature as trusting r31 outside generated code.
++#include <asm/ptrace.h>
++static_assert(PT_R1 == 1 && PT_R4 == 4 && PT_R7 == 7 && PT_R14 == 14 && PT_R31 == 31 && PT_NIP == 32,
++    "ppc64 mcontext_t register indices are not what MachineContext assumes");
++#endif
++
+ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+ 
+ namespace JSC {
+@@ -199,6 +214,8 @@ static inline void*& stackPointerImpl(mcontext_t& machineContext)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.sp);
+ #elif CPU(RISCV64)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[REG_SP]);
++#elif CPU(PPC64LE)
++    return reinterpret_cast<void*&>((uintptr_t&) machineContext.gp_regs[PT_R1]);
+ #else
+ #error Unknown Architecture
+ #endif
+@@ -319,6 +336,15 @@ static inline void*& framePointerImpl(mcontext_t& machineContext)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.regs[29]);
+ #elif CPU(RISCV64)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[REG_S0]);
++#elif CPU(PPC64LE)
++    // r31 is JSC's callFrameRegister, and unlike x29 on ARM64 it is NOT also
++    // the C frame pointer: ELFv2 chains C frames through r1's back chain and
++    // leaves r31 to be an ordinary callee-saved register. So this is a frame
++    // pointer only when the sampled pc is in LLInt or JIT code, which is the
++    // condition every caller here already tests. The same coincidence that
++    // does hold on ARM64 is what made DECLARE_CALL_FRAME wrong on this port.
++    static_assert(GPRInfo::callFrameRegister == PPC64Registers::r31, "Wrong frame pointer.");
++    return reinterpret_cast<void*&>((uintptr_t&) machineContext.gp_regs[PT_R31]);
+ #else
+ #error Unknown Architecture
+ #endif
+@@ -479,6 +505,8 @@ static inline void*& instructionPointerImpl(mcontext_t& machineContext)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.pc);
+ #elif CPU(RISCV64)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[REG_PC]);
++#elif CPU(PPC64LE)
++    return reinterpret_cast<void*&>((uintptr_t&) machineContext.gp_regs[PT_NIP]);
+ #else
+ #error Unknown Architecture
+ #endif
+@@ -655,6 +683,9 @@ inline void*& argumentPointer<1>(mcontext_t& machineContext)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.regs[1]);
+ #elif CPU(RISCV64)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[REG_A0 + 1]);
++#elif CPU(PPC64LE)
++    static_assert(GPRInfo::argumentGPR1 == PPC64Registers::r4, "Wrong second argument register.");
++    return reinterpret_cast<void*&>((uintptr_t&) machineContext.gp_regs[PT_R4]);
+ #else
+ #error Unknown Architecture
+ #endif
+@@ -712,6 +743,9 @@ inline void* wasmInstancePointer(const mcontext_t& machineContext)
+     return reinterpret_cast<void*>((uintptr_t) machineContext.regs[19]);
+ #elif CPU(RISCV64)
+     return reinterpret_cast<void*>((uintptr_t) machineContext.__gregs[9]);
++#elif CPU(PPC64LE)
++    static_assert(GPRInfo::wasmContextInstancePointer == PPC64Registers::r14, "Wrong wasm instance register.");
++    return reinterpret_cast<void*>((uintptr_t) machineContext.gp_regs[PT_R14]);
+ #else
+ #error Unknown Architecture
+ #endif
+@@ -832,6 +866,11 @@ inline void*& llintInstructionPointer(mcontext_t& machineContext)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.regs[4]);
+ #elif CPU(RISCV64)
+     return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[14]);
++#elif CPU(PPC64LE)
++    // The LLInt PC, which is regT4 -- NOT PB, the bytecode base, which is
++    // csr7/r21. ARM64 returns x4 here for the same reason.
++    static_assert(LLInt::LLIntPC == PPC64Registers::r7, "Wrong LLInt PC.");
++    return reinterpret_cast<void*&>((uintptr_t&) machineContext.gp_regs[PT_R7]);
+ #else
+ #error Unknown Architecture
+ #endif

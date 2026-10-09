@@ -1,0 +1,49 @@
+diff --git a/Source/JavaScriptCore/jit/OperationResult.h b/Source/JavaScriptCore/jit/OperationResult.h
+index e21ee9576a..f0712aa894 100644
+--- a/Source/JavaScriptCore/jit/OperationResult.h
++++ b/Source/JavaScriptCore/jit/OperationResult.h
+@@ -48,8 +48,42 @@ concept canMakeExceptionOperationResult =
+     std::is_standard_layout_v<T>
+     && std::is_trivially_copyable_v<T>
+     && std::is_trivially_default_constructible_v<T>
+-#if CPU(ARM64)
+-    && !std::is_floating_point_v<T> // The ARM64 ABI says that this should be returned in x0 instead of d0. Seems unlikely it's worth it to do the extra fmov.
++#if CPU(ARM64) || CPU(PPC64LE)
++    // The one place SysV x86-64 and another ABI classify
++    // ExceptionOperationResult<T> differently. Enumerated for ELFv2 rather
++    // than assumed, over every JSC_DECLARE[_NOEXCEPT]_JIT_OPERATION in the
++    // tree -- 37 distinct return types:
++    //
++    //   * every scalar integer, pointer and enum T (EncodedJSValue, JSCell*,
++    //     UCPUStrictInt32, size_t, bool, ...) makes a 16-byte
++    //     {T, Exception*} whose eightbytes are both INTEGER. SysV returns it
++    //     in rax:rdx, ELFv2 in r3:r4; both put the exception in
++    //     returnValueGPR2, which is what operationExceptionRegister returns.
++    //     Exercised continuously -- every JSC_DECLARE_COMMON_SLOW_PATH and
++    //     every EncodedJSValue operation is one.
++    //   * ExceptionOperationResult<void> is a lone Exception*: r3 / rax,
++    //     which is the returnValueGPR arm below.
++    //   * UGPRPair and ThrownExceptionInfo are 16 bytes, so the concept
++    //     rejects them and they are returned bare: r3:r4 on ELFv2, rax:rdx
++    //     on SysV, no float members in either.
++    //   * float and double are the divergence, and are what this arm
++    //     excludes. See below.
++    //
++    // Nothing in the tree returns a homogeneous floating-point aggregate
++    // (a struct of one or two floats). That is the remaining shape that
++    // would diverge -- ELFv2 returns {struct{float,float}, Exception*} in
++    // GPRs while SysV classifies the first eightbyte SSE -- but it would put
++    // the exception in rax on x86-64 too, where the code below asks for
++    // rdx, so it is upstream-broken before it is port-broken.
++    //
++    // ARM64: the ABI says this should be returned in x0 instead of d0. Seems
++    // unlikely it's worth it to do the extra fmov.
++    // PPC64LE: ELFv2 returns the {float, Exception*} aggregate in r3:r4, not
++    // in f1, and operationExceptionRegister assumes SysV's xmm0 + rax. Excluded
++    // here so a float-returning operation returns a bare float in f1, which the
++    // callOperation overload in MacroAssemblerPPC64.h converts into the port's
++    // float register model. See jsc-ppc64le-yarr-wasm.md section 7.3.
++    && !std::is_floating_point_v<T>
+ #endif
+     && sizeof(T) <= sizeof(CPURegister);
+ 

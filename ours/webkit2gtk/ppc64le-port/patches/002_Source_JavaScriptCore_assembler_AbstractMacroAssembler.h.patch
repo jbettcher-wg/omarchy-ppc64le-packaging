@@ -1,0 +1,22 @@
+diff --git a/Source/JavaScriptCore/assembler/AbstractMacroAssembler.h b/Source/JavaScriptCore/assembler/AbstractMacroAssembler.h
+index 1a3088c059..b59f9c2b78 100644
+--- a/Source/JavaScriptCore/assembler/AbstractMacroAssembler.h
++++ b/Source/JavaScriptCore/assembler/AbstractMacroAssembler.h
+@@ -399,7 +399,7 @@ public:
+         {
+         }
+ 
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         explicit constexpr TrustedImm64(TrustedImmPtr ptr)
+             : m_value(ptr.asIntptr())
+         {
+@@ -414,7 +414,7 @@ public:
+             : TrustedImm64(value)
+         {
+         }
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         explicit constexpr Imm64(TrustedImmPtr ptr)
+             : TrustedImm64(ptr)
+         {

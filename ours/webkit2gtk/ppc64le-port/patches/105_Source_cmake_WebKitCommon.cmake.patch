@@ -1,0 +1,68 @@
+diff --git a/Source/cmake/WebKitCommon.cmake b/Source/cmake/WebKitCommon.cmake
+index af21d3941d..f34beb67e0 100644
+--- a/Source/cmake/WebKitCommon.cmake
++++ b/Source/cmake/WebKitCommon.cmake
+@@ -187,12 +187,12 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
+         endif ()
+     elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "(i[3-6]86|x86)")
+         set(WTF_CPU_X86 1)
+-    elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "(ppc|powerpc)")
+-        set(WTF_CPU_PPC 1)
+-    elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64")
+-        set(WTF_CPU_PPC64 1)
+-    elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
++    elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64le|powerpc64le)")
+         set(WTF_CPU_PPC64LE 1)
++    elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64|powerpc64)")
++        set(WTF_CPU_PPC64 1)
++    elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc|powerpc)")
++        set(WTF_CPU_PPC 1)
+     elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64")
+         set(WTF_CPU_RISCV64 1)
+     elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^loongarch64")
+@@ -564,6 +564,45 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
+         file(MAKE_DIRECTORY ${WebDriver_DERIVED_SOURCES_DIR})
+     endif ()
+ 
++    # -----------------------------------------------------------------------------
++    # Capstone, the JIT disassembler backend for PowerPC
++    #
++    # PlatformEnable.h compiles the JIT disassembler out of optimized builds
++    # because the instruction tables are large, and takes
++    # BUN_ENABLE_JIT_DISASSEMBLER=1 as the override. Capstone's PowerPC tables
++    # are ~1.2 MB of generated .inc, so the LIBRARY has to follow the same
++    # policy and not merely the translation unit that calls it: the condition
++    # below mirrors the header's so that on a release build the capstone
++    # subdirectory is never added and nothing is compiled at all.
++    #
++    # BUN_ENABLE_JIT_DISASSEMBLER defaults to ASSERT_ENABLED, which is owned by
++    # NDEBUG unless ENABLE_ASSERTS overrides it, and the documented way to force
++    # it on is a compiler flag. Both inputs are read here.
++    # -----------------------------------------------------------------------------
++    if (NOT DEFINED USE_CAPSTONE)
++        set(_WEBKIT_JIT_DISASSEMBLER_WANTED OFF)
++        if (ENABLE_ASSERTS STREQUAL "AUTO")
++            if (CMAKE_BUILD_TYPE STREQUAL "Debug")
++                set(_WEBKIT_JIT_DISASSEMBLER_WANTED ON)
++            endif ()
++        elseif (ENABLE_ASSERTS)
++            set(_WEBKIT_JIT_DISASSEMBLER_WANTED ON)
++        endif ()
++        if ("${CMAKE_C_FLAGS} ${CMAKE_CXX_FLAGS}" MATCHES "BUN_ENABLE_JIT_DISASSEMBLER=1")
++            set(_WEBKIT_JIT_DISASSEMBLER_WANTED ON)
++        endif ()
++
++        if (ENABLE_JIT AND _WEBKIT_JIT_DISASSEMBLER_WANTED AND WTF_CPU_PPC64LE)
++            set(USE_CAPSTONE ON)
++        else ()
++            set(USE_CAPSTONE OFF)
++        endif ()
++    endif ()
++    SET_AND_EXPOSE_TO_BUILD(USE_CAPSTONE ${USE_CAPSTONE})
++    if (USE_CAPSTONE)
++        message(STATUS "Building the in-process JIT disassembler on Capstone")
++    endif ()
++
+     # -----------------------------------------------------------------------------
+     # config.h
+     # -----------------------------------------------------------------------------

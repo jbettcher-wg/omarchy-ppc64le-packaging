@@ -1,0 +1,49 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp b/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp
+index 84335336f9..5dbf9e581c 100644
+--- a/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp
++++ b/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp
+@@ -99,6 +99,27 @@ void lowerStackArgs(Code& code)
+                 insertionSet.insert(insertionIndex, Add64, inst.origin, Air::Tmp(MacroAssembler::stackPointerRegister), tmp);
+                 result = Arg::addr(tmp, 0);
+                 return result;
++#elif CPU(PPC64LE)
++                // Same materialisation, one instruction shorter, and without
++                // ever making the materialised register a base. POWER's X-form
++                // is base+index with no displacement, so the offset can live in
++                // extendedOffsetAddrRegister() -- r0 -- while sp stays the base.
++                // That is what lets r0 serve at all: it is the literal zero in
++                // an RA field and an ordinary register in an RB field.
++                //
++                // The Add64 the ARM64 arm inserts is also unavailable here. Air
++                // declares Add64 only under the 64: tag, which means x86-64 or
++                // arm64, so this target has no Add64 form to insert. Folding the
++                // addition into the addressing mode removes the need for one.
++                RELEASE_ASSERT(!extendedOffsetAddrRegInUse);
++                Air::Tmp tmp = Air::Tmp(extendedOffsetAddrRegister());
++                extendedOffsetAddrRegInUse = true;
++
++                Arg largeOffset = Arg::isValidImmForm(offsetFromSP) ? Arg::imm(offsetFromSP) : Arg::bigImm(offsetFromSP);
++                insertionSet.insert(insertionIndex, Move, inst.origin, largeOffset, tmp);
++                result = Arg::index(Air::Tmp(MacroAssembler::stackPointerRegister), tmp, 1, 0);
++                RELEASE_ASSERT(result.isValidForm(Move, width));
++                return result;
+ #elif CPU(X86_64)
+                 UNUSED_PARAM(insertionIndex);
+                 // Can't happen on x86: immediates are always big enough for frame size.
+@@ -216,7 +237,15 @@ void lowerStackArgs(Code& code)
+                             Air::Opcode storeOpcode = Move32;
+                             Air::Arg::Kind operandKind = Arg::ZeroReg;
+                             Air::Arg operand = Arg::zeroReg();
+-#elif CPU(X86_64)
++#elif CPU(X86_64) || CPU(PPC64LE)
++                            // POWER's r0-reads-as-zero is positional -- it is
++                            // the literal zero only in the RA field of a
++                            // load/store or addi, and the contents of r0 in a
++                            // source field -- so there is no register that
++                            // reads zero everywhere and Arg::ZeroReg has no
++                            // encoding here. The x86 shape is the correct one,
++                            // and the Move32 Imm/Addr and Imm/Index forms are
++                            // tagged ppc64 in AirOpcode.opcodes to supply it.
+                             Air::Opcode storeOpcode = Move32;
+                             Air::Arg::Kind operandKind = Arg::Imm;
+                             Air::Arg operand = Arg::imm(0);

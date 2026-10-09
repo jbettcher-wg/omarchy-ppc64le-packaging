@@ -1,0 +1,60 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirCode.cpp b/Source/JavaScriptCore/b3/air/AirCode.cpp
+index d20771fdff..9ac648bb3d 100644
+--- a/Source/JavaScriptCore/b3/air/AirCode.cpp
++++ b/Source/JavaScriptCore/b3/air/AirCode.cpp
+@@ -55,7 +55,7 @@ static void defaultPrologueGenerator(CCallHelpers& jit, Code& code)
+ 
+     // NOTE: on ARM64, if the callee saves have bigger offsets due to a potential tail call,
+     // the macro assembler might assert scratch register usage on store operations emitted by emitSave.
+-    AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64());
++    AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64() || isPPC64());
+ 
+     if (code.frameSize()) {
+         jit.subPtr(MacroAssembler::TrustedImm32(code.frameSize()), MacroAssembler::stackPointerRegister);
+@@ -84,6 +84,37 @@ Code::Code(Procedure& proc)
+             all.exclude(RegisterSet::stackRegisters());
+             all.exclude(RegisterSet::reservedHardwareRegisters());
+             auto calleeSave = RegisterSet::calleeSaveRegisters();
++            if constexpr (isPPC64()) {
++                // Air may only allocate a callee-save that the VM entry frame
++                // can RECORD. When an exception unwinds,
++                // copyCalleeSavesToEntryFrameCalleeSavesBuffer walks the
++                // procedure's callee-save list and looks every register up in
++                // vmCalleeSaveBufferSlotsByRegIndex; a register with no slot
++                // either aborts on RELEASE_ASSERT(bufferSlot >= 0) or, if that
++                // is loosened, has its live value silently dropped.
++                //
++                // On this target the two sets are not the same. ELFv2 makes
++                // r14-r28 nonvolatile, but the buffer covers r14-r24 plus
++                // f14-f25, which is what NUMBER_OF_CALLEE_SAVES_REGISTERS (23)
++                // and copyCalleeSavesToBuffer in LowLevelInterpreter.asm are
++                // sized and written for. Extending the buffer instead would
++                // mean csr names for r25-r28, which are already regT10-regT12
++                // in GPRInfo -- dual-naming registers to paper over this.
++                //
++                // Measured: with r25-r28 allocatable and dropped on unwind,
++                // stress/generator-fib-ftl-and-string.js and
++                // stress/arrowfunction-run-10000-1.js die in
++                // operationValueAddProfiledNoOptimize on a JSValue that fails
++                // downcast<JSObject>. Keeping them out of the pool costs four
++                // GPRs and leaves 21, against x86_64's 14.
++                //
++                // r29/r30 are reserved and already excluded above, but
++                // AirHandleCalleeSaves merges them into every procedure's list
++                // regardless; they are safe to drop on unwind precisely because
++                // being reserved means nothing holds a live value in them. See
++                // RegisterSet::vmEntryPreservedTemporaries().
++                all.exclude(RegisterSet::unrecordableCalleeSaveRegisters());
++            }
+             all.forEach(
+                 [&] (Reg reg) {
+                     if (!calleeSave.contains(reg, IgnoreVectors))
+@@ -119,7 +150,7 @@ void Code::emitEpilogue(CCallHelpers& jit)
+     if (frameSize()) {
+         // NOTE: on ARM64, if the callee saves have bigger offsets due to a potential tail call,
+         // the macro assembler might assert scratch register usage on load operations emitted by emitRestore.
+-        AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64());
++        AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64() || isPPC64());
+         jit.emitRestore(calleeSaveRegisterAtOffsetList());
+         jit.emitFunctionEpilogue();
+     } else

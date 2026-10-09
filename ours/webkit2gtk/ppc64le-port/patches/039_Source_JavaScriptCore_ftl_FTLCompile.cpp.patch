@@ -1,0 +1,25 @@
+diff --git a/Source/JavaScriptCore/ftl/FTLCompile.cpp b/Source/JavaScriptCore/ftl/FTLCompile.cpp
+index d53f20c1d2..db99fc410e 100644
+--- a/Source/JavaScriptCore/ftl/FTLCompile.cpp
++++ b/Source/JavaScriptCore/ftl/FTLCompile.cpp
+@@ -270,6 +270,11 @@ void compile(State& state, Safepoint::Result& safepointResult)
+ 
+ #if CPU(X86_64)
+             jit.pop(GPRInfo::argumentGPR1);
++#elif CPU(PPC64LE)
++            // The link register is an SPR here, so the return address is read
++            // out with mflr rather than moved from a named GPR. There is no
++            // pointer authentication to tag.
++            jit.moveFromLinkRegister(GPRInfo::argumentGPR1);
+ #else
+             jit.tagPtr(NoPtrTag, CCallHelpers::linkRegister);
+             jit.move(CCallHelpers::linkRegister, GPRInfo::argumentGPR1);
+@@ -277,6 +282,8 @@ void compile(State& state, Safepoint::Result& safepointResult)
+             jit.nearCallThunk(CodeLocationLabel { LLInt::arityFixup() });
+ #if CPU(X86_64)
+             jit.push(GPRInfo::argumentGPR1);
++#elif CPU(PPC64LE)
++            jit.moveToLinkRegister(GPRInfo::argumentGPR1);
+ #else
+             jit.move(GPRInfo::argumentGPR1, CCallHelpers::linkRegister);
+             jit.untagPtr(NoPtrTag, CCallHelpers::linkRegister);

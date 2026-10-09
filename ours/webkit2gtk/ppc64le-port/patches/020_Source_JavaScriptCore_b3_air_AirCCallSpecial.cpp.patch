@@ -1,0 +1,43 @@
+diff --git a/Source/JavaScriptCore/b3/air/AirCCallSpecial.cpp b/Source/JavaScriptCore/b3/air/AirCCallSpecial.cpp
+index 201396ee11..bd26cada0e 100644
+--- a/Source/JavaScriptCore/b3/air/AirCCallSpecial.cpp
++++ b/Source/JavaScriptCore/b3/air/AirCCallSpecial.cpp
+@@ -126,18 +126,35 @@ void CCallSpecial::reportUsedRegisters(Inst&, const RegisterSet&)
+ 
+ CCallHelpers::Jump CCallSpecial::generate(Inst& inst, CCallHelpers& jit, GenerationContext&)
+ {
++    // On ppc64le the ELFv2 linkage area is reserved inside the Air frame --
++    // computeCCallingConvention asks for 32 + 8 * doublewords -- so the call
++    // sequence must write the back chain and the TOC slot in place rather than
++    // pushing 32 bytes. Pushing would move sp AFTER the argument stores have
++    // been emitted at their callArg offsets, putting every stack argument 32
++    // bytes above where the callee looks for it: measured as
++    // testCallFunctionWithHellaDoubleArguments returning 1408667649 for an
++    // expected 1677721601. See powerpc64le-handbook
++    // docs/jsc-ppc64le-b3-air.md section 4.3.
++    auto emitCall = [&](auto&& target) {
++#if CPU(PPC64LE)
++        return jit.callWithReservedLinkageArea(std::forward<decltype(target)>(target), OperationPtrTag);
++#else
++        return jit.call(std::forward<decltype(target)>(target), OperationPtrTag);
++#endif
++    };
++
+     switch (inst.args()[calleeArgOffset].kind()) {
+     case Arg::Imm:
+     case Arg::BigImm:
+         jit.move(inst.args()[calleeArgOffset].asTrustedImmPtr(), scratchRegister);
+-        jit.call(scratchRegister, OperationPtrTag);
++        emitCall(scratchRegister);
+         break;
+     case Arg::Tmp:
+-        jit.call(inst.args()[calleeArgOffset].gpr(), OperationPtrTag);
++        emitCall(inst.args()[calleeArgOffset].gpr());
+         break;
+     case Arg::Addr:
+     case Arg::ExtendedOffsetAddr:
+-        jit.call(inst.args()[calleeArgOffset].asAddress(), OperationPtrTag);
++        emitCall(inst.args()[calleeArgOffset].asAddress());
+         break;
+     default:
+         RELEASE_ASSERT_NOT_REACHED();

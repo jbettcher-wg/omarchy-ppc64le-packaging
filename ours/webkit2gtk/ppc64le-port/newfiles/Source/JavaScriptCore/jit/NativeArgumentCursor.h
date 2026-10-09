@@ -1,0 +1,327 @@
+/*
+ * Copyright (C) 2026 Jordan Bettcher. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#pragma once
+
+#include "CPU.h"
+#include "FPRInfo.h"
+#include "GPRInfo.h"
+#include <utility>
+
+// Where does the Nth argument of a call into a C function go?
+//
+// There are exactly three places in JavaScriptCore that must answer that:
+// CCallHelpers (every callOperation, every DFG/Baseline/FTL slow path), Air
+// (every B3 CCall), and bun:ffi's computeCallLayout. Before this header they
+// answered it three different ways, and two of them were wrong on ELFv2.
+//
+// THE RULE, and it is one sentence: ELFv2 maps every scalar argument to its
+// own doubleword of the parameter save area in one shared sequence, so the
+// argument cursor IS the argument ordinal. Argument i owns doubleword i at
+// `32 + 8i` from the callee's incoming r1, whether or not anything is stored
+// there. It is in r(3+i) if it is integer-class and i < 8; in f(1+k) if it is
+// float-class and k < 13, where k counts the float-class arguments before it;
+// otherwise it is in its doubleword, on the stack.
+//
+// The consequence that every other convention gets to ignore: a double
+// CONSUMES its GPR slot without writing it. f(void*, double, int) is
+// r3, f1, **r5** -- not r4. SysV x86-64 and AAPCS64 both say the second
+// integer register, because they advance an integer counter and a float
+// counter independently, and that is the model JSC's shared template
+// machinery was written for. RISC-V's LP64D is a third model again
+// (independent counters, but a float that overflows the FP file takes a
+// GPR). ELFv2 is none of them.
+//
+// Measured against both compilers on six argument shapes, and against
+// libffi's ffi_prep_args64, in
+// powerpc64le-handbook/docs/jsc-ppc64le-c-call-cursor.md section 2.
+//
+// NOTE ON THE REGISTER TABLES BELOW. They are the ABI's, deliberately NOT
+// GPRInfo::toArgumentRegister / FPRInfo::toArgumentRegister. Those are JSC's
+// own INTERNAL conventions: wasm's CallInformation reuses them as a register
+// list for the wasm-internal and JS calling conventions, which IPInt, BBQ and
+// the wasm->JS thunks all agree on. They are not a C ABI. In particular
+// FPRInfo::numberOfArgumentRegisters is 8 on this port where ELFv2 has 13,
+// and "fixing" that number would silently change wasm's own convention. So
+// the cursor carries its own tables and leaves GPRInfo/FPRInfo alone.
+
+namespace JSC {
+
+enum class NativeArgumentClass : uint8_t { Integer, Float, Double };
+
+constexpr bool isFloatClass(NativeArgumentClass klass)
+{
+    return klass == NativeArgumentClass::Float || klass == NativeArgumentClass::Double;
+}
+
+struct NativeArgumentHome {
+    enum class Kind : uint8_t {
+        GPR,
+        FPR,
+        Stack,
+        // ELFv2 varargs only: a float-class argument in the variable portion
+        // of a variadic call travels in BOTH f(1+k) and r(3+i), and the
+        // callee reads the GPR. Measured; see the handbook section 6.1. No
+        // consumer produces this today -- JIT operations are prototyped by
+        // construction and FFI::Signature has no variadic notion -- and both
+        // consumers assert it away rather than half-support it. The kind
+        // exists so the rule is representable rather than merely absent.
+        FPRAndGPR,
+    };
+
+    Kind kind { Kind::GPR };
+    // GPR index 0..7, FPR index 0..12, or, for a Stack home, the doubleword.
+    unsigned index { 0 };
+    // On ELFv2 this is always the ordinal i. On the independent-counter
+    // ABIs it is the overflow slot number, which is what those ABIs mean by
+    // "which stack slot".
+    unsigned doubleword { 0 };
+    // The poke slot a caller stores this argument to, for the consumers that
+    // reach the stack through MacroAssembler::poke. Computed by place()
+    // rather than re-derived, because the two arms disagree about the base.
+    unsigned pokeSlot { 0 };
+
+    constexpr bool isRegister() const { return kind == Kind::GPR || kind == Kind::FPR; }
+
+    // The offset the CALLEE loads this argument from, measured from the
+    // stack pointer it was entered with. Doubleword i is at 32 + 8i: the 32
+    // is ELFv2's linkage area (back chain, CR, LR, TOC).
+    constexpr unsigned calleeRelativeOffset() const { return 32 + 8 * doubleword; }
+
+    constexpr unsigned pokeIndex() const { return pokeSlot; }
+};
+
+struct NativeArgumentCursor {
+    // ---- capacities ----
+    //
+    // What the ABI says: ELFv2 has thirteen floating-point argument
+    // registers, f1-f13.
+    static constexpr unsigned abiFPRCapacity = isPPC64() ? 13 : FPRInfo::numberOfArgumentRegisters;
+
+    // What this PORT can hand out, which is less, and the difference is not
+    // an ABI fact but a register-allocation one: f13 is fpTempRegister, the
+    // MacroAssembler's floating-point scratch and the register
+    // CCallHelpers::shuffleRegisters uses to break FPR cycles. Any move
+    // emitted between the last argument load and the branch may clobber it.
+    // bun:ffi's thunks are the one consumer allowed to use f13, because they
+    // load every FPR argument in one uninterrupted run and say so; a general
+    // marshaller cannot promise that, so it passes abiFPRCapacity
+    // explicitly and everything else takes this default.
+    //
+    // Today the maximum number of double parameters on any JIT operation is
+    // one, so this is a fence, not a cost.
+    static constexpr unsigned portFPRCapacity = isPPC64() ? 12 : FPRInfo::numberOfArgumentRegisters;
+
+    static constexpr unsigned defaultGPRCapacity = GPRInfo::numberOfArgumentRegisters;
+
+    // ---- state ----
+    //
+    // i -- the argument ordinal, and on ELFv2 the doubleword index too.
+    unsigned ordinal { 0 };
+    // Meaningful on the independent-counter ABIs only.
+    unsigned gprsUsed { 0 };
+    // k -- the number of float-class arguments placed so far. Numbered
+    // separately on every ABI here, but on ELFv2 NOT advanced separately.
+    unsigned fprsUsed { 0 };
+    // Independent-counter ABIs only: how many arguments have gone to the
+    // stack. This is what CCallHelpers::calculatePokeOffset computes today.
+    unsigned stackDoublewords { 0 };
+
+    // ---- which rule ----
+    //
+    // A field rather than a bare isPPC64() test because bun:ffi's
+    // computeCallLayout takes the convention as a runtime argument and is
+    // compiled on every host: a cursor asked for an ELFv2 layout must follow
+    // the ELFv2 rule whatever CPU it is running on.
+    bool sharedDoublewordCursor { isPPC64() };
+    unsigned gprCapacity { defaultGPRCapacity };
+    unsigned fprCapacity { portFPRCapacity };
+
+    // Pure: the home of the next argument, and the advanced cursor.
+    // constexpr so CCallHelpers can evaluate it on its template counters and
+    // Air and the FFI at run time.
+    constexpr std::pair<NativeArgumentHome, NativeArgumentCursor> place(NativeArgumentClass klass, bool variadicPortion = false) const
+    {
+        NativeArgumentHome home;
+        NativeArgumentCursor next = *this;
+
+        if (sharedDoublewordCursor) {
+            // ----- ELFv2: one cursor over both register files -----
+            home.doubleword = ordinal;
+
+            if (isFloatClass(klass)) {
+                if (fprsUsed < fprCapacity) {
+                    home.kind = variadicPortion && ordinal < gprCapacity
+                        ? NativeArgumentHome::Kind::FPRAndGPR
+                        : NativeArgumentHome::Kind::FPR;
+                    home.index = fprsUsed;
+                } else {
+                    // A float-class argument that has run out of FPRs homes
+                    // to its DOUBLEWORD, never to a GPR. For a scalar
+                    // argument list that branch is not merely unused, it is
+                    // unreachable: the k-th float-class argument has ordinal
+                    // i >= k, so the first one to miss an FPR (k = 13) has
+                    // i >= 13 > 7 and its doubleword is already on the
+                    // stack. Measured: the 14th double of f(double x 14) is
+                    // stored with `stfd 0,136(1)`. The case where libffi
+                    // does route a float through a GPR is a homogeneous
+                    // float aggregate -- a struct -- which neither bun:ffi
+                    // nor any JIT operation passes.
+                    home.kind = NativeArgumentHome::Kind::Stack;
+                    home.index = ordinal;
+                }
+                next.fprsUsed = fprsUsed + 1;
+            } else {
+                if (ordinal < gprCapacity) {
+                    home.kind = NativeArgumentHome::Kind::GPR;
+                    // THE FIX, in one expression: the GPR is chosen by the
+                    // ORDINAL, not by how many integers came before it. A
+                    // double ahead of this argument consumed its doubleword
+                    // and with it its GPR.
+                    home.index = ordinal;
+                } else {
+                    home.kind = NativeArgumentHome::Kind::Stack;
+                    home.index = ordinal;
+                }
+                next.gprsUsed = gprsUsed + 1;
+            }
+
+            // The poke base, for the consumers that reach the stack through
+            // MacroAssembler::poke. See the handbook section 5.1: the C-call
+            // sequence in MacroAssemblerPPC64::call pushes the 32-byte
+            // linkage area AFTER the arguments have been poked, and
+            // maxFrameExtentForSlowPathCall (32 bytes, four doublewords) is
+            // the poke area this convention assumes.
+            //
+            // CAUTION, and it is unreachable today rather than settled: this
+            // is the design's stated mapping, and it is what the port's
+            // existing comment and CCallHelpers::setupArgument both assume,
+            // but it does not follow from the code. Poke slot j is stored at
+            // sp+8j and the callee's r1 is sp-32, so slot j arrives at
+            // 32+8j from the callee -- doubleword j, not doubleword 8+j. No
+            // JIT operation can reach it either way: the widest operation in
+            // the tree takes six arguments and the widest float count is
+            // one, so no call through setupArguments has ever poked on this
+            // target. Preserved exactly as-is rather than "corrected" on an
+            // untested path; the base-case static_assert in CCallHelpers is
+            // what will fire if an operation ever grows wide enough to care.
+            home.pokeSlot = home.doubleword >= gprCapacity ? home.doubleword - gprCapacity : 0;
+
+            if (!home.isRegister())
+                next.stackDoublewords = stackDoublewords + 1;
+            next.ordinal = ordinal + 1;
+            return { home, next };
+        }
+
+        // ----- Independent counters: SysV x86-64, AAPCS64, Win64, LP64D ----
+        // Reproduces today's behaviour bit for bit, so that landing the
+        // cursor in shared files is a refactor with no behavioural change
+        // anywhere but ELFv2. That is the condition for touching shared
+        // files at all.
+        if (isFloatClass(klass)) {
+            if (fprsUsed < fprCapacity) {
+                home.kind = NativeArgumentHome::Kind::FPR;
+                home.index = fprsUsed;
+                next.fprsUsed = fprsUsed + 1;
+            } else {
+                home.kind = NativeArgumentHome::Kind::Stack;
+                home.index = stackDoublewords;
+                home.doubleword = stackDoublewords;
+                home.pokeSlot = stackDoublewords;
+                next.stackDoublewords = stackDoublewords + 1;
+                next.fprsUsed = fprsUsed + 1;
+            }
+        } else {
+            if (gprsUsed < gprCapacity) {
+                home.kind = NativeArgumentHome::Kind::GPR;
+                home.index = gprsUsed;
+                next.gprsUsed = gprsUsed + 1;
+            } else {
+                home.kind = NativeArgumentHome::Kind::Stack;
+                home.index = stackDoublewords;
+                home.doubleword = stackDoublewords;
+                home.pokeSlot = stackDoublewords;
+                next.stackDoublewords = stackDoublewords + 1;
+                next.gprsUsed = gprsUsed + 1;
+            }
+        }
+        next.ordinal = ordinal + 1;
+        return { home, next };
+    }
+
+    // What the caller must reserve above the linkage area. Zero if nothing
+    // homed to the stack and the callee is prototyped -- measured: a
+    // prototyped callee whose arguments all fit in registers gets a 32-byte
+    // frame, the linkage area and nothing else. Otherwise the area spans
+    // doublewords 0 .. max(ordinal, 8) - 1, because the caller owns the
+    // doublewords it does not store and the callee addresses doubleword i at
+    // 32 + 8i without knowing how many arguments were in registers.
+    constexpr unsigned parameterSaveAreaBytes(bool variadic = false) const
+    {
+        if (sharedDoublewordCursor) {
+            if (!stackDoublewords && !variadic)
+                return 0;
+            unsigned doublewords = ordinal > gprCapacity ? ordinal : gprCapacity;
+            return 8 * doublewords;
+        }
+        return 8 * stackDoublewords;
+    }
+};
+
+// The ABI's integer argument registers. NOT GPRInfo's -- see the note at the
+// head of this file.
+constexpr GPRReg nativeIntegerArgumentRegister(unsigned index)
+{
+#if CPU(PPC64LE)
+    constexpr GPRReg registerForIndex[8] = {
+        PPC64Registers::r3, PPC64Registers::r4, PPC64Registers::r5, PPC64Registers::r6,
+        PPC64Registers::r7, PPC64Registers::r8, PPC64Registers::r9, PPC64Registers::r10,
+    };
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(index < 8);
+    return registerForIndex[index];
+#else
+    return GPRInfo::toArgumentRegister(index);
+#endif
+}
+
+// The ABI's floating-point argument registers: f1-f13 on ELFv2, where
+// FPRInfo's table stops at f8.
+constexpr FPRReg nativeFloatArgumentRegister(unsigned index)
+{
+#if CPU(PPC64LE)
+    constexpr FPRReg registerForIndex[13] = {
+        PPC64Registers::f1, PPC64Registers::f2, PPC64Registers::f3, PPC64Registers::f4,
+        PPC64Registers::f5, PPC64Registers::f6, PPC64Registers::f7, PPC64Registers::f8,
+        PPC64Registers::f9, PPC64Registers::f10, PPC64Registers::f11, PPC64Registers::f12,
+        PPC64Registers::f13,
+    };
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(index < 13);
+    return registerForIndex[index];
+#else
+    return FPRInfo::toArgumentRegister(index);
+#endif
+}
+
+} // namespace JSC

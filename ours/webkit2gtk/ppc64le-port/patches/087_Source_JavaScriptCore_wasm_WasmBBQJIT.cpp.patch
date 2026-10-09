@@ -1,0 +1,56 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmBBQJIT.cpp b/Source/JavaScriptCore/wasm/WasmBBQJIT.cpp
+index 9b82a34a4d..ddbf87692c 100644
+--- a/Source/JavaScriptCore/wasm/WasmBBQJIT.cpp
++++ b/Source/JavaScriptCore/wasm/WasmBBQJIT.cpp
+@@ -4518,6 +4518,22 @@ void BBQJIT::emitTailCall(FunctionSpaceIndex functionIndexSpace, const RTT& sign
+     parameterLocations.append(Location::fromStack(tailCallStackOffsetFromFP + Checked<int>(sizeof(Register))));
+ #elif CPU(ARM64)
+     m_jit.loadPairPtr(MacroAssembler::framePointerRegister, callerFramePointer, MacroAssembler::linkRegister);
++#elif CPU(PPC64LE)
++    // The frame shape is ARM64's -- [cfr + 0] CallerFrame, [cfr + 8] ReturnPC,
++    // which is what pushFramePointerAndLinkRegister builds so that JIT frames
++    // and the LLInt's agree. What differs is that this target has no
++    // linkRegister GPR: LR is a special register, so the return address goes
++    // straight there and the two loads cannot be paired.
++    //
++    // Writing LR this early is safe, and that is a property of the transfer
++    // rather than an accident. Everything between here and it is register and
++    // stack movement, and BOTH transfers preserve LR: farJump lowers to
++    // mtctr/bctr (emitIndirectJump), and nearTailCall emits
++    // unlinkedBranchInsn(false) -- a plain branch, not a branch-and-link. If
++    // either ever became a linking branch this would have to move to just
++    // before the jump.
++    m_jit.loadPtr(Address(MacroAssembler::framePointerRegister), callerFramePointer);
++    m_jit.loadToLinkRegister(Address(MacroAssembler::framePointerRegister, sizeof(Register)));
+ #else
+     UNUSED_PARAM(callerFramePointer);
+     UNREACHABLE_FOR_PLATFORM();
+@@ -4796,6 +4812,19 @@ void BBQJIT::emitIndirectTailCall(const char* opcode, const Value& callee, GPRRe
+     GPRReg callerFramePointer = scratches.gpr(0);
+     scratches.unbindPreserved();
+     m_jit.loadPairPtr(MacroAssembler::framePointerRegister, callerFramePointer, MacroAssembler::linkRegister);
++#elif CPU(PPC64LE)
++    // As in emitTailCall: the frame shape is ARM64's, but there is no link
++    // register GPR here, so the return address goes straight to LR and the
++    // two loads cannot be paired. Everything between here and the farJump is
++    // register and stack movement, and farJump lowers to mtctr/bctr, which
++    // preserves LR.
++    auto preserved = callingConvention.argumentGPRs();
++    preserved.add(importableFunction, IgnoreVectors);
++    ScratchScope<1, 0> scratches(*this, WTF::move(preserved));
++    GPRReg callerFramePointer = scratches.gpr(0);
++    scratches.unbindPreserved();
++    m_jit.loadPtr(Address(MacroAssembler::framePointerRegister), callerFramePointer);
++    m_jit.loadToLinkRegister(Address(MacroAssembler::framePointerRegister, sizeof(Register)));
+ #else
+     UNREACHABLE_FOR_PLATFORM();
+ #endif
+@@ -4844,7 +4873,7 @@ void BBQJIT::emitIndirectTailCall(const char* opcode, const Value& callee, GPRRe
+     m_jit.loadPtr(Address(MacroAssembler::framePointerRegister, tailCallStackOffsetFromFP), wasmScratchGPR);
+     m_jit.addPtr(TrustedImm32(tailCallStackOffsetFromFP + Checked<int>(sizeof(Register))), MacroAssembler::framePointerRegister, MacroAssembler::stackPointerRegister);
+     m_jit.move(wasmScratchGPR, MacroAssembler::framePointerRegister);
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
+     m_jit.addPtr(TrustedImm32(tailCallStackOffsetFromFP + Checked<int>(sizeof(CallerFrameAndPC))), MacroAssembler::framePointerRegister, MacroAssembler::stackPointerRegister);
+     m_jit.move(callerFramePointer, MacroAssembler::framePointerRegister);
+ #else

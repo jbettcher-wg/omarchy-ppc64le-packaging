@@ -1,0 +1,16 @@
+diff --git a/Source/JavaScriptCore/assembler/MacroAssemblerX86_64.h b/Source/JavaScriptCore/assembler/MacroAssemblerX86_64.h
+index 762602e596..2facb3c62e 100644
+--- a/Source/JavaScriptCore/assembler/MacroAssemblerX86_64.h
++++ b/Source/JavaScriptCore/assembler/MacroAssemblerX86_64.h
+@@ -5205,6 +5205,11 @@ public:
+         x86Lea64(BaseIndex(a, b, TimesOne), dest);
+     }
+ 
++    // The name Air's Lea64 Index form uses, shared with PPC64 so the one form
++    // can carry both targets; opcode_generator.rb will not accept two forms
++    // with the same kinds and different alt-names.
++    void leaIndex64(BaseIndex index, RegisterID dest) { x86Lea64(index, dest); }
++
+     void x86Lea64(BaseIndex index, RegisterID dest)
+     {
+         if (!index.scale && !index.offset) {

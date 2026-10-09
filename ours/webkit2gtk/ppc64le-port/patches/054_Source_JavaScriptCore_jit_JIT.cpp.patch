@@ -1,0 +1,25 @@
+diff --git a/Source/JavaScriptCore/jit/JIT.cpp b/Source/JavaScriptCore/jit/JIT.cpp
+index f2a37ec560..ec09e63b57 100644
+--- a/Source/JavaScriptCore/jit/JIT.cpp
++++ b/Source/JavaScriptCore/jit/JIT.cpp
+@@ -835,6 +835,11 @@ RefPtr<BaselineJITCode> JIT::compileAndLinkWithoutFinalizing(JITCompilationEffor
+ 
+ #if CPU(X86_64)
+         pop(GPRInfo::argumentGPR1);
++#elif CPU(PPC64LE)
++        // The link register is an SPR here, so the return address is read
++        // out with mflr rather than moved from a named GPR. There is no
++        // pointer authentication to tag.
++        moveFromLinkRegister(GPRInfo::argumentGPR1);
+ #else
+         tagPtr(NoPtrTag, linkRegister);
+         move(linkRegister, GPRInfo::argumentGPR1);
+@@ -842,6 +847,8 @@ RefPtr<BaselineJITCode> JIT::compileAndLinkWithoutFinalizing(JITCompilationEffor
+         nearCallThunk(CodeLocationLabel { LLInt::arityFixup() });
+ #if CPU(X86_64)
+         push(GPRInfo::argumentGPR1);
++#elif CPU(PPC64LE)
++        moveToLinkRegister(GPRInfo::argumentGPR1);
+ #else
+         move(GPRInfo::argumentGPR1, linkRegister);
+         untagPtr(NoPtrTag, linkRegister);

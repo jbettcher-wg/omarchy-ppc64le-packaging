@@ -1,0 +1,34 @@
+diff --git a/Source/JavaScriptCore/jit/RegisterAtOffset.h b/Source/JavaScriptCore/jit/RegisterAtOffset.h
+index eaf0f6cbab..479fa7d324 100644
+--- a/Source/JavaScriptCore/jit/RegisterAtOffset.h
++++ b/Source/JavaScriptCore/jit/RegisterAtOffset.h
+@@ -47,8 +47,12 @@ public:
+     {
+         ASSERT(!(offset & 0b11));
+         ASSERT(width == conservativeWidthWithoutVectors(reg) || Options::useWasmSIMD());
+-        ASSERT(reg.index() < (1 << 6));
+-        ASSERT(Reg::last().index() < (1 << 6));
++        // Derived from m_regIndex's width rather than written as a literal:
++        // the literal was (1 << 6) while the field is 7 bits, and
++        // Reg::last().index() is 63 today -- exactly one below the stale
++        // bound, so the next register added to any port would have tripped it.
++        ASSERT(reg.index() < s_maxRegIndexPlusOne);
++        ASSERT(Reg::last().index() < s_maxRegIndexPlusOne);
+         ASSERT(this->reg() == reg);
+         ASSERT(this->offset() == offset);
+         ASSERT(this->width() == width);
+@@ -79,9 +83,12 @@ public:
+     void dump(PrintStream& out) const;
+ 
+ private:
+-    unsigned m_regIndex : 7 { Reg().index() };
++    static constexpr unsigned s_regIndexBits = 7;
++    static constexpr unsigned s_maxRegIndexPlusOne = 1u << s_regIndexBits;
++
++    unsigned m_regIndex : s_regIndexBits { Reg().index() };
+     unsigned m_width : 1 { false };
+-    ptrdiff_t m_offsetBits : (sizeof(ptrdiff_t) * CHAR_BIT - 7 - 1) { 0 };
++    ptrdiff_t m_offsetBits : (sizeof(ptrdiff_t) * CHAR_BIT - s_regIndexBits - 1) { 0 };
+ };
+ 
+ } // namespace JSC

@@ -1,0 +1,244 @@
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Eric Bélanger <eric@archlinux.org>
+
+pkgbase=webkit2gtk-4.1
+pkgname=(
+  webkit2gtk-4.1
+  webkit2gtk-4.1-docs
+)
+pkgver=2.54.1
+pkgrel=1
+pkgdesc="Web content engine for GTK"
+url="https://webkitgtk.org"
+arch=(x86_64 powerpc64le)
+license=(
+  # :sort ui /\v^\s*['"]?/
+  'AFL-2.0 OR GPL-2.0-or-later'
+  Apache-2.0
+  'Apache-2.0 WITH LLVM-exception'
+  BSD-2-Clause
+  BSD-2-Clause-Views
+  BSD-3-Clause
+  BSD-Source-Code
+  BSL-1.0
+  bzip2-1.0.6
+  GPL-2.0-only
+  'GPL-3.0-only WITH Autoconf-exception-3.0'
+  'GPL-3.0-or-later WITH Bison-exception-2.2'
+  ICU
+  ISC
+  LGPL-2.1-only
+  LGPL-2.1-or-later
+  MIT
+  MPL-1.1
+  MPL-2.0
+  NCSA
+  'NCSA OR MIT'
+  OFL-1.1
+  SunPro
+  Unicode-TOU
+)
+depends=(
+  at-spi2-core
+  atk
+  bubblewrap
+  cairo
+  enchant
+  expat
+  fontconfig
+  freetype2
+  gdk-pixbuf2
+  glib2
+  glibc
+  gst-plugins-bad-libs
+  gst-plugins-base-libs
+  gstreamer
+  gtk3
+  harfbuzz
+  harfbuzz-icu
+  hyphen
+  icu
+  lcms2
+  libatomic
+  libavif
+  libdrm
+  libegl
+  libepoxy
+  libgcc
+  libgcrypt
+  libgl
+  libgles
+  libjpeg-turbo
+  libjxl
+  libmanette
+  libpng
+  libseccomp
+  libsecret
+  libsoup3
+  libstdc++
+  libsystemd
+  libtasn1
+  libwebp
+  libx11
+  libxml2
+  libxslt
+  mesa
+  openjpeg2
+  pango
+  sqlite
+  ttf-font
+  wayland
+  woff2
+  xdg-dbus-proxy
+  zlib
+)
+makedepends_x86_64=(
+  clang
+  lld
+)
+makedepends=(
+  cmake
+  gi-docgen
+  glib2-devel
+  gobject-introspection
+  gperf
+  gst-plugins-bad
+  ninja
+  patch
+  python
+  ruby
+  ruby-stdlib
+  systemd
+  unifdef
+  wayland-protocols
+)
+source=(
+  $url/releases/webkitgtk-$pkgver.tar.xz{,.asc}
+)
+sha256sums=('ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d'
+            'SKIP')
+b2sums=('79c124b40fce5604c2adc81df7b640d1827b5e44577f1f728da77745f6f9859208d2ff51417d7a752c618ec02d62b3bb6b79f1db8230f83e5aed24b60f899928'
+        'SKIP')
+case $CARCH in
+  powerpc64le) options+=(!debug !lto) ;;
+esac
+
+validpgpkeys=(
+  # https://www.webkitgtk.org/verifying.html
+  5AA3BC334FD7E3369E7C77B291C559DBE4C9123B # Adrián Pérez de Castro <aperez@igalia.com>
+  013A0127AC9C65B34FFA62526C1009B693975393 # Carlos Garcia Campos <cgarcia@igalia.com>
+)
+
+prepare() {
+  cd webkitgtk-$pkgver
+
+  if [[ $CARCH == powerpc64le ]]; then
+    # The ppc64le JavaScriptCore JIT port: LLInt, Baseline, DFG, FTL (so B3
+    # and Air), YARR and all three WebAssembly tiers. Without it this target
+    # falls back to CLoop, which is the interpreter only -- the installed
+    # 2.50.4 package is such a build and has no ppc64 JIT symbols at all.
+    #
+    # Not a single patch. stage.sh explains why and applies four layers; it is
+    # self-contained and fails loudly rather than half-applying. Referenced
+    # from $startdir because it is a directory of 113 files rather than
+    # something source=() can carry.
+    "$startdir/ppc64le-port/stage.sh" .
+  fi
+}
+
+build() {
+  local cmake_options=(
+    -D CMAKE_BUILD_TYPE=Release
+    -D CMAKE_INSTALL_LIBDIR=lib
+    -D CMAKE_INSTALL_LIBEXECDIR=lib
+    -D CMAKE_INSTALL_PREFIX=/usr
+    -D CMAKE_SKIP_RPATH=ON
+    -D ENABLE_DOCUMENTATION=ON
+    -D ENABLE_MINIBROWSER=ON
+    -D ENABLE_SPEECH_SYNTHESIS=OFF
+    -D PORT=GTK
+    -D USE_FLITE=OFF
+    -D USE_GTK4=OFF
+    -D USE_LIBBACKTRACE=OFF
+    -D USE_SOUP2=OFF
+  )
+
+  if [[ $CARCH == powerpc64le ]]; then
+    # GCC, not clang: clang's integrated assembler accepts ISA 3.0 encodings
+    # even at -mcpu=power8, so a POWER9-only instruction would build clean
+    # here and SIGILL on a POWER8. GNU as rejects it, which is what keeps the
+    # repository's POWER8 baseline honest.
+    export CC=gcc CXX=g++
+
+    # bmalloc's libpas is enabled only for x86-64 and arm64 on Linux
+    # (BPlatform.h), and nothing else is selected by default, so a bare
+    # configure dies on "libpas, mimalloc, or system malloc needs to be
+    # specified". mimalloc is vendored in Source/bmalloc/mimalloc and is what
+    # RISC-V -- the other 64-bit JIT target without libpas -- defaults to.
+    cmake_options+=(
+      -D USE_MIMALLOC=ON
+      -D USE_SYSTEM_MALLOC=OFF
+    )
+
+    # skcms' musttail is x86/arm only; -mminimal-toc keeps the TOC inside its
+    # 64 KiB addressing window in translation units this large.
+    CFLAGS+=' -DSKCMS_HAS_MUSTTAIL=0 -mminimal-toc'
+    CXXFLAGS+=' -DSKCMS_HAS_MUSTTAIL=0 -mminimal-toc'
+    # The final link otherwise peaks past what this machine will give it.
+    LDFLAGS+=' -Wl,--no-keep-memory'
+  else
+    # Upstream prefers Clang
+    # https://gitlab.archlinux.org/archlinux/packaging/packages/webkitgtk-6.0/-/issues/4
+    export CC=clang CXX=clang++
+    LDFLAGS+=" -fuse-ld=lld"
+
+    # JITted code crashes when CET is used
+    CFLAGS+=' -fcf-protection=none'
+    CXXFLAGS+=' -fcf-protection=none'
+  fi
+
+  # Skia uses malloc_usable_size
+  CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+  CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+
+  cmake -S webkitgtk-$pkgver -B build -G Ninja "${cmake_options[@]}"
+  cmake --build build
+}
+
+package_webkit2gtk-4.1() {
+  provides+=(
+    libjavascriptcoregtk-4.1.so
+    libwebkit2gtk-4.1.so
+  )
+  optdepends=(
+    'geoclue: Geolocation support'
+    'gst-libav: nonfree media decoding'
+    'gst-plugins-bad: media decoding'
+    'gst-plugins-good: media decoding'
+  )
+
+  DESTDIR="$pkgdir" cmake --install build
+
+  rm -r "$pkgdir/usr/bin"
+
+  mkdir -p doc/usr/share
+  mv {"$pkgdir",doc}/usr/share/doc
+
+  cd webkitgtk-$pkgver
+  find Source -name 'COPYING*' -or -name 'LICENSE*' -print0 | sort -z |
+    while IFS= read -d $'\0' -r _f; do
+      echo "### $_f ###"
+      cat "$_f"
+      echo
+    done |
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+package_webkit2gtk-4.1-docs() {
+  pkgdesc+=" (documentation)"
+  depends=()
+
+  mv doc/* "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:

@@ -1,0 +1,257 @@
+diff --git a/Source/JavaScriptCore/yarr/YarrJIT.cpp b/Source/JavaScriptCore/yarr/YarrJIT.cpp
+index 44301daf39..a1679e8e44 100644
+--- a/Source/JavaScriptCore/yarr/YarrJIT.cpp
++++ b/Source/JavaScriptCore/yarr/YarrJIT.cpp
+@@ -83,6 +83,12 @@ static constexpr GPRReg areCanonicallyEquivalentCanonicalModeArgReg = X86Registe
+ 
+ // The thunk code assumes that we return the result to areCanonicallyEquivalentCharArgReg.
+ static_assert(areCanonicallyEquivalentCharArgReg == GPRInfo::returnValueGPR);
++#elif CPU(PPC64LE)
++static constexpr GPRReg areCanonicallyEquivalentCharArgReg = PPC64Registers::r8;   // regT0
++static constexpr GPRReg areCanonicallyEquivalentPattCharArgReg = PPC64Registers::r9; // regT1
++// Fixed by the RELEASE_ASSERTs on the 16-bit backreference call path: the
++// third argument must be regUnicodeInputAndTrail.
++static constexpr GPRReg areCanonicallyEquivalentCanonicalModeArgReg = PPC64Registers::r25;
+ #endif
+ #endif
+ 
+@@ -3353,7 +3359,7 @@ class YarrGenerator final : public YarrJITInfo {
+         ASSERT(opIndex + 1 < m_ops.size());
+ 
+         const MacroAssembler::RegisterID character = m_regs.regT0;
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         unsigned maxCharactersAtOnce = m_charSize == CharSize::Char8 ? 8 : 4;
+ #else
+         unsigned maxCharactersAtOnce = m_charSize == CharSize::Char8 ? 4 : 2;
+@@ -3655,7 +3661,7 @@ class YarrGenerator final : public YarrJITInfo {
+                         matchTargets.appendSucceeded(m_jit.branch32(MacroAssembler::Equal, character, MacroAssembler::Imm32(characters | caseMask)));
+                 };
+ 
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+                 auto check8 = [&] (Checked<unsigned> offset, uint64_t characters, uint64_t caseMask, uint64_t ignoredCharsMask, MatchTargets& matchTargets) {
+                     verifySubjectRead(negativeOffsetIndexedAddress(offset, character), 8, __LINE__);
+                     m_jit.load64(negativeOffsetIndexedAddress(offset, character), character);
+@@ -3684,7 +3690,7 @@ class YarrGenerator final : public YarrJITInfo {
+                     check4(checkedOffset - startPosition, allCharacters & 0xffffffff, caseMask & 0xffffffff, ignoredCharsMask, *matchTargetForFinalComparison);
+                     break;
+                 }
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+                 case 8: {
+                     check8(checkedOffset - startPosition, allCharacters, caseMask, ignoredCharsMask, *matchTargetForFinalComparison);
+                     break;
+@@ -3714,7 +3720,7 @@ class YarrGenerator final : public YarrJITInfo {
+                         matchTargets.appendSucceeded(m_jit.branch32(MacroAssembler::Equal, character, MacroAssembler::Imm32(characters | caseMask)));
+                 };
+ 
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+                 auto check4 = [&] (Checked<unsigned> offset, uint64_t characters, uint64_t caseMask, uint64_t ignoredCharsMask, MatchTargets& matchTargets) {
+                     verifySubjectRead(negativeOffsetIndexedAddress(offset, character), 8, __LINE__);
+                     m_jit.load64(negativeOffsetIndexedAddress(offset, character), character);
+@@ -3739,7 +3745,7 @@ class YarrGenerator final : public YarrJITInfo {
+                     check2(checkedOffset - startPosition, allCharacters & 0xffffffff, caseMask & 0xffffffff, *matchTargetForFinalComparison);
+                     break;
+                 }
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+                 case 4: {
+                     check4(checkedOffset - startPosition, allCharacters, caseMask, ignoredCharsMask, *matchTargetForFinalComparison);
+                     break;
+@@ -7773,7 +7779,7 @@ class YarrGenerator final : public YarrJITInfo {
+                 units.append({ frameChecked - term.inputPosition - repeat, term.patternCharacter, term.ignoreCase() });
+         }
+         unsigned unitBits = m_charSize == CharSize::Char8 ? 8 : 16;
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         static constexpr unsigned maxLoadBits = 64;
+ #else
+         static constexpr unsigned maxLoadBits = 32;
+@@ -7819,7 +7825,7 @@ class YarrGenerator final : public YarrJITInfo {
+             case 32:
+                 m_jit.load32WithUnalignedHalfWords(address, character);
+                 break;
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+             case 64:
+                 m_jit.load64(address, character);
+                 if (caseMask)
+@@ -8521,7 +8527,7 @@ class YarrGenerator final : public YarrJITInfo {
+         m_jit.move(MacroAssembler::TrustedImmPtr(span.data()), m_regs.regT1);
+         auto loopHead = m_jit.label();
+         readCharacterRaw(checkedOffset - endIndex + 1, m_regs.regT0);
+-#if CPU(ARM64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         static_assert(sizeof(BoyerMooreBitmap::Map::WordType) == sizeof(uint64_t));
+         static_assert(1 << 6 == 64);
+         static_assert(1 << (6 + 1) == BoyerMooreBitmap::Map::size());
+@@ -8551,6 +8557,34 @@ class YarrGenerator final : public YarrJITInfo {
+         jumpIfAvailableInput(strideLength).linkTo(loopHead, &m_jit);
+     }
+ 
++    // The compile-wide preconditions of generateBitInTableSIMDSearch (the per-search ones -- stride,
++    // offsets, candidate frequency -- are checked there).
++    //
++    // This lives OUTSIDE the CPU(ARM64) || CPU(X86_64) block below even though
++    // everything it gates is inside it, because it is called unconditionally
++    // from generateBoyerMooreSearch: with the definition inside the block, any
++    // other target that enables the YARR JIT fails to compile on an
++    // undeclared identifier. The body is already self-guarded and answers
++    // false everywhere else.
++    bool canUseVectorScan() const
++    {
++#if CPU(ARM64) || CPU(X86_64)
++        if (m_charSize != CharSize::Char8)
++            return false;
++        if (mayCall()) // calls clobber the vector registers
++            return false;
++        if (m_regs.vectorTemp0 == InvalidFPRReg || m_regs.vectorInput0 == InvalidFPRReg)
++            return false;
++#if CPU(X86_64)
++        if (!MacroAssembler::supportsAVX())
++            return false;
++#endif
++        return true;
++#else
++        return false;
++#endif
++    }
++
+ #if CPU(ARM64) || CPU(X86_64)
+     // Generate SIMD-accelerated multi-pattern search for alternation patterns like /agggtaaa|tttaccct/i:
+     // The idea comes from the SkipUntilOneOfMasked optimization from V8.
+@@ -8849,27 +8883,6 @@ class YarrGenerator final : public YarrJITInfo {
+         MacroAssembler::Label backtrackTarget;
+     };
+ 
+-    // The compile-wide preconditions of generateBitInTableSIMDSearch (the per-search ones -- stride,
+-    // offsets, candidate frequency -- are checked there).
+-    bool canUseVectorScan() const
+-    {
+-#if CPU(ARM64) || CPU(X86_64)
+-        if (m_charSize != CharSize::Char8)
+-            return false;
+-        if (mayCall()) // calls clobber the vector registers
+-            return false;
+-        if (m_regs.vectorTemp0 == InvalidFPRReg || m_regs.vectorInput0 == InvalidFPRReg)
+-            return false;
+-#if CPU(X86_64)
+-        if (!MacroAssembler::supportsAVX())
+-            return false;
+-#endif
+-        return true;
+-#else
+-        return false;
+-#endif
+-    }
+-
+     std::optional<SkipBitInTableSIMDResult> generateBitInTableSIMDSearch(const BoyerMooreBitmap::Map& bitmap, const BoyerMooreFastCandidates& charactersFastPath, unsigned strideLength, unsigned endIndex, unsigned checkedOffset, MacroAssembler::JumpList& matched)
+     {
+         if (!canUseVectorScan())
+@@ -9132,6 +9145,25 @@ class YarrGenerator final : public YarrJITInfo {
+             registers.add(X86Registers::r14, IgnoreVectors);
+ #elif CPU(ARM64)
+ #elif CPU(RISCV64)
++#elif CPU(PPC64LE)
++        // r29 and r30 are this port's MacroAssembler temporaries and are
++        // ELFv2-nonvolatile, so any generated code entered from C -- which a
++        // compiled regex is -- must save them. Every pattern needs them:
++        // materialising a constant for a character comparison goes through
++        // one.
++        registers.add(PPC64Registers::r29, IgnoreVectors);
++        registers.add(PPC64Registers::r30, IgnoreVectors);
++
++        // The three unicode/duplicate-named-group roles, on x86_64's
++        // condition for its r13-r15 widened by the duplicate named group
++        // case, which is where unicodeAndSubpatternIdTemp is used.
++        // matchingContext and remainingMatchCount are volatile here, so the
++        // m_containsNestedSubpatterns arm x86_64 needs has no counterpart.
++        if (mayCall() || m_callFrameSizeInBytes || m_pattern.hasDuplicateNamedCaptureGroups()) {
++            registers.add(PPC64Registers::r25, IgnoreVectors); // regUnicodeInputAndTrail
++            registers.add(PPC64Registers::r26, IgnoreVectors); // unicodeAndSubpatternIdTemp
++            registers.add(PPC64Registers::r27, IgnoreVectors); // endOfStringAddress
++        }
+ #endif
+         return registers;
+     }
+@@ -9152,7 +9184,9 @@ class YarrGenerator final : public YarrJITInfo {
+ 
+     void generateEnter()
+     {
+-#if CPU(X86_64) || CPU(RISCV64)
++        // PPC64 takes the unconditional arm: the prologue is what saves the
++        // link register and r31, so unlike ARM64 it is never skippable.
++#if CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+         m_jit.emitFunctionPrologue();
+ #elif CPU(ARM64)
+         // JITCage code is doing prologue and epilogue in thunk.
+@@ -9186,7 +9220,7 @@ class YarrGenerator final : public YarrJITInfo {
+ #endif
+ 
+         m_jit.emitRestoreCalleeSavesFor(&m_calleeSaves);
+-#if CPU(X86_64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+         m_jit.emitFunctionEpilogue();
+ #elif CPU(ARM64)
+         // JITCage code is doing prologue and epilogue in thunk.
+@@ -10057,11 +10091,40 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
+         pushCount--;
+         jit.pop(callerSaves[pushCount]);
+     };
++#elif CPU(PPC64LE)
++    // This is the only place YARR calls C, and ELFv2 keeps nothing volatile
++    // that matters here: every one of r3-r12 dies at the call. All ten are
++    // saved, including r3 -- unlike x86_64, which skips rax because the
++    // result lands there. On this target the result comes back in r3 and r3
++    // is also `input`, so it has to be saved and then deliberately
++    // overwritten with the result at the end.
++    //
++    // The callee-saved YARR registers (r25-r27) need no help: they are
++    // preserved by the C callee, and by generateEnter for the pattern.
++    constexpr unsigned registersToSave = 10;
++
++    constexpr GPRReg callerSaves[registersToSave] = {
++        PPC64Registers::r3, PPC64Registers::r4, PPC64Registers::r5, PPC64Registers::r6,
++        PPC64Registers::r7, PPC64Registers::r8, PPC64Registers::r9, PPC64Registers::r10,
++        PPC64Registers::r11, PPC64Registers::r12,
++    };
++
++    // ELFv2 requires r1 to stay 16-byte aligned, so these go in pairs; ten is
++    // even, so the run divides exactly.
++    auto pushCallerSavePair = [&]() {
++        jit.pushPair(callerSaves[pushCount], callerSaves[pushCount + 1]);
++        pushCount += 2;
++    };
++
++    auto popCallerSavePair = [&]() {
++        pushCount -= 2;
++        jit.popPair(callerSaves[pushCount], callerSaves[pushCount + 1]);
++    };
+ #endif
+ 
+     jit.emitFunctionPrologue();
+ 
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
+     while (pushCount < registersToSave)
+         pushCallerSavePair();
+ #elif CPU(X86_64)
+@@ -10086,6 +10149,16 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
+ 
+     while (pushCount)
+         popCallerSave();
++#elif CPU(PPC64LE)
++    // Widen the 8-bit bool before the pops, into a register the pops will not
++    // touch. r29 is a MacroAssembler temporary and is not in callerSaves, and
++    // generateEnter has already saved it for this pattern.
++    jit.zeroExtend8To32(GPRInfo::returnValueGPR, PPC64Registers::r29);
++
++    while (pushCount)
++        popCallerSavePair();
++
++    jit.move(PPC64Registers::r29, areCanonicallyEquivalentCharArgReg);
+ #endif
+ 
+     ASSERT(!pushCount);

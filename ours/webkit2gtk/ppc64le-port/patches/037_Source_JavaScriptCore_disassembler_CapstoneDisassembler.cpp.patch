@@ -1,0 +1,121 @@
+diff --git a/Source/JavaScriptCore/disassembler/CapstoneDisassembler.cpp b/Source/JavaScriptCore/disassembler/CapstoneDisassembler.cpp
+index 6ceddb8927..9dc8e52ea6 100644
+--- a/Source/JavaScriptCore/disassembler/CapstoneDisassembler.cpp
++++ b/Source/JavaScriptCore/disassembler/CapstoneDisassembler.cpp
+@@ -33,35 +33,97 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+ #include "MacroAssemblerCodeRef.h"
+ #include "Options.h"
+ #include <capstone/capstone.h>
++#include <algorithm>
++#include <cstring>
+ 
+ namespace JSC {
+ 
+-bool tryToDisassemble(const CodePtr<DisassemblyPtrTag>& codePtr, size_t size, void*, void*, const char* prefix, PrintStream& out)
+-{
+-    csh handle;
+-    cs_insn* instructions;
++namespace {
++
++// The architecture and mode this build's Capstone handle is opened with.
++// Kept next to the CPU() test rather than inline in tryToDisassemble() so
++// that a target whose mode flags are wrong is a one-line diff.
++struct CapstoneTarget {
++    cs_arch arch;
++    cs_mode mode;
++};
+ 
+ #if CPU(ARM64)
+-    if (cs_open(CS_ARCH_ARM64, CS_MODE_ARM, &handle) != CS_ERR_OK)
+-        return false;
+-#else
+-    return false;
++static constexpr CapstoneTarget capstoneTarget { CS_ARCH_ARM64, CS_MODE_ARM };
++#define HAVE_CAPSTONE_TARGET 1
++#elif CPU(PPC64LE)
++// ppc64 little-endian. CS_MODE_LITTLE_ENDIAN is 0 and so is redundant, but it
++// is spelled out because it is not a no-op decision: PPCDisassembler.c reads
++// the instruction word through MODE_IS_BIG_ENDIAN(), so the wrong choice does
++// not fail, it decodes every word byte-reversed into some other valid
++// instruction. CS_MODE_64 is what selects the 64-bit forms. The remaining PPC
++// mode bits - QPX, SPE, BOOKE, PS - name instruction sets this port does not
++// emit and POWER9 does not implement, and each of them steals encoding space
++// from the VSX forms the port does emit, so none is set.
++static constexpr CapstoneTarget capstoneTarget { CS_ARCH_PPC, static_cast<cs_mode>(CS_MODE_64 | CS_MODE_LITTLE_ENDIAN) };
++#define HAVE_CAPSTONE_TARGET 1
+ #endif
+ 
+-    size_t count = cs_disasm(handle, codePtr.dataLocation<unsigned char*>(), size, codePtr.dataLocation<uintptr_t>(), 0, &instructions);
+-    if (count > 0) {
+-        for (size_t i = 0; i < count; ++i) {
+-            auto& instruction = instructions[i];
+-            out.printf("%s%#16llx: %s %s", prefix, static_cast<unsigned long long>(instruction.address), instruction.mnemonic, instruction.op_str);
+-            if (auto str = AssemblyCommentRegistry::singleton().comment(reinterpret_cast<void *>(static_cast<uintptr_t>(instruction.address))))
+-                out.printf("; %s\n", str->ascii().data());
+-            else
+-                out.printf("\n");
+-        }
+-        cs_free(instructions, count);
++} // anonymous namespace
++
++bool tryToDisassemble(const CodePtr<DisassemblyPtrTag>& codePtr, size_t size, void*, void*, const char* prefix, PrintStream& out)
++{
++#if !defined(HAVE_CAPSTONE_TARGET)
++    UNUSED_PARAM(codePtr);
++    UNUSED_PARAM(size);
++    UNUSED_PARAM(prefix);
++    UNUSED_PARAM(out);
++    return false;
++#else
++    csh handle;
++    if (cs_open(capstoneTarget.arch, capstoneTarget.mode, &handle) != CS_ERR_OK)
++        return false;
++
++    cs_insn* instruction = cs_malloc(handle);
++    if (!instruction) {
++        cs_close(&handle);
++        return false;
+     }
++
++    auto printComment = [&](uintptr_t address) {
++        if (auto str = AssemblyCommentRegistry::singleton().comment(reinterpret_cast<void*>(address)))
++            out.printf("; %s\n", str->ascii().data());
++        else
++            out.printf("\n");
++    };
++
++    const uint8_t* cursor = codePtr.dataLocation<const uint8_t*>();
++    uintptr_t address = codePtr.dataLocation<uintptr_t>();
++    size_t remaining = size;
++
++    // cs_disasm() stops at the first word it cannot decode and reports how far
++    // it got, which in a JIT dump silently truncates everything after the first
++    // unknown encoding - exactly the case a dump is being read to investigate.
++    // Iterate instead, and on a decode failure emit the raw word and step over
++    // it. Both targets above are fixed 4-byte instruction sets, so resyncing is
++    // just an aligned step and cannot lose the instruction stream.
++    constexpr size_t instructionWidth = 4;
++    while (remaining) {
++        if (cs_disasm_iter(handle, &cursor, &remaining, &address, instruction)) {
++            out.printf("%s%#16llx: %s %s", prefix, static_cast<unsigned long long>(instruction->address), instruction->mnemonic, instruction->op_str);
++            printComment(static_cast<uintptr_t>(instruction->address));
++            continue;
++        }
++
++        size_t step = std::min(instructionWidth, remaining);
++        uint32_t word = 0;
++        memcpy(&word, cursor, step);
++        out.printf("%s%#16llx: .long %#010x", prefix, static_cast<unsigned long long>(address), word);
++        printComment(address);
++        cursor += step;
++        address += step;
++        remaining -= step;
++    }
++
++    cs_free(instruction, 1);
+     cs_close(&handle);
+     return true;
++#endif
+ }
+ 
+ } // namespace JSC

@@ -1,0 +1,28 @@
+diff --git a/Source/JavaScriptCore/offlineasm/backends.rb b/Source/JavaScriptCore/offlineasm/backends.rb
+index ffdc362123..481a250f38 100644
+--- a/Source/JavaScriptCore/offlineasm/backends.rb
++++ b/Source/JavaScriptCore/offlineasm/backends.rb
+@@ -26,6 +26,7 @@ require "arm64"
+ require "ast"
+ require "x86"
+ require "riscv64"
++require "ppc64"
+ require "cloop"
+ 
+ begin
+@@ -39,6 +40,7 @@ BACKENDS =
+      "ARM64",
+      "ARM64E",
+      "RISCV64",
++     "PPC64",
+      "C_LOOP"
+     ]
+ 
+@@ -53,6 +55,7 @@ WORKING_BACKENDS =
+      "ARM64",
+      "ARM64E",
+      "RISCV64",
++     "PPC64",
+      "C_LOOP"
+     ]
+ 

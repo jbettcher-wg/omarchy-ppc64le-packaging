@@ -1,0 +1,78 @@
+diff --git a/Source/JavaScriptCore/llint/LowLevelInterpreter64.asm b/Source/JavaScriptCore/llint/LowLevelInterpreter64.asm
+index 4a42633fe9..2ba748002d 100644
+--- a/Source/JavaScriptCore/llint/LowLevelInterpreter64.asm
++++ b/Source/JavaScriptCore/llint/LowLevelInterpreter64.asm
+@@ -126,7 +126,7 @@ macro cCall2(function)
+     checkStackPointerAlignment(scratch, 0xbad0c002)
+     if C_LOOP
+         cloopCallSlowPath function, a0, a1
+-    elsif X86_64 or ARM64 or ARM64E or RISCV64
++    elsif X86_64 or ARM64 or ARM64E or RISCV64 or PPC64
+         call function
+     else
+         error
+@@ -150,7 +150,7 @@ macro cCall3(function)
+     checkStackPointerAlignment(scratch, 0xbad0c003)
+     if C_LOOP
+         cloopCallSlowPath3 function, a0, a1, a2
+-    elsif X86_64 or ARM64 or ARM64E or RISCV64
++    elsif X86_64 or ARM64 or ARM64E or RISCV64 or PPC64
+         call function
+     else
+         error
+@@ -167,7 +167,7 @@ macro cCall4(function)
+     checkStackPointerAlignment(scratch, 0xbad0c004)
+     if C_LOOP
+         cloopCallSlowPath4 function, a0, a1, a2, a3
+-    elsif X86_64 or ARM64 or ARM64E or RISCV64
++    elsif X86_64 or ARM64 or ARM64E or RISCV64 or PPC64
+         call function
+     else
+         error
+@@ -176,6 +176,7 @@ end
+ 
+ macro doVMEntry(makeCall)
+     functionPrologue()
++    preserveNonvolatileTemporaries()
+ 
+     const entry = a0
+     const vm = a1
+@@ -305,7 +306,7 @@ macro doVMEntry(makeCall)
+         storep t2, VM::topEntryFrame[vm]
+     end
+ 
+-    subp cfr, CalleeRegisterSaveSize, sp
++    restoreNonvolatileTemporariesAndResetSP()
+ 
+     functionEpilogue()
+     ret
+@@ -330,7 +331,7 @@ _llint_throw_stack_overflow_error_from_vm_entry:
+ 
+     move ValueUndefined, r0
+ 
+-    subp cfr, CalleeRegisterSaveSize, sp
++    restoreNonvolatileTemporariesAndResetSP()
+     functionEpilogue()
+     ret
+ 
+@@ -347,6 +348,11 @@ _llint_call_javascript:
+         global _vmEntryToJavaScriptTrampoline
+         _vmEntryToJavaScriptTrampoline:
+         call t5, JSEntryPtrTag
++    elsif PPC64
++        # Generated code, and sp is the callee JS frame. See
++        # PPC64_INSTRUCTIONS in offlineasm/instructions.rb.
++        move entry, t5
++        ppc64JSCall(t5)
+     else
+         call entry, JSEntryPtrTag
+     end
+@@ -387,7 +393,7 @@ op(llint_handle_uncaught_exception, macro ()
+ 
+     move ValueUndefined, r0
+ 
+-    subp cfr, CalleeRegisterSaveSize, sp
++    restoreNonvolatileTemporariesAndResetSP()
+     functionEpilogue()
+     ret
+ end)

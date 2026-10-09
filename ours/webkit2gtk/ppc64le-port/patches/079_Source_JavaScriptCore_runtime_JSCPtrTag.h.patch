@@ -1,0 +1,66 @@
+diff --git a/Source/JavaScriptCore/runtime/JSCPtrTag.h b/Source/JavaScriptCore/runtime/JSCPtrTag.h
+index f99582dc4d..3309bceb4b 100644
+--- a/Source/JavaScriptCore/runtime/JSCPtrTag.h
++++ b/Source/JavaScriptCore/runtime/JSCPtrTag.h
+@@ -37,6 +37,25 @@ namespace JSC {
+ 
+ using PtrTag = WTF::PtrTag;
+ 
++// LLIntEntryPtrTag shares OperationPtrTag's category exactly -- native code
++// entered from JIT-generated code -- and separates a different thing: the
++// ENTRY CONTRACT of the callee. An operation is a C function and obeys the
++// platform ABI. An LLInt or IPInt entry point is offlineasm output and obeys
++// JSC's own conventions. On ARM64E and x86-64 those two contracts are the
++// same thing, which is why one tag served both. On PPC64LE they are not:
++// ELFv2 says a C function derives its TOC from r12 at its global entry and
++// finds its caller's frame through the back chain at 0(r1), while an LLInt
++// entry point has no global entry, never reads r12, and is entered with
++// r1 == cfr, where 0(r1) is the live JS frame's CallerFrame rather than spare
++// linkage area. MacroAssemblerPPC64::jumpTargetIsNativeCode() is the
++// consumer; the note above emitIndirectJump there has the measurements.
++//
++// The category is shared deliberately. Every ARM64E path this tag takes --
++// the JITOperationList assertion, the JIT-cage operation map, the signing
++// implementation, and the JumpSignatureType farJump picks -- is then the one
++// OperationPtrTag already took, so the only thing that differs on that
++// architecture is the diversifier constant, whose signing and authenticating
++// sites are the same two lines of the same function.
+ #define FOR_EACH_JSC_PTRTAG(v) \
+     /* Callee:Native Caller:None */ \
+     v(DisassemblyPtrTag, PtrTagCalleeType::Native, PtrTagCallerType::None) \
+@@ -68,6 +87,8 @@ using PtrTag = WTF::PtrTag;
+     v(CSSSelectorPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::Native) \
+     /* Callee:Native Caller:JIT */ \
+     v(OperationPtrTag, PtrTagCalleeType::Native, PtrTagCallerType::JIT) \
++    /* Same category as OperationPtrTag, different ENTRY CONTRACT -- see above the #define. */ \
++    v(LLIntEntryPtrTag, PtrTagCalleeType::Native, PtrTagCallerType::JIT) \
+     /* Callee:JIT Caller:JIT */ \
+     v(ExceptionHandlerPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::JIT) \
+     v(JITThunkPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::JIT) \
+@@ -130,7 +151,7 @@ ALWAYS_INLINE static PtrType tagJSCCodePtrImpl(PtrType ptr)
+ {
+     static_assert(callerType == PtrTagCallerType::JIT);
+     if constexpr (calleeType == PtrTagCalleeType::Native) {
+-        static_assert(tag == OperationPtrTag);
++        static_assert(tag == OperationPtrTag || tag == LLIntEntryPtrTag);
+         JITOperationList::assertIsJITOperation(ptr);
+ #if ENABLE(JIT_CAGE)
+ #if ENABLE(JIT_OPERATION_VALIDATION)
+@@ -159,7 +180,7 @@ ALWAYS_INLINE static PtrType untagJSCCodePtrImpl(PtrType ptr)
+ {
+     static_assert(callerType == PtrTagCallerType::JIT);
+     if constexpr (calleeType == PtrTagCalleeType::Native) {
+-        static_assert(tag == OperationPtrTag);
++        static_assert(tag == OperationPtrTag || tag == LLIntEntryPtrTag);
+         JITOperationList::assertIsJITOperationWithValidation(ptr);
+ #if ENABLE(JIT_CAGE)
+         if (Options::useJITCage()) {
+@@ -183,7 +204,7 @@ ALWAYS_INLINE static bool isTaggedJSCCodePtrImpl(PtrType ptr)
+ {
+     static_assert(callerType == PtrTagCallerType::JIT);
+     if constexpr (calleeType == PtrTagCalleeType::Native) {
+-        static_assert(tag == OperationPtrTag);
++        static_assert(tag == OperationPtrTag || tag == LLIntEntryPtrTag);
+ #if ENABLE(JIT_CAGE)
+         if (Options::useJITCage()) {
+ #if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)

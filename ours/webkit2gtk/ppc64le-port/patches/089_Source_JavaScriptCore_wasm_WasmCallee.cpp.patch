@@ -1,0 +1,13 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmCallee.cpp b/Source/JavaScriptCore/wasm/WasmCallee.cpp
+index db74314202..8720290964 100644
+--- a/Source/JavaScriptCore/wasm/WasmCallee.cpp
++++ b/Source/JavaScriptCore/wasm/WasmCallee.cpp
+@@ -564,7 +564,7 @@ const RegisterAtOffsetList* JSToWasmCallee::calleeSaveRegistersImpl()
+     // This must be the same to JSToWasm's callee save registers.
+     // The reason is that we may use m_replacementCallee which can be set at any time.
+     // So, we must store the same callee save registers at the same location to the JIT version.
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     ASSERT(RegisterAtOffsetList::wasmPinnedRegisters().registerCount() == 3);
+ #else
+ #error Unsupported architecture.

@@ -1,0 +1,211 @@
+diff --git a/Source/JavaScriptCore/jit/RegisterSet.cpp b/Source/JavaScriptCore/jit/RegisterSet.cpp
+index 8f0193ea4b..9579d61dc4 100644
+--- a/Source/JavaScriptCore/jit/RegisterSet.cpp
++++ b/Source/JavaScriptCore/jit/RegisterSet.cpp
+@@ -83,7 +83,16 @@ RegisterSet RegisterSet::reservedHardwareRegisters()
+     FOR_EACH_FP_REGISTER(SET_IF_RESERVED)
+ #undef SET_IF_RESERVED
+ 
+-    ASSERT(!result.numberOfSetFPRs());
++    // PPC64 reserves f0 and f13, the MacroAssembler's two FP temporaries, for
++    // the same reason it reserves r29 and r30: Air's register pool is
++    // allFPRs() minus the stack registers minus this set (AirCode.cpp), and
++    // emitFloatCompare clobbers both temporaries while converting its operands
++    // to double format. Every other consumer of this set either excludes it
++    // from or merges it into "registers that may not hold a live value", which
++    // is exactly what a scratch register is -- WasmCallingConvention excluding
++    // it from its scratch candidates is an improvement, not a tolerance. So the
++    // invariant is kept for the targets where it holds rather than deleted.
++    ASSERT(isPPC64() || !result.numberOfSetFPRs());
+ 
+     return result;
+ }
+@@ -121,7 +130,7 @@ RegisterSet RegisterSet::macroClobberedGPRs()
+     RegisterSet result;
+ #if CPU(X86_64)
+     result.add(MacroAssembler::s_scratchRegister);
+-#elif CPU(ARM64) || CPU(RISCV64)
++#elif CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     result.add(MacroAssembler::dataTempRegister);
+     result.add(MacroAssembler::memoryTempRegister);
+ #endif
+@@ -133,7 +142,7 @@ RegisterSet RegisterSet::macroClobberedFPRs()
+     RegisterSet result;
+ #if CPU(X86_64) || CPU(ARM64)
+     result.add(MacroAssembler::fpTempRegister, IgnoreVectors);
+-#elif CPU(RISCV64)
++#elif CPU(RISCV64) || CPU(PPC64LE)
+     result.add(MacroAssembler::fpTempRegister, IgnoreVectors);
+     result.add(MacroAssembler::fpTempRegister2, IgnoreVectors);
+ #endif
+@@ -210,6 +219,96 @@ RegisterSet RegisterSet::vmCalleeSaveRegisters()
+     result.add(FPRInfo::fpRegCS9, IgnoreVectors);
+     result.add(FPRInfo::fpRegCS10, IgnoreVectors);
+     result.add(FPRInfo::fpRegCS11, IgnoreVectors);
++#elif CPU(PPC64LE)
++    result.add(GPRInfo::regCS0);
++    result.add(GPRInfo::regCS1);
++    result.add(GPRInfo::regCS2);
++    result.add(GPRInfo::regCS3);
++    result.add(GPRInfo::regCS4);
++    result.add(GPRInfo::regCS5);
++    result.add(GPRInfo::regCS6);
++    result.add(GPRInfo::regCS7);
++    result.add(GPRInfo::regCS8);
++    result.add(GPRInfo::regCS9);
++    result.add(GPRInfo::regCS10);
++    result.add(FPRInfo::fpRegCS0, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS1, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS2, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS3, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS4, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS5, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS6, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS7, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS8, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS9, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS10, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS11, IgnoreVectors);
++#endif
++    // VMEntryRecord::calleeSaveRegistersBuffer is sized by
++    // NUMBER_OF_CALLEE_SAVES_REGISTERS, and copyCalleeSavesToBuffer() in
++    // LowLevelInterpreter.asm writes one slot per register in this set. If the
++    // three ever disagree the copy runs off the end of the record and
++    // corrupts whatever the VM entry frame keeps above it -- silently, and
++    // only on the paths that copy (exception unwinding). RELEASE_ASSERT
++    // because this is not a hot function and a debug-only check would not
++    // have caught it in the RelWithDebInfo build where it first bit.
++#if NUMBER_OF_CALLEE_SAVES_REGISTERS > 0
++    RELEASE_ASSERT(result.numberOfSetRegisters() == NUMBER_OF_CALLEE_SAVES_REGISTERS,
++        result.numberOfSetRegisters(), NUMBER_OF_CALLEE_SAVES_REGISTERS);
++#endif
++    return result;
++}
++
++RegisterSet RegisterSet::vmEntryPreservedTemporaries()
++{
++    RegisterSet result;
++#if CPU(PPC64LE)
++    // ONLY the MacroAssembler's two temps, and the reason is that they are
++    // RESERVED: Air never allocates them, nothing holds a live value in them
++    // across a call, and AirHandleCalleeSaves merges them into every Air
++    // procedure's save list anyway (macroClobberedGPRs() & calleeSaveRegisters()
++    // when isPPC64()), so they turn up in a list with no buffer slot through no
++    // fault of the procedure. Dropping them on unwind loses nothing.
++    //
++    // r25-r28 are deliberately NOT here even though preserveNonvolatileTemporaries()
++    // in llint/LowLevelInterpreter.asm saves all six of r25-r30 and they are
++    // equally absent from vmCalleeSaveRegisters(). They are ALLOCATABLE --
++    // GPRInfo names r25-r27 regT10-regT12 -- so an Air procedure can hold a
++    // live JSValue in one across a throw, and the entry-frame copy is how the
++    // handler gets it back. Skipping them instead cost two tests that had been
++    // passing: stress/generator-fib-ftl-and-string.js and
++    // stress/arrowfunction-run-10000-1.js died in
++    // operationValueAddProfiledNoOptimize with a JSValue that failed
++    // downcast<JSObject> in JSCell::toPrimitive -- a value that was dropped on
++    // the way out rather than restored. The asm macro restores the registers
++    // the VM ENTRY saw, which is what a C++ caller needs and not what an
++    // intermediate JS handler needs.
++    //
++    // Doing r25-r28 properly means giving them real slots in
++    // VMEntryRecord::calleeSaveRegistersBuffer, which is a wider change (the
++    // buffer size, the slot map, and the LLInt assembly that writes it). Until
++    // then they still reach the RELEASE_ASSERT below, and some of the residual
++    // SIGABRTs are expected to be exactly that.
++    static_assert(PPC64Registers::r29 == MacroAssembler::dataTempRegister);
++    static_assert(PPC64Registers::r30 == MacroAssembler::memoryTempRegister);
++    result.add(PPC64Registers::r29);
++    result.add(PPC64Registers::r30);
++#endif
++    return result;
++}
++
++RegisterSet RegisterSet::unrecordableCalleeSaveRegisters()
++{
++    RegisterSet result;
++#if CPU(PPC64LE)
++    // ELFv2 makes r14-r28 and f14-f31 nonvolatile, but VMEntryRecord's
++    // calleeSaveRegistersBuffer only has slots for r14-r24 and f14-f25 --
++    // which is what NUMBER_OF_CALLEE_SAVES_REGISTERS and
++    // copyCalleeSavesToBuffer in LowLevelInterpreter.asm are sized and written
++    // for. The difference is r25-r28 and f26-f31, and Air allocating one of
++    // those puts it in a save list that an unwind cannot look up.
++    result = calleeSaveRegisters();
++    result.exclude(vmCalleeSaveRegisters());
+ #endif
+     return result;
+ }
+@@ -225,7 +324,7 @@ RegisterSet RegisterSet::llintBaselineCalleeSaveRegisters()
+     result.add(GPRInfo::regCS2);
+     result.add(GPRInfo::regCS3);
+     result.add(GPRInfo::regCS4);
+-#elif CPU(ARM64) || CPU(RISCV64)
++#elif CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     result.add(GPRInfo::regCS6);
+     static_assert(GPRInfo::regCS7 == GPRInfo::jitDataRegister);
+     static_assert(GPRInfo::regCS8 == GPRInfo::numberTagRegister);
+@@ -251,7 +350,7 @@ RegisterSet RegisterSet::dfgCalleeSaveRegisters()
+     result.add(GPRInfo::regCS2);
+     result.add(GPRInfo::regCS3);
+     result.add(GPRInfo::regCS4);
+-#elif CPU(ARM64) || CPU(RISCV64)
++#elif CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     static_assert(GPRInfo::regCS7 == GPRInfo::jitDataRegister);
+     static_assert(GPRInfo::regCS8 == GPRInfo::numberTagRegister);
+     static_assert(GPRInfo::regCS9 == GPRInfo::notCellMaskRegister);
+@@ -327,6 +426,46 @@ RegisterSet RegisterSet::ftlCalleeSaveRegisters()
+     result.add(FPRInfo::fpRegCS9, IgnoreVectors);
+     result.add(FPRInfo::fpRegCS10, IgnoreVectors);
+     result.add(FPRInfo::fpRegCS11, IgnoreVectors);
++#elif CPU(PPC64LE)
++    // Same set as vmCalleeSaveRegisters() above, which is how every other
++    // target here relates the two: X86_64 lists regCS0-regCS4 in both,
++    // RISCV64 regCS0-regCS10 plus fpRegCS0-fpRegCS11 in both, ARM64
++    // regCS0-regCS9 plus fpRegCS0-fpRegCS7 in both. It has to be: FTL's OSR
++    // exit compiler reads this to find where the callee saves it must restore
++    // were put, and what put them there is the VM entry frame, which uses
++    // vmCalleeSaveRegisters().
++    //
++    // Without this arm the #else below made ftlCalleeSaveRegisters()
++    // UNREACHABLE_FOR_PLATFORM() -- so an FTL build compiled, tiered up and
++    // ran, then aborted at the first OSR exit in FTL::compileStub
++    // (ftl/FTLOSRExitCompiler.cpp). That is the only thing a bare
++    // ENABLE_FTL_JIT=ON hit on this target.
++    result.add(GPRInfo::regCS0);
++    result.add(GPRInfo::regCS1);
++    result.add(GPRInfo::regCS2);
++    result.add(GPRInfo::regCS3);
++    result.add(GPRInfo::regCS4);
++    result.add(GPRInfo::regCS5);
++    result.add(GPRInfo::regCS6);
++    static_assert(GPRInfo::regCS7 == GPRInfo::jitDataRegister);
++    static_assert(GPRInfo::regCS8 == GPRInfo::numberTagRegister);
++    static_assert(GPRInfo::regCS9 == GPRInfo::notCellMaskRegister);
++    result.add(GPRInfo::regCS7);
++    result.add(GPRInfo::regCS8);
++    result.add(GPRInfo::regCS9);
++    result.add(GPRInfo::regCS10);
++    result.add(FPRInfo::fpRegCS0, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS1, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS2, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS3, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS4, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS5, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS6, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS7, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS8, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS9, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS10, IgnoreVectors);
++    result.add(FPRInfo::fpRegCS11, IgnoreVectors);
+ #else
+     UNREACHABLE_FOR_PLATFORM();
+ #endif
+@@ -422,7 +561,7 @@ RegisterSet RegisterSet::ipintCalleeSaveRegisters()
+ #if CPU(X86_64)
+     registers.add(GPRInfo::regCS1); // MC (pointer to metadata)
+     registers.add(GPRInfo::regCS2); // PB
+-#elif CPU(ARM64) || CPU(RISCV64)
++#elif CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     registers.add(GPRInfo::regCS6); // MC
+     registers.add(GPRInfo::regCS7); // PB
+ #else

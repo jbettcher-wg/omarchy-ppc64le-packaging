@@ -1,0 +1,242 @@
+diff --git a/Source/JavaScriptCore/assembler/PPC64Registers.h b/Source/JavaScriptCore/assembler/PPC64Registers.h
+new file mode 100644
+index 0000000000..9e16912aaa
+--- /dev/null
++++ b/Source/JavaScriptCore/assembler/PPC64Registers.h
+@@ -0,0 +1,236 @@
++/*
++ * Copyright (C) 2026 Justin Bettcher. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
++ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
++ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#pragma once
++
++#include <wtf/Platform.h>
++
++#if CPU(PPC64LE)
++
++// The 64-bit PowerPC ELFv2 ABI (OpenPOWER ABI for Linux Supplement, v1.5).
++//
++// THIS FILE AND offlineasm/ppc64.rb MUST AGREE. The offlineasm backend is the
++// source of truth: it is what the LLInt is lowered through, and the LLInt and
++// JIT-generated code share the callee-saved half of the register file. The
++// mapping, mirrored from ppc64.rb's header comment:
++//
++//   r0        scratch inside fixed sequences only; never a base register and
++//             never handed to an allocator (in most D-form instructions RA=0
++//             means "the literal 0", not "register 0").
++//   r1        sp
++//   r2        TOC pointer. Never written by generated code; restored from
++//             24(r1) after every call; every global symbol address is formed
++//             relative to it. See jsc-ppc64le-port.md section 5.3.
++//   r3-r10    t0-t7, and the ELFv2 argument/return registers.
++//   r11       t8
++//   r12       t9, and the ELFv2 indirect-call target register.
++//   r13       thread pointer. Never touched.
++//   r14-r24   csr0-csr10 (callee-saved). csr6-csr9 = r20-r23 carry
++//             metadataTable / PB / numberTag / notCellMask, matching the
++//             ARM64 and RISCV64 assignment in LowLevelInterpreter.asm.
++//   r25-r27   t10-t12. Callee-saved in the ABI, so the VM entry frame saves
++//             them; they are volatile as far as offlineasm is concerned.
++//   r28-r30   offlineasm's temporary pool. r29/r30 are also the
++//             MacroAssembler's dataTempRegister/memoryTempRegister -- the two
++//             code streams never share a live temporary, only the persistent
++//             registers below.
++//   r31       cfr (the JSC call frame register, JSC's "frame pointer").
++//
++//   f0        scratch inside fixed sequences only.
++//   f1-f8     ft0-ft7, and the ELFv2 FP argument/return registers.
++//   f9-f12    offlineasm's FP temporary pool.
++//   f13       the MacroAssembler's fpTempRegister, with f0 as fpTempRegister2.
++//             BOTH ARE VOLATILE AND MUST STAY SO. They were f30/f31, which are
++//             callee-saved and which NOTHING SAVES -- the VM entry frame
++//             preserves f14-f25 only -- so JIT code holding a live value there
++//             across a call silently corrupted the floating-point state of the
++//             C++ that called into the engine. Fixed in dee625ed42, found by a
++//             testmasm CHECK_EQ whose expected value, a pure arithmetic
++//             expression, printed differently from what it had just been
++//             compared against. Moving either back above f25 reintroduces that
++//             bug unless the VM entry frame is extended to save it.
++//             The cost of f13 being taken is that it is also ELFv2's 13th FP
++//             argument register, so portFPRCapacity is 12: see
++//             powerpc64le-handbook docs/jsc-ppc64le-register-map-revision.md 3.
++//   f14-f25   csfr0-csfr11 (callee-saved).
++//   f26-f31   unused.
++//
++// The link register and count register are not GPRs on PowerPC; they are SPRs
++// reached through mflr/mtlr and mfctr/mtctr, and appear here only in
++// FOR_EACH_SP_REGISTER so that ProbeContext and the disassembler can name
++// them. There is deliberately no `linkRegister` GPR: MacroAssemblerPPC64 uses
++// the SPR directly.
++
++#define RegisterNames PPC64Registers
++
++// macro(id, name, isReserved, isCalleeSaved)
++//
++// isReserved covers the registers the ABI or this port forbids allocating:
++// r0 (not addressable as a base register), r1 (sp), r2 (TOC), r13 (TLS),
++// r31 (cfr) -- and, unlike ARM64 and RISCV64, the two MacroAssembler scratch
++// registers r29 and r30.
++//
++// Reserving those two is a deliberate divergence and it is not free; the
++// reasoning is in powerpc64le-handbook docs/jsc-ppc64le-air-bringup.md section
++// 5. In short: Air generates with the macro scratch forbidden, because on
++// ARM64 and x86-64 the allocator may hold a live value in ip0/ip1 or r11. That
++// works there because almost nothing those targets emit from an Air Inst needs
++// a staging register -- x86 has memory operands and 32-bit displacements,
++// ARM64 has wide immediate fields and architectural condition flags. This
++// target has neither: it may not read XER, so every overflow, carry and
++// comparison result is synthesised through a register, and it has no
++// store-immediate instruction at all. Measured under ENABLE_ASSERTS, 78 of 998
++// testb3 groups died on RELEASE_ASSERT(m_allowScratchRegister).
++//
++// The cost is two registers out of the twenty-seven Air would otherwise have
++// (r3-r12 and r14-r30; note this is NOT GPRInfo::numberOfRegisters, which
++// counts the regT file and never included r29 or r30). The consequence for
++// RegisterSet::reservedHardwareRegisters() is that it now names two registers
++// that are not reserved by the ABI -- but every consumer of that set uses it to
++// mean "nothing holds a live value here", which is exactly true of a scratch
++// register, so the meaning survives the widening.
++//
++// RegisterSet::macroClobberedGPRs() still names them, and now declares a
++// patchpoint clobber of registers nothing can allocate. That is inert rather
++// than meaningful, and it is left in place so the two sets do not drift.
++//
++// isCalleeSaved is the ELFv2 fact: r14-r31 are nonvolatile. r1 is nonvolatile
++// too. r2 is NOT listed: JIT code never writes it, so putting it in
++// RegisterSet::calleeSaveRegisters() would only buy pointless spills.
++
++#define FOR_EACH_GP_REGISTER(macro) \
++    macro(r0, "r0"_s, 1, 0)         \
++    macro(r1, "r1"_s, 1, 1)         \
++    macro(r2, "r2"_s, 1, 0)         \
++    macro(r3, "r3"_s, 0, 0)         \
++    macro(r4, "r4"_s, 0, 0)         \
++    macro(r5, "r5"_s, 0, 0)         \
++    macro(r6, "r6"_s, 0, 0)         \
++    macro(r7, "r7"_s, 0, 0)         \
++    macro(r8, "r8"_s, 0, 0)         \
++    macro(r9, "r9"_s, 0, 0)         \
++    macro(r10, "r10"_s, 0, 0)       \
++    macro(r11, "r11"_s, 0, 0)       \
++    macro(r12, "r12"_s, 0, 0)       \
++    macro(r13, "r13"_s, 1, 0)       \
++    macro(r14, "r14"_s, 0, 1)       \
++    macro(r15, "r15"_s, 0, 1)       \
++    macro(r16, "r16"_s, 0, 1)       \
++    macro(r17, "r17"_s, 0, 1)       \
++    macro(r18, "r18"_s, 0, 1)       \
++    macro(r19, "r19"_s, 0, 1)       \
++    macro(r20, "r20"_s, 0, 1)       \
++    macro(r21, "r21"_s, 0, 1)       \
++    macro(r22, "r22"_s, 0, 1)       \
++    macro(r23, "r23"_s, 0, 1)       \
++    macro(r24, "r24"_s, 0, 1)       \
++    macro(r25, "r25"_s, 0, 1)       \
++    macro(r26, "r26"_s, 0, 1)       \
++    macro(r27, "r27"_s, 0, 1)       \
++    macro(r28, "r28"_s, 0, 1)       \
++/* MacroAssembler scratch registers */ \
++    macro(r29, "r29"_s, 1, 1)       \
++    macro(r30, "r30"_s, 1, 1)       \
++    macro(r31, "r31"_s, 1, 1)
++
++#define FOR_EACH_REGISTER_ALIAS(macro) \
++    macro(sp, "sp"_s, r1)              \
++    macro(toc, "toc"_s, r2)            \
++    macro(tp, "tp"_s, r13)             \
++    macro(fp, "fp"_s, r31)
++
++// The special-purpose registers this port names. `pc` is the NIP: it is not
++// architecturally readable, but ProbeContext and MachineContext both need a
++// slot for it, and the machine context supplies it from PT_NIP.
++#define FOR_EACH_SP_REGISTER(macro) \
++    macro(pc, "pc"_s)               \
++    macro(lr, "lr"_s)               \
++    macro(ctr, "ctr"_s)             \
++    macro(cr, "cr"_s)               \
++    macro(xer, "xer"_s)
++
++// f14-f31 are nonvolatile in ELFv2.
++//
++// f0 and f13 are RESERVED, for the same reason r29 and r30 are: they are the
++// MacroAssembler's fpTempRegister2/fpTempRegister, and Air's register pool is
++// built from this file rather than from FPRInfo -- whose allocatable set is
++// f1-f12 and therefore excludes them already. Without the reservation Air may
++// hand a live Tmp an FPR that emitFloatCompare then clobbers, because it
++// converts both operands to double format through both temporaries before
++// fcmpu. There is no FP analogue of RegisterSet::macroClobberedGPRs() to catch
++// it, and the result is a wrong floating-point value rather than a crash.
++// See powerpc64le-handbook docs/jsc-ppc64le-air-bringup.md section 5.
++#define FOR_EACH_FP_REGISTER(macro) \
++    macro(f0, "f0"_s, 1, 0)         \
++    macro(f1, "f1"_s, 0, 0)         \
++    macro(f2, "f2"_s, 0, 0)         \
++    macro(f3, "f3"_s, 0, 0)         \
++    macro(f4, "f4"_s, 0, 0)         \
++    macro(f5, "f5"_s, 0, 0)         \
++    macro(f6, "f6"_s, 0, 0)         \
++    macro(f7, "f7"_s, 0, 0)         \
++    macro(f8, "f8"_s, 0, 0)         \
++    macro(f9, "f9"_s, 0, 0)         \
++    macro(f10, "f10"_s, 0, 0)       \
++    macro(f11, "f11"_s, 0, 0)       \
++    macro(f12, "f12"_s, 0, 0)       \
++    macro(f13, "f13"_s, 1, 0)       \
++    macro(f14, "f14"_s, 0, 1)       \
++    macro(f15, "f15"_s, 0, 1)       \
++    macro(f16, "f16"_s, 0, 1)       \
++    macro(f17, "f17"_s, 0, 1)       \
++    macro(f18, "f18"_s, 0, 1)       \
++    macro(f19, "f19"_s, 0, 1)       \
++    macro(f20, "f20"_s, 0, 1)       \
++    macro(f21, "f21"_s, 0, 1)       \
++    macro(f22, "f22"_s, 0, 1)       \
++    macro(f23, "f23"_s, 0, 1)       \
++    macro(f24, "f24"_s, 0, 1)       \
++    macro(f25, "f25"_s, 0, 1)       \
++    macro(f26, "f26"_s, 0, 1)       \
++    macro(f27, "f27"_s, 0, 1)       \
++    macro(f28, "f28"_s, 0, 1)       \
++    macro(f29, "f29"_s, 0, 1)       \
++/* f26-f31 are callee-save and NOT reserved, which is correct: Air may use a
++   callee-save register freely because AirHandleCalleeSaves emits the save and
++   restore for it in the procedure's own prologue and epilogue, so the caller's
++   value is preserved. What Air must not do is allocate a callee-save the VM
++   entry frame cannot RECORD, because an exception unwinding through the frame
++   looks every register in the save list up in the buffer slot map; FPRInfo
++   names only f14-f25 (fpRegCS0-fpRegCS11) and those are the FPRs
++   vmCalleeSaveRegisters() covers. That restriction belongs in Air's register
++   pool, not here -- see b3/air/AirCode.cpp -- because reserving these instead
++   changes every other consumer of reservedHardwareRegisters() and was measured
++   to break stress/generator-fib-ftl-and-string.js.
++
++   f30/f31 used to be labelled the "MacroAssembler scratch registers" here.
++   They have not been since those moved to f0/f13, which are reserved, and the
++   reason for the move is in FPRInfo.h: nothing saves f30/f31 across a VM entry,
++   so JIT code clobbering them corrupted the floating-point state of whatever
++   C++ called in. */ \
++    macro(f30, "f30"_s, 0, 1)       \
++    macro(f31, "f31"_s, 0, 1)
++
++#endif // CPU(PPC64LE)

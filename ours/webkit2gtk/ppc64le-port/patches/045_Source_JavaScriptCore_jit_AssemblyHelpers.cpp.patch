@@ -1,0 +1,57 @@
+diff --git a/Source/JavaScriptCore/jit/AssemblyHelpers.cpp b/Source/JavaScriptCore/jit/AssemblyHelpers.cpp
+index e91150e605..cea09d79ec 100644
+--- a/Source/JavaScriptCore/jit/AssemblyHelpers.cpp
++++ b/Source/JavaScriptCore/jit/AssemblyHelpers.cpp
+@@ -282,6 +282,8 @@ void AssemblyHelpers::callExceptionFuzz(VM& vm, GPRReg exceptionReg)
+     // register, so the call below has to leave that register as it found it.
+ #if CPU(ARM64) || CPU(RISCV64)
+     pushPair(framePointerRegister, linkRegister);
++#elif CPU(PPC64LE)
++    pushFramePointerAndLinkRegister();
+ #endif
+ 
+     // Set up one argument.
+@@ -292,6 +294,8 @@ void AssemblyHelpers::callExceptionFuzz(VM& vm, GPRReg exceptionReg)
+ 
+ #if CPU(ARM64) || CPU(RISCV64)
+     popPair(framePointerRegister, linkRegister);
++#elif CPU(PPC64LE)
++    popFramePointerAndLinkRegister();
+ #endif
+ 
+     for (unsigned i = 0; i < FPRInfo::numberOfRegisters; ++i) {
+@@ -1238,7 +1242,7 @@ void AssemblyHelpers::rapidHashMix64(GPRReg inputAndResult, GPRReg scratch1, GPR
+     ASSERT(scratch1 != input);
+     ASSERT(scratch2 != input);
+ 
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
+     // scratch1 = input ^ secret1 = a
+     move(TrustedImm64(static_cast<int64_t>(0x2d358dccaa6c78a5ULL)), scratch1);
+     xor64(input, scratch1);
+@@ -2034,7 +2038,7 @@ void AssemblyHelpers::loadTypedArrayLength(GPRReg baseGPR, GPRReg valueGPR, GPRR
+ 
+ 
+ #if ENABLE(WEBASSEMBLY)
+-#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+ AssemblyHelpers::JumpList AssemblyHelpers::checkWasmStackOverflow(GPRReg instanceGPR, TrustedImm32 checkSize, GPRReg framePointerGPR)
+ {
+ #if CPU(ARM64)
+@@ -2058,6 +2062,16 @@ AssemblyHelpers::JumpList AssemblyHelpers::checkWasmStackOverflow(GPRReg instanc
+     addPtr(checkSize, memoryTempRegister); // TrustedImm32 would use dataTempRegister. Thus let's have limit in memoryTempRegister.
+     overflow.append(branchPtr(LessThan, framePointerGPR, memoryTempRegister));
+     return overflow;
++#elif CPU(PPC64LE)
++    // The RISCV64 shape. The limit lives in the memory temp because a 32-bit
++    // displacement is an addis/addi pair on this port and needs no scratch,
++    // and the register-register compare needs none either, so nothing below
++    // can disturb it.
++    loadPtr(Address(instanceGPR, JSWebAssemblyInstance::offsetOfSoftStackLimit()), memoryTempRegister);
++    JumpList overflow;
++    addPtr(checkSize, memoryTempRegister);
++    overflow.append(branchPtr(LessThan, framePointerGPR, memoryTempRegister));
++    return overflow;
+ #endif
+ }
+ #endif

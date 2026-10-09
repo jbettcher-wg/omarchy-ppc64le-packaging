@@ -1,0 +1,32 @@
+diff --git a/Source/JavaScriptCore/b3/B3Common.cpp b/Source/JavaScriptCore/b3/B3Common.cpp
+index 3f79392cef..3bfb835384 100644
+--- a/Source/JavaScriptCore/b3/B3Common.cpp
++++ b/Source/JavaScriptCore/b3/B3Common.cpp
+@@ -71,9 +71,26 @@ bool shouldSaveIRBeforePhase()
+ 
+ GPRReg extendedOffsetAddrRegister()
+ {
+-    RELEASE_ASSERT(isARM64() || isRISCV64());
++    RELEASE_ASSERT(isARM64() || isRISCV64() || isPPC64());
+ #if CPU(ARM64) || CPU(RISCV64)
+     return MacroAssembler::linkRegister;
++#elif CPU(PPC64LE)
++    // r0, and it is only usable because every consumer of this register now
++    // builds an Arg::index rather than an Arg::addr. POWER's "r0 reads as
++    // zero" is positional: in the RA field of a load, a store or addi the
++    // encoding means the literal zero and the register is not consulted, so
++    // `ld r3,0(0)` assembles and addresses absolute zero rather than faulting.
++    // In the RB field of an X-form -- `ldx r3,r1,r0` -- and as a destination it
++    // is an ordinary register. So r0 may be the offset but never the base, and
++    // that is exactly the shape the three call sites were given. See
++    // powerpc64le-handbook docs/jsc-ppc64le-extended-offset-reg.md.
++    //
++    // It is the only register that can serve. r1 is the stack pointer being
++    // offset, r2 is the TOC that generated code may never write, r13 is the
++    // ABI thread pointer and r31 is cfr; and the alternative -- reserving a
++    // base-capable GPR -- costs one of the thirteen allocatable registers
++    // permanently.
++    return PPC64Registers::r0;
+ #elif CPU(X86_64)
+     return GPRReg::InvalidGPRReg;
+ #else

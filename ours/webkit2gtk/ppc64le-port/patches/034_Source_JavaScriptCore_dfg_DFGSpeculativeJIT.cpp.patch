@@ -1,0 +1,43 @@
+diff --git a/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp b/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp
+index cdc8eca18e..f5c72adb81 100644
+--- a/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp
++++ b/Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp
+@@ -244,6 +244,11 @@ void SpeculativeJIT::compileFunction()
+ 
+ #if CPU(X86_64)
+         pop(GPRInfo::argumentGPR1);
++#elif CPU(PPC64LE)
++        // The link register is an SPR here, so the return address is read
++        // out with mflr rather than moved from a named GPR. There is no
++        // pointer authentication to tag.
++        moveFromLinkRegister(GPRInfo::argumentGPR1);
+ #else
+         tagPtr(NoPtrTag, linkRegister);
+         move(linkRegister, GPRInfo::argumentGPR1);
+@@ -251,6 +256,8 @@ void SpeculativeJIT::compileFunction()
+         nearCallThunk(CodeLocationLabel { LLInt::arityFixup() });
+ #if CPU(X86_64)
+         push(GPRInfo::argumentGPR1);
++#elif CPU(PPC64LE)
++        moveToLinkRegister(GPRInfo::argumentGPR1);
+ #else
+         move(GPRInfo::argumentGPR1, linkRegister);
+         untagPtr(NoPtrTag, linkRegister);
+@@ -6089,7 +6096,7 @@ void SpeculativeJIT::compileArithMod(Node* node)
+         done.link(this);
+         strictInt32Result(edx.gpr(), node);
+ 
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
+         GPRTemporary quotientThenRemainder(this);
+         GPRReg dividendGPR = op1.gpr();
+         GPRReg divisorGPR = op2.gpr();
+@@ -6193,7 +6200,7 @@ void SpeculativeJIT::compileArithMod(Node* node)
+             unlock(op2TempGPR);
+ 
+         strictInt52Result(X86Registers::edx, node);
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
+         GPRTemporary quotient(this);
+         GPRTemporary result(this);
+ 

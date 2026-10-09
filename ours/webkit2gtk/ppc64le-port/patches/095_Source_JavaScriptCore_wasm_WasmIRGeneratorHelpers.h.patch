@@ -1,0 +1,15 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmIRGeneratorHelpers.h b/Source/JavaScriptCore/wasm/WasmIRGeneratorHelpers.h
+index f3c1ad9206..1ff3be8477 100644
+--- a/Source/JavaScriptCore/wasm/WasmIRGeneratorHelpers.h
++++ b/Source/JavaScriptCore/wasm/WasmIRGeneratorHelpers.h
+@@ -215,6 +215,10 @@ static inline void prepareForTailCall(CCallHelpers& jit, const B3::StackmapGener
+     jit.untagPtr(callerSP, MacroAssembler::linkRegister);
+     jit.validateUntaggedPtr(MacroAssembler::linkRegister);
+ #endif
++#elif CPU(PPC64LE)
++    // Same slot as ARM64 reads, but LR is an SPR here rather than a GPR, so
++    // it is written with mtlr rather than loaded into a register.
++    jit.loadToLinkRegister(CCallHelpers::Address(MacroAssembler::stackPointerRegister, newStackOffset - Checked<int32_t>(sizeof(Register))));
+ #else
+     UNREACHABLE_FOR_PLATFORM();
+ #endif

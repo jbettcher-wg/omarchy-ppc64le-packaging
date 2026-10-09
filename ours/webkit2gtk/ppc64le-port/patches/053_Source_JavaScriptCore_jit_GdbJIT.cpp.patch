@@ -1,0 +1,34 @@
+diff --git a/Source/JavaScriptCore/jit/GdbJIT.cpp b/Source/JavaScriptCore/jit/GdbJIT.cpp
+index f11b060c62..c589464526 100644
+--- a/Source/JavaScriptCore/jit/GdbJIT.cpp
++++ b/Source/JavaScriptCore/jit/GdbJIT.cpp
+@@ -861,7 +861,7 @@ private:
+     {
+         ASSERT(!writer->position());
+         Writer::Slot<ELFHeader> header = writer->createSlotHere<ELFHeader>();
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+         const uint8_t ident[16] = {
+             0x7F, 'E', 'L', 'F', 2, 1, 1, 0,
+             0, 0, 0, 0, 0, 0, 0, 0
+@@ -882,6 +882,11 @@ private:
+ #elif CPU(RISCV64)
+         // RISC-V 64
+         header->machine = 0xF3;
++#elif CPU(PPC64LE)
++        // EM_PPC64 = 21. Little-endian PowerPC shares the e_machine value
++        // with big-endian; the ELFv2 ABI is signalled by EF_PPC64_ABI in
++        // e_flags, which gdb does not need here.
++        header->machine = 21;
+ #else
+ #error Unsupported target architecture.
+ #endif
+@@ -964,7 +969,7 @@ public:
+ 
+     Binding binding() const { return static_cast<Binding>(m_info >> 4); }
+ 
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     struct SerializedLayout {
+         SerializedLayout(uint32_t name, uintptr_t value, uintptr_t size, Binding binding, Type type, uint16_t section)
+             : m_name(name)

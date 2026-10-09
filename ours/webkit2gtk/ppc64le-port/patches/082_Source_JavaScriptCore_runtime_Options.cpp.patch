@@ -1,0 +1,69 @@
+diff --git a/Source/JavaScriptCore/runtime/Options.cpp b/Source/JavaScriptCore/runtime/Options.cpp
+index 587ff75bac..68fb024feb 100644
+--- a/Source/JavaScriptCore/runtime/Options.cpp
++++ b/Source/JavaScriptCore/runtime/Options.cpp
+@@ -839,10 +839,64 @@ void Options::notifyOptionsChanged()
+ #if !CPU(X86_64) && !CPU(ARM64)
+     Options::useConcurrentGC() = false;
+     Options::forceUnlinkedDFG() = false;
++#if !CPU(PPC64LE)
++    // ppc64le implements wasm SIMD in IPInt: the ipint_simd_* handlers have
++    // real VSX arms in llint/InPlaceInterpreter64.asm and offlineasm/ppc64.rb
++    // lowers the vector register class they use. There is no BBQ and no OMG
++    // here, so IPInt is the only tier that has to have them, which is why
++    // useWasmIPIntSIMD (OptionsList.h) is the whole story on this target.
++    // The lowering map, the little-endian lane-order facts it depends on and
++    // the correctness traps (min/max NaN, saturating conversions, swizzle
++    // out-of-range) are in powerpc64le-handbook/docs/jsc-ppc64le-wasm-simd.md.
+     Options::useWasmSIMD() = false;
++    // ppc64le has IPInt: llint/InPlaceInterpreter64.asm has a PPC64 arm
++    // throughout and offlineasm/ppc64.rb lowers what it uses. It has no BBQ
++    // and no OMG, so IPInt is the only tier, which is what makes
++    // assertOptionsAreCoherent()'s "at least one of useWasmIPInt, or
++    // useBBQJIT" pass. SIMD stays off above: the ipint_simd_* handlers are
++    // emitted at their validated offsets but their bodies are traps.
+     Options::useWasmIPInt() = false;
++#endif
++#if !CPU(PPC64LE)
++    // The other targets reaching this branch have no compiling wasm tier, so
++    // IPInt is the only one and BBQ has to be refused. ppc64le is no longer
++    // one of them: BBQ and OMG both run here, and both are left at their
++    // shared defaults -- subject to the compile-time check further down, which
++    // is what makes leaving them at the default safe.
++    //
++    // This force-off and PlatformEnable.h's used to be two halves of the same
++    // hatch, and lifting only one did nothing -- the build would configure
++    // with BBQ on, report useBBQJIT=true, and still emit no wasm function
++    // code. Worth remembering if either is ever reintroduced. The force-off
++    // also ran in notifyOptionsChanged(), which is called AFTER the command
++    // line is parsed, so while it was here --useBBQJIT=true was silently
++    // overwritten and the tier could not be measured even when asked for.
+     Options::useBBQJIT() = false;
+ #endif
++#endif
++
++
++    // THE RUNTIME MUST NOT CLAIM A TIER THE BUILD DOES NOT CONTAIN.
++    //
++    // useBBQJIT and useOMGJIT default to true in OptionsList.h unconditionally,
++    // which is fine on targets where ENABLE_WEBASSEMBLY implies both. It is not
++    // fine where they can be configured off independently: cmake defines
++    // ENABLE_WEBASSEMBLY_BBQJIT and ENABLE_WEBASSEMBLY_OMGJIT from
++    // ENABLE_FTL_DEFAULT, so passing -DENABLE_FTL_JIT=ON on the command line
++    // leaves both OFF -- their default was already evaluated.
++    //
++    // A binary built that way reported useBBQJIT=true and useOMGJIT=true with
++    // neither tier compiled in, and nine wasm tests then hung at tier-up: the
++    // counter fires, the tier it names is not there, and nothing makes
++    // progress. They did not fail, they ran for 900 seconds. Making the
++    // options agree with the build turns that into an IPInt-only run, which is
++    // slower and correct instead of fast and stuck.
++#if !ENABLE(WEBASSEMBLY_BBQJIT)
++    Options::useBBQJIT() = false;
++#endif
++#if !ENABLE(WEBASSEMBLY_OMGJIT)
++    Options::useOMGJIT() = false;
++#endif
+ 
+ #if !CPU(ARM64)
+     Options::useRandomizingExecutableIslandAllocation() = false;

@@ -1,0 +1,20 @@
+diff --git a/Source/JavaScriptCore/bytecode/CallLinkInfo.cpp b/Source/JavaScriptCore/bytecode/CallLinkInfo.cpp
+index 6723583b49..f51c68669b 100644
+--- a/Source/JavaScriptCore/bytecode/CallLinkInfo.cpp
++++ b/Source/JavaScriptCore/bytecode/CallLinkInfo.cpp
+@@ -331,9 +331,14 @@ void CallLinkInfo::emitFastPathImpl(CallLinkInfo* callLinkInfo, CCallHelpers& ji
+     // that's necessary for the test-and-branch operation but is avoidable by loading from the callee
+     // address for each branch operation. Other MacroAssembler implementations handle this better by
+     // using a wider range of scratch registers or more potent branching instructions.
++    //
++    // PPC64 has the same collision for the same reason: branchTestPtr against an immediate mask has
++    // to materialise `reg & mask` somewhere, and the only somewhere is the data temp -- which is
++    // what scratchRegister() hands out and what DisallowMacroScratchRegisterUsage then forbids.
++    // Taking the RISCV64 path avoids needing a scratch at all.
+     CCallHelpers::JumpList found;
+     jit.loadPtr(CCallHelpers::Address(BaselineJITRegisters::Call::callLinkInfoGPR, offsetOfMonomorphicCallDestination()), BaselineJITRegisters::Call::callTargetGPR);
+-    if constexpr (isRISCV64()) {
++    if constexpr (isRISCV64() || isPPC64()) {
+         CCallHelpers::Address calleeAddress(BaselineJITRegisters::Call::callLinkInfoGPR, offsetOfCallee());
+         found.append(jit.branchPtr(CCallHelpers::Equal, calleeAddress, BaselineJITRegisters::Call::calleeGPR));
+         found.append(jit.branchTestPtr(CCallHelpers::NonZero, calleeAddress, CCallHelpers::TrustedImm32(polymorphicCalleeMask)));

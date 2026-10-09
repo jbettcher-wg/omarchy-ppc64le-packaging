@@ -1,0 +1,22 @@
+diff --git a/Source/JavaScriptCore/jit/RegisterSet.h b/Source/JavaScriptCore/jit/RegisterSet.h
+index 6b8d530a60..e94d0a889f 100644
+--- a/Source/JavaScriptCore/jit/RegisterSet.h
++++ b/Source/JavaScriptCore/jit/RegisterSet.h
+@@ -262,6 +262,17 @@ public:
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE specialRegisters();
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE calleeSaveRegisters();
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE vmCalleeSaveRegisters();
++    // Callee-saved registers the VM entry frame hands back by ITSELF, rather
++    // than through calleeSaveRegistersBuffer -- so they are legitimately
++    // absent from vmCalleeSaveRegisters() and must not be looked up in its
++    // slot map. Empty everywhere except ppc64le.
++    JS_EXPORT_PRIVATE static RegisterSet NODELETE vmEntryPreservedTemporaries();
++    // Callee-saved registers that the VM entry frame has NO buffer slot for,
++    // so Air must not allocate them: an unwind looks every register in a
++    // procedure's callee-save list up in that slot map. Empty everywhere
++    // except ppc64le. Air's register pool and any test that reconstructs it
++    // must both subtract this.
++    JS_EXPORT_PRIVATE static RegisterSet NODELETE unrecordableCalleeSaveRegisters();
+     JS_EXPORT_PRIVATE static RegisterAtOffsetList* vmCalleeSaveRegisterOffsets();
+     JS_EXPORT_PRIVATE static std::span<const int8_t> vmCalleeSaveBufferSlotsByRegIndex();
+     JS_EXPORT_PRIVATE static RegisterSet NODELETE llintBaselineCalleeSaveRegisters();

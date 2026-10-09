@@ -1,0 +1,12 @@
+diff --git a/Source/JavaScriptCore/Sources.txt b/Source/JavaScriptCore/Sources.txt
+index 78dc80ed9d..505d249d59 100644
+--- a/Source/JavaScriptCore/Sources.txt
++++ b/Source/JavaScriptCore/Sources.txt
+@@ -55,6 +55,7 @@ assembler/MacroAssemblerARM64.cpp @no-unify-when(bundle<=8)
+ assembler/MacroAssemblerCodeRef.cpp
+ assembler/MacroAssemblerPrinter.cpp
+ assembler/MacroAssemblerRISCV64.cpp @no-unify-when(bundle<=8)
++assembler/MacroAssemblerPPC64.cpp @no-unify-when(bundle<=8)
+ assembler/MacroAssemblerX86_64.cpp @no-unify-when(bundle<=8)
+ assembler/PerfLog.cpp
+ assembler/Printer.cpp

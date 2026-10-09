@@ -1,0 +1,117 @@
+diff --git a/Source/JavaScriptCore/assembler/MacroAssembler.h b/Source/JavaScriptCore/assembler/MacroAssembler.h
+index bb2576cdec..635f258597 100644
+--- a/Source/JavaScriptCore/assembler/MacroAssembler.h
++++ b/Source/JavaScriptCore/assembler/MacroAssembler.h
+@@ -50,6 +50,10 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+ #define TARGET_MACROASSEMBLER MacroAssemblerRISCV64
+ #include "MacroAssemblerRISCV64.h"
+ 
++#elif CPU(PPC64LE)
++#define TARGET_MACROASSEMBLER MacroAssemblerPPC64
++#include "MacroAssemblerPPC64.h"
++
+ #else
+ #error "The MacroAssembler is not supported on this platform."
+ #endif
+@@ -133,7 +137,7 @@ public:
+     using MacroAssemblerBase::and32;
+     using MacroAssemblerBase::branchAdd32;
+     using MacroAssemblerBase::branchMul32;
+-#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+     using MacroAssemblerBase::branchPtr;
+ #endif
+ #if CPU(X86_64)
+@@ -141,6 +145,9 @@ public:
+ #endif
+ #if CPU(RISCV64)
+     using MacroAssemblerRISCV64::lshift64;
++#endif
++#if CPU(PPC64LE)
++    using MacroAssemblerPPC64::lshift64;
+ #endif
+     using MacroAssemblerBase::branchSub32;
+     using MacroAssemblerBase::lshift32;
+@@ -151,10 +158,10 @@ public:
+     using MacroAssemblerBase::urshift32;
+     using MacroAssemblerBase::xor32;
+ 
+-#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+     using MacroAssemblerBase::convertInt32ToDouble;
+ #endif
+-#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(RISCV64) || CPU(PPC64LE)
+     using MacroAssemblerBase::add64;
+     using MacroAssemblerBase::sub64;
+     using MacroAssemblerBase::and64;
+@@ -344,10 +351,18 @@ public:
+         addPtr(TrustedImm32(sizeof(double)), stackPointerRegister);
+     }
+     
++#if !CPU(PPC64LE)
+     static constexpr ptrdiff_t pushToSaveByteOffset() { return sizeof(void*); }
++#else
++    // ELFv2 keeps r1 16-byte aligned, so MacroAssemblerPPC64::push moves
++    // it by 16, not by sizeof(void*). Defining the 8 here would HIDE the
++    // base class's correct 16, and DFGOSRExitCompilerCommon.h and
++    // FTLThunks.cpp use this as both an alignment quantum and a slot
++    // stride.
++#endif
+ #endif // !CPU(ARM64)
+ 
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     void peek64(RegisterID dest, int index = 0)
+     {
+         load64(Address(stackPointerRegister, (index * sizeof(void*))), dest);
+@@ -1890,7 +1905,15 @@ public:
+     }
+ #endif
+ 
+-#if !CPU(X86_64) && !CPU(ARM64)
++// PPC64LE is excluded here because MacroAssemblerPPC64 implements both of
++// these, and a method defined in this class HIDES the one it inherits rather
++// than overriding it -- so leaving the guard as it was meant the port's
++// compareDouble was silently replaced by the branchy fallback below, and its
++// compareDoubleWithZero by an UNREACHABLE_FOR_PLATFORM that Air reached the
++// moment CompareDoubleWithZero was claimed. Same shape as the
++// pushToSaveByteOffset hiding recorded in powerpc64le-handbook
++// docs/jsc-ppc64le-b3-air.md section 8.3.
++#if !CPU(X86_64) && !CPU(ARM64) && !CPU(PPC64LE)
+     // We should implement this the right way eventually, but for now, it's fine because it arises so
+     // infrequently.
+     void compareDouble(DoubleCondition cond, FPRegisterID left, FPRegisterID right, RegisterID dest)
+@@ -1915,12 +1938,12 @@ public:
+         add32(TrustedImm32(address.offset), address.base, dest);
+     }
+ 
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     void lea64(Address address, RegisterID dest)
+     {
+         add64(TrustedImm32(address.offset), address.base, dest);
+     }
+-#endif // CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#endif // CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+ 
+ #if CPU(X86_64)
+     bool shouldBlind(Imm32 imm)
+@@ -2157,7 +2180,7 @@ public:
+         storePtr(value, addressForPoke(index));
+     }
+     
+-#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     void poke(Imm64 value, int index = 0)
+     {
+         store64(value, addressForPoke(index));
+@@ -2173,7 +2196,7 @@ public:
+             store64(imm.asTrustedImm64(), dest);
+     }
+ 
+-#endif // CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
++#endif // CPU(X86_64) || CPU(ARM64) || CPU(RISCV64) || CPU(PPC64LE)
+     
+     void store32(Imm32 imm, Address dest)
+     {

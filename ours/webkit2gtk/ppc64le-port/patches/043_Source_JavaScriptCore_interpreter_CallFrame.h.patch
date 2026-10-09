@@ -1,0 +1,33 @@
+diff --git a/Source/JavaScriptCore/interpreter/CallFrame.h b/Source/JavaScriptCore/interpreter/CallFrame.h
+index 517d88a61d..3bead71ad8 100644
+--- a/Source/JavaScriptCore/interpreter/CallFrame.h
++++ b/Source/JavaScriptCore/interpreter/CallFrame.h
+@@ -393,6 +393,28 @@ JS_EXPORT_PRIVATE bool NODELETE isFromJSCode(void* returnAddress);
+         ASSERT(JSC::isFromJSCode(removeCodePtrTag<void*>(__builtin_return_address(0)))); \
+         std::bit_cast<JSC::CallFrame*>(*((uintptr_t**) _AddressOfReturnAddress() - 1)); \
+     })
++#elif CPU(PPC64LE)
++// __builtin_frame_address(1) is the caller's r1 -- its STACK pointer -- and on
++// PowerPC that is not the JS call frame. The plain definition below works
++// elsewhere only because JSC picks callFrameRegister to be the very register
++// the C compiler treats as a frame pointer (rbp on x86_64, x29 on ARM64).
++// ELFv2 offers no such register: the C frame chain runs through r1's back
++// chain and cfr is r31.
++//
++// So MacroAssemblerPPC64::emitCCallLinkageAreaSetup() stores cfr into the
++// back-chain slot at 0(r1) of the linkage area it builds for every call into
++// C++, and this reads it back out. __builtin_frame_address(1) is the JIT's
++// r1; the word it points at is the cfr that was planted there.
++//
++// This only has to cover calls made BY JIT code, which is exactly the set
++// that goes through MacroAssemblerPPC64::call(). The LLInt reaches C++
++// through llint_slow_path_* functions, which take CallFrame* as an ordinary
++// argument and never use this macro.
++#define DECLARE_CALL_FRAME(vm) \
++    ({ \
++        ASSERT(JSC::isFromJSCode(removeCodePtrTag<void*>(__builtin_return_address(0)))); \
++        std::bit_cast<JSC::CallFrame*>(*std::bit_cast<void**>(__builtin_frame_address(1))); \
++    })
+ #else // !OS(WINDOWS) || !CPU(X86_64)
+ // FIXME (see rdar://72897291): Work around a Clang bug where __builtin_return_address()
+ // sometimes gives us a signed pointer, and sometimes does not.

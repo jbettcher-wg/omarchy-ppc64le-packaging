@@ -1,0 +1,309 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmBBQJIT64.cpp b/Source/JavaScriptCore/wasm/WasmBBQJIT64.cpp
+index 91fd37cfd4..9dd834af57 100644
+--- a/Source/JavaScriptCore/wasm/WasmBBQJIT64.cpp
++++ b/Source/JavaScriptCore/wasm/WasmBBQJIT64.cpp
+@@ -581,12 +581,33 @@ void BBQJIT::emitAtomicOpGeneric(ExtAtomicOpType op, Address address, GPRReg old
+     // Block #done:
+     //     Move oldValue, result
+ 
++#if CPU(PPC64LE)
++    // POWER orders nothing of its own accord, so the sequence needs explicit
++    // barriers around the reservation: a full fence before it is taken and a
++    // load fence once it closes. This is the pattern
++    // MacroAssemblerPPC64::emitAtomicRMW already uses.
++    //
++    // The fence goes OUTSIDE the retry loop deliberately. Atomicity comes
++    // from the reservation, not from the barrier, so paying a heavyweight
++    // sync on every lap would be pure cost -- and laps are expected, since
++    // any store from any thread anywhere in the 128-byte reservation granule
++    // loses the reservation.
++    //
++    // larx/stcx. take no displacement, which is safe here because the caller
++    // has already folded uoffset into the pointer register; assert it rather
++    // than trust it, because a silently dropped offset is a wrong address.
++    ASSERT(!address.offset);
++    m_jit.memoryFence();
++#endif
++
+     // Prepare
+     auto reloopLabel = m_jit.label();
+     switch (accessWidth) {
+     case Width8:
+ #if CPU(ARM64)
+         m_jit.loadLinkAcq8(address, oldGPR);
++#elif CPU(PPC64LE)
++        m_jit.loadAndReserve<8>(oldGPR, address.base);
+ #else
+         m_jit.load8SignedExtendTo32(address, oldGPR);
+ #endif
+@@ -594,6 +615,8 @@ void BBQJIT::emitAtomicOpGeneric(ExtAtomicOpType op, Address address, GPRReg old
+     case Width16:
+ #if CPU(ARM64)
+         m_jit.loadLinkAcq16(address, oldGPR);
++#elif CPU(PPC64LE)
++        m_jit.loadAndReserve<16>(oldGPR, address.base);
+ #else
+         m_jit.load16SignedExtendTo32(address, oldGPR);
+ #endif
+@@ -601,6 +624,8 @@ void BBQJIT::emitAtomicOpGeneric(ExtAtomicOpType op, Address address, GPRReg old
+     case Width32:
+ #if CPU(ARM64)
+         m_jit.loadLinkAcq32(address, oldGPR);
++#elif CPU(PPC64LE)
++        m_jit.loadAndReserve<32>(oldGPR, address.base);
+ #else
+         m_jit.load32(address, oldGPR);
+ #endif
+@@ -608,6 +633,8 @@ void BBQJIT::emitAtomicOpGeneric(ExtAtomicOpType op, Address address, GPRReg old
+     case Width64:
+ #if CPU(ARM64)
+         m_jit.loadLinkAcq64(address, oldGPR);
++#elif CPU(PPC64LE)
++        m_jit.loadAndReserve<64>(oldGPR, address.base);
+ #else
+         m_jit.load64(address, oldGPR);
+ #endif
+@@ -654,6 +681,34 @@ void BBQJIT::emitAtomicOpGeneric(ExtAtomicOpType op, Address address, GPRReg old
+         RELEASE_ASSERT_NOT_REACHED();
+     }
+     m_jit.branchTest32(ResultCondition::NonZero, scratchGPR).linkTo(reloopLabel, &m_jit);
++#elif CPU(PPC64LE)
++    switch (accessWidth) {
++    case Width8:
++        m_jit.storeConditional<8>(scratchGPR, address.base);
++        break;
++    case Width16:
++        m_jit.storeConditional<16>(scratchGPR, address.base);
++        break;
++    case Width32:
++        m_jit.storeConditional<32>(scratchGPR, address.base);
++        break;
++    case Width64:
++        m_jit.storeConditional<64>(scratchGPR, address.base);
++        break;
++    case Width128:
++        RELEASE_ASSERT_NOT_REACHED();
++    }
++    // stcx. answers in CR0[EQ] rather than a register, so branch on the
++    // condition directly rather than materialising a status to test.
++    m_jit.branchStoreConditionalFailed().linkTo(reloopLabel, &m_jit);
++    m_jit.loadFence();
++#else
++    // No silent fallthrough. Without an arm here this function loads, runs
++    // the operation, and NEVER STORES -- so every atomic store and every
++    // atomic read-modify-write quietly does nothing. That is exactly how this
++    // went unnoticed on ppc64: the atomic LOADS pass either way, because for
++    // them the plain load is already the answer.
++    UNREACHABLE_FOR_PLATFORM();
+ #endif
+ }
+ 
+@@ -2574,9 +2629,19 @@ void BBQJIT::emitRefTestOrCast(CastKind castKind, const TypedExpression& typedVa
+         m_jit.move(lhsHiLocation.asGPR(), resultHiLocation.asGPR());
+         m_jit.addCarry64(rhsHiLocation.asGPR(), resultHiLocation.asGPR());
+     }
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
++    // POWER shares ARM64's shape here: a flag-setting low half followed by a
++    // carry-consuming high half, with the operands in the same order. The two
++    // must stay adjacent -- see the comment on add64AndSetFlags in
++    // MacroAssemblerPPC64.h -- and the aliasing that would need a move
++    // between them is already resolved above.
+     m_jit.add64AndSetFlags(lhsLoLocation.asGPR(), rhsLoLocation.asGPR(), resultLoLocation.asGPR());
+     m_jit.addCarry64(lhsHiLocation.asGPR(), rhsHiLocation.asGPR(), resultHiLocation.asGPR());
++#else
++    // No silent fallthrough: without an arm here the result registers are
++    // allocated and never written, which is a wrong answer rather than a
++    // crash. That is exactly how this went unnoticed on ppc64.
++    UNREACHABLE_FOR_PLATFORM();
+ #endif
+ 
+     return { };
+@@ -2626,9 +2691,16 @@ void BBQJIT::emitRefTestOrCast(CastKind castKind, const TypedExpression& typedVa
+         m_jit.move(lhsHiLocation.asGPR(), resultHiLocation.asGPR());
+         m_jit.subBorrow64(rhsHiLocation.asGPR(), resultHiLocation.asGPR());
+     }
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
++    // POWER shares ARM64's shape here: a flag-setting low half followed by a
++    // carry-consuming high half, with the operands in the same order. The two
++    // must stay adjacent -- see the comment on add64AndSetFlags in
++    // MacroAssemblerPPC64.h -- and the aliasing that would need a move
++    // between them is already resolved above.
+     m_jit.sub64AndSetFlags(lhsLoLocation.asGPR(), rhsLoLocation.asGPR(), resultLoLocation.asGPR());
+     m_jit.subBorrow64(lhsHiLocation.asGPR(), rhsHiLocation.asGPR(), resultHiLocation.asGPR());
++#else
++    UNREACHABLE_FOR_PLATFORM();
+ #endif
+ 
+     return { };
+@@ -2659,7 +2731,10 @@ void BBQJIT::emitRefTestOrCast(CastKind castKind, const TypedExpression& typedVa
+     m_jit.x86UMulHigh64(rhsLocation.asGPR(), X86Registers::eax, X86Registers::edx);
+     m_jit.move(X86Registers::eax, resultLoLocation.asGPR());
+     m_jit.move(X86Registers::edx, resultHiLocation.asGPR());
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
++    // mulhdu then mulld, and the aliasing dance matters for the same reason it
++    // does on ARM64: the high product is written first, so its destination
++    // must not be an input the low product still needs.
+     if (resultHiLocation.asGPR() == lhsLocation.asGPR()) {
+         m_jit.move(lhsLocation.asGPR(), wasmScratchGPR);
+         m_jit.uMulHigh64(wasmScratchGPR, rhsLocation.asGPR(), resultHiLocation.asGPR());
+@@ -2672,6 +2747,8 @@ void BBQJIT::emitRefTestOrCast(CastKind castKind, const TypedExpression& typedVa
+         m_jit.uMulHigh64(lhsLocation.asGPR(), rhsLocation.asGPR(), resultHiLocation.asGPR());
+         m_jit.mul64(lhsLocation.asGPR(), rhsLocation.asGPR(), resultLoLocation.asGPR());
+     }
++#else
++    UNREACHABLE_FOR_PLATFORM();
+ #endif
+ 
+     return { };
+@@ -2702,7 +2779,8 @@ void BBQJIT::emitRefTestOrCast(CastKind castKind, const TypedExpression& typedVa
+     m_jit.x86MulHigh64(rhsLocation.asGPR(), X86Registers::eax, X86Registers::edx);
+     m_jit.move(X86Registers::eax, resultLoLocation.asGPR());
+     m_jit.move(X86Registers::edx, resultHiLocation.asGPR());
+-#elif CPU(ARM64)
++#elif CPU(ARM64) || CPU(PPC64LE)
++    // mulhd then mulld; same aliasing rule as the unsigned form above.
+     if (resultHiLocation.asGPR() == lhsLocation.asGPR()) {
+         m_jit.move(lhsLocation.asGPR(), wasmScratchGPR);
+         m_jit.mulHigh64(wasmScratchGPR, rhsLocation.asGPR(), resultHiLocation.asGPR());
+@@ -2715,6 +2793,8 @@ void BBQJIT::emitRefTestOrCast(CastKind castKind, const TypedExpression& typedVa
+         m_jit.mulHigh64(lhsLocation.asGPR(), rhsLocation.asGPR(), resultHiLocation.asGPR());
+         m_jit.mul64(lhsLocation.asGPR(), rhsLocation.asGPR(), resultLoLocation.asGPR());
+     }
++#else
++    UNREACHABLE_FOR_PLATFORM();
+ #endif
+ 
+     return { };
+@@ -3705,6 +3785,10 @@ void NODELETE BBQJIT::notifyFunctionUsesSIMD()
+     clobber(ARM64Registers::q28);
+     clobber(ARM64Registers::q29);
+     ScratchScope<0, 0> scratches(*this, Location::fromFPR(ARM64Registers::q28), Location::fromFPR(ARM64Registers::q29));
++#elif CPU(PPC64LE)
++    // vperm/vpermr take the two tables in any registers, so nothing to preserve;
++    // the scope exists only because the x86 `if constexpr` arm below names it.
++    ScratchScope<0, 0> scratches(*this);
+ #endif
+     Location aLocation = loadIfNecessary(a);
+     Location bLocation = loadIfNecessary(b);
+@@ -3749,6 +3833,9 @@ void NODELETE BBQJIT::notifyFunctionUsesSIMD()
+         bLocation = Location::fromFPR(ARM64Registers::q29);
+     }
+     m_jit.vectorSwizzle2(aLocation.asFPR(), bLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
++#elif CPU(PPC64LE)
++    materializeVectorConstant(imm, Location::fromFPR(wasmScratchFPR));
++    m_jit.vectorSwizzle2(aLocation.asFPR(), bLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
+ #else
+     UNREACHABLE_FOR_PLATFORM();
+ #endif
+@@ -3804,6 +3891,32 @@ void NODELETE BBQJIT::notifyFunctionUsesSIMD()
+         else
+             m_jit.vectorUshl(info, srcLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
+     }
++#elif CPU(PPC64LE)
++    if (shift.isConst()) {
++        int32_t shiftImm = shift.asI32() & mask;
++        if (!shiftImm)
++            m_jit.moveVector(srcLocation.asFPR(), resultLocation.asFPR());
++        else if (op == SIMDLaneOperation::Shl)
++            m_jit.vectorShl8(info, srcLocation.asFPR(), TrustedImm32(shiftImm), resultLocation.asFPR());
++        else if (info.signMode == SIMDSignMode::Signed)
++            m_jit.vectorSshr8(info, srcLocation.asFPR(), TrustedImm32(shiftImm), resultLocation.asFPR());
++        else
++            m_jit.vectorUshr8(info, srcLocation.asFPR(), TrustedImm32(shiftImm), resultLocation.asFPR());
++    } else {
++        // POWER has separate left, logical-right and arithmetic-right vector
++        // shifts, so there is no negated-count convention to apply as on ARM64.
++        // The hardware also masks the count to the lane width, which makes this
++        // and32 redundant; it is kept so that the constant and variable paths
++        // agree by construction rather than by two separate arguments.
++        m_jit.and32(Imm32(mask), shiftLocation.asGPR(), wasmScratchGPR);
++        m_jit.vectorSplatInt8(wasmScratchGPR, wasmScratchFPR);
++        if (op == SIMDLaneOperation::Shl)
++            m_jit.vectorUshl(info, srcLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
++        else if (info.signMode == SIMDSignMode::Signed)
++            m_jit.vectorSshr(info, srcLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
++        else
++            m_jit.vectorUshr(info, srcLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
++    }
+ #else
+     ASSERT(isX86());
+     m_jit.move(shiftLocation.asGPR(), wasmScratchGPR);
+@@ -4062,7 +4175,15 @@ void NODELETE BBQJIT::notifyFunctionUsesSIMD()
+         LOG_INSTRUCTION("Vector", op, pointer, uoffset, RESULT(result));
+ 
+         m_jit.loadDouble(location, resultLocation.asFPR());
++#if CPU(PPC64LE)
++        // lfd puts the doubleword in ISA doubleword 0, which is the memory-HIGH
++        // half of the vector view on this little-endian target, so the half
++        // to widen is the one the port calls "high". The other doubleword is
++        // undefined after a scalar load and is not read.
++        m_jit.vectorExtendHigh(SIMDInfo { lane, signMode }, resultLocation.asFPR(), resultLocation.asFPR());
++#else
+         m_jit.vectorExtendLow(SIMDInfo { lane, signMode }, resultLocation.asFPR(), resultLocation.asFPR());
++#endif
+ 
+         return result;
+     });
+@@ -4078,12 +4199,24 @@ void NODELETE BBQJIT::notifyFunctionUsesSIMD()
+ 
+         LOG_INSTRUCTION("Vector", op, pointer, uoffset, RESULT(result));
+ 
++#if CPU(PPC64LE)
++        // Neither loadFloat nor loadDouble is a v128 load here: both land the
++        // scalar in ISA doubleword 0, the memory-high half, and leave the
++        // other doubleword undefined. These put it in lane 0 and zero the rest.
++        if (op == SIMDLaneOperation::LoadPad32)
++            m_jit.vectorLoad32Zero(location, resultLocation.asFPR());
++        else {
++            ASSERT(op == SIMDLaneOperation::LoadPad64);
++            m_jit.vectorLoad64Zero(location, resultLocation.asFPR());
++        }
++#else
+         if (op == SIMDLaneOperation::LoadPad32)
+             m_jit.loadFloat(location, resultLocation.asFPR());
+         else {
+             ASSERT(op == SIMDLaneOperation::LoadPad64);
+             m_jit.loadDouble(location, resultLocation.asFPR());
+         }
++#endif
+         return result;
+     });
+     return { };
+@@ -4193,6 +4326,8 @@ void BBQJIT::materializeVectorConstant(v128_t value, Location result)
+             m_jit.vectorHorizontalAdd(info, scratches.fpr(0), scratches.fpr(0));
+             m_jit.moveFloatTo32(scratches.fpr(0), resultLocation.asGPR());
+         }
++#elif CPU(PPC64LE)
++        m_jit.vectorBitmask(info, valueLocation.asFPR(), resultLocation.asGPR());
+ #else
+         ASSERT(isX86());
+         m_jit.vectorBitmask(info, valueLocation.asFPR(), resultLocation.asGPR(), wasmScratchFPR);
+@@ -4226,6 +4361,8 @@ void BBQJIT::materializeVectorConstant(v128_t value, Location result)
+ 
+         m_jit.moveFloatTo32(wasmScratchFPR, wasmScratchGPR);
+         m_jit.test32(ResultCondition::NonZero, wasmScratchGPR, wasmScratchGPR, resultLocation.asGPR());
++#elif CPU(PPC64LE)
++        m_jit.vectorAllTrue(info, valueLocation.asFPR(), resultLocation.asGPR());
+ #else
+         ASSERT(isX86());
+         m_jit.vectorAllTrue(info, valueLocation.asFPR(), resultLocation.asGPR(), wasmScratchFPR);
+@@ -4609,14 +4746,14 @@ void BBQJIT::emitVectorMul(SIMDInfo info, Location left, Location right, Locatio
+         m_jit.vectorDiv(info, leftLocation.asFPR(), rightLocation.asFPR(), resultLocation.asFPR());
+         return { };
+     case SIMDLaneOperation::Pmax:
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
+         m_jit.vectorPmax(info, leftLocation.asFPR(), rightLocation.asFPR(), resultLocation.asFPR(), wasmScratchFPR);
+ #else
+         m_jit.vectorPmax(info, leftLocation.asFPR(), rightLocation.asFPR(), resultLocation.asFPR());
+ #endif
+         return { };
+     case SIMDLaneOperation::Pmin:
+-#if CPU(ARM64)
++#if CPU(ARM64) || CPU(PPC64LE)
+         m_jit.vectorPmin(info, leftLocation.asFPR(), rightLocation.asFPR(), resultLocation.asFPR(), wasmScratchFPR);
+ #else
+         m_jit.vectorPmin(info, leftLocation.asFPR(), rightLocation.asFPR(), resultLocation.asFPR());

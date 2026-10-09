@@ -1,0 +1,67 @@
+diff --git a/Source/cmake/WebKitFeatures.cmake b/Source/cmake/WebKitFeatures.cmake
+index 228c82b6fd..b87fae826f 100644
+--- a/Source/cmake/WebKitFeatures.cmake
++++ b/Source/cmake/WebKitFeatures.cmake
+@@ -123,6 +123,46 @@ macro(WEBKIT_OPTION_BEGIN)
+         set(USE_MIMALLOC_DEFAULT ON)
+         set(ENABLE_C_LOOP_DEFAULT OFF)
+         set(ENABLE_SAMPLING_PROFILER_DEFAULT OFF)
++    elseif (WTF_CPU_PPC64LE)
++        # The ppc64le port has every tier: LLInt, Baseline, DFG, FTL (so B3 and
++        # Air), YARR, and all three wasm tiers -- IPInt, BBQ and OMG. So the
++        # CLoop default is wrong for it, and the defaults below are ON because
++        # a bare `cmake` should configure what the port actually runs.
++        #
++        # These were OFF, with comments explaining that the DFG had no backend
++        # and that FTL needed an Air backend that did not exist. Both are
++        # historical now. The float-return hazard those comments described was
++        # real and is fixed rather than avoided: B3 emits calls to MathCommon's
++        # float-returning operations through its own call machinery rather than
++        # through MacroAssemblerPPC64::callOperation, and the port now extends
++        # the ELFv2 double-format float return at those sites itself.
++        #
++        # ENABLE_WEBASSEMBLY_DEFAULT derives from ENABLE_C_LOOP_DEFAULT below,
++        # so turning the CLoop off turns wasm on. ENABLE_WEBASSEMBLY_BBQJIT and
++        # ENABLE_WEBASSEMBLY_OMGJIT are defined as ${ENABLE_FTL_DEFAULT} and
++        # WEBKIT_OPTION_DEPEND ties them to ENABLE_FTL_JIT, so FTL being ON is
++        # what brings both compiling wasm tiers in.
++        #
++        # That coupling is worth stating because it bites: passing
++        # -DENABLE_FTL_JIT=ON on the command line does NOT turn BBQ and OMG on,
++        # because their DEFAULT was already evaluated from ENABLE_FTL_DEFAULT.
++        # A build that did exactly that got a binary with the two tiers
++        # compiled OUT while Options still reported them available, and the
++        # mismatch hung nine wasm tests at tier-up. Options.cpp now forces the
++        # runtime options to agree with the compile-time ENABLE, so that
++        # combination fails safe rather than hanging.
++        #
++        # The sampling profiler is ON: the linux-ppc64le MachineContext arm is
++        # in and has been run -- 121 passes across cpu-prof, inspector-profiler,
++        # bun-jsc, inspector and pprof, zero failures, plus all seven
++        # test-cpu-prof-*.js.
++        set(ENABLE_JIT_DEFAULT ON)
++        set(ENABLE_DFG_DEFAULT ON)
++        set(ENABLE_FTL_DEFAULT ON)
++        set(USE_SYSTEM_MALLOC_DEFAULT OFF)
++        set(USE_MIMALLOC_DEFAULT OFF)
++        set(ENABLE_C_LOOP_DEFAULT OFF)
++        set(ENABLE_SAMPLING_PROFILER_DEFAULT ON)
+     else ()
+         set(ENABLE_JIT_DEFAULT OFF)
+         set(ENABLE_FTL_DEFAULT OFF)
+@@ -221,7 +261,13 @@ macro(WEBKIT_OPTION_BEGIN)
+     WEBKIT_OPTION_DEFINE(ENABLE_DARK_MODE_CSS "Toggle Dark Mode CSS support" PRIVATE OFF)
+     WEBKIT_OPTION_DEFINE(ENABLE_DATACUE_VALUE "Toggle datacue value support" PRIVATE OFF)
+     WEBKIT_OPTION_DEFINE(ENABLE_DEVICE_ORIENTATION "Toggle Device Orientation support" PRIVATE OFF)
+-    WEBKIT_OPTION_DEFINE(ENABLE_DFG_JIT "Toggle data flow graph JIT tier" PRIVATE ${ENABLE_JIT_DEFAULT})
++    # The DFG has followed the Baseline JIT everywhere so far, but a port can
++    # have one without the other -- ppc64le does -- so the default is its own
++    # variable that falls back to the JIT's.
++    if (NOT DEFINED ENABLE_DFG_DEFAULT)
++        set(ENABLE_DFG_DEFAULT ${ENABLE_JIT_DEFAULT})
++    endif ()
++    WEBKIT_OPTION_DEFINE(ENABLE_DFG_JIT "Toggle data flow graph JIT tier" PRIVATE ${ENABLE_DFG_DEFAULT})
+     WEBKIT_OPTION_DEFINE(ENABLE_DRAG_SUPPORT "Toggle support of drag actions (including selection of text with mouse)" PRIVATE OFF)
+     WEBKIT_OPTION_DEFINE(ENABLE_ENCRYPTED_MEDIA "Toggle EME V3 support" PRIVATE OFF)
+     WEBKIT_OPTION_DEFINE(ENABLE_EXPERIMENTAL_FEATURES "Enable experimental features" PRIVATE OFF)
+

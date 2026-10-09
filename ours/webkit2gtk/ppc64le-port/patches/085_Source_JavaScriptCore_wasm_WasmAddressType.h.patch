@@ -1,0 +1,13 @@
+diff --git a/Source/JavaScriptCore/wasm/WasmAddressType.h b/Source/JavaScriptCore/wasm/WasmAddressType.h
+index 23adbdd23b..a6e3efcec0 100644
+--- a/Source/JavaScriptCore/wasm/WasmAddressType.h
++++ b/Source/JavaScriptCore/wasm/WasmAddressType.h
+@@ -48,7 +48,7 @@ public:
+     constexpr AddressType(AddressType::Kind addressType)
+         : m_type(addressType)
+     { }
+-#if !PLATFORM(PLAYSTATION) && ENABLE(JIT)
++#if !PLATFORM(PLAYSTATION) && ENABLE(B3_JIT)
+     AddressType(B3::Type);
+ #endif
+     explicit constexpr AddressType(bool is64Bit)

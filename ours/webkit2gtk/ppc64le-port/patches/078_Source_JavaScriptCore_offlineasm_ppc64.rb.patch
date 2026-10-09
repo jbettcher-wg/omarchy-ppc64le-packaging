@@ -1,0 +1,2377 @@
+diff --git a/Source/JavaScriptCore/offlineasm/ppc64.rb b/Source/JavaScriptCore/offlineasm/ppc64.rb
+new file mode 100644
+index 0000000000..5b0fc6e2cf
+--- /dev/null
++++ b/Source/JavaScriptCore/offlineasm/ppc64.rb
+@@ -0,0 +1,2371 @@
++# Copyright (C) 2026 Justin Bettcher. All rights reserved.
++#
++# Redistribution and use in source and binary forms, with or without
++# modification, are permitted provided that the following conditions
++# are met:
++# 1. Redistributions of source code must retain the above copyright
++#    notice, this list of conditions and the following disclaimer.
++# 2. Redistributions in binary form must reproduce the above copyright
++#    notice, this list of conditions and the following disclaimer in the
++#    documentation and/or other materials provided with the distribution.
++#
++# THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
++# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++# THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++# PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
++# BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
++# THE POSSIBILITY OF SUCH DAMAGE.
++
++# offlineasm backend for 64-bit little-endian PowerPC (ppc64le, ELFv2 ABI).
++#
++# ISA floor: POWER8 (ISA 2.07) by default, and that is enforced rather than
++# intended -- every ISA 3.0 instruction this backend can emit sits behind
++# ppc64HasISA30, which --ppc64-isa=power9 turns on. See the comment on that
++# function for why the choice cannot be deferred to run time the way the
++# MacroAssembler's hasISA30() defers it.
++#
++# The structure follows riscv64.rb: every offlineasm macro instruction is
++# rewritten into a "pp_" pseudo-instruction that corresponds to exactly one
++# PowerPC machine instruction (or a small fixed sequence), temporaries are
++# then assigned to the scratch registers, a branch-reach pass replaces
++# out-of-range conditional branches, and lowerPPC64 is a pure emitter.
++#
++# Register conventions (must match GPRInfo.h / FPRInfo.h for CPU(PPC64LE)):
++#
++# r0   => scratch inside fixed sequences only (never a base register, never
++#         handed to the temporary allocator)
++# r1   => sp
++# r2   => TOC pointer. Never written by generated code. Restored from 24(r1)
++#         after every call. Global/extern symbol addresses are formed
++#         relative to it (globaladdr/pcrtoaddr/leap [label]).
++# r3-r10  => t0-t7 (also the ELFv2 argument/return registers)
++# r11  => t8
++# r12  => t9 (also the indirect-call target register required by ELFv2)
++# r13  => thread pointer, never touched
++# r14-r24 => csr0-csr10 (callee-saved)
++# r25-r27 => t10-t12 (callee-saved in the ABI; saved by the VM entry frame)
++# r28-r30 => scratch registers for the temporary allocator
++# r31  => cfr
++# lr   => the link register itself; read/written through mflr/mtlr by
++#         ppc64LowerLinkRegister
++#
++# f0   => scratch inside fixed sequences only
++# f1-f8   => ft0-ft7 (also the ELFv2 FP argument/return registers)
++# f9-f12  => scratch registers for the FP temporary allocator
++# f13     => unused
++# f14-f25 => csfr0-csfr11 (callee-saved)
++# f26-f31 => unused
++#
++# Condition registers: cr0 is the working field for every compare; cr7 is
++# used as the composition field for ordered/unordered double conditions.
++# cr2-cr4 are callee-saved and are never written.
++#
++# 32-bit values: every "i" operation leaves its result zero-extended in the
++# 64-bit register (x86_64 / ARM64 "w" semantics); cmpw/cmplw ignore the
++# upper half so compares need no extension.
++
++PPC64_EXTRA_GPRS = [SpecialRegister.new("r28"), SpecialRegister.new("r29"), SpecialRegister.new("r30")]
++
++# The register the function prologue and epilogue shuttle LR through. Must NOT
++# come from the temporary pool above: r28-r30 are nonvolatile in ELFv2, so a
++# prologue that clobbers one of them destroys a caller register before the
++# entry point has saved it.
++PPC64_LR_SHUTTLE = SpecialRegister.new("r0")
++PPC64_EXTRA_FPRS = [SpecialRegister.new("f9"), SpecialRegister.new("f10"), SpecialRegister.new("f11"), SpecialRegister.new("f12")]
++
++# Conservative reach for a 16-bit conditional branch displacement. The real
++# limit is +-32 KiB; alignment padding at global labels is unknown to us, so
++# keep a wide margin.
++PPC64_CONDITIONAL_BRANCH_REACH_BYTES = 0x6000
++
++# WHICH ISA THIS BACKEND MAY EMIT, decided at GENERATION time.
++#
++# The MacroAssembler can ask hasISA30() at run time and pick a sequence per
++# call site. offlineasm cannot: what it emits is baked into LLIntAssembly.h
++# when WebKit is built, so the choice has to be made by the build. That makes
++# it a correctness question rather than a tuning one, and in the dangerous
++# direction -- clang's integrated assembler ENCODES ISA 3.0 mnemonics happily
++# at -mcpu=power8 (it is GNU as -mpower8 that rejects them), so a POWER9-only
++# sequence here produces a package that builds completely clean and then
++# SIGILLs on the first POWER8 machine to run it.
++#
++# The default is therefore the POWER8 floor, and deliberately so: a build that
++# forgets the flag costs a few instructions, where the other default would ship
++# the SIGILL. --ppc64-isa=power9 opts in.
++def ppc64HasISA30
++    !$options.nil? && $options[:ppc64_isa] == "power9"
++end
++
++def ppc64OperandTypes(operands)
++    return operands.map {
++        |op|
++        if op.is_a? SpecialRegister
++            case op.name
++            when /^r/
++                RegisterID
++            when /^f/
++                FPRegisterID
++            else
++                raise "Invalid SpecialRegister operand #{op.name}"
++            end
++        elsif op.is_a? Tmp
++            case op.kind
++            when :gpr
++                RegisterID
++            when :fpr
++                FPRegisterID
++            else
++                raise "Invalid Tmp operand #{op.kind}"
++            end
++        else
++            op.class
++        end
++    }
++end
++
++def ppc64RaiseMismatchedOperands(operands)
++    raise "Unable to match operands #{ppc64OperandTypes(operands)}"
++end
++
++def ppc64ValidateOperands(operands, *expected)
++    ppc64RaiseMismatchedOperands(operands) unless expected.include? ppc64OperandTypes(operands)
++end
++
++def ppc64FitsSigned16(value)
++    (-0x8000..0x7fff).include? value
++end
++
++def ppc64FitsUnsigned16(value)
++    (0..0xffff).include? value
++end
++
++def ppc64FitsSigned32(value)
++    (-0x80000000..0x7fffffff).include? value
++end
++
++class RegisterID
++    def ppc64Operand
++        case @name
++        when 't0'
++            '3'
++        when 't1'
++            '4'
++        when 't2'
++            '5'
++        when 't3'
++            '6'
++        when 't4'
++            '7'
++        when 't5'
++            '8'
++        when 't6'
++            '9'
++        when 't7'
++            '10'
++        when 't8'
++            '11'
++        when 't9'
++            '12'
++        when 't10'
++            '25'
++        when 't11'
++            '26'
++        when 't12'
++            '27'
++        when 'csr0'
++            '14'
++        when 'csr1'
++            '15'
++        when 'csr2'
++            '16'
++        when 'csr3'
++            '17'
++        when 'csr4'
++            '18'
++        when 'csr5'
++            '19'
++        when 'csr6'
++            '20'
++        when 'csr7'
++            '21'
++        when 'csr8'
++            '22'
++        when 'csr9'
++            '23'
++        when 'csr10'
++            '24'
++        when 'sp'
++            '1'
++        when 'cfr'
++            '31'
++        when 'lr'
++            raise "lr must be lowered through ppc64LowerLinkRegister at #{codeOriginString}"
++        else
++            raise "Bad register name #{@name} at #{codeOriginString}"
++        end
++    end
++
++    def ppc64IsLinkRegister
++        @name == 'lr'
++    end
++end
++
++class FPRegisterID
++    def ppc64Operand
++        case @name
++        when 'ft0'
++            '1'
++        when 'ft1'
++            '2'
++        when 'ft2'
++            '3'
++        when 'ft3'
++            '4'
++        when 'ft4'
++            '5'
++        when 'ft5'
++            '6'
++        when 'ft6'
++            '7'
++        when 'ft7'
++            '8'
++        when 'csfr0'
++            '14'
++        when 'csfr1'
++            '15'
++        when 'csfr2'
++            '16'
++        when 'csfr3'
++            '17'
++        when 'csfr4'
++            '18'
++        when 'csfr5'
++            '19'
++        when 'csfr6'
++            '20'
++        when 'csfr7'
++            '21'
++        when 'csfr8'
++            '22'
++        when 'csfr9'
++            '23'
++        when 'csfr10'
++            '24'
++        when 'csfr11'
++            '25'
++        else
++            raise "Bad register name #{@name} at #{codeOriginString}"
++        end
++    end
++end
++
++class SpecialRegister
++    def ppc64Operand
++        @name[1..-1]
++    end
++end
++
++class Node
++    def ppc64IsLinkRegister
++        false
++    end
++end
++
++class VecRegisterID
++    # IPInt's v0-v7 are 128-bit registers. On this target they are VSRs
++    # 32-39, which are the Altivec registers vr0-vr7: volatile in ELFv2 (the
++    # nonvolatile vector registers start at vr20), and disjoint from the
++    # f0-f31 half of the VSR file, so nothing here can collide with the FPR
++    # temporaries f9-f12 or with wfa0-wfa7.
++    #
++    # The lane-typed spellings (v0_b, v0_h, ...) name the same register; this
++    # backend only ever moves whole 16-byte blobs through them, because
++    # useWasmSIMD is off and the SIMD handlers are traps. Anything that needs
++    # to interpret lanes needs a real VSX arm first.
++    def ppc64Operand
++        raise "Invalid vector register #{@name} at #{codeOriginString}" unless @name =~ /\Av([0-7])(_[bhiq])?\Z/
++        "#{32 + $1.to_i}"
++    end
++end
++
++class Immediate
++    def ppc64Operand
++        "#{value}"
++    end
++end
++
++class Address
++    def ppc64Operand
++        raise "Invalid offset #{offset.value} at #{codeOriginString}" unless ppc64FitsSigned16(offset.value)
++        "#{offset.value}(#{base.ppc64Operand})"
++    end
++
++    # DS-form loads and stores (ld, std, lwa) need a displacement that is a
++    # multiple of 4; every other D-form needs a signed 16-bit displacement.
++    def ppc64RequiresLoad(dsForm)
++        return true unless ppc64FitsSigned16(offset.value)
++        return true if dsForm and (offset.value & 3) != 0
++        false
++    end
++end
++
++# A condition-register bit for the "pp_bc" pseudo-op: field (0..7), bit
++# (:lt, :gt, :eq, :so) and whether to branch when the bit is set.
++class PPC64Condition < NoChildren
++    attr_reader :field, :bit, :set
++
++    def initialize(field, bit, set)
++        @field = field
++        @bit = bit
++        @set = set
++    end
++
++    def inverted
++        PPC64Condition.new(@field, @bit, !@set)
++    end
++
++    def bitIndex
++        base = 4 * @field
++        case @bit
++        when :lt
++            base
++        when :gt
++            base + 1
++        when :eq
++            base + 2
++        when :so
++            base + 3
++        else
++            raise "Invalid CR bit #{@bit}"
++        end
++    end
++
++    # BO field: 12 = branch if bit set, 4 = branch if bit clear.
++    def bo
++        @set ? 12 : 4
++    end
++
++    def dump
++        "cr#{@field}.#{@bit}#{@set ? '' : '!'}"
++    end
++end
++
++def ppc64DsFormOpcode?(opcode)
++    case opcode
++    when "loadp", "loadq", "loadis", "storep", "storeq", "transferp", "transferq", "loadbsq", "loadhsq"
++        # loadbsq/loadhsq lower to lbz/lha which are D-form; listed here only
++        # because their sign-extension is done in registers afterwards.
++        opcode == "loadp" || opcode == "loadq" || opcode == "loadis" || opcode == "storep" || opcode == "storeq" || opcode == "transferp" || opcode == "transferq"
++    else
++        false
++    end
++end
++
++#
++# Link register lowering. The LR is not a GPR on PowerPC; reads become
++# "pp_mflr tmp" and writes become "pp_mtlr tmp". "ret" and "jmp lr" are
++# emitted as blr directly.
++#
++
++def ppc64LowerLinkRegister(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction and node.operands.any? { |op| op.ppc64IsLinkRegister }
++            case node.opcode
++            when "jmp"
++                newList << Instruction.new(node.codeOrigin, "pp_blr", [], node.annotation)
++            when "push"
++                # r0, not a temporary. "push cfr, lr" IS the function prologue,
++                # and the temporary pool (r28-r30) is nonvolatile in ELFv2: a
++                # prologue that shuttles LR through r30 destroys the caller's
++                # r30 before anything has had the chance to save it, which is
++                # exactly how the first native-LLInt run died (mprotect got a
++                # text address because JSC::LLInt::initialize() had kept a
++                # value in r30 across llint_entry). r0 is safe here: it is
++                # only the source of a store whose base is sp.
++                operands = node.operands.map {
++                    | op |
++                    if op.ppc64IsLinkRegister
++                        tmp = PPC64_LR_SHUTTLE
++                        newList << Instruction.new(node.codeOrigin, "pp_mflr", [tmp])
++                        tmp
++                    else
++                        op
++                    end
++                }
++                newList << Instruction.new(node.codeOrigin, "push", operands, node.annotation)
++            when "pop"
++                # Same reasoning as "push": this is the function epilogue, and
++                # it must not touch a nonvolatile register that the entry-point
++                # save/restore has already put back.
++                post = []
++                operands = node.operands.map {
++                    | op |
++                    if op.ppc64IsLinkRegister
++                        tmp = PPC64_LR_SHUTTLE
++                        post << Instruction.new(node.codeOrigin, "pp_mtlr", [tmp])
++                        tmp
++                    else
++                        op
++                    end
++                }
++                newList << Instruction.new(node.codeOrigin, "pop", operands, node.annotation)
++                newList.concat(post)
++            when "move", /^load(p|q)$/, /^store(p|q)$/
++                # Two-operand forms: the last operand is the destination.
++                raise "Unexpected operand count for #{node.opcode} at #{node.codeOriginString}" unless node.operands.size == 2
++                src, dst = node.operands
++                post = []
++                if src.ppc64IsLinkRegister
++                    tmp = Tmp.new(node.codeOrigin, :gpr)
++                    newList << Instruction.new(node.codeOrigin, "pp_mflr", [tmp])
++                    src = tmp
++                end
++                if dst.ppc64IsLinkRegister
++                    tmp = Tmp.new(node.codeOrigin, :gpr)
++                    post << Instruction.new(node.codeOrigin, "pp_mtlr", [tmp])
++                    dst = tmp
++                end
++                newList << Instruction.new(node.codeOrigin, node.opcode, [src, dst], node.annotation)
++                newList.concat(post)
++            else
++                # Any other use of lr is a read (compares, tag ops, etc).
++                operands = node.operands.map {
++                    | op |
++                    if op.ppc64IsLinkRegister
++                        tmp = Tmp.new(node.codeOrigin, :gpr)
++                        newList << Instruction.new(node.codeOrigin, "pp_mflr", [tmp])
++                        tmp
++                    else
++                        op
++                    end
++                }
++                newList << Instruction.new(node.codeOrigin, node.opcode, operands, node.annotation)
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Address lowering: leap/leaq/globaladdr/pcrtoaddr.
++#
++
++def ppc64LowerAddressLoads(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when "leap", "leaq", "leai"
++                case ppc64OperandTypes(node.operands)
++                when [Address, RegisterID]
++                    address, dest = node.operands
++                    raise "Invalid address at #{node.codeOriginString}" unless ppc64FitsSigned16(address.offset.value)
++                    newList << Instruction.new(node.codeOrigin, "pp_addi", [address.base, address.offset, dest])
++                when [BaseIndex, RegisterID]
++                    bi, dest = node.operands
++                    if bi.scaleShift == 0
++                        newList << Instruction.new(node.codeOrigin, "pp_add", [bi.base, bi.index, dest])
++                    else
++                        newList << Instruction.new(node.codeOrigin, "pp_sldi", [bi.index, Immediate.new(node.codeOrigin, bi.scaleShift), dest])
++                        newList << Instruction.new(node.codeOrigin, "pp_add", [dest, bi.base, dest])
++                    end
++                    if bi.offset.value != 0
++                        if ppc64FitsSigned16(bi.offset.value)
++                            newList << Instruction.new(node.codeOrigin, "pp_addi", [dest, bi.offset, dest])
++                        else
++                            tmp = Tmp.new(node.codeOrigin, :gpr)
++                            newList << Instruction.new(node.codeOrigin, "pp_li64", [bi.offset, tmp])
++                            newList << Instruction.new(node.codeOrigin, "pp_add", [dest, tmp, dest])
++                        end
++                    end
++                when [LabelReference, RegisterID]
++                    label, dest = node.operands
++                    newList << Instruction.new(node.codeOrigin, "pp_la", [label, dest])
++                    if label.offset != 0
++                        offset = Immediate.new(node.codeOrigin, label.offset)
++                        if ppc64FitsSigned16(label.offset)
++                            newList << Instruction.new(node.codeOrigin, "pp_addi", [dest, offset, dest])
++                        else
++                            tmp = Tmp.new(node.codeOrigin, :gpr)
++                            newList << Instruction.new(node.codeOrigin, "pp_li64", [offset, tmp])
++                            newList << Instruction.new(node.codeOrigin, "pp_add", [dest, tmp, dest])
++                        end
++                    end
++                else
++                    ppc64RaiseMismatchedOperands(node.operands)
++                end
++                if node.opcode == "leai"
++                    newList << Instruction.new(node.codeOrigin, "pp_clrldi", [node.operands[1], Immediate.new(node.codeOrigin, 32), node.operands[1]])
++                end
++            when "globaladdr", "pcrtoaddr"
++                ppc64ValidateOperands(node.operands, [LabelReference, RegisterID])
++                newList << Instruction.new(node.codeOrigin, "pp_la", node.operands)
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Arithmetic branches with a memory destination, e.g.
++#
++#   baddiz 1, [foo], .label
++#
++# become load / op / store / test-branch on the register copy.
++#
++
++def ppc64LowerMemoryArithmeticBranches(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^b(add|sub|or)(i|p|q)(z|nz|s)$/
++                op, size, flag = $1, $2, $3
++                if node.operands.size == 3 and node.operands[1].is_a? Address
++                    tmp = Tmp.new(node.codeOrigin, :gpr)
++                    newList << Instruction.new(node.codeOrigin, "load#{size}", [node.operands[1], tmp])
++                    newList << Instruction.new(node.codeOrigin, "#{op}#{size}", [node.operands[0], tmp])
++                    newList << Instruction.new(node.codeOrigin, "store#{size}", [tmp, node.operands[1]])
++                    newList << Instruction.new(node.codeOrigin, "bt#{size}#{flag}", [tmp, node.operands[2]])
++                else
++                    newList << node
++                end
++            when /^b(add|sub|mul)(i|p|q)o$/
++                raise "Overflow branch with a memory operand is not supported at #{node.codeOriginString}" if node.operands.any? { |op| op.is_a? Address }
++                newList << node
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Shift-count sanitisation: slw/srw/sraw use six bits of the count and
++# sld/srd/srad use seven, but offlineasm (following x86) masks with 31 or
++# 63. Immediate counts are always in range.
++#
++
++def ppc64LowerShiftCounts(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^(l|r|ur)shift(i|p|q)$/
++                mask = $2 == "i" ? 31 : 63
++                operands = node.operands
++                if operands.size == 2
++                    operands = [operands[1], operands[0], operands[1]]
++                end
++                count = operands[1]
++                if count.register?
++                    tmp = Tmp.new(node.codeOrigin, :gpr)
++                    newList << Instruction.new(node.codeOrigin, "pp_andi.", [count, Immediate.new(node.codeOrigin, mask), tmp])
++                    count = tmp
++                end
++                newList << Instruction.new(node.codeOrigin, node.opcode, [operands[0], count, operands[2]], node.annotation)
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Immediate subtraction: PowerPC has no subi; subtract by adding the
++# negated immediate, and never subtract from an immediate (subfic covers
++# "imm - reg" but the .asm never asks for it).
++#
++
++def ppc64LowerImmediateSubtraction(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^sub(i|p|q)$/
++                size = $1.to_sym
++                operands = node.operands
++                if operands.size == 2
++                    operands = [operands[1], operands[0], operands[1]]
++                end
++                if operands[1].is_a? Immediate
++                    nimm = Immediate.new(node.codeOrigin, -operands[1].value)
++                    if ppc64FitsSigned16(nimm.value)
++                        newList << Instruction.new(node.codeOrigin, "pp_addi", [operands[0], nimm, operands[2]])
++                    else
++                        tmp = Tmp.new(node.codeOrigin, :gpr)
++                        newList << Instruction.new(node.codeOrigin, "pp_li64", [operands[1], tmp])
++                        newList << Instruction.new(node.codeOrigin, "pp_subf", [tmp, operands[0], operands[2]])
++                    end
++                    if size == :i
++                        newList << Instruction.new(node.codeOrigin, "pp_clrldi", [operands[2], Immediate.new(node.codeOrigin, 32), operands[2]])
++                    end
++                elsif operands[0].is_a? Immediate
++                    raise "Subtraction from an immediate is not supported at #{node.codeOriginString}"
++                else
++                    newList << node
++                end
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++def ppc64EmitMask32(newList, node, size, register)
++    if size == :i
++        newList << Instruction.new(node.codeOrigin, "pp_clrldi", [register, Immediate.new(node.codeOrigin, 32), register])
++    end
++end
++
++def ppc64LowerOperandIntoRegister(newList, node, operand)
++    register = operand
++    if operand.immediate?
++        register = Tmp.new(node.codeOrigin, :gpr)
++        newList << Instruction.new(node.codeOrigin, "pp_li64", [operand, register])
++    end
++    raise "Invalid register type at #{node.codeOriginString}" unless ppc64OperandTypes([register]) == [RegisterID]
++    register
++end
++
++#
++# The main lowering of integer operations into pp_ pseudo-ops.
++#
++
++def ppc64LowerOperation(list)
++    def emitLoad(newList, node, size)
++        ppc64ValidateOperands(node.operands, [Address, RegisterID])
++        address, dest = node.operands
++        case size
++        when :b
++            newList << Instruction.new(node.codeOrigin, "pp_lbz", [address, dest])
++        when :bsi
++            newList << Instruction.new(node.codeOrigin, "pp_lbz", [address, dest])
++            newList << Instruction.new(node.codeOrigin, "pp_extsb", [dest, dest])
++            newList << Instruction.new(node.codeOrigin, "pp_clrldi", [dest, Immediate.new(node.codeOrigin, 32), dest])
++        when :bsq
++            newList << Instruction.new(node.codeOrigin, "pp_lbz", [address, dest])
++            newList << Instruction.new(node.codeOrigin, "pp_extsb", [dest, dest])
++        when :h
++            newList << Instruction.new(node.codeOrigin, "pp_lhz", [address, dest])
++        when :hsi
++            newList << Instruction.new(node.codeOrigin, "pp_lha", [address, dest])
++            newList << Instruction.new(node.codeOrigin, "pp_clrldi", [dest, Immediate.new(node.codeOrigin, 32), dest])
++        when :hsq
++            newList << Instruction.new(node.codeOrigin, "pp_lha", [address, dest])
++        when :i
++            newList << Instruction.new(node.codeOrigin, "pp_lwz", [address, dest])
++        when :is
++            newList << Instruction.new(node.codeOrigin, "pp_lwa", [address, dest])
++        when :p, :q
++            newList << Instruction.new(node.codeOrigin, "pp_ld", [address, dest])
++        else
++            raise "Invalid size #{size}"
++        end
++    end
++
++    def emitStore(newList, node, size)
++        ppc64ValidateOperands(node.operands, [RegisterID, Address])
++        case size
++        when :b
++            opcode = "pp_stb"
++        when :h
++            opcode = "pp_sth"
++        when :i
++            opcode = "pp_stw"
++        when :p, :q
++            opcode = "pp_std"
++        else
++            raise "Invalid size #{size}"
++        end
++        newList << Instruction.new(node.codeOrigin, opcode, node.operands)
++    end
++
++    def emitTransfer(newList, node, size)
++        ppc64ValidateOperands(node.operands, [Address, Address])
++        tmp = Tmp.new(node.codeOrigin, :gpr)
++        case size
++        when :i
++            newList << Instruction.new(node.codeOrigin, "pp_lwz", [node.operands[0], tmp])
++            newList << Instruction.new(node.codeOrigin, "pp_stw", [tmp, node.operands[1]])
++        when :p, :q
++            newList << Instruction.new(node.codeOrigin, "pp_ld", [node.operands[0], tmp])
++            newList << Instruction.new(node.codeOrigin, "pp_std", [tmp, node.operands[1]])
++        else
++            raise "Invalid size #{size}"
++        end
++    end
++
++    def emitMove(newList, node)
++        case ppc64OperandTypes(node.operands)
++        when [RegisterID, RegisterID]
++            newList << Instruction.new(node.codeOrigin, "pp_mr", node.operands)
++        when [Immediate, RegisterID]
++            newList << Instruction.new(node.codeOrigin, "pp_li64", node.operands)
++        else
++            ppc64RaiseMismatchedOperands(node.operands)
++        end
++    end
++
++    def emitJump(newList, node)
++        case ppc64OperandTypes(node.operands)
++        when [RegisterID]
++            newList << Instruction.new(node.codeOrigin, "pp_mtctr", [node.operands[0]])
++            newList << Instruction.new(node.codeOrigin, "pp_bctr", [])
++        when [LabelReference], [LocalLabelReference]
++            newList << Instruction.new(node.codeOrigin, "pp_b", node.operands)
++        else
++            ppc64RaiseMismatchedOperands(node.operands)
++        end
++    end
++
++    def emitCall(newList, node)
++        case ppc64OperandTypes(node.operands)
++        when [RegisterID]
++            newList << Instruction.new(node.codeOrigin, "pp_call_reg", node.operands)
++        when [LabelReference], [LocalLabelReference]
++            newList << Instruction.new(node.codeOrigin, "pp_call_label", node.operands)
++        else
++            ppc64RaiseMismatchedOperands(node.operands)
++        end
++    end
++
++    # A call to generated code (LLInt or JIT), not to a C function. See
++    # PPC64_INSTRUCTIONS in instructions.rb for why this is a separate
++    # instruction rather than a flavour of "call".
++    def emitJSCall(newList, node)
++        case ppc64OperandTypes(node.operands)
++        when [RegisterID]
++            newList << Instruction.new(node.codeOrigin, "pp_jscall_reg", node.operands)
++        when [LabelReference], [LocalLabelReference]
++            newList << Instruction.new(node.codeOrigin, "pp_jscall_label", node.operands)
++        else
++            ppc64RaiseMismatchedOperands(node.operands)
++        end
++    end
++
++    def emitPush(newList, node)
++        sp = RegisterID.forName(node.codeOrigin, 'sp')
++        size = 8 * node.operands.size
++        newList << Instruction.new(node.codeOrigin, "pp_addi", [sp, Immediate.new(node.codeOrigin, -size), sp])
++        node.operands.reverse.each_with_index {
++            | op, index |
++            offset = size - 8 * (index + 1)
++            newList << Instruction.new(node.codeOrigin, "pp_std", [op, Address.new(node.codeOrigin, sp, Immediate.new(node.codeOrigin, offset))])
++        }
++    end
++
++    def emitPop(newList, node)
++        sp = RegisterID.forName(node.codeOrigin, 'sp')
++        size = 8 * node.operands.size
++        node.operands.each_with_index {
++            | op, index |
++            offset = size - 8 * (index + 1)
++            newList << Instruction.new(node.codeOrigin, "pp_ld", [Address.new(node.codeOrigin, sp, Immediate.new(node.codeOrigin, offset)), op])
++        }
++        newList << Instruction.new(node.codeOrigin, "pp_addi", [sp, Immediate.new(node.codeOrigin, size), sp])
++    end
++
++    def emitAddition(newList, node, operation, size)
++        operands = node.operands
++        if operands.size == 2
++            operands = [operands[1], operands[0], operands[1]]
++        end
++        if ppc64OperandTypes(operands) == [Immediate, RegisterID, RegisterID]
++            raise "Invalid subtraction pattern at #{node.codeOriginString}" if operation == :sub
++            operands = [operands[1], operands[0], operands[2]]
++        end
++        ppc64ValidateOperands(operands, [RegisterID, RegisterID, RegisterID], [RegisterID, Immediate, RegisterID])
++        case operation
++        when :add
++            if operands[1].is_a? Immediate
++                newList << Instruction.new(node.codeOrigin, "pp_addi", operands)
++            else
++                newList << Instruction.new(node.codeOrigin, "pp_add", operands)
++            end
++        when :sub
++            raise "Immediate subtraction must be lowered earlier at #{node.codeOriginString}" if operands[1].is_a? Immediate
++            # subf rD, rA, rB computes rB - rA.
++            newList << Instruction.new(node.codeOrigin, "pp_subf", [operands[1], operands[0], operands[2]])
++        else
++            raise "Invalid operation #{operation}"
++        end
++        ppc64EmitMask32(newList, node, size, operands[2])
++    end
++
++    def emitMultiplication(newList, node, operation, size, signedness)
++        operands = node.operands
++        if operands.size == 2
++            operands = [operands[1], operands[0], operands[1]]
++        end
++        if ppc64OperandTypes(operands) == [Immediate, RegisterID, RegisterID]
++            raise "Invalid division pattern at #{node.codeOriginString}" if [:div, :rem].include? operation
++            operands = [operands[1], operands[0], operands[2]]
++        end
++        ppc64ValidateOperands(operands, [RegisterID, RegisterID, RegisterID], [RegisterID, Immediate, RegisterID])
++        lhs = operands[0]
++        rhs = ppc64LowerOperandIntoRegister(newList, node, operands[1])
++        dest = operands[2]
++        case operation
++        when :mul
++            newList << Instruction.new(node.codeOrigin, size == :i ? "pp_mullw" : "pp_mulld", [lhs, rhs, dest])
++        when :div
++            if size == :i
++                # divw/divwu read the low 32 bits, so the zero-extension
++                # invariant is enough for the unsigned form; the signed form
++                # needs sign-extended inputs.
++                if signedness == :s
++                    newList << Instruction.new(node.codeOrigin, "pp_divw", [lhs, rhs, dest])
++                else
++                    newList << Instruction.new(node.codeOrigin, "pp_divwu", [lhs, rhs, dest])
++                end
++            else
++                newList << Instruction.new(node.codeOrigin, signedness == :s ? "pp_divd" : "pp_divdu", [lhs, rhs, dest])
++            end
++        when :rem
++            if ppc64HasISA30
++                # ISA 3.0 (POWER9) modulo instructions.
++                if size == :i
++                    newList << Instruction.new(node.codeOrigin, signedness == :s ? "pp_modsw" : "pp_moduw", [lhs, rhs, dest])
++                else
++                    newList << Instruction.new(node.codeOrigin, signedness == :s ? "pp_modsd" : "pp_modud", [lhs, rhs, dest])
++                end
++            else
++                # POWER8: remainder = lhs - (lhs / rhs) * rhs. The quotient and
++                # the product both land in r0, the fixed-sequence scratch, and
++                # dest is written only by the final subf -- so dest may alias
++                # either input, which it does whenever the caller passed the
++                # two-operand form.
++                if size == :i
++                    divOp = signedness == :s ? "pp_divw" : "pp_divwu"
++                    mulOp = "pp_mullw"
++                else
++                    divOp = signedness == :s ? "pp_divd" : "pp_divdu"
++                    mulOp = "pp_mulld"
++                end
++                scratch = PPC64_LR_SHUTTLE
++                newList << Instruction.new(node.codeOrigin, divOp, [lhs, rhs, scratch])
++                newList << Instruction.new(node.codeOrigin, mulOp, [scratch, rhs, scratch])
++                # subf rD, rA, rB computes rB - rA.
++                newList << Instruction.new(node.codeOrigin, "pp_subf", [scratch, lhs, dest])
++            end
++        else
++            raise "Invalid operation #{operation}"
++        end
++        ppc64EmitMask32(newList, node, size, dest)
++    end
++
++    def emitShift(newList, node, operation, size)
++        operands = node.operands
++        if operands.size == 2
++            operands = [operands[1], operands[0], operands[1]]
++        end
++        ppc64ValidateOperands(operands, [RegisterID, RegisterID, RegisterID], [RegisterID, Immediate, RegisterID])
++        immediate = operands[1].is_a? Immediate
++        wide = size != :i
++        case operation
++        when :l
++            opcode = immediate ? (wide ? "pp_sldi" : "pp_slwi") : (wide ? "pp_sld" : "pp_slw")
++        when :r
++            opcode = immediate ? (wide ? "pp_sradi" : "pp_srawi") : (wide ? "pp_srad" : "pp_sraw")
++        when :ur
++            opcode = immediate ? (wide ? "pp_srdi" : "pp_srwi") : (wide ? "pp_srd" : "pp_srw")
++        else
++            raise "Invalid shift #{operation}"
++        end
++        if immediate
++            limit = wide ? 63 : 31
++            raise "Shift amount out of range at #{node.codeOriginString}" unless (0..limit).include? operands[1].value
++            if operands[1].value == 0
++                newList << Instruction.new(node.codeOrigin, "pp_mr", [operands[0], operands[2]]) unless operands[0] == operands[2]
++                ppc64EmitMask32(newList, node, size, operands[2])
++                return
++            end
++        end
++        newList << Instruction.new(node.codeOrigin, opcode, operands)
++        # sraw/srawi sign-extend their result to 64 bits; slw/srw already
++        # zero-extend but the mask keeps the invariant uniform and cheap.
++        ppc64EmitMask32(newList, node, size, operands[2])
++    end
++
++    def emitRotate(newList, node, direction, size)
++        ppc64ValidateOperands(node.operands, [RegisterID, RegisterID], [Immediate, RegisterID])
++        amount, value = node.operands
++        if size == :i
++            if amount.is_a? Immediate
++                count = amount.value & 31
++                count = (32 - count) & 31 if direction == :r
++                newList << Instruction.new(node.codeOrigin, "pp_rotlwi", [value, Immediate.new(node.codeOrigin, count), value])
++            else
++                count = amount
++                if direction == :r
++                    count = Tmp.new(node.codeOrigin, :gpr)
++                    newList << Instruction.new(node.codeOrigin, "pp_neg", [amount, count])
++                end
++                newList << Instruction.new(node.codeOrigin, "pp_rotlw", [value, count, value])
++            end
++            ppc64EmitMask32(newList, node, :i, value)
++        else
++            if amount.is_a? Immediate
++                count = amount.value & 63
++                count = (64 - count) & 63 if direction == :r
++                newList << Instruction.new(node.codeOrigin, "pp_rotldi", [value, Immediate.new(node.codeOrigin, count), value])
++            else
++                count = amount
++                if direction == :r
++                    count = Tmp.new(node.codeOrigin, :gpr)
++                    newList << Instruction.new(node.codeOrigin, "pp_neg", [amount, count])
++                end
++                newList << Instruction.new(node.codeOrigin, "pp_rotld", [value, count, value])
++            end
++        end
++    end
++
++    def emitLogical(newList, node, operation, size)
++        operands = node.operands
++        if operands.size == 2
++            operands = [operands[1], operands[0], operands[1]]
++        end
++        if ppc64OperandTypes(operands) == [Immediate, RegisterID, RegisterID]
++            operands = [operands[1], operands[0], operands[2]]
++        end
++        ppc64ValidateOperands(operands, [RegisterID, RegisterID, RegisterID], [RegisterID, Immediate, RegisterID])
++        if operands[1].is_a? Immediate and not ppc64FitsUnsigned16(operands[1].value)
++            # Logical immediates are unsigned 16-bit; anything else (negative
++            # masks in particular) goes through a register.
++            operands = [operands[0], ppc64LowerOperandIntoRegister(newList, node, operands[1]), operands[2]]
++        end
++        if operands[1].is_a? Immediate
++            case operation
++            when :and
++                opcode = "pp_andi."
++            when :or
++                opcode = "pp_ori"
++            when :xor
++                opcode = "pp_xori"
++            end
++        else
++            opcode = "pp_#{operation}"
++        end
++        newList << Instruction.new(node.codeOrigin, opcode, operands)
++        # Inputs are not guaranteed zero-extended (loadis, sxi2q and negative
++        # immediates produce sign-extended values), so always re-establish
++        # the 32-bit invariant, "and" included.
++        ppc64EmitMask32(newList, node, size, operands[2])
++    end
++
++    def emitComplement(newList, node, operation, size)
++        ppc64ValidateOperands(node.operands, [RegisterID])
++        reg = node.operands[0]
++        case operation
++        when :neg
++            newList << Instruction.new(node.codeOrigin, "pp_neg", [reg, reg])
++        when :not
++            newList << Instruction.new(node.codeOrigin, "pp_not", [reg, reg])
++        else
++            raise "Invalid operation #{operation}"
++        end
++        ppc64EmitMask32(newList, node, size, reg)
++    end
++
++    def emitBitExtension(newList, node, extension, fromSize, toSize)
++        ppc64ValidateOperands(node.operands, [RegisterID, RegisterID])
++        source, dest = node.operands
++        if extension == :z
++            raise "Invalid zero extension at #{node.codeOriginString}" unless fromSize == :i
++            newList << Instruction.new(node.codeOrigin, "pp_clrldi", [source, Immediate.new(node.codeOrigin, 32), dest])
++            return
++        end
++        case fromSize
++        when :b
++            newList << Instruction.new(node.codeOrigin, "pp_extsb", [source, dest])
++        when :h
++            newList << Instruction.new(node.codeOrigin, "pp_extsh", [source, dest])
++        when :i
++            newList << Instruction.new(node.codeOrigin, "pp_extsw", [source, dest])
++        else
++            raise "Invalid extension source #{fromSize}"
++        end
++        ppc64EmitMask32(newList, node, toSize, dest)
++    end
++
++    # ---- WebAssembly: 128-bit arithmetic ----------------------------------
++    #
++    # IPInt's i64.add128 / sub128 / mul_wide_* take ARM64's three-operand
++    # arms (the x86 ones are the two-operand rdx:rax forms). PowerPC has all
++    # six directly. The carry chain runs through XER[CA], which addc/subfc
++    # write and adde/subfe read, and the two instructions are adjacent in the
++    # source, so nothing can get between them.
++
++    def emitCarryArithmetic(newList, node, opcode)
++        ppc64ValidateOperands(node.operands, [RegisterID, RegisterID, RegisterID])
++        a, b, dest = node.operands
++        case opcode
++        when :addc, :adde
++            # addc/adde rD, rA, rB = rA + rB (+ CA).
++            newList << Instruction.new(node.codeOrigin, opcode == :addc ? "pp_addc" : "pp_adde", [a, b, dest])
++        when :subfc, :subfe
++            # ARM64's "subs d, a, b" and "sbc d, a, b" are a - b (- borrow).
++            # subfc/subfe rD, rA, rB = rB - rA (- borrow), so the operands
++            # swap. PowerPC's CA is the complement of the borrow, exactly as
++            # ARM64's C is after subs, so sbc and subfe agree bit for bit.
++            newList << Instruction.new(node.codeOrigin, opcode == :subfc ? "pp_subfc" : "pp_subfe", [b, a, dest])
++        when :mulhd, :mulhdu
++            newList << Instruction.new(node.codeOrigin, opcode == :mulhd ? "pp_mulhd" : "pp_mulhdu", [a, b, dest])
++        else
++            raise "Invalid carry operation #{opcode}"
++        end
++    end
++
++    # ---- WebAssembly: atomics ---------------------------------------------
++    #
++    # IPInt's atomic RMW handlers take ARM64's non-LSE arm, which is a
++    # load-linked / store-conditional loop -- larx/stcx. on PowerPC. The
++    # reserve instructions are X-form only, so the effective address has to
++    # be in a register.
++
++    def addressIntoRegister(newList, node, address)
++        raise "Expected an Address at #{node.codeOriginString}" unless address.is_a? Address
++        return address.base if address.offset.value == 0
++        tmp = Tmp.new(node.codeOrigin, :gpr)
++        newList << Instruction.new(node.codeOrigin, "pp_addi", [address.base, address.offset, tmp])
++        tmp
++    end
++
++    def emitLoadLinked(newList, node, size)
++        ppc64ValidateOperands(node.operands, [Address, RegisterID])
++        address, dest = node.operands
++        base = addressIntoRegister(newList, node, address)
++        # Leading full barrier: the wasm atomics IPInt reaches here for are
++        # sequentially consistent, and this is the "hwsync in front" mapping
++        # that GCC emits for __atomic_* on this target. It sits inside the
++        # retry loop rather than in front of it because offlineasm gives the
++        # backend one instruction, not the loop; repeating it costs a retry,
++        # it does not weaken anything.
++        newList << Instruction.new(node.codeOrigin, "pp_sync", [])
++        opcode = { :b => "pp_lbarx", :h => "pp_lharx", :i => "pp_lwarx", :q => "pp_ldarx" }[size]
++        raise "Invalid load-linked size #{size}" unless opcode
++        newList << Instruction.new(node.codeOrigin, opcode, [base, dest])
++    end
++
++    def emitStoreConditional(newList, node, size)
++        ppc64ValidateOperands(node.operands, [RegisterID, RegisterID, Address])
++        result, value, address = node.operands
++        base = addressIntoRegister(newList, node, address)
++        opcode = { :b => "pp_stbcx", :h => "pp_sthcx", :i => "pp_stwcx", :q => "pp_stdcx" }[size]
++        raise "Invalid store-conditional size #{size}" unless opcode
++        newList << Instruction.new(node.codeOrigin, opcode, [value, base])
++        # Trailing full barrier. On a failed attempt it is wasted work; on a
++        # successful one it is the other half of the seq_cst mapping, and it
++        # has to go here because the branch that closes the loop belongs to
++        # the .asm, not to this backend.
++        newList << Instruction.new(node.codeOrigin, "pp_sync", [])
++        # ARM64's stlxr* writes 0 on success; the .asm loops on "result != 0".
++        # stcx. reports success in CR0.EQ, so the result register is the
++        # INVERTED eq bit.
++        newList << Instruction.new(node.codeOrigin, "pp_setcr", [PPC64Condition.new(0, :eq, false), result])
++    end
++
++    def emitAtomicLoad(newList, node, size)
++        ppc64ValidateOperands(node.operands, [Address, RegisterID])
++        address, dest = node.operands
++        # A sequentially consistent load. sync on both sides is stronger than
++        # the usual sync/load/cmp/bne/isync idiom and needs no scratch
++        # register or local label, which a fixed-size dispatch slot cares
++        # about more than it cares about two barriers.
++        newList << Instruction.new(node.codeOrigin, "pp_sync", [])
++        case size
++        when :b
++            newList << Instruction.new(node.codeOrigin, "pp_lbz", [address, dest])
++        when :h
++            newList << Instruction.new(node.codeOrigin, "pp_lhz", [address, dest])
++        when :i
++            newList << Instruction.new(node.codeOrigin, "pp_lwz", [address, dest])
++        when :q
++            newList << Instruction.new(node.codeOrigin, "pp_ld", [address, dest])
++        else
++            raise "Invalid atomic load size #{size}"
++        end
++        newList << Instruction.new(node.codeOrigin, "pp_sync", [])
++    end
++
++    # ---- WebAssembly: the 16-byte value slot -------------------------------
++    #
++    # IPInt's stack slots, locals and argument slots are 16 bytes wide so that
++    # a v128 fits, and loadv/storev/pushv/popv are how a value crosses one.
++    # Two operand shapes reach here and they are not the same job:
++    #
++    #  * a VecRegisterID (v0-v7). local.get/local.set/local.tee move a whole
++    #    local through v0 whatever its type, so this is on the path of every
++    #    wasm function, not just SIMD. lxvx/stxvx are the byte-order-preserving
++    #    VSX moves (ISA 3.0, and this port already requires POWER9): the
++    #    sixteen bytes come back exactly as they went in, which is what lets a
++    #    slot written as a quad be read back as a vector and vice versa.
++    #
++    #  * an FPRegisterID (wfa0-wfa7). This is a floating-point argument or
++    #    result crossing a 16-byte argument slot; its bits are the low eight
++    #    bytes, the same eight ARM64's "ldr q"/"str q" use, so lfd/stfd. The
++    #    upper eight bytes of a stored slot are left alone rather than zeroed:
++    #    they are dead for every value that can reach here while SIMD is off,
++    #    and two extra instructions are not free in a 128-byte mINT slot.
++
++    def emitVectorSlotMove(newList, node, direction)
++        types = ppc64OperandTypes(node.operands)
++        isVec = types.include? VecRegisterID
++        return false unless isVec or types.include? FPRegisterID
++        sp = RegisterID.forName(node.codeOrigin, 'sp')
++        # Both operand classes move the WHOLE sixteen-byte slot.
++        #
++        #  * VecRegisterID uses lxvx/stxvx, which preserve byte order, so the
++        #    sixteen bytes come back exactly as they went in and a slot
++        #    written as a quad reads back as a vector.
++        #
++        #  * FPRegisterID uses lxvd2x/stxvd2x, which put ISA doubleword 0 at
++        #    slot offset 0 -- the layout ARM64's "ldr q"/"str q" give. A
++        #    scalar double, and the raw-bits f32 in its low word, therefore
++        #    still land at offset 0 exactly as lfd/stfd put them (section 7.2
++        #    of jsc-ppc64le-yarr-wasm.md measured both forms), while the
++        #    upper eight bytes now travel as well.
++        #
++        # That upper half is the whole point and this used to be lfd/stfd.
++        # wasm passes a v128 argument in an FP argument register --
++        # WasmCallingConvention.h marshalls V128 through fprArgs, the same
++        # path as F32 and F64 -- so argumINT_faN is "storev wfaN, [dst]" with
++        # a v128 in the register, and an eight-byte store silently dropped
++        # lanes 2 and 3 of every register-passed v128 argument. For a scalar
++        # the slot's upper eight bytes merely receive doubleword 1 instead of
++        # being left alone, which is dead for that value.
++        # lxvx/stxvx are ISA 3.0. On the POWER8 floor the same byte placement
++        # comes from lxvd2x/stxvd2x plus an xxswapd: lxvd2x puts memory
++        # doubleword 0 in ISA doubleword 0, which is the opposite of what a
++        # byte-order-preserving load does, and xxswapd exchanges them back.
++        #
++        # The store needs the swapped value without a scratch register to put
++        # it in -- vr8 to vr11 are live as within-handler scratch in IPInt, so
++        # borrowing one is not safe across an arbitrary storev. It swaps the
++        # source in place, stores, and swaps back, which is three instructions
++        # and clobbers nothing. The load needs two and no care at all.
++        #
++        # This is the one seam where the ISA choice is worth making rather than
++        # just taking the floor: local.get/local.set/local.tee move every wasm
++        # local through here whatever its type, so it is 641 of the 649 ISA 3.0
++        # sites in the generated interpreter.
++        if isVec and not ppc64HasISA30
++            loadOp = "pp_lxvd2x"
++            storeOp = "pp_stxvd2x"
++            swapAfterLoad = true
++        else
++            loadOp = isVec ? "pp_lxvx" : "pp_lxvd2x"
++            storeOp = isVec ? "pp_stxvx" : "pp_stxvd2x"
++            swapAfterLoad = false
++        end
++        regClass = isVec ? VecRegisterID : FPRegisterID
++        # On the POWER8 path a loaded register needs one swap after the load,
++        # and a stored one needs the source swapped either side of the store.
++        swap = lambda { | reg | newList << Instruction.new(node.codeOrigin, "pp_xxswapd", [reg, reg]) }
++        case direction
++        when :load
++            ppc64ValidateOperands(node.operands, [Address, regClass])
++            address, dest = node.operands
++            newList << Instruction.new(node.codeOrigin, loadOp, [addressIntoRegister(newList, node, address), dest])
++            swap.call(dest) if swapAfterLoad
++        when :store
++            ppc64ValidateOperands(node.operands, [regClass, Address])
++            source, address = node.operands
++            swap.call(source) if swapAfterLoad
++            newList << Instruction.new(node.codeOrigin, storeOp, [source, addressIntoRegister(newList, node, address)])
++            swap.call(source) if swapAfterLoad
++        when :push
++            ppc64ValidateOperands(node.operands, [regClass])
++            newList << Instruction.new(node.codeOrigin, "pp_addi", [sp, Immediate.new(node.codeOrigin, -16), sp])
++            swap.call(node.operands[0]) if swapAfterLoad
++            newList << Instruction.new(node.codeOrigin, storeOp, [node.operands[0], sp])
++            swap.call(node.operands[0]) if swapAfterLoad
++        when :pop
++            ppc64ValidateOperands(node.operands, [regClass])
++            newList << Instruction.new(node.codeOrigin, loadOp, [sp, node.operands[0]])
++            swap.call(node.operands[0]) if swapAfterLoad
++            newList << Instruction.new(node.codeOrigin, "pp_addi", [sp, Immediate.new(node.codeOrigin, 16), sp])
++        else
++            raise "Invalid vector slot direction #{direction}"
++        end
++        true
++    end
++
++    def emitZeroCount(newList, node, side, size)
++        ppc64ValidateOperands(node.operands, [RegisterID, RegisterID])
++        source, dest = node.operands
++        if side == :l
++            # cntlzw/cntlzd are ISA 2.05 and need no fallback. Both leave a
++            # value of 0..32 or 0..64 in the whole register, so no mask.
++            newList << Instruction.new(node.codeOrigin, size == :i ? "pp_cntlzw" : "pp_cntlzd", [source, dest])
++            return
++        end
++        if ppc64HasISA30
++            newList << Instruction.new(node.codeOrigin, size == :i ? "pp_cnttzw" : "pp_cnttzd", [source, dest])
++            return
++        end
++        # POWER8 has no count-trailing-zeros, but it has popcount, and
++        #   ctz(x) == popcount(~x & (x - 1))
++        # which also gives the right answer for x == 0: x - 1 is all ones and
++        # ~x is all ones, so the mask is all ones and the count is the full
++        # width, which is what cnttzw/cnttzd return for zero.
++        #
++        # r0 is the scratch for fixed sequences. It is safe in every position
++        # used here -- RA of addi is the SOURCE, never r0, and andc/popcnt are
++        # X-form, where r0 is an ordinary register.
++        raise "ctz source must not be r0 at #{node.codeOriginString}" if source.is_a?(SpecialRegister) and source.name == "r0"
++        scratch = PPC64_LR_SHUTTLE
++        newList << Instruction.new(node.codeOrigin, "pp_addi", [source, Immediate.new(node.codeOrigin, -1), scratch])
++        newList << Instruction.new(node.codeOrigin, "pp_andc", [scratch, source, scratch])
++        if size == :i
++            # popcntw counts EACH WORD separately, so the high word holds the
++            # count of the scratch's high word and has to be masked off.
++            newList << Instruction.new(node.codeOrigin, "pp_popcntw", [scratch, dest])
++            ppc64EmitMask32(newList, node, size, dest)
++        else
++            newList << Instruction.new(node.codeOrigin, "pp_popcntd", [scratch, dest])
++        end
++    end
++
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^load(b|bsi|bsq|h|hsi|hsq|i|is|p|q)$/
++                emitLoad(newList, node, $1.to_sym)
++            when /^store(b|h|i|p|q)$/
++                emitStore(newList, node, $1.to_sym)
++            when /^transfer(i|p|q)$/
++                emitTransfer(newList, node, $1.to_sym)
++            when "move"
++                emitMove(newList, node)
++            when "jmp"
++                emitJump(newList, node)
++            when "call"
++                emitCall(newList, node)
++            when "ppc64JSCall"
++                emitJSCall(newList, node)
++            when "push"
++                emitPush(newList, node)
++            when "pop"
++                emitPop(newList, node)
++            when /^(add|sub)(i|p|q)$/
++                emitAddition(newList, node, $1.to_sym, $2.to_sym)
++            when /^(mul|div|rem)(i|p|q)(s?)$/
++                emitMultiplication(newList, node, $1.to_sym, $2.to_sym, $3.to_sym)
++            when /^(l|r)rotate(i|q)$/
++                emitRotate(newList, node, $1.to_sym, $2.to_sym)
++            when /^(l|r|ur)shift(i|p|q)$/
++                emitShift(newList, node, $1.to_sym, $2.to_sym)
++            when /^(and|or|xor)(h|i|p|q)$/
++                emitLogical(newList, node, $1.to_sym, $2.to_sym)
++            when /^(neg|not)(i|p|q)$/
++                emitComplement(newList, node, $1.to_sym, $2.to_sym)
++            when /^(s|z)x(b|h|i)2(i|p|q)$/
++                emitBitExtension(newList, node, $1.to_sym, $2.to_sym, $3.to_sym)
++            when /^(t|l)zcnt(i|q)$/
++                emitZeroCount(newList, node, $1.to_sym, $2.to_sym)
++            when "addqs"
++                emitCarryArithmetic(newList, node, :addc)
++            when "adcq"
++                emitCarryArithmetic(newList, node, :adde)
++            when "subqs"
++                emitCarryArithmetic(newList, node, :subfc)
++            when "sbcq"
++                emitCarryArithmetic(newList, node, :subfe)
++            when "smulhq"
++                emitCarryArithmetic(newList, node, :mulhd)
++            when "umulhq"
++                emitCarryArithmetic(newList, node, :mulhdu)
++            when /^loadlinkacq(b|h|i|q)$/
++                emitLoadLinked(newList, node, $1.to_sym)
++            when /^storecondrel(b|h|i|q)$/
++                emitStoreConditional(newList, node, $1.to_sym)
++            when /^atomicload(b|h|i|q)$/
++                emitAtomicLoad(newList, node, $1.to_sym)
++            when "loadv"
++                newList << node unless emitVectorSlotMove(newList, node, :load)
++            when "storev"
++                newList << node unless emitVectorSlotMove(newList, node, :store)
++            when "pushv"
++                newList << node unless emitVectorSlotMove(newList, node, :push)
++            when "popv"
++                newList << node unless emitVectorSlotMove(newList, node, :pop)
++            when "peek"
++                ppc64ValidateOperands(node.operands, [Immediate, RegisterID])
++                sp = RegisterID.forName(node.codeOrigin, 'sp')
++                newList << Instruction.new(node.codeOrigin, "pp_ld", [Address.new(node.codeOrigin, sp, Immediate.new(node.codeOrigin, node.operands[0].value * 8)), node.operands[1]])
++            when "poke"
++                ppc64ValidateOperands(node.operands, [RegisterID, Immediate])
++                sp = RegisterID.forName(node.codeOrigin, 'sp')
++                newList << Instruction.new(node.codeOrigin, "pp_std", [node.operands[0], Address.new(node.codeOrigin, sp, Immediate.new(node.codeOrigin, node.operands[1].value * 8))])
++            when "break"
++                newList << Instruction.new(node.codeOrigin, "pp_trap", [])
++            when "nop"
++                newList << Instruction.new(node.codeOrigin, "pp_nop", [])
++            when "ret"
++                newList << Instruction.new(node.codeOrigin, "pp_blr", [])
++            when "memfence", "fence"
++                newList << Instruction.new(node.codeOrigin, "pp_sync", [])
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Compares and branches.
++#
++# Every integer condition becomes a "pp_cmp*" followed by a "pp_bc" carrying
++# a PPC64Condition, or a "pp_setcr" that extracts a CR bit into a GPR.
++#
++
++def ppc64ConditionForComparison(comparison, field = 0)
++    # Returns [condition, swapOperands, invertResult]
++    case comparison
++    when :eq
++        [PPC64Condition.new(field, :eq, true), false, false]
++    when :neq
++        [PPC64Condition.new(field, :eq, false), false, false]
++    when :lt, :b
++        [PPC64Condition.new(field, :lt, true), false, false]
++    when :gt, :a
++        [PPC64Condition.new(field, :gt, true), false, false]
++    when :lteq, :beq
++        [PPC64Condition.new(field, :gt, false), false, false]
++    when :gteq, :aeq
++        [PPC64Condition.new(field, :lt, false), false, false]
++    else
++        raise "Invalid comparison #{comparison}"
++    end
++end
++
++def ppc64ComparisonIsUnsigned(comparison)
++    [:a, :aeq, :b, :beq].include? comparison
++end
++
++# Emits the compare for "lhs <cmp> rhs" of the given size and returns
++# nothing; cr0 holds the result.
++def ppc64EmitCompare(newList, node, size, comparison, lhs, rhs)
++    unsigned = ppc64ComparisonIsUnsigned(comparison)
++    case size
++    when :b
++        # Byte operands: canonicalise both to their 8-bit meaning.
++        newLhs = Tmp.new(node.codeOrigin, :gpr)
++        lhs = ppc64LowerOperandIntoRegister(newList, node, lhs)
++        if unsigned or [:eq, :neq].include? comparison
++            newList << Instruction.new(node.codeOrigin, "pp_clrldi", [lhs, Immediate.new(node.codeOrigin, 56), newLhs])
++        else
++            newList << Instruction.new(node.codeOrigin, "pp_extsb", [lhs, newLhs])
++        end
++        lhs = newLhs
++        if rhs.is_a? Immediate
++            value = rhs.value & 0xff
++            value -= 0x100 if (not unsigned) and value >= 0x80
++            rhs = Immediate.new(node.codeOrigin, value)
++        else
++            newRhs = Tmp.new(node.codeOrigin, :gpr)
++            if unsigned or [:eq, :neq].include? comparison
++                newList << Instruction.new(node.codeOrigin, "pp_clrldi", [rhs, Immediate.new(node.codeOrigin, 56), newRhs])
++            else
++                newList << Instruction.new(node.codeOrigin, "pp_extsb", [rhs, newRhs])
++            end
++            rhs = newRhs
++        end
++        wide = false
++    when :i
++        wide = false
++    when :p, :q
++        wide = true
++    else
++        raise "Invalid compare size #{size}"
++    end
++
++    lhs = ppc64LowerOperandIntoRegister(newList, node, lhs)
++    if rhs.is_a? Immediate
++        if unsigned
++            if ppc64FitsUnsigned16(rhs.value)
++                newList << Instruction.new(node.codeOrigin, wide ? "pp_cmpldi" : "pp_cmplwi", [lhs, rhs])
++                return
++            end
++        else
++            if ppc64FitsSigned16(rhs.value)
++                newList << Instruction.new(node.codeOrigin, wide ? "pp_cmpdi" : "pp_cmpwi", [lhs, rhs])
++                return
++            end
++        end
++        rhs = ppc64LowerOperandIntoRegister(newList, node, rhs)
++    end
++    if unsigned
++        newList << Instruction.new(node.codeOrigin, wide ? "pp_cmpld" : "pp_cmplw", [lhs, rhs])
++    else
++        newList << Instruction.new(node.codeOrigin, wide ? "pp_cmpd" : "pp_cmpw", [lhs, rhs])
++    end
++end
++
++def ppc64LowerCompare(list)
++    def emit(newList, node, size, comparison)
++        lhs, rhs, dest = node.operands
++        ppc64EmitCompare(newList, node, size, comparison, lhs, rhs)
++        condition, _, _ = ppc64ConditionForComparison(comparison)
++        newList << Instruction.new(node.codeOrigin, "pp_setcr", [condition, dest])
++    end
++
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^c(b|i|p|q)(eq|neq|a|aeq|b|beq|gt|gteq|lt|lteq)$/
++                emit(newList, node, $1.to_sym, $2.to_sym)
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++def ppc64LowerBranch(list)
++    def emitGeneric(newList, node, size, condition)
++        lhs, rhs, target = node.operands
++        ppc64EmitCompare(newList, node, size, condition, lhs, rhs)
++        cond, _, _ = ppc64ConditionForComparison(condition)
++        newList << Instruction.new(node.codeOrigin, "pp_bc", [cond, target])
++    end
++
++    def resultCondition(flag)
++        case flag
++        when :z
++            PPC64Condition.new(0, :eq, true)
++        when :nz
++            PPC64Condition.new(0, :eq, false)
++        when :s
++            PPC64Condition.new(0, :lt, true)
++        else
++            raise "Invalid result flag #{flag}"
++        end
++    end
++
++    def emitArithmeticBranch(newList, node, operation, size, flag)
++        operands = node.operands
++        if operands.size == 3
++            operands = [operands[1], operands[0], operands[1], operands[2]]
++        end
++        if ppc64OperandTypes(operands)[0] == Immediate and operation != :sub
++            operands = [operands[1], operands[0], operands[2], operands[3]]
++        end
++        ppc64ValidateOperands(operands,
++            [RegisterID, RegisterID, RegisterID, LocalLabelReference],
++            [RegisterID, Immediate, RegisterID, LocalLabelReference])
++        lhs, rhs, dest, target = operands
++
++        case operation
++        when :add
++            if rhs.is_a? Immediate
++                if ppc64FitsSigned16(rhs.value)
++                    newList << Instruction.new(node.codeOrigin, "pp_addi", [lhs, rhs, dest])
++                else
++                    rhs = ppc64LowerOperandIntoRegister(newList, node, rhs)
++                    newList << Instruction.new(node.codeOrigin, "pp_add", [lhs, rhs, dest])
++                end
++            else
++                newList << Instruction.new(node.codeOrigin, "pp_add", [lhs, rhs, dest])
++            end
++        when :sub
++            if rhs.is_a? Immediate
++                nimm = Immediate.new(node.codeOrigin, -rhs.value)
++                if ppc64FitsSigned16(nimm.value)
++                    newList << Instruction.new(node.codeOrigin, "pp_addi", [lhs, nimm, dest])
++                else
++                    rhs = ppc64LowerOperandIntoRegister(newList, node, rhs)
++                    newList << Instruction.new(node.codeOrigin, "pp_subf", [rhs, lhs, dest])
++                end
++            else
++                newList << Instruction.new(node.codeOrigin, "pp_subf", [rhs, lhs, dest])
++            end
++        when :or
++            if rhs.is_a? Immediate and ppc64FitsUnsigned16(rhs.value)
++                newList << Instruction.new(node.codeOrigin, "pp_ori", [lhs, rhs, dest])
++            else
++                rhs = ppc64LowerOperandIntoRegister(newList, node, rhs)
++                newList << Instruction.new(node.codeOrigin, "pp_or", [lhs, rhs, dest])
++            end
++        when :mul
++            rhs = ppc64LowerOperandIntoRegister(newList, node, rhs)
++            newList << Instruction.new(node.codeOrigin, size == :i ? "pp_mullw" : "pp_mulld", [lhs, rhs, dest])
++        else
++            raise "Invalid operation #{operation}"
++        end
++
++        # Test the result before masking: cmpw looks only at the low 32 bits.
++        if size == :i
++            newList << Instruction.new(node.codeOrigin, "pp_cmpwi", [dest, Immediate.new(node.codeOrigin, 0)])
++            ppc64EmitMask32(newList, node, :i, dest)
++        else
++            newList << Instruction.new(node.codeOrigin, "pp_cmpdi", [dest, Immediate.new(node.codeOrigin, 0)])
++        end
++        newList << Instruction.new(node.codeOrigin, "pp_bc", [resultCondition(flag), target])
++    end
++
++    def emitOverflowBranch(newList, node, operation, size)
++        operands = node.operands
++        if operands.size == 3
++            operands = [operands[1], operands[0], operands[1], operands[2]]
++        end
++        if ppc64OperandTypes(operands)[0] == Immediate and operation != :sub
++            operands = [operands[1], operands[0], operands[2], operands[3]]
++        end
++        ppc64ValidateOperands(operands,
++            [RegisterID, RegisterID, RegisterID, LocalLabelReference],
++            [RegisterID, Immediate, RegisterID, LocalLabelReference])
++        lhs, rhs, dest, target = operands
++
++        if size == :i
++            # Sign-extend both inputs, operate in 64 bits, and compare the
++            # result with its own sign-extension: they differ exactly when
++            # the 32-bit operation overflowed.
++            tmp1 = Tmp.new(node.codeOrigin, :gpr)
++            tmp2 = Tmp.new(node.codeOrigin, :gpr)
++            newList << Instruction.new(node.codeOrigin, "pp_extsw", [lhs, tmp1])
++            if rhs.is_a? Immediate
++                newList << Instruction.new(node.codeOrigin, "pp_li64", [rhs, tmp2])
++            else
++                newList << Instruction.new(node.codeOrigin, "pp_extsw", [rhs, tmp2])
++            end
++            case operation
++            when :add
++                newList << Instruction.new(node.codeOrigin, "pp_add", [tmp1, tmp2, tmp1])
++            when :sub
++                newList << Instruction.new(node.codeOrigin, "pp_subf", [tmp2, tmp1, tmp1])
++            when :mul
++                newList << Instruction.new(node.codeOrigin, "pp_mulld", [tmp1, tmp2, tmp1])
++            else
++                raise "Invalid operation #{operation}"
++            end
++            newList << Instruction.new(node.codeOrigin, "pp_extsw", [tmp1, tmp2])
++            newList << Instruction.new(node.codeOrigin, "pp_cmpd", [tmp1, tmp2])
++            newList << Instruction.new(node.codeOrigin, "pp_clrldi", [tmp1, Immediate.new(node.codeOrigin, 32), dest])
++            newList << Instruction.new(node.codeOrigin, "pp_bc", [PPC64Condition.new(0, :eq, false), target])
++        else
++            # 64-bit overflow: the OE forms set XER.OV; mcrxrx (ISA 3.0)
++            # copies OV into bit 0 of the target CR field.
++            rhs = ppc64LowerOperandIntoRegister(newList, node, rhs)
++            case operation
++            when :add
++                newList << Instruction.new(node.codeOrigin, "pp_addo", [lhs, rhs, dest])
++            when :sub
++                newList << Instruction.new(node.codeOrigin, "pp_subfo", [rhs, lhs, dest])
++            when :mul
++                newList << Instruction.new(node.codeOrigin, "pp_mulldo", [lhs, rhs, dest])
++            else
++                raise "Invalid operation #{operation}"
++            end
++            newList << Instruction.new(node.codeOrigin, "pp_mcrxrx", [Immediate.new(node.codeOrigin, 7)])
++            newList << Instruction.new(node.codeOrigin, "pp_bc", [PPC64Condition.new(7, :lt, true), target])
++        end
++    end
++
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^b(b|i|p|q)(eq|neq|a|aeq|b|beq|gt|gteq|lt|lteq)$/
++                emitGeneric(newList, node, $1.to_sym, $2.to_sym)
++            when /^b(add|sub|or|mul)(i|p|q)(z|nz|s)$/
++                emitArithmeticBranch(newList, node, $1.to_sym, $2.to_sym, $3.to_sym)
++            when /^b(add|sub|mul)(i|p|q)o$/
++                emitOverflowBranch(newList, node, $1.to_sym, $2.to_sym)
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Floating point.
++#
++# Registers hold doubles; "f" (float32) values are kept in the double
++# format (as lfs/stfs and the single-precision arithmetic forms do), which
++# is the PowerPC convention.
++#
++
++# The float register model: a single lives in an FPR as its raw 32-bit IEEE
++# pattern in the low word of doubleword 0 -- ISA word 1, the word mfvsrwz
++# reads and stfd puts at byte offset 0 -- and the other 96 bits are
++# don't-care. That is the invariant ARM64, x86_64 and RISCV64 all provide and
++# that IPInt's type-blind 16-byte slot copies, its globals, its packed
++# struct/array fields and its no-op f32.reinterpret_i32 all depend on. It is
++# NOT ELFv2's convention (a float in an FPR in double format), which is why
++# every float mnemonic below is a VSX one. jsc-ppc64le-yarr-wasm.md section 7.
++#
++# Consequences here: loadf/storef move a word (lxsiwzx/stxsiwx, X-form, so the
++# address goes into a register first); float arithmetic is the xv*sp vector
++# family, which computes each lane independently and so needs no cleanup of
++# the garbage lanes; fi2f/ff2i are single direct moves; and anything that has
++# no single-precision form with the right semantics -- compare, truncation --
++# widens into the double model first.
++
++def ppc64LowerFPOperation(list)
++    def emitLoadStore(newList, node, precision, isLoad)
++        if precision == :f
++            return emitSingleLoadStore(newList, node, isLoad)
++        end
++        if isLoad
++            ppc64ValidateOperands(node.operands, [Address, FPRegisterID])
++            opcode = "pp_lfd"
++        else
++            ppc64ValidateOperands(node.operands, [FPRegisterID, Address])
++            opcode = "pp_stfd"
++        end
++        newList << Instruction.new(node.codeOrigin, opcode, node.operands)
++    end
++
++    # lxsiwzx/stxsiwx are X-form: EA = (RA|0) + RB, no displacement. RA is the
++    # literal zero, so the whole address goes in RB.
++    def emitSingleLoadStore(newList, node, isLoad)
++        if isLoad
++            ppc64ValidateOperands(node.operands, [Address, FPRegisterID])
++            address, reg = node.operands
++        else
++            ppc64ValidateOperands(node.operands, [FPRegisterID, Address])
++            reg, address = node.operands
++        end
++        base = address.base
++        if address.offset.value != 0
++            base = Tmp.new(node.codeOrigin, :gpr)
++            newList << Instruction.new(node.codeOrigin, "pp_addi", [address.base, address.offset, base])
++        end
++        newList << Instruction.new(node.codeOrigin, isLoad ? "pp_lxsiwzx" : "pp_stxsiwx", [reg, base])
++    end
++
++    # Widen a single into the double model in a fresh FPR temporary, for the
++    # operations VSX cannot do on a raw single in place.
++    def widenSingle(newList, node, src)
++        tmp = Tmp.new(node.codeOrigin, :fpr)
++        newList << Instruction.new(node.codeOrigin, "pp_xxspltw", [src, Immediate.new(node.codeOrigin, 1), tmp])
++        newList << Instruction.new(node.codeOrigin, "pp_xscvspdpn", [tmp, tmp])
++        tmp
++    end
++
++    def emitComputational(newList, node, operation, precision)
++        ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID])
++        src, dst = node.operands
++        single = precision == :f
++        case operation
++        when :add
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvaddsp" : "pp_fadd", [dst, src, dst])
++        when :mul
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvmulsp" : "pp_fmul", [dst, src, dst])
++        when :sub
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvsubsp" : "pp_fsub", [dst, src, dst])
++        when :div
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvdivsp" : "pp_fdiv", [dst, src, dst])
++        when :sqrt
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvsqrtsp" : "pp_fsqrt", [src, dst])
++        when :abs
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvabssp" : "pp_fabs", [src, dst])
++        when :neg
++            newList << Instruction.new(node.codeOrigin, single ? "pp_xvnegsp" : "pp_fneg", [src, dst])
++        else
++            raise "Invalid FP operation #{operation}"
++        end
++    end
++
++    def emitBitwise(newList, node, operation, precision)
++        ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID])
++        src, dst = node.operands
++        newList << Instruction.new(node.codeOrigin, operation == :and ? "pp_xxland" : "pp_xxlor", [dst, src, dst])
++    end
++
++    def emitRounding(newList, node, operation, precision)
++        ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID])
++        single = precision == :f
++        case operation
++        when :floor
++            opcode = single ? "pp_xvrspim" : "pp_frim"
++        when :ceil
++            opcode = single ? "pp_xvrspip" : "pp_frip"
++        when :truncate
++            opcode = single ? "pp_xvrspiz" : "pp_friz"
++        when :round
++            # Round to nearest, ties to even (frin/xvrspi would be ties away
++            # from zero); the "c" forms use the current rounding mode, which
++            # JSC never changes from the default.
++            opcode = single ? "pp_xvrspic" : "pp_xsrdpic"
++        else
++            raise "Invalid rounding #{operation}"
++        end
++        newList << Instruction.new(node.codeOrigin, opcode, node.operands)
++    end
++
++    def emitTruncation(newList, node, precision, intSize, signed)
++        ppc64ValidateOperands(node.operands, [FPRegisterID, RegisterID])
++        src, dst = node.operands
++        # xvcvspsxws saturates and handles NaN differently from fctiw*, so a
++        # single is widened into the double model and truncated there.
++        src = widenSingle(newList, node, src) if precision == :f
++        tmp = Tmp.new(node.codeOrigin, :fpr)
++        if intSize == :i
++            newList << Instruction.new(node.codeOrigin, signed ? "pp_fctiwz" : "pp_fctiwuz", [src, tmp])
++            newList << Instruction.new(node.codeOrigin, "pp_mfvsrwz", [tmp, dst])
++        else
++            newList << Instruction.new(node.codeOrigin, signed ? "pp_fctidz" : "pp_fctiduz", [src, tmp])
++            newList << Instruction.new(node.codeOrigin, "pp_mfvsrd", [tmp, dst])
++        end
++    end
++
++    def emitIntToFP(newList, node, intSize, precision, signed)
++        ppc64ValidateOperands(node.operands, [RegisterID, FPRegisterID])
++        src, dst = node.operands
++        if intSize == :i
++            newList << Instruction.new(node.codeOrigin, signed ? "pp_mtvsrwa" : "pp_mtvsrwz", [src, dst])
++        else
++            newList << Instruction.new(node.codeOrigin, "pp_mtvsrd", [src, dst])
++        end
++        if precision == :f
++            if intSize == :i
++                # The word-wise vector conversion: mtvsrwa/wz has already put
++                # the value in ISA word 1 (sign- or zero-extended across the
++                # doubleword), and xvcvsxwsp/xvcvuxwsp convert each word.
++                newList << Instruction.new(node.codeOrigin, signed ? "pp_xvcvsxwsp" : "pp_xvcvuxwsp", [dst, dst])
++            else
++                # No vector form takes a 64-bit integer: convert scalar, then
++                # move the (already single-valued, so exact) result into the
++                # float model.
++                newList << Instruction.new(node.codeOrigin, signed ? "pp_fcfids" : "pp_fcfidus", [dst, dst])
++                newList << Instruction.new(node.codeOrigin, "pp_xscvdpsp", [dst, dst])
++                newList << Instruction.new(node.codeOrigin, "pp_xxspltw", [dst, Immediate.new(node.codeOrigin, 0), dst])
++            end
++        else
++            newList << Instruction.new(node.codeOrigin, signed ? "pp_fcfid" : "pp_fcfidu", [dst, dst])
++        end
++    end
++
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^load(f|d)$/
++                emitLoadStore(newList, node, $1.to_sym, true)
++            when /^store(f|d)$/
++                emitLoadStore(newList, node, $1.to_sym, false)
++            when "moved"
++                ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID])
++                newList << Instruction.new(node.codeOrigin, "pp_fmr", node.operands)
++            when /^(add|sub|mul|div|sqrt|abs|neg)(f|d)$/
++                emitComputational(newList, node, $1.to_sym, $2.to_sym)
++            when /^(and|or)(f|d)$/
++                emitBitwise(newList, node, $1.to_sym, $2.to_sym)
++            when /^(floor|ceil|round|truncate)(f|d)$/
++                emitRounding(newList, node, $1.to_sym, $2.to_sym)
++            when /^truncate(f|d)2(i|q)(s?)$/
++                emitTruncation(newList, node, $1.to_sym, $2.to_sym, $3 == "s")
++            when "td2i"
++                emitTruncation(newList, node, :d, :i, true)
++            when /^c(i|q)2(f|d)(s?)$/
++                emitIntToFP(newList, node, $1.to_sym, $2.to_sym, $3 == "s")
++            when "cd2f"
++                # xscvdpsp ROUNDS and writes ISA word 0; xscvdpspn does not
++                # round at all. The splat moves the result to word 1, where
++                # the model keeps a single.
++                ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID])
++                src, dst = node.operands
++                newList << Instruction.new(node.codeOrigin, "pp_xscvdpsp", [src, dst])
++                newList << Instruction.new(node.codeOrigin, "pp_xxspltw", [dst, Immediate.new(node.codeOrigin, 0), dst])
++            when "cf2d"
++                # This is f64.promote_f32, an arithmetic conversion: the wasm
++                # spec makes a NaN result an arithmetic (quiet) NaN, which is
++                # what x86 cvtss2sd and ARM64 fcvt produce. So it is the
++                # signalling xscvspdp, which sets the quiet bit, and not
++                # xscvspdpn, which keeps a signalling NaN signalling (as C's
++                # (double)f and lfs do on POWER). Bit-exact widening is for
++                # MOVES of a single (compares, truncation), not for this.
++                # Both read their single from ISA word 0 and the model keeps
++                # it in word 1, hence the splat.
++                ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID])
++                src, dst = node.operands
++                newList << Instruction.new(node.codeOrigin, "pp_xxspltw", [src, Immediate.new(node.codeOrigin, 1), dst])
++                newList << Instruction.new(node.codeOrigin, "pp_xscvspdp", [dst, dst])
++            when "fq2d", "fp2d", "fi2d"
++                ppc64ValidateOperands(node.operands, [RegisterID, FPRegisterID])
++                newList << Instruction.new(node.codeOrigin, "pp_mtvsrd", node.operands)
++            when "fd2q", "fd2p", "fd2i"
++                ppc64ValidateOperands(node.operands, [FPRegisterID, RegisterID])
++                newList << Instruction.new(node.codeOrigin, "pp_mfvsrd", node.operands)
++            when "fi2f"
++                # A bitcast, and under the float model a single direct move:
++                # mtvsrwz puts the word exactly where a single lives.
++                ppc64ValidateOperands(node.operands, [RegisterID, FPRegisterID])
++                newList << Instruction.new(node.codeOrigin, "pp_mtvsrwz", node.operands)
++            when "ff2i"
++                # mfvsrwz reads that word back zero-extended, which is also
++                # the port's 32-bit invariant.
++                ppc64ValidateOperands(node.operands, [FPRegisterID, RegisterID])
++                newList << Instruction.new(node.codeOrigin, "pp_mfvsrwz", node.operands)
++            when "btd2i", "bcd2i", "movdz"
++                raise "PPC64 does not support #{node.opcode} (unused by the interpreter) at #{node.codeOriginString}"
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++# Double conditions after "fcmpu 0": which cr0 bits mean "branch".
++# [bits to OR together, invert] -- a single bit is tested directly; two or
++# more are composed into cr7.lt with cror.
++def ppc64DoubleConditionBits(condition)
++    case condition
++    when :eq
++        [[:eq], false]
++    when :neq
++        [[:lt, :gt], false]
++    when :gt
++        [[:gt], false]
++    when :gteq
++        [[:gt, :eq], false]
++    when :lt
++        [[:lt], false]
++    when :lteq
++        [[:lt, :eq], false]
++    when :equn
++        [[:eq, :so], false]
++    when :nequn
++        [[:eq], true]
++    when :gtun
++        [[:gt, :so], false]
++    when :gtequn
++        [[:lt], true]
++    when :ltun
++        [[:lt, :so], false]
++    when :ltequn
++        [[:gt], true]
++    else
++        raise "Invalid double condition #{condition}"
++    end
++end
++
++def ppc64EmitDoubleCondition(newList, node, condition)
++    bits, invert = ppc64DoubleConditionBits(condition)
++    if bits.size == 1
++        return PPC64Condition.new(0, bits[0], !invert)
++    end
++    raise "Inverted composite double condition" if invert
++    # cr7.lt = cr0.bits[0] | cr0.bits[1] (| cr0.bits[2])
++    first = PPC64Condition.new(0, bits[0], true)
++    second = PPC64Condition.new(0, bits[1], true)
++    target = PPC64Condition.new(7, :lt, true)
++    newList << Instruction.new(node.codeOrigin, "pp_cror", [target, first, second])
++    if bits.size == 3
++        third = PPC64Condition.new(0, bits[2], true)
++        newList << Instruction.new(node.codeOrigin, "pp_cror", [target, target, third])
++    end
++    target
++end
++
++# fcmpu is a scalar double compare and xvcmp*sp yields lane masks rather than
++# CR bits, so a float compare widens both operands into the double model
++# first. The widening is exact and order-preserving, so the twelve conditions
++# mean the same thing on the result, NaN included.
++def ppc64WidenFPCompareOperands(newList, node, precision)
++    return [node.operands[0], node.operands[1]] unless precision == :f
++    [node.operands[0], node.operands[1]].map {
++        | operand |
++        tmp = Tmp.new(node.codeOrigin, :fpr)
++        newList << Instruction.new(node.codeOrigin, "pp_xxspltw", [operand, Immediate.new(node.codeOrigin, 1), tmp])
++        newList << Instruction.new(node.codeOrigin, "pp_xscvspdpn", [tmp, tmp])
++        tmp
++    }
++end
++
++def ppc64LowerFPCompareAndBranch(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            when /^b(f|d)(eq|neq|gt|gteq|lt|lteq|equn|nequn|gtun|gtequn|ltun|ltequn)$/
++                ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID, LocalLabelReference], [FPRegisterID, FPRegisterID, LabelReference])
++                a, b = ppc64WidenFPCompareOperands(newList, node, $1.to_sym)
++                newList << Instruction.new(node.codeOrigin, "pp_fcmpu", [a, b])
++                cond = ppc64EmitDoubleCondition(newList, node, $2.to_sym)
++                newList << Instruction.new(node.codeOrigin, "pp_bc", [cond, node.operands[2]])
++            when /^c(f|d)(eq|neq|gt|gteq|lt|lteq|equn|nequn|gtun|gtequn|ltun|ltequn)$/
++                ppc64ValidateOperands(node.operands, [FPRegisterID, FPRegisterID, RegisterID])
++                a, b = ppc64WidenFPCompareOperands(newList, node, $1.to_sym)
++                newList << Instruction.new(node.codeOrigin, "pp_fcmpu", [a, b])
++                cond = ppc64EmitDoubleCondition(newList, node, $2.to_sym)
++                newList << Instruction.new(node.codeOrigin, "pp_setcr", [cond, node.operands[2]])
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++def ppc64GenerateWASMPlaceholders(list)
++    newList = []
++    list.each {
++        | node |
++        if node.is_a? Instruction
++            case node.opcode
++            # What is left here is the LSE-style single-instruction atomics,
++            # which only the ARM64E and x86 arms of InPlaceInterpreter64.asm
++            # use -- PPC64 takes the plain-ARM64 larx/stcx. arms, so none of
++            # these is reached. They are trapped rather than raised so that a
++            # future arm that does reach one fails at run time in a named
++            # handler instead of silently doing nothing.
++            #
++            # loadv/storev/pushv/popv are NOT here any more: they are lowered
++            # in ppc64LowerOperation for both VecRegisterID and FPRegisterID,
++            # and an operand shape neither of those handles now reaches
++            # lowerDefault and raises at build time.
++            when /^b?atomic/
++                newList << Instruction.new(node.codeOrigin, "pp_trap", [], "WebAssembly placeholder for opcode #{node.opcode}")
++            else
++                newList << node
++            end
++        else
++            newList << node
++        end
++    }
++    newList
++end
++
++#
++# Branch reach. Conditional branches have a +-32 KiB displacement; the
++# interpreter is far larger than that, so any pp_bc whose target is not
++# provably close is rewritten as an inverted pp_bc over a pp_b.
++#
++
++def ppc64InstructionSizeInWords(node)
++    return 0 unless node.is_a? Instruction
++    case node.opcode
++    when "pp_li64"
++        5
++    when "pp_la"
++        3
++    when "pp_call_reg"
++        8
++    when "pp_jscall_reg"
++        3
++    when "pp_jscall_label"
++        1
++    when "pp_call_label"
++        7
++    when "pp_setcr"
++        3
++    when "emit"
++        4
++    else
++        1
++    end
++end
++
++def ppc64LowerBranchReach(list)
++    # First pass: byte offsets, with a generous allowance for aligned global
++    # labels.
++    offsets = {}
++    offset = 0
++    list.each {
++        | node |
++        if node.is_a? Label
++            offset += 1024
++            offsets[node.name] = offset
++        elsif node.is_a? LocalLabel
++            offsets[node.name] = offset
++        else
++            offset += 4 * ppc64InstructionSizeInWords(node)
++        end
++    }
++
++    newList = []
++    offset = 0
++    list.each {
++        | node |
++        if node.is_a? Label
++            offset += 1024
++            newList << node
++        elsif node.is_a? LocalLabel
++            newList << node
++        elsif node.is_a? Instruction and node.opcode == "pp_bc"
++            cond, target = node.operands
++            near = false
++            if target.is_a? LocalLabelReference
++                targetOffset = offsets[target.label.name]
++                near = true if targetOffset and (targetOffset - offset).abs < PPC64_CONDITIONAL_BRANCH_REACH_BYTES
++            end
++            if near
++                newList << node
++                offset += 4
++            else
++                skip = LocalLabel.unique(node.codeOrigin, "ppc64_far")
++                newList << Instruction.new(node.codeOrigin, "pp_bc", [cond.inverted, LocalLabelReference.new(node.codeOrigin, skip)])
++                newList << Instruction.new(node.codeOrigin, "pp_b", [target])
++                newList << skip
++                offset += 8
++            end
++        else
++            newList << node
++            offset += 4 * ppc64InstructionSizeInWords(node)
++        end
++    }
++    newList
++end
++
++class Sequence
++    def getModifiedListPPC64
++        result = @list
++
++        result = riscDropTags(result)
++        result = ppc64LowerLinkRegister(result)
++        result = riscLowerMalformedAddresses(result) {
++            | node, address |
++            if address.is_a? Address
++                dsForm = node.is_a?(Instruction) && ppc64DsFormOpcode?(node.opcode)
++                !address.ppc64RequiresLoad(dsForm)
++            else
++                false
++            end
++        }
++        result = ppc64LowerMemoryArithmeticBranches(result)
++        result = riscLowerMisplacedAddresses(result)
++        result = ppc64LowerAddressLoads(result)
++        result = riscLowerMisplacedImmediates(result, ["storeb", "storeh", "storei", "storep", "storeq"])
++        result = riscLowerTest(result)
++        result = riscLowerNot(result)
++        result = riscLowerMalformedImmediates(result, -0x8000..0x7fff, 0..0xffff)
++        result = ppc64LowerImmediateSubtraction(result)
++        result = ppc64LowerShiftCounts(result)
++
++        result = ppc64LowerOperation(result)
++        result = ppc64LowerCompare(result)
++        result = ppc64LowerBranch(result)
++
++        result = ppc64LowerFPOperation(result)
++        result = ppc64LowerFPCompareAndBranch(result)
++
++        result = ppc64GenerateWASMPlaceholders(result)
++
++        result = assignRegistersToTemporaries(result, :gpr, PPC64_EXTRA_GPRS)
++        result = assignRegistersToTemporaries(result, :fpr, PPC64_EXTRA_FPRS)
++
++        result = ppc64LowerBranchReach(result)
++        return result
++    end
++end
++
++#
++# The emitter. Register operands are bare numbers (the GNU/LLVM assembler
++# default for PowerPC ELF); VSX forms use the VSR number, which equals the
++# FPR number for f0-f31.
++#
++
++def ppc64Reg(op)
++    op.ppc64Operand
++end
++
++def ppc64Li64(dest, value)
++    d = ppc64Reg(dest)
++    value &= 0xffffffffffffffff
++    signed = value >= 0x8000000000000000 ? value - 0x10000000000000000 : value
++    if ppc64FitsSigned16(signed)
++        $asm.puts "li #{d}, #{signed}"
++    elsif ppc64FitsSigned32(signed)
++        hi = (signed >> 16) & 0xffff
++        lo = signed & 0xffff
++        hi -= 0x10000 if hi >= 0x8000
++        $asm.puts "lis #{d}, #{hi}"
++        $asm.puts "ori #{d}, #{d}, #{lo}" if lo != 0
++    elsif value <= 0xffffffff
++        # Unsigned 32-bit constant with bit 31 set.
++        hi = (value >> 16) & 0xffff
++        lo = value & 0xffff
++        hi -= 0x10000 if hi >= 0x8000
++        $asm.puts "lis #{d}, #{hi}"
++        $asm.puts "ori #{d}, #{d}, #{lo}" if lo != 0
++        $asm.puts "clrldi #{d}, #{d}, 32"
++    else
++        hh = (value >> 48) & 0xffff
++        hl = (value >> 32) & 0xffff
++        lh = (value >> 16) & 0xffff
++        ll = value & 0xffff
++        hh -= 0x10000 if hh >= 0x8000
++        $asm.puts "lis #{d}, #{hh}"
++        $asm.puts "ori #{d}, #{d}, #{hl}" if hl != 0
++        $asm.puts "sldi #{d}, #{d}, 32"
++        $asm.puts "oris #{d}, #{d}, #{lh}" if lh != 0
++        $asm.puts "ori #{d}, #{d}, #{ll}" if ll != 0
++    end
++end
++
++class Instruction
++    def ppop(opcode)
++        opcode[/^pp_(.+)/, 1]
++    end
++
++    def lowerPPC64
++        case opcode
++        when "pp_li64"
++            ppc64ValidateOperands(operands, [Immediate, RegisterID])
++            ppc64Li64(operands[1], operands[0].value)
++        when "pp_la"
++            # Address of a symbol through the TOC (r2), medium code model.
++            ppc64ValidateOperands(operands, [LabelReference, RegisterID])
++            d = ppc64Reg(operands[1])
++            label = operands[0].asmLabel
++            $asm.puts "addis #{d}, 2, #{label}@got@ha"
++            $asm.puts "ld #{d}, #{label}@got@l(#{d})"
++        when "pp_mr"
++            ppc64ValidateOperands(operands, [RegisterID, RegisterID])
++            $asm.puts "mr #{ppc64Reg(operands[1])}, #{ppc64Reg(operands[0])}" unless ppc64Reg(operands[0]) == ppc64Reg(operands[1])
++        when "pp_mflr"
++            ppc64ValidateOperands(operands, [RegisterID])
++            $asm.puts "mflr #{ppc64Reg(operands[0])}"
++        when "pp_mtlr"
++            ppc64ValidateOperands(operands, [RegisterID])
++            $asm.puts "mtlr #{ppc64Reg(operands[0])}"
++        when "pp_mtctr"
++            ppc64ValidateOperands(operands, [RegisterID])
++            $asm.puts "mtctr #{ppc64Reg(operands[0])}"
++        when "pp_bctr"
++            $asm.puts "bctr"
++        when "pp_blr"
++            $asm.puts "blr"
++        when "pp_b"
++            ppc64ValidateOperands(operands, [LabelReference], [LocalLabelReference])
++            $asm.puts "b #{operands[0].asmLabel}"
++        when "pp_bc"
++            ppc64ValidateOperands(operands, [PPC64Condition, LocalLabelReference], [PPC64Condition, LabelReference])
++            cond = operands[0]
++            $asm.puts "bc #{cond.bo}, #{cond.bitIndex}, #{operands[1].asmLabel}"
++        when "pp_call_reg"
++            # ELFv2: r12 = the target at the global entry point; the caller
++            # owns the 32-byte linkage area at [sp, sp+32) and r2 lives in its
++            # TOC slot at 24(sp).
++            #
++            # The interpreter cannot simply use 24(sp) as it stands. JSC calls
++            # C++ from places where sp == cfr -- linkFor() is `functionPrologue()`
++            # then `cCall2()` -- and [cfr, cfr+32) is CallerFrame / ReturnPC /
++            # CodeBlock / Callee. Storing r2 at 24(sp) there overwrites the
++            # callee JSValue with the TOC pointer, which is exactly how the
++            # first native LLInt run died: handleHostCall() received a callee
++            # equal to r2. maxFrameExtentForSlowPathCall covers the slow-path
++            # calls made from inside a JS frame, not these.
++            #
++            # So each call carries its own linkage area. Two extra
++            # instructions; sp stays 16-byte aligned; the callee's frame and
++            # the conservative GC's stack scan are both below it.
++            #
++            # 0(1) of that fresh linkage area is the ELFv2 BACK CHAIN, and it
++            # gets cfr rather than the previous r1, for exactly the reason
++            # MacroAssemblerPPC64::emitCCallLinkageAreaSetup() does the same:
++            # a C operation recovers its CallFrame* with
++            # DECLARE_CALL_FRAME / DECLARE_WASM_CALL_FRAME ==
++            # __builtin_frame_address(1), which on this target is one
++            # dereference of the back chain. The JS LLInt survived without it
++            # because llint_slow_path_* take the frame as an argument; IPInt's
++            # wasm operations (operationWasmUnwind and the 24 other
++            # DECLARE_WASM_CALL_FRAME users) do not, and would read whatever
++            # stale word sat here. Leaving it unwritten also left the chain
++            # unwalkable, which is its own hazard. jsc-ppc64le-yarr-wasm.md
++            # section 3.6 item 2.
++            ppc64ValidateOperands(operands, [RegisterID])
++            r = ppc64Reg(operands[0])
++            $asm.puts "mr 12, #{r}" unless r == "12"
++            $asm.puts "mtctr 12"
++            $asm.puts "addi 1, 1, -32"
++            $asm.puts "std 31, 0(1)"
++            $asm.puts "std 2, 24(1)"
++            $asm.puts "bctrl"
++            $asm.puts "ld 2, 24(1)"
++            $asm.puts "addi 1, 1, 32"
++        when "pp_jscall_reg"
++            # Generated code: no linkage area, no TOC save, sp untouched. r12
++            # is still loaded because that is what a JIT entry point will
++            # expect once one exists, and it costs nothing here.
++            ppc64ValidateOperands(operands, [RegisterID])
++            r = ppc64Reg(operands[0])
++            $asm.puts "mr 12, #{r}" unless r == "12"
++            $asm.puts "mtctr 12"
++            $asm.puts "bctrl"
++        when "pp_jscall_label"
++            # Generated code named by a label. No linkage area, no TOC save,
++            # sp untouched, and deliberately no TOC-restore nop: see
++            # PPC64_INSTRUCTIONS in instructions.rb.
++            ppc64ValidateOperands(operands, [LabelReference], [LocalLabelReference])
++            $asm.puts "bl #{operands[0].asmLabel}"
++        when "pp_call_label"
++            # Same linkage-area reservation and back-chain plant as
++            # pp_call_reg above. The `nop` after the `bl` is the slot the
++            # linker rewrites into its own TOC restore when it redirects the
++            # branch through a stub; the explicit reload makes the sequence
++            # correct either way.
++            ppc64ValidateOperands(operands, [LabelReference], [LocalLabelReference])
++            $asm.puts "addi 1, 1, -32"
++            $asm.puts "std 31, 0(1)"
++            $asm.puts "std 2, 24(1)"
++            $asm.puts "bl #{operands[0].asmLabel}"
++            $asm.puts "nop"
++            $asm.puts "ld 2, 24(1)"
++            $asm.puts "addi 1, 1, 32"
++        when "pp_setcr"
++            # dest = the CR bit (0 or 1), optionally inverted.
++            ppc64ValidateOperands(operands, [PPC64Condition, RegisterID])
++            cond, dest = operands
++            d = ppc64Reg(dest)
++            $asm.puts "mfocrf #{d}, #{0x80 >> cond.field}"
++            # Rotate the bit into position 31 and isolate it.
++            $asm.puts "rlwinm #{d}, #{d}, #{cond.bitIndex + 1}, 31, 31"
++            $asm.puts "xori #{d}, #{d}, 1" unless cond.set
++        when "pp_cror"
++            ppc64ValidateOperands(operands, [PPC64Condition, PPC64Condition, PPC64Condition])
++            $asm.puts "cror #{operands[0].bitIndex}, #{operands[1].bitIndex}, #{operands[2].bitIndex}"
++        when "pp_mcrxrx"
++            ppc64ValidateOperands(operands, [Immediate])
++            $asm.puts "mcrxrx #{operands[0].value}"
++        when /^pp_(lbz|lhz|lha|lwz|lwa|ld|lfs|lfd)$/
++            ppc64ValidateOperands(operands, [Address, RegisterID], [Address, FPRegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[1])}, #{operands[0].ppc64Operand}"
++        when /^pp_(stb|sth|stw|std|stfs|stfd)$/
++            ppc64ValidateOperands(operands, [RegisterID, Address], [FPRegisterID, Address])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[0])}, #{operands[1].ppc64Operand}"
++        when /^pp_(lbarx|lharx|lwarx|ldarx)$/
++            # X-form: the reserve instructions have no displacement, so the
++            # lowering has already put the effective address in a register.
++            ppc64ValidateOperands(operands, [RegisterID, RegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[1])}, 0, #{ppc64Reg(operands[0])}"
++        when /^pp_(stbcx|sthcx|stwcx|stdcx)$/
++            ppc64ValidateOperands(operands, [RegisterID, RegisterID])
++            $asm.puts "#{ppop(opcode)}. #{ppc64Reg(operands[0])}, 0, #{ppc64Reg(operands[1])}"
++        when "pp_lxvx"
++            # X-form VSX load, byte-order preserving on little-endian. The
++            # address is in a register because DQ-form lxv wants a
++            # 16-byte-aligned displacement and IPInt's slots are not always at
++            # one.
++            ppc64ValidateOperands(operands, [RegisterID, VecRegisterID])
++            $asm.puts "lxvx #{operands[1].ppc64Operand}, 0, #{ppc64Reg(operands[0])}"
++        when "pp_lxvd2x"
++            # X-form VSX load of a whole register with doubleword-0-first
++            # layout: the ARM64 "ldr q" byte placement, which is what an FPR
++            # slot move wants. See emitVectorSlotMove.
++            $asm.puts "lxvd2x #{operands[1].ppc64Operand}, 0, #{ppc64Reg(operands[0])}"
++        when "pp_stxvd2x"
++            $asm.puts "stxvd2x #{operands[0].ppc64Operand}, 0, #{ppc64Reg(operands[1])}"
++        when "pp_xxswapd"
++            # xxswapd XT,XB is the extended mnemonic for xxpermdi XT,XB,XB,2:
++            # it exchanges the two doublewords. ISA 2.06, so it is available on
++            # the whole supported range, and it is what turns an lxvd2x into a
++            # byte-order-preserving load on the POWER8 path.
++            $asm.puts "xxswapd #{operands[1].ppc64Operand}, #{operands[0].ppc64Operand}"
++        when "pp_stxvx"
++            ppc64ValidateOperands(operands, [VecRegisterID, RegisterID])
++            $asm.puts "stxvx #{operands[0].ppc64Operand}, 0, #{ppc64Reg(operands[1])}"
++        when "pp_isync"
++            $asm.puts "isync"
++        when "pp_lwsync"
++            $asm.puts "lwsync"
++        when /^pp_(add|subf|mullw|mulld|divw|divwu|divd|divdu|modsw|moduw|modsd|modud|and|andc|or|xor|slw|sld|sraw|srad|srw|srd|rotlw|rotld|addo|subfo|mulldo|addc|adde|subfc|subfe|mulhd|mulhdu)$/
++            ppc64ValidateOperands(operands, [RegisterID, RegisterID, RegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[2])}, #{ppc64Reg(operands[0])}, #{ppc64Reg(operands[1])}"
++        when /^pp_(addi|andi\.|ori|xori|slwi|sldi|srawi|sradi|srwi|srdi|rotlwi|rotldi|clrldi)$/
++            ppc64ValidateOperands(operands, [RegisterID, Immediate, RegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[2])}, #{ppc64Reg(operands[0])}, #{operands[1].value}"
++        when /^pp_(neg|not|extsb|extsh|extsw|cntlzw|cntlzd|cnttzw|cnttzd|popcntw|popcntd)$/
++            ppc64ValidateOperands(operands, [RegisterID, RegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[1])}, #{ppc64Reg(operands[0])}"
++        when /^pp_(cmpw|cmplw|cmpd|cmpld)$/
++            ppc64ValidateOperands(operands, [RegisterID, RegisterID])
++            $asm.puts "#{ppop(opcode)} 0, #{ppc64Reg(operands[0])}, #{ppc64Reg(operands[1])}"
++        when /^pp_(cmpwi|cmplwi|cmpdi|cmpldi)$/
++            ppc64ValidateOperands(operands, [RegisterID, Immediate])
++            $asm.puts "#{ppop(opcode)} 0, #{ppc64Reg(operands[0])}, #{operands[1].value}"
++        when "pp_fcmpu"
++            ppc64ValidateOperands(operands, [FPRegisterID, FPRegisterID])
++            $asm.puts "fcmpu 0, #{ppc64Reg(operands[0])}, #{ppc64Reg(operands[1])}"
++        when /^pp_(fadd|fadds|fsub|fsubs|fmul|fmuls|fdiv|fdivs)$/
++            ppc64ValidateOperands(operands, [FPRegisterID, FPRegisterID, FPRegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[2])}, #{ppc64Reg(operands[0])}, #{ppc64Reg(operands[1])}"
++        when /^pp_(xxland|xxlor|xvaddsp|xvsubsp|xvmulsp|xvdivsp)$/
++            ppc64ValidateOperands(operands, [FPRegisterID, FPRegisterID, FPRegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[2])}, #{ppc64Reg(operands[0])}, #{ppc64Reg(operands[1])}"
++        when /^pp_(fsqrt|fsqrts|fabs|fneg|fmr|frsp|frim|frip|friz|xsrdpic|fctiwz|fctiwuz|fctidz|fctiduz|fcfid|fcfidu|fcfids|fcfidus|xscvspdpn|xscvspdp|xscvdpspn|xscvdpsp|xvsqrtsp|xvabssp|xvnegsp|xvrspip|xvrspim|xvrspiz|xvrspic|xvcvsxwsp|xvcvuxwsp)$/
++            ppc64ValidateOperands(operands, [FPRegisterID, FPRegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[1])}, #{ppc64Reg(operands[0])}"
++        when /^pp_(mtvsrd|mtvsrwa|mtvsrwz)$/
++            ppc64ValidateOperands(operands, [RegisterID, FPRegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[1])}, #{ppc64Reg(operands[0])}"
++        when /^pp_(mfvsrd|mfvsrwz)$/
++            ppc64ValidateOperands(operands, [FPRegisterID, RegisterID])
++            $asm.puts "#{ppop(opcode)} #{ppc64Reg(operands[1])}, #{ppc64Reg(operands[0])}"
++        when "pp_xxspltw"
++            # xxspltw XT, XB, UIM -- broadcast ISA word UIM of XB to all four
++            # words of XT. Operands here are [src, uim, dest].
++            ppc64ValidateOperands(operands, [FPRegisterID, Immediate, FPRegisterID])
++            $asm.puts "xxspltw #{ppc64Reg(operands[2])}, #{ppc64Reg(operands[0])}, #{operands[1].value}"
++        when "pp_lxsiwzx"
++            # X-form: EA = 0 + RB, so the whole address is already in one
++            # register. Operands are [dest, base].
++            ppc64ValidateOperands(operands, [FPRegisterID, RegisterID])
++            $asm.puts "lxsiwzx #{ppc64Reg(operands[0])}, 0, #{ppc64Reg(operands[1])}"
++        when "pp_stxsiwx"
++            ppc64ValidateOperands(operands, [FPRegisterID, RegisterID])
++            $asm.puts "stxsiwx #{ppc64Reg(operands[0])}, 0, #{ppc64Reg(operands[1])}"
++        when "pp_sync"
++            $asm.puts "sync"
++        when "pp_nop"
++            $asm.puts "nop"
++        when "pp_trap"
++            $asm.puts "trap"
++        else
++            lowerDefault
++        end
++    end
++end
