@@ -1,0 +1,138 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# ArtCraft -- a Tauri 2 desktop app (Rust backend, Nx/Vite frontend) for
+# image, vector, video and layout work. All of its AI is remote API calls
+# (fal, grok, midjourney, sora, worldlabs), so there is no local inference
+# and nothing to port on the GPU side.
+#
+# ppc64le notes
+# -------------
+# * webkit2gtk-4.1 is Tauri's Linux webview and Arch POWER already ships it,
+#   so the usual blocker for Tauri on a minority arch does not apply.
+#   NOTE: that build's JSC measures 3.6x slower than V8 on a tight integer
+#   loop (5165 ms vs 1428 ms, 200M iterations). ours/webkit carries a full
+#   ppc64le JIT for JSCOnly; rebuilding webkitgtk against it is tracked
+#   separately and would be the thing that makes this app feel right.
+#
+# * boring-sys2 (via wreq, for TLS fingerprinting) vendors BoringSSL, whose
+#   base.h enumerates architectures and does not list powerpc -- so neither
+#   OPENSSL_64_BIT nor OPENSSL_32_BIT gets defined, crypto_word_t has no
+#   definition, and the whole crypto/ tree fails. Patch 0001 adds the branch.
+#   It must be applied to the *crate source*: build/main.rs copies
+#   deps/boringssl into OUT_DIR, so patching OUT_DIR is undone every run.
+#
+# * ring 0.17 builds and runs here with no changes (verified: SHA-256 over a
+#   known input, 17 s), so the rest of the TLS stack needs nothing.
+#
+# * SQLX_OFFLINE=true is required, not optional: the sqlx macros otherwise try
+#   to open a live database at compile time and sqlite_tasks fails with
+#   "unable to open database file". The repo ships a .sqlx cache (10 queries).
+
+pkgname=artcraft
+# Upstream's own version (0.0.1) plus the date we pinned, because upstream has
+# no tags: every commit calls itself 0.0.1, so a bare 0.0.1 would make two
+# different trees indistinguishable to pacman. The .rYYYYMMDD suffix sorts
+# above 0.0.1 and still below a future 0.0.2 or 0.1.0 -- which a bare date
+# version (the scheme ours/webkit uses, where upstream has no version at all)
+# would not: 0.20261008 outranks 0.1.0 and would block the upgrade.
+# When upstream tags a release, drop the suffix and track the tag.
+pkgver=0.0.1.r20261008
+pkgrel=1
+_commit=3e5793b6934b51536606720e5d56bcfd1fe7cc2d
+pkgdesc='Intentional crafting engine for artists, designers and filmmakers'
+arch=('x86_64' 'powerpc64le')
+url='https://github.com/storytold/artcraft'
+license=('custom')
+depends=(
+  'webkit2gtk-4.1'
+  'gtk3'
+  'glibc'
+  'gcc-libs'
+  'openssl'
+  'libsoup3'
+  'cairo'
+  'gdk-pixbuf2'
+  'pango'
+  'glib2'
+  'hicolor-icon-theme'
+)
+makedepends=(
+  'rust'
+  'cargo'
+  'nodejs'
+  'npm'
+  'cmake'
+  'git'
+  'pkgconf'
+  'patchelf'
+)
+source=(
+  "$pkgname::git+$url.git#commit=$_commit"
+  '0001-boringssl-recognise-ppc64-as-a-64-bit-target.patch'
+)
+# The git source is SKIP because #commit= pins it; the patch is hashed.
+sha256sums=('SKIP'
+            '20d327abafc7425610f1b41011508864b60f190cf1bd9b9cb4f1608ebe5b92a9')
+options=(!lto)
+
+prepare() {
+  cd "$pkgname"
+
+  # A build-local CARGO_HOME, so the BoringSSL patch lands in a tree this
+  # build owns rather than in the user's registry.
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch --locked
+
+  # boring-sys2 vendors BoringSSL under deps/boringssl and copies it into
+  # OUT_DIR at build time, so the patch has to go into the crate source.
+  local _bs
+  _bs=$(find "$CARGO_HOME/registry/src" -maxdepth 2 -type d -name 'boring-sys2-*' | head -1)
+  [[ -n $_bs ]] || { echo 'boring-sys2 not in the fetched registry' >&2; return 1; }
+  msg2 "Patching vendored BoringSSL for ppc64: ${_bs##*/}"
+  patch -Np1 -d "$_bs" -i "$srcdir/0001-boringssl-recognise-ppc64-as-a-64-bit-target.patch"
+
+  # Frontend deps.
+  #
+  # --ignore-scripts, and NOT --omit=optional:
+  #
+  #   * nx's post-install dies on ppc64le -- nx ships ten @nx/nx-* native
+  #     platform packages (darwin, freebsd, linux arm/arm64/x64 gnu+musl,
+  #     win32) and none for ppc64. npm treats a dependency's failing install
+  #     script as fatal, so without this the whole install aborts.
+  #
+  #   * the native binaries are optionalDependencies, and @esbuild/linux-ppc64
+  #     is one of them. --omit=optional would drop the one native module that
+  #     DOES exist for us and vite actually needs. esbuild publishes ppc64,
+  #     loong64, mips64el, riscv64 and s390x; keep optionals, skip scripts.
+  #
+  # @swc/core also has no ppc64le binary, and that is fine: nothing in the tree
+  # references it. All nine vite configs use @vitejs/plugin-react, and it
+  # arrives only through @swc-node/register, which nx would have used.
+  cd "$srcdir/$pkgname/frontend"
+  # npm ci (not npm install): takes package-lock.json exactly.
+  npm ci --no-audit --no-fund --ignore-scripts
+}
+
+build() {
+  cd "$pkgname"
+  export CARGO_HOME="$srcdir/cargo-home"
+  export SQLX_OFFLINE=true
+  export RUSTUP_TOOLCHAIN=stable
+
+  # vite directly, not `npx nx run artcraft:build` as tauri.conf.json's
+  # beforeBuildCommand says. nx is only a task runner here and its native
+  # project-graph module has no ppc64le build; calling vite in the app
+  # directory produces the same dist/ that frontendDist points at.
+  # Measured: 58.8 s, full chunk set, exit 0.
+  msg2 'Building the frontend (vite directly, bypassing nx)'
+  ( cd frontend/apps/artcraft && ../../node_modules/.bin/vite build )
+
+  msg2 'Building the desktop binary'
+  cargo build --release --locked -p artcraft
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 "target/release/artcraft" "$pkgdir/usr/bin/artcraft"
+  install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
+}

@@ -1,0 +1,36 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] boringssl: recognise ppc64 as a 64-bit target
+
+base.h dispatches on architecture to define OPENSSL_64_BIT or
+OPENSSL_32_BIT, over a flat list: x86_64, x86, aarch64, arm, mips, mips64,
+riscv64, riscv32, pnacl, wasm. powerpc is absent, so on ppc64le nothing
+matches and *neither* word-size macro is defined.
+
+crypto_word_t is then declared only under those macros:
+
+    #if defined(OPENSSL_64_BIT)
+    typedef uint64_t crypto_word_t;
+    #elif defined(OPENSSL_32_BIT)
+    typedef uint32_t crypto_word_t;
+
+so it has no definition at all, and every translation unit that touches a
+BIGNUM or a constant-time helper fails -- "unknown type name
+'crypto_word_t'", "implicit declaration of bn_rshift_words",
+"implicit declaration of constant_time_select_w", and so on through
+crypto/, fipsmodule/ and the GCM modes.
+
+Declare only the word size. Defining an OPENSSL_PPC64LE would opt into
+per-architecture assembly that BoringSSL does not carry for us, so this
+takes the generic C path, exactly as the asm-less targets above it do.
+boring-sys2 already ships boringssl-loongarch.patch doing the same thing
+for LoongArch.
+
+--- a/deps/boringssl/src/include/openssl/base.h
++++ b/deps/boringssl/src/include/openssl/base.h
+@@ -108,6 +108,9 @@
+ #elif defined(__riscv) && __SIZEOF_POINTER__ == 4
+ #define OPENSSL_32_BIT
++#elif defined(__powerpc64__) || defined(__PPC64__)
++// ppc64, both endiannesses.  Word size only -- see the patch header.
++#define OPENSSL_64_BIT
+ #elif defined(__pnacl__)
