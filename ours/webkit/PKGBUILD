@@ -4,8 +4,16 @@
 #
 # Upstream oven-sh/WebKit has no ppc64le JIT. JavaScriptCore's JIT targets are
 # x86_64, ARM64, ARMv7 and RISC-V64; everything else runs CLoop, the portable
-# C++ interpreter. This package carries the backend that changes that -- LLInt,
-# Baseline, the DFG and the B3/Air layer for POWER8+ little-endian.
+# C++ interpreter. This package carries the backend that changes that, and it
+# is now every tier: LLInt, Baseline, the DFG, FTL (so B3 and Air), YARR, and
+# all three WebAssembly tiers -- IPInt, BBQ and OMG, with wasm SIMD, tail
+# calls, wide arithmetic and the atomic read-modify-writes.
+#
+# The ISA floor is POWER8 (ISA 2.07) and that is enforced rather than intended.
+# offlineasm gates every ISA 3.0 instruction behind --ppc64-isa, which CMake
+# derives from the build's own -mcpu, so the POWER9 pool gets ISA 3.0 and the
+# baseline pool gets a generated interpreter with zero ISA 3.0 instructions in
+# it. The JIT half decides per call site at run time via hasISA30().
 #
 # $_commit is not chosen here. It is WEBKIT_VERSION in Bun's own
 # scripts/build/deps/webkit.ts, so this package and Bun agree on the base by
@@ -31,11 +39,11 @@
 # ASAN -- and a mismatch corrupts memory silently rather than failing to link.
 
 pkgname=webkit
-pkgdesc='JavaScriptCore for Bun, with the ppc64le JIT backend (source)'
+pkgdesc='JavaScriptCore for Bun, with the full ppc64le JIT backend incl. wasm BBQ/OMG (source)'
 _commit=cf1b36ec8703d8e87436094d21d478d358c7d886
-_tree=36a6bbe6700d5bcbecfd9bb18068799ef789df63
+_tree=ec7b8263137a17df020092dded0a7be22b819784
 pkgver=0.20260911
-pkgrel=3
+pkgrel=4
 arch=('powerpc64le')
 url='https://github.com/oven-sh/WebKit'
 license=('LGPL-2.1-only' 'BSD-2-Clause')
@@ -52,7 +60,7 @@ source=(
 
 sha256sums=(
   'SKIP'
-  '8d3846ae13ec59bfabe6d7d82c37dcbd1c9bbd1f5ba5d28cc1a8934a46b196e4'
+  '739280fad5855e3c7aaf9928def7d92df60e3404ce66adac583008c627f89f2c'
 )
 
 prepare() {
@@ -95,10 +103,13 @@ package() {
   install -Dm644 /dev/stdin .pkginfo <<-INFO
 	base-commit: $_commit
 	patched-tree: $_tree
+	tiers: LLInt Baseline DFG FTL YARR + wasm IPInt BBQ OMG
 	testb3: 998/1000 groups, 0 SIGSEGV
 	testmasm: 446/446
 	testair: 78/82
-	JSTests/stress: 5831 tests, 0 real differences vs the pre-change binary
+	JSTests/stress: 5833 planned, FAIL 31, failing set identical to the DFG+FTL reference
+	JSTests/wasm: 1500 planned, FAIL 2 (1 upstream, 1 concurrency flake)
+	wasm SIMD stress: 61/61
 	pruned: LayoutTests Websites PerformanceTests WebDriverTests ManualTests JSTests
 	INFO
 }
