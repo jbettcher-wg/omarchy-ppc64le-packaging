@@ -1,0 +1,128 @@
+Subject: [PATCH] powerpc/powernv/pci: enable the TVE#0 64-bit DMA bypass on PHB4
+
+A PE's TVE#0 covers only the first 4GB of PCI address space.  Reaching
+past that needs bit 59 of the PCI address set, which selects TVE#1, so a
+device whose DMA mask cannot reach bit 59 - which is to say almost every
+commodity PCIe device, 44 to 48 bits being typical - is confined to the
+PE's 32-bit TCE window.  On a POWER9 that window is 2GB:
+
+  pci 0030:03 : [PE# 1fb] Setting up 32-bit TCE table at 0..80000000
+
+pnv_pci_ioda_dma_64bit_bypass() exists to fix exactly this, remapping
+TVE#0 into a large identity window above 4GB, but it is gated on
+phb->model == PNV_PHB_MODEL_PHB3 and a POWER9 never matches: the model is
+only ever set from "ibm,p7ioc-pciex" or "ibm,power8-pciex", so a PHB4
+("ibm,power9-pciex", "ibm,ioda3-phb") ends up PNV_PHB_MODEL_UNKNOWN.
+
+The result is not a slow path, it is a hard failure under DMA pressure.
+A driver that sizes its DMA aperture from system memory rather than from
+the IOMMU window will accept far more mapping than 2GB can translate -
+amdgpu announces "228789M of GTT memory ready" on a 447GiB host, a 112x
+overcommit - and the PHB fences the PE on the resulting bad IOVA:
+
+  EEH: Frozen PE#0 on PHB#3 detected
+  PHB4 PHB#3 Diag-data
+  RxeTceErr:  6000000000000000 2000000000000000 c000000000000000
+
+Add PNV_PHB_MODEL_PHB4 and allow the remap for it.
+
+The model is a new enum value rather than a reuse of PNV_PHB_MODEL_PHB3
+deliberately: three other sites test for PHB3 to reach direct-MMIO TCE
+invalidation (pnv_pci_phb3_tce_invalidate{,_pe}) and an MSI EOI path that
+do not apply to PHB4, and those must keep taking their OPAL fallbacks.
+Relabelling POWER9 as PHB3 would drive PHB3's register layout against
+PHB4 hardware.
+
+Also take the TCE size from the PHB rather than hardcoding 256M.  256M is
+a POWER8-only default in pnv_ioda_parse_tce_sizes(); a PHB4 advertises
+4K/64K/2M/1G in "ibm,supported-tce-sizes", and OPAL rejects a window built
+with a size the PHB does not support, so the hardcoded order would have
+made this fail on PHB4 even once the model gate passed.  Taking the
+largest advertised size that fits the window also keeps the table small:
+1G TCEs over a 1TiB window is 1024 entries, 8KB.
+
+On PHB3 the selection is a no-op: where "ibm,supported-tce-sizes" is
+absent pnv_ioda_parse_tce_sizes() returns 4K|64K|16M|256M, whose top bit
+is 256M, so POWER8 gets exactly the size it got from the old hardcode.
+
+This does not relax the "(pe->device_count == 1 || !pe->pbus)" condition.
+The remap leaves the low 4GB of the PE's PCI address space unmapped, so it
+stays restricted to PEs where no other device may want 32-bit DMA.
+
+--- a/arch/powerpc/platforms/powernv/pci.h
++++ b/arch/powerpc/platforms/powernv/pci.h
+@@ -19,6 +19,7 @@
+ 	PNV_PHB_MODEL_UNKNOWN,
+ 	PNV_PHB_MODEL_P7IOC,
+ 	PNV_PHB_MODEL_PHB3,
++	PNV_PHB_MODEL_PHB4,
+ };
+ 
+ #define PNV_PCI_DIAG_BUF_SIZE	8192
+--- a/arch/powerpc/platforms/powernv/pci-ioda.c
++++ b/arch/powerpc/platforms/powernv/pci-ioda.c
+@@ -1048,13 +1048,14 @@
+  * by 64-bit DMAs.  This should only be used by devices that want more than
+  * 4GB, and only on PEs that have no 32-bit devices.
+  *
+- * Currently this will only work on PHB3 (POWER8).
++ * This works on PHB3 (POWER8) and PHB4 (POWER9).
+  */
+ static int pnv_pci_ioda_dma_64bit_bypass(struct pnv_ioda_pe *pe)
+ {
+ 	u64 window_size, table_size, tce_count, addr;
+ 	struct page *table_pages;
+-	u64 tce_order = 28; /* 256MB TCEs */
++	unsigned long pgsizes;
++	u64 tce_order;
+ 	__be64 *tces;
+ 	s64 rc;
+ 
+@@ -1063,6 +1064,19 @@
+ 	 * shifting memory by the 4GB offset required to skip 32bit space.
+ 	 */
+ 	window_size = roundup_pow_of_two(memory_hotplug_max() + (1ULL << 32));
++
++	/*
++	 * Use the largest TCE the PHB advertises that still fits the window,
++	 * so the table stays small.  This was hardcoded to 256M, which only
++	 * works because pnv_ioda_parse_tce_sizes() defaults 256M in on
++	 * POWER8; a PHB4 advertises 4K/64K/2M/1G in ibm,supported-tce-sizes
++	 * and OPAL rejects a window built with a size it does not support.
++	 */
++	pgsizes = pe->table_group.pgsizes & ((window_size << 1) - 1);
++	if (!pgsizes)
++		return -EIO;
++	tce_order = ilog2(pgsizes);
++
+ 	tce_count = window_size >> tce_order;
+ 	table_size = tce_count << 3;
+ 
+@@ -1080,7 +1094,7 @@
+ 
+ 	memset(tces, 0, table_size);
+ 
+-	for (addr = 0; addr < memory_hotplug_max(); addr += (1 << tce_order)) {
++	for (addr = 0; addr < memory_hotplug_max(); addr += (1ULL << tce_order)) {
+ 		tces[(addr + (1ULL << 32)) >> tce_order] =
+ 			cpu_to_be64(addr | TCE_PCI_READ | TCE_PCI_WRITE);
+ 	}
+@@ -1129,7 +1143,8 @@
+ 	    dma_mask > (memory_hotplug_max() + (1ULL << 32)) &&
+ 	    /* pe->pdev should be set if it's a single device, pe->pbus if not */
+ 	    (pe->device_count == 1 || !pe->pbus) &&
+-	    phb->model == PNV_PHB_MODEL_PHB3) {
++	    (phb->model == PNV_PHB_MODEL_PHB3 ||
++	     phb->model == PNV_PHB_MODEL_PHB4)) {
+ 		/* Configure the bypass mode */
+ 		s64 rc = pnv_pci_ioda_dma_64bit_bypass(pe);
+ 		if (rc)
+@@ -2544,6 +2559,8 @@
+ 		phb->model = PNV_PHB_MODEL_P7IOC;
+ 	else if (of_device_is_compatible(np, "ibm,power8-pciex"))
+ 		phb->model = PNV_PHB_MODEL_PHB3;
++	else if (of_device_is_compatible(np, "ibm,power9-pciex"))
++		phb->model = PNV_PHB_MODEL_PHB4;
+ 	else
+ 		phb->model = PNV_PHB_MODEL_UNKNOWN;
+ 

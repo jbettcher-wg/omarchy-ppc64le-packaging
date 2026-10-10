@@ -20,7 +20,7 @@
 # the other with `_pagesize=64k makepkg` (README.md, "Building both").
 _pagesize=${_pagesize:-4k}
 
-_kernver=7.2.6
+_kernver=7.2.9
 
 case "$_pagesize" in
   4k)
@@ -86,6 +86,9 @@ makedepends=(
 options=(!strip !debug !buildflags)
 
 source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kernver.tar.xz"
+        # 0006 (eeh pci_rescan_remove_lock self-deadlock) dropped at 7.2.9:
+        # upstream eeh_rmv_device() no longer takes the lock around
+        # pci_stop_and_remove_bus_device(), so the patch is obsolete.
         # Applied in this order.  0003 depends on 0001 (it edits the block
         # 0001 adds) and 0005 depends on 0002 being in place first.
         0001-xhci-pci-no-64bit-dma-for-amd-promontory19-43fc.patch
@@ -93,27 +96,38 @@ source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kern
         0003-xhci-pci-trb-overfetch-for-amd-promontory19-43fc.patch
         0004-powerpc-syscall-keep-seccomp-ptrace-return-value-when-syscall-skipped.patch
         0005-powerpc-interrupt-clear-exit_flags-before-irqentry_exit-exit-work.patch
-        0006-powerpc-eeh-fix-pci_rescan_remove_lock-self-deadlock-in-eeh_rmv_device.patch
         0007-powerpc-mm-do-not-grow-max_pfn-for-ZONE_DEVICE.patch
         0008-powerpc-rust-support.patch
         0009-drm-amdkfd-map-gpu-numa-node-to-cpu-proximity-domain.patch
+        # 0010 matters here because linux-omarchy-64k is a 64K kernel: a GPU
+        # VM mapping starting at a 4K boundary inside a 64K page gets PTEs
+        # pointing at the wrong data, and the contiguity scan can run past
+        # the requested range into the neighbouring mapping.  Nothing to do
+        # with the CPU generation -- 4K builds simply cannot reach it.
+        0010-drm-amdgpu-fix-system-page-pte-generation-for-non-4k-pages.patch
+        # 0011 matters here too, despite naming PHB4.  This is the baseline
+        # kernel: it runs POWER8 through POWER11, so it boots POWER9 boxes,
+        # and on those a >2GB DMA map trips RxeTceErr and EEH fences the PE.
+        # The pre-existing TVE#0 remap was gated to PHB3, which is the POWER8
+        # side and already worked; this extends it to PHB4.
+        0011-powerpc-powernv-pci-enable-tve0-64bit-dma-bypass-on-phb4.patch
         # Both configs are listed whatever _pagesize is, so the sums below
         # are one fixed list and the two builds share a source cache.
         config.4k
         config.64k)
-sha256sums=('039aef84f2b0994aeda3f4fcfc3d02ec9d7a9bbb9020ea264c43f446c860f606'
+sha256sums=('b4c5dfbe51a364a6c7f03869200f88c8e1f77403539005f14b7fc6bc91b8d8ba'
             '966e5fe6696603044769a3b7781e084aacb262faf7b32c57016504e865989f08'
             '84cf2930d34a9523f952d5d3311f0a2df6ce26166fa9d850d3c1630b0d5bf63e'
             '598c846855ed395f496266a022cc8c3ae95143562f152344269932a5e1945356'
             '6989363b6cf739e25d9283734bbec68d949f27629c8f44cf560565e5a54c84bf'
             '894d71341824ead1a454ea70d112b45d34cd4c4aa057d4495a133c8cccd44755'
-            '44b1b99ebc531e2f5617fde996338ba88dcfae9437eae1d461550e266c7d400f'
             '4f24f8bdcbae70eee6098a5161989140c735e838c32a5aa64b17d60d8fbf27f5'
             '982294b4a32b8b2cedcc0cbfcf929c9f3252dc9a71aa3f546770e04caa876b62'
             '71e86c5b38cb2171c021765c2cf976a61e1787a21f18894f5dcf5b58ddd31b59'
+            '01a8bb6f4a50d07e1d3263d50bc47a0d0aa1b1e7b77e2b542f6a2cdd216a41a0'
+            '7a8f8d3de7e95af5bf8761a0a361b25883190c03e7694f561f01fc9d5de0bdf8'
             '4965a3372e8006301f5e11216c04751936adc7167d52d347c762dbf1144625f6'
-            '06916fe8699a534b3a837f9be5f8a42ef4e52d9a5212ef5fe444710c0cbacde3'
-)
+            '06916fe8699a534b3a837f9be5f8a42ef4e52d9a5212ef5fe444710c0cbacde3')
 
 # Reproducible-ish build stamps.  The old flow inherited whatever the shell
 # had; name them so two builds of the same pkgrel differ only by timestamp.
@@ -167,7 +181,39 @@ build() {
   # KBUILD_BUILD_VERSION is the "#22" in `uname -v`.  The old flow put
   # kbuild's own .version counter there and then reused it as pkgrel; keep
   # the two equal so a running kernel still names its package version.
-  make KBUILD_BUILD_VERSION="$pkgrel" all
+  # HOSTRUSTFLAGS, explicitly, because this recipe sets options=(!buildflags)
+  # and so makepkg exports no RUSTFLAGS -- leaving rustc on its own default.
+  # scripts/generate_rust_target is a Rust hostprog (generate_rust_target-rust
+  # := y), and rustc's "native" resolves to pwr9 on a POWER9 builder, so the
+  # baseline headers package shipped a POWER9 host tool: 2384 ISA 3.0
+  # instructions in that one binary, against 0 in the six C hostprogs beside
+  # it. It only faults when something actually builds a Rust out-of-tree
+  # module, which is why it survived a scan of the kernel itself (24, the
+  # runtime-gated tlbie/cpabort) and hid in -headers.
+  #
+  # The deployed 7.2.6-1 scanned 0 only because it was built on the POWER8
+  # VM, where native happens to be pwr8 -- i.e. correctness depended on which
+  # machine ran the build. Stating it removes that.
+  #
+  # pwr8, never power8: rustc treats an unrecognised -C target-cpu as a
+  # warning and then silently emits generic ppc64. KBUILD_HOSTRUSTFLAGS
+  # appends $(HOSTRUSTFLAGS), so this is the supported override.
+  make HOSTRUSTFLAGS="-C target-cpu=pwr8" KBUILD_BUILD_VERSION="$pkgrel" all
+
+  # Assert it took, rather than trust it: a wrong flag name is a warning.
+  if [[ -f scripts/generate_rust_target ]]; then
+    local _p8 _p9
+    _p8=$(powerpc64le-unknown-linux-gnu-objdump -d -M power8 --no-show-raw-insn \
+            scripts/generate_rust_target 2>/dev/null | grep -c '\.long')
+    _p9=$(powerpc64le-unknown-linux-gnu-objdump -d -M power9 --no-show-raw-insn \
+            scripts/generate_rust_target 2>/dev/null | grep -c '\.long')
+    if (( _p8 - _p9 != 0 )); then
+      printf 'ERROR: generate_rust_target holds %s ISA 3.0 instructions\n' \
+        "$(( _p8 - _p9 ))" >&2
+      return 1
+    fi
+    printf 'generate_rust_target: 0 ISA 3.0 instructions\n'
+  fi
 }
 
 # The splits below are the in-tree scripts/package/PKGBUILD's, kept
