@@ -51,7 +51,7 @@ for _p in "${_extra[@]}"; do pkgname+=("$pkgbase-$_p"); done
 # the 4K package had already reached 7.2.2-21 under the old flow and
 # repo-publish.sh refuses a same-version rebuild with different contents.
 # Bump it for every change to this directory -- README.md, "Versioning".
-pkgrel=1
+pkgrel=2
 pkgdesc='Upstream Linux'
 url='https://www.kernel.org/'
 arch=(powerpc64le)
@@ -108,6 +108,15 @@ source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kern
         # (hsa_signal_wait_scacquire spins) with [gfxhub] CPF permission
         # faults in dmesg.  4K builds are unaffected, so it is 64k-only.
         0010-drm-amdgpu-fix-system-page-pte-generation-for-non-4k-pages.patch
+        # 0011: a PE's TVE#0 only reaches 4GB; past that needs PCI address
+        # bit 59 (TVE#1), which a 44-bit device like the 7900 XTX cannot
+        # drive, so it is stuck on the PE's 2GB 32-bit TCE window.  The
+        # existing TVE#0 remap that fixes this was gated to PHB3 and
+        # hardcoded 256M TCEs, neither of which matches POWER9.  Without
+        # it, anything that maps more than 2GB at once - NVMe under load,
+        # amdgpu advertising 223GiB of GTT - trips RxeTceErr and EEH
+        # fences the PE, taking every device behind that switch with it.
+        0011-powerpc-powernv-pci-enable-tve0-64bit-dma-bypass-on-phb4.patch
         # Both configs are listed whatever _pagesize is, so the sums below
         # are one fixed list and the two builds share a source cache.
         config.4k
@@ -122,6 +131,7 @@ sha256sums=('b4c5dfbe51a364a6c7f03869200f88c8e1f77403539005f14b7fc6bc91b8d8ba'
             '982294b4a32b8b2cedcc0cbfcf929c9f3252dc9a71aa3f546770e04caa876b62'
             '71e86c5b38cb2171c021765c2cf976a61e1787a21f18894f5dcf5b58ddd31b59'
             '01a8bb6f4a50d07e1d3263d50bc47a0d0aa1b1e7b77e2b542f6a2cdd216a41a0'
+            '7a8f8d3de7e95af5bf8761a0a361b25883190c03e7694f561f01fc9d5de0bdf8'
             '3e4b59e5b4fccebb781ff0d1aa07b802824c1d16af19489043ac596a067370cf'
             'e3d82b54bb9cfe50924e7ab33be0cc1d2b2f4455065d1ab472bae1c1ed65e3ed'
 )
