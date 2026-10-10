@@ -37,7 +37,7 @@ pkgname=artcraft
 # would not: 0.20261008 outranks 0.1.0 and would block the upgrade.
 # When upstream tags a release, drop the suffix and track the tag.
 pkgver=0.0.1.r20261008
-pkgrel=1
+pkgrel=2
 _commit=3e5793b6934b51536606720e5d56bcfd1fe7cc2d
 pkgdesc='Intentional crafting engine for artists, designers and filmmakers'
 arch=('x86_64' 'powerpc64le')
@@ -72,7 +72,7 @@ source=(
 )
 # The git source is SKIP because #commit= pins it; the patch is hashed.
 sha256sums=('SKIP'
-            '20d327abafc7425610f1b41011508864b60f190cf1bd9b9cb4f1608ebe5b92a9')
+            '2ac65e37d160b5aad7b8ec753528f869809ad0d6b950774e908296bc5543bc17')
 options=(!lto)
 
 prepare() {
@@ -135,4 +135,32 @@ package() {
   cd "$pkgname"
   install -Dm755 "target/release/artcraft" "$pkgdir/usr/bin/artcraft"
   install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
+
+  # Desktop entry and icons. `cargo build` produces only the binary -- the
+  # .desktop file and the icon theme entries are made by `tauri build`'s
+  # bundler, which we do not run (its targets are deb/rpm/appimage, none of
+  # them useful here). Without these the app installs but appears in no menu.
+  local _px
+  for _px in 32 64 128; do
+    install -Dm644 "crates/desktop/artcraft/icons/${_px}x${_px}.png" \
+      "$pkgdir/usr/share/icons/hicolor/${_px}x${_px}/apps/artcraft.png"
+  done
+  # 128x128@2x is the 256px asset; hicolor has no @2x, so file it as 256x256.
+  install -Dm644 "crates/desktop/artcraft/icons/128x128@2x.png" \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/artcraft.png"
+
+  # Categories: Graphics is the primary, with 2DGraphics and Photography as
+  # the additional ones the spec wants listed after it.
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/artcraft.desktop" <<-DESKTOP
+	[Desktop Entry]
+	Type=Application
+	Name=ArtCraft
+	GenericName=AI image and video editor
+	Comment=Generate and edit images, video and audio
+	Exec=artcraft
+	Icon=artcraft
+	Terminal=false
+	Categories=Graphics;2DGraphics;Photography;
+	StartupWMClass=ArtCraft
+	DESKTOP
 }
