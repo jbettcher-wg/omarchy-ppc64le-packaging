@@ -147,11 +147,19 @@ makedepends=(
 )
 source=(
   $url/releases/webkitgtk-$pkgver.tar.xz{,.asc}
+  # The ppc64le JIT port, as a checksummed input rather than an ambient
+  # directory. Regenerate with ours/webkit2gtk/make-port-tarball.sh, which
+  # writes an identical copy beside every recipe that stages the port -- so
+  # the sha256 below must be the same in all of them. A difference means
+  # somebody packed a different port.
+  ppc64le-port.tar.gz
 )
 sha256sums=('ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d'
-            'SKIP')
+            'SKIP'
+            '50959dd289556d40d083e5feae683f2d37d1bee54817ba70b8ca8671b8627288')
 b2sums=('79c124b40fce5604c2adc81df7b640d1827b5e44577f1f728da77745f6f9859208d2ff51417d7a752c618ec02d62b3bb6b79f1db8230f83e5aed24b60f899928'
-        'SKIP')
+        'SKIP'
+        '661c84947a8d73fab4734e62884a084c0ac57aa8072d6ab29c816e39c12fbbabbf36c667ac6146bd18bf7c5ca7ba1edcdf24e6484269ec799da9d5332b5777d5')
 case $CARCH in
   powerpc64le) options+=(!debug !lto) ;;
 esac
@@ -172,12 +180,11 @@ prepare() {
     # 2.50.4 package is such a build and has no ppc64 JIT symbols at all.
     #
     # Not a single patch. stage.sh explains why and applies four layers; it is
-    # self-contained and fails loudly rather than half-applying. Referenced
-    # from $startdir because it is a directory of 126 files rather than
-    # something source=() can carry -- which means a clean-chroot build has to
-    # copy the whole recipe directory in, not just the source=() entries.
-    # makechrootpkg does; a hand-rolled chroot has to be told to.
-    "$startdir/ppc64le-port/stage.sh" .
+    # self-contained and fails loudly rather than half-applying. It arrives
+    # through source=() as ppc64le-port.tar.gz, so it is checksummed and a
+    # clean-chroot build gets it like any other source -- no $startdir
+    # reference, which used to require the whole recipe directory be copied in.
+    "$srcdir/ppc64le-port/stage.sh" .
   fi
 }
 
