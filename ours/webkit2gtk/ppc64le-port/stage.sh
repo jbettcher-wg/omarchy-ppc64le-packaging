@@ -65,8 +65,15 @@ python3 "$HERE/tools/edits.py" > "$HERE/.port.table"
 python3 "$HERE/tools/portedit.py" "$HERE/.port.table" "$TREE" | sed 's/^/   /'
 
 echo ":: residue"
-if python3 "$HERE/tools/reconcile.py" "$TREE" --prune 2>/dev/null |
-        tee /dev/stderr | head -1 | grep -q '0 outstanding, 0 partial'; then
+# Captured, not tee'd. `tee /dev/stderr` OPENS /dev/stderr rather than dup'ing
+# it, so under a `>log 2>&1` redirect it gets its own file offset at 0 and
+# overwrites the log from the top -- a successful run used to shred its own
+# progress output -- and the `head -1` downstream SIGPIPE'd tee mid-write, so a
+# FAILING run could lose the diagnostics this block exists to print. Under
+# makepkg that log is the only record, so take the output once and print it all.
+res="$(python3 "$HERE/tools/reconcile.py" "$TREE" --prune 2>&1)" || true
+printf '%s\n' "$res" | sed 's/^/   /'
+if printf '%s\n' "$res" | head -1 | grep -q '0 outstanding, 0 partial'; then
     find "$TREE" -name '*.rej' -delete 2>/dev/null || true
     find "$TREE" -name '*.orig' -delete 2>/dev/null || true
     echo ":: clean"

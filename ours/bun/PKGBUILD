@@ -23,7 +23,10 @@ pkgname=bun
 pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager'
 _commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
 pkgver=1.4.3
-pkgrel=5
+# pkgrel 6: rebuild against webkit 0.20261010-1. Bun compiles JSC from that
+# package's source, so the ELFv2 caller-extension fixes in it (IPInt, B3's
+# CCall lowering, and Air's out-of-line cold path) only reach bun on a rebuild.
+pkgrel=6
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
@@ -32,12 +35,11 @@ license=('MIT')
 # NO libstdc++ or libgcc_s entry -- bun links its C++ runtime statically -- so
 # gcc-libs is not a dependency however much it looks like one.
 depends=('glibc' 'icu')
-# NOTE: 'rust' is NOT in this list, deliberately -- see build() for why. The
-# rust-nightly-bun dependency DOES NOT EXIST YET and has to be packaged before
-# this recipe can build on a clean machine.
 # Every name here was checked against the repos before being written down.
 # cmake, ninja and lld resolve from [base], not from the Omarchy pools; icu is
-# in both omarchy-power9 and base. 'rust' is deliberately absent -- see build().
+# in both omarchy-power9 and base. 'rust' is deliberately absent -- bun needs a
+# specific nightly, and rust-nightly-bun supplies it (packaged, and in
+# omarchy-power9); see build() for why the stable toolchain will not do.
 makedepends=('git' 'cmake' 'ninja' 'clang' 'lld' 'llvm' 'ruby' 'python'
              'perl' 'pkgconf' 'icu' 'webkit' 'bun-bootstrap' 'rust-nightly-bun')
 provides=('bun')

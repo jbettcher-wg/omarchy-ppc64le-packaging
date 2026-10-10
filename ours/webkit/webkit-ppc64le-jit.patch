@@ -1006,10 +1006,10 @@ index 0000000000..c3b2a29def
 +#endif // ENABLE(ASSEMBLER) && CPU(PPC64LE)
 diff --git a/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
 new file mode 100644
-index 0000000000..82e864cc31
+index 0000000000..137a19d1d2
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
-@@ -0,0 +1,7224 @@
+@@ -0,0 +1,7256 @@
 +/*
 + * Copyright (C) 2026 Justin Bettcher. All rights reserved.
 + *
@@ -1990,19 +1990,51 @@ index 0000000000..82e864cc31
 +    void countLeadingZeros32(RegisterID src, RegisterID dest) { m_assembler.cntlzw(dest, src); }
 +    void countLeadingZeros64(RegisterID src, RegisterID dest) { m_assembler.cntlzd(dest, src); }
 +
-+    // cnttzw/cnttzd are ISA 3.0. On POWER8 they would decode as illegal
-+    // instructions, which is why this asserts rather than silently emitting
-+    // something the CPU cannot run. hasISA30() reads AT_HWCAP2 once.
++    // cnttzw/cnttzd are ISA 3.0, so POWER8 gets the identity instead:
++    //
++    //     ctz(x) == popcount(~x & (x - 1))
++    //
++    // which is also correct for x == 0 -- x - 1 is all ones and ~x is all
++    // ones, so the mask is all ones and the count is the full width, exactly
++    // what cnttzw/cnttzd return for zero.
++    //
++    // These USED to RELEASE_ASSERT(hasISA30()) rather than fall back, and that
++    // was a POWER8 crash rather than a missing optimisation. The callers are
++    // not obscure: i32.ctz and i64.ctz in both wasm JITs, and YarrJIT, which
++    // means ordinary JavaScript regexps. A baseline-pool build would have
++    // aborted on the first one.
++    //
++    // The temp is needed for two reasons, not one: dest may alias src, and
++    // addi's RA field has to hold the source -- r0 there reads as the literal
++    // zero. src comes from the register allocator, which never hands out r0.
 +    void countTrailingZeros32(RegisterID src, RegisterID dest)
 +    {
-+        RELEASE_ASSERT(Assembler::hasISA30());
-+        m_assembler.cnttzw(dest, src);
++        if (Assembler::hasISA30()) {
++            m_assembler.cnttzw(dest, src);
++            return;
++        }
++        ASSERT(src != PPC64Registers::r0);
++        auto temp = temps<Data>();
++        m_assembler.addi(temp.data(), src, -1);
++        m_assembler.andc(temp.data(), temp.data(), src);
++        // popcntw counts EACH WORD separately, so the high word holds the
++        // count of the temp's high word and has to be masked off.
++        m_assembler.popcntw(dest, temp.data());
++        maskLow32(dest);
 +    }
 +
 +    void countTrailingZeros64(RegisterID src, RegisterID dest)
 +    {
-+        RELEASE_ASSERT(Assembler::hasISA30());
-+        m_assembler.cnttzd(dest, src);
++        if (Assembler::hasISA30()) {
++            m_assembler.cnttzd(dest, src);
++            return;
++        }
++        ASSERT(src != PPC64Registers::r0);
++        auto temp = temps<Data>();
++        m_assembler.addi(temp.data(), src, -1);
++        m_assembler.andc(temp.data(), temp.data(), src);
++        // popcntd counts the whole doubleword, so no mask.
++        m_assembler.popcntd(dest, temp.data());
 +    }
 +
 +    // ---- byte swaps ----
@@ -10341,7 +10373,7 @@ index 27d11b1e23..5f28546cf8 100644
  #error "The MacroAssembler is not supported on this platform."
  #endif
 diff --git a/Source/JavaScriptCore/assembler/testmasm.cpp b/Source/JavaScriptCore/assembler/testmasm.cpp
-index 3f495628f4..74e9dc9f6b 100644
+index 3f495628f4..c25245c1c6 100644
 --- a/Source/JavaScriptCore/assembler/testmasm.cpp
 +++ b/Source/JavaScriptCore/assembler/testmasm.cpp
 @@ -30,9 +30,14 @@
@@ -12597,7 +12629,7 @@ index 3f495628f4..74e9dc9f6b 100644
  static void testGPRInfoConsistency()
  {
      for (unsigned index = 0; index < GPRInfo::numberOfRegisters; ++index) {
-@@ -8439,6 +10405,2165 @@ static void testGPRInfoConsistency()
+@@ -8439,6 +10405,2218 @@ static void testGPRInfoConsistency()
      } while (false);
  
  // Using WTF_IGNORES_THREAD_SAFETY_ANALYSIS because the function is still holding crashLock when exiting.
@@ -12639,6 +12671,59 @@ index 3f495628f4..74e9dc9f6b 100644
 +        CHECK_EQ(dst[i], static_cast<uint8_t>(i));
 +
 +    PPC64Assembler::forcePOWER8Paths() = false;
++}
++
++
++// countTrailingZeros32/64 across the hasISA30() seam.
++//
++// cnttzw/cnttzd are ISA 3.0; the POWER8 arm is the identity
++// ctz(x) == popcount(~x & (x - 1)), which is also correct for zero. Both arms
++// are exercised, because on POWER9 silicon forcing the POWER8 path is the only
++// way that arm ever runs -- and until it did, the fallback had been compiled
++// but never executed.
++//
++// Zero and the all-ones word are the two cases the identity is easiest to get
++// wrong, and the single-bit sweep is what catches a popcntw that counts the
++// wrong word.
++static void testPPC64CountTrailingZerosOnce(bool forcePOWER8)
++{
++    PPC64Assembler::forcePOWER8Paths() = forcePOWER8;
++
++    auto test64 = compile([=] (CCallHelpers& jit) {
++        emitFunctionPrologue(jit);
++        jit.countTrailingZeros64(GPRInfo::argumentGPR0, GPRInfo::returnValueGPR);
++        emitFunctionEpilogue(jit);
++        jit.ret();
++    });
++    auto test32 = compile([=] (CCallHelpers& jit) {
++        emitFunctionPrologue(jit);
++        jit.countTrailingZeros32(GPRInfo::argumentGPR0, GPRInfo::returnValueGPR);
++        emitFunctionEpilogue(jit);
++        jit.ret();
++    });
++
++    CHECK_EQ(invoke<size_t>(test64, static_cast<uint64_t>(0)), 64u);
++    CHECK_EQ(invoke<size_t>(test64, ~static_cast<uint64_t>(0)), 0u);
++    for (size_t i = 0; i < 64; ++i)
++        CHECK_EQ(invoke<size_t>(test64, static_cast<uint64_t>(1) << i), i);
++
++    CHECK_EQ(invoke<size_t>(test32, static_cast<uint64_t>(0)), 32u);
++    CHECK_EQ(invoke<size_t>(test32, static_cast<uint64_t>(0xffffffffu)), 0u);
++    for (size_t i = 0; i < 32; ++i)
++        CHECK_EQ(invoke<size_t>(test32, static_cast<uint64_t>(1) << i), i);
++
++    // The high half must not leak into a 32-bit count: popcntw counts each
++    // word separately, so an unmasked result would add the high word's bits.
++    CHECK_EQ(invoke<size_t>(test32, static_cast<uint64_t>(0xffffffff00000000ull)), 32u);
++    CHECK_EQ(invoke<size_t>(test32, static_cast<uint64_t>(0xffffffff00010000ull)), 16u);
++
++    PPC64Assembler::forcePOWER8Paths() = false;
++}
++
++void testPPC64CountTrailingZeros()
++{
++    testPPC64CountTrailingZerosOnce(false);   // native (ISA 3.0 here)
++    testPPC64CountTrailingZerosOnce(true);    // the POWER8 fallback
 +}
 +
 +void testPPC64VectorLoadStoreRoundTrip()
@@ -14763,7 +14848,7 @@ index 3f495628f4..74e9dc9f6b 100644
  void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
  {
      JSC::initialize([] {
-@@ -8470,6 +12595,88 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8470,6 +12648,88 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      // reset to check a conversion result
      RUN(testBranchTruncateDoubleToInt32(123, 123));
  
@@ -14852,7 +14937,7 @@ index 3f495628f4..74e9dc9f6b 100644
  #define FOR_EACH_DOUBLE_CONDITION_RUN(__test) \
      do { \
          RUN(__test(MacroAssembler::DoubleEqualAndOrdered)); \
-@@ -8512,11 +12719,63 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8512,11 +12772,64 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testBranchTest8());
      RUN(testBranchTest16());
  
@@ -14863,6 +14948,7 @@ index 3f495628f4..74e9dc9f6b 100644
      RUN(testBranchTestBit32AddrImm());
      RUN(testBranchTestBit64RegReg());
 +#if CPU(PPC64LE)
++    RUN(testPPC64CountTrailingZeros());
 +    RUN(testPPC64VectorLoadStoreRoundTrip());
 +    RUN(testPPC64VectorLoadStoreOffsetForms());
 +    RUN(testPPC64VectorSplatInteger());
@@ -14917,7 +15003,7 @@ index 3f495628f4..74e9dc9f6b 100644
      RUN(testBranchTestBit64RegImm());
      RUN(testBranchTestBit64AddrImm());
  #endif
-@@ -8665,13 +12924,22 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8665,13 +12978,22 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
          RUN(testAtomicStrongCASFill8());
          RUN(testAtomicStrongCASFill16());
      }
@@ -14942,7 +15028,7 @@ index 3f495628f4..74e9dc9f6b 100644
      // Comparing 2 different registers.
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveConditionallyDouble2);
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveConditionallyDouble3);
-@@ -8708,7 +12976,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8708,7 +13030,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testMoveConditionallyTest32WithImmThenCaseImmMask(MacroAssembler::NonZero));
  #endif
  
@@ -14951,7 +15037,7 @@ index 3f495628f4..74e9dc9f6b 100644
      RUN(testSignExtend8To32());
      RUN(testSignExtend16To32());
      RUN(testSignExtend8To64());
-@@ -8768,6 +13036,31 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8768,6 +13090,31 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testCachedTempRegisterImm32Normalization());
  #endif
  
@@ -14983,7 +15069,7 @@ index 3f495628f4..74e9dc9f6b 100644
      RUN(testGPRInfoConsistency());
  
      if (tasks.isEmpty())
-@@ -8826,6 +13119,20 @@ int main(int argc, char** argv)
+@@ -8826,6 +13173,20 @@ int main(int argc, char** argv)
          break;
      }
  
@@ -15177,7 +15263,7 @@ index d8e7594cbf..7b1cfd808c 100644
              m_proc, m_origin,
              innerResult);
 diff --git a/Source/JavaScriptCore/b3/B3LowerToAir.cpp b/Source/JavaScriptCore/b3/B3LowerToAir.cpp
-index 084dc1db56..87f7b5e363 100644
+index 084dc1db56..26a7a55682 100644
 --- a/Source/JavaScriptCore/b3/B3LowerToAir.cpp
 +++ b/Source/JavaScriptCore/b3/B3LowerToAir.cpp
 @@ -253,10 +253,24 @@ private:
@@ -15385,7 +15471,7 @@ index 084dc1db56..87f7b5e363 100644
              if (deferToAfterRegAlloc) {
                  m_procedure.setUsesColdCCall(true);
  
-@@ -6106,6 +6230,28 @@ private:
+@@ -6106,6 +6230,67 @@ private:
                  Value* child = cCall->child(i);
                  Arg src = immOrTmp(child);
                  Width width = cCallArgumentRegisterWidth(child->type());
@@ -15411,10 +15497,49 @@ index 084dc1db56..87f7b5e363 100644
 +                    src = asDouble;
 +                    width = Width64;
 +                }
++
++                // The integer half of the same ELFv2 seam.
++                //
++                // ELFv2 makes the CALLER extend a sub-doubleword integer
++                // argument to the full register, per the parameter's declared
++                // signedness, and lets the callee rely on it. x86-64 SysV and
++                // AAPCS64 both let the callee read only the low 32 bits, which
++                // is why cCallArgumentRegisterWidth's Width32 is right there
++                // and wrong here: a Width32 shuffle lowers to Move32, which
++                // ZERO-extends.
++                //
++                // operationLoadVarargs takes `int32_t firstElementDest`, a
++                // virtual register offset that is NEGATIVE for locals, and
++                // FTLLowerDFGToB3 hands it over as m_out.castToInt32(...). Zero
++                // extended, -16 arrives as 0x00000000fffffff0, loadVarargs
++                // builds a wild address from it and copyToArguments writes off
++                // the end of the frame.
++                //
++                // Found on WebKitGTK 2.54.1, where it took out 17
++                // arguments/varargs tests; this tree has the same lowering and
++                // the same signature, and the only reason its suite stays green
++                // is that FTL does not happen to compile that path in them. The
++                // violation is here either way.
++                //
++                // Sign- rather than zero-extension: the signed parameters are
++                // the ones that can carry a value where the two differ. B3 does
++                // not record a C parameter's signedness, and every unsigned
++                // 32-bit parameter reachable here is a length, index or count
++                // that stays below 2^31, where both extensions agree.
++                if (isPPC64() && child->type() == Int32) {
++                    if (src.isTmp()) {
++                        Tmp extended = m_code.newTmp(B3::GP);
++                        append(SignExtend32To64, src.tmp(), extended);
++                        src = extended;
++                    }
++                    // An Arg::imm already holds the int32 sign-extended into
++                    // its int64 payload, so widening the move is enough.
++                    width = Width64;
++                }
                  for (unsigned j = 0, len = cCallArgumentRegisterCount(child->type()); j < len; ++j) {
                      ShufflePair pair(src, destinations[destinationIndex++], width);
                      hasRegisterSource |= pair.src().isReg();
-@@ -6159,7 +6305,14 @@ private:
+@@ -6159,7 +6344,14 @@ private:
                  append(Move, cCallResult(m_code, cCall, 1), resultDst1);
                  break;
              case Float:
@@ -15430,7 +15555,7 @@ index 084dc1db56..87f7b5e363 100644
                  break;
              case Double:
                  append(MoveDouble, cCallResult(m_code, cCall, 0), resultDst0);
-@@ -6647,6 +6800,24 @@ private:
+@@ -6647,6 +6839,24 @@ private:
                  append(Ret64, returnValueGPR);
                  break;
              case Float:
@@ -16042,6 +16167,63 @@ index d04f5bbdfa..c1fcf6161c 100644
      auto calleSavesToSave = usedCalleeSaves;
  
      if (!calleSavesToSave.numberOfSetRegisters())
+diff --git a/Source/JavaScriptCore/b3/air/AirLowerAfterRegAlloc.cpp b/Source/JavaScriptCore/b3/air/AirLowerAfterRegAlloc.cpp
+index b5635c0e04..de0929cd58 100644
+--- a/Source/JavaScriptCore/b3/air/AirLowerAfterRegAlloc.cpp
++++ b/Source/JavaScriptCore/b3/air/AirLowerAfterRegAlloc.cpp
+@@ -226,9 +226,49 @@ void lowerAfterRegAlloc(Code& code)
+ 
+                 if (AirLowerAfterRegAllocInternal::verbose)
+                     dataLog("Pre-call pairs for ", inst, ": ", listDump(pairs), "\n");
+-                
+-                insertionSet.insertInsts(
+-                    instIndex, emitShuffle(code, pairs, gpScratch, fpScratch, inst.origin));
++
++                Vector<Inst> preCall = emitShuffle(code, pairs, gpScratch, fpScratch, inst.origin);
++
++                // ELFv2 requires the CALLER to extend a sub-doubleword integer
++                // argument to the full register, per the parameter's declared
++                // signedness, and lets the callee rely on it. x86-64 SysV and
++                // AAPCS64 both let the callee read only the low 32 bits, which
++                // is why widthForType()'s Width32 above is right for them and
++                // wrong here: a Width32 pair lowers to Move32, which
++                // ZERO-extends, so a negative Int32 argument reaches the callee
++                // as a large positive.
++                //
++                // B3LowerToAir fixes this for the in-place expansion by
++                // sign-extending into a fresh Tmp. That cannot be done here --
++                // this phase runs after register allocation and cannot mint a
++                // Tmp -- but it does not need to: the destination is the
++                // argument register itself, so extending it IN PLACE after the
++                // shuffle costs one instruction and no scratch.
++                //
++                // Reachable only through a rare block at optLevel >= 2, which
++                // is why no JSTests or wasm case ever exercised it;
++                // testCallRareInt32ArgumentIsExtended does, and it returned
++                // 0x00000000fffffff0 for -16 before this.
++                if (isPPC64()) {
++                    for (unsigned i = 1; i < destinations.size(); ++i) {
++                        if (value->child(i)->type() != Int32)
++                            continue;
++                        const Arg& dst = destinations[i];
++                        if (dst.isTmp() && dst.tmp().isGP()) {
++                            preCall.append(Inst(SignExtend32To64, inst.origin, dst.tmp(), dst.tmp()));
++                            continue;
++                        }
++                        // A stack-homed Int32 would need a load, an extend and
++                        // a store, and a scratch register to do them in. It
++                        // takes more than eight integer arguments to get here,
++                        // and nothing in this tree has that many, so say so
++                        // rather than extend the wrong thing silently.
++                        RELEASE_ASSERT(!dst.isStack() && !dst.isCallArg(),
++                            "ColdCCall homed an Int32 argument to the stack; ELFv2 needs it extended there too");
++                    }
++                }
++
++                insertionSet.insertInsts(instIndex, WTF::move(preCall));
+ 
+                 inst = buildCCall(code, inst.origin, destinations);
+                 if (oldKind.effects)
 diff --git a/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp b/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp
 index 84335336f9..5dbf9e581c 100644
 --- a/Source/JavaScriptCore/b3/air/AirLowerStackArgs.cpp
@@ -17702,7 +17884,7 @@ index 849838b2b0..78d1e86efc 100644
  
      RUN(testEarlyAndLateUseOfSameTmp());
 diff --git a/Source/JavaScriptCore/b3/testb3.h b/Source/JavaScriptCore/b3/testb3.h
-index 69c66bab34..2045c50bf0 100644
+index 69c66bab34..bc056f1f63 100644
 --- a/Source/JavaScriptCore/b3/testb3.h
 +++ b/Source/JavaScriptCore/b3/testb3.h
 @@ -269,9 +269,24 @@ template<typename Func>
@@ -17731,7 +17913,15 @@ index 69c66bab34..2045c50bf0 100644
      crashLock.lock();
      dataLog("Bad lowering!  ", failText, "\n");
      dataLog(disassembly);
-@@ -1140,6 +1155,8 @@ void testMulNegArgsDouble();
+@@ -1099,6 +1114,7 @@ void testCompare(B3::Opcode opcode, int64_t left, int64_t right);
+ void testEqualDouble(double left, double right, bool result);
+ void testCallSimple(int, int);
+ void testCallRare(int, int);
++void testCallRareInt32ArgumentIsExtended();
+ void testCallRareLive(int, int, int c);
+ void testCallSimplePure(int, int);
+ void testCallFunctionWithHellaArguments();
+@@ -1140,6 +1156,8 @@ void testMulNegArgsDouble();
  void testMulNegArgsFloat();
  void testCallSimpleDouble(double, double);
  void testCallSimpleFloat(float, float);
@@ -17741,7 +17931,7 @@ index 69c66bab34..2045c50bf0 100644
  void testCallFunctionWithHellaFloatArguments();
  void testForcedSpillCalleeOnStack();
 diff --git a/Source/JavaScriptCore/b3/testb3_3.cpp b/Source/JavaScriptCore/b3/testb3_3.cpp
-index a6bf4cb310..1a4a3fa4ef 100644
+index a6bf4cb310..14dbef5e49 100644
 --- a/Source/JavaScriptCore/b3/testb3_3.cpp
 +++ b/Source/JavaScriptCore/b3/testb3_3.cpp
 @@ -3365,7 +3365,14 @@ void testInt32BImmToFloatBitwiseCast(int32_t value)
@@ -17770,7 +17960,15 @@ index a6bf4cb310..1a4a3fa4ef 100644
      clobberSet.remove(GPRInfo::regT3);
      clobberSet.remove(GPRInfo::regT2);
      clobberSet.remove(GPRInfo::regT6);
-@@ -4539,6 +4549,8 @@ void addCallTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& t
+@@ -4521,6 +4531,7 @@ void addCallTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& t
+ {
+     RUN(testCallSimple(1, 2));
+     RUN(testCallRare(1, 2));
++    RUN(testCallRareInt32ArgumentIsExtended());
+     RUN(testCallRareLive(1, 2, 3));
+     RUN(testCallSimplePure(1, 2));
+     RUN(testCallFunctionWithHellaArguments());
+@@ -4539,6 +4550,8 @@ void addCallTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& t
      RUN(testCallFunctionWithHellaDoubleArguments());
  
      RUN_BINARY(testCallSimpleFloat, floatingPointOperands<float>(), floatingPointOperands<float>());
@@ -17804,7 +18002,7 @@ index f991643a4d..a4ba241971 100644
      patchpoint->clobberLate(clobberAll);
  
 diff --git a/Source/JavaScriptCore/b3/testb3_5.cpp b/Source/JavaScriptCore/b3/testb3_5.cpp
-index a08f91de4d..16ec4c01b4 100644
+index a08f91de4d..2c6677b809 100644
 --- a/Source/JavaScriptCore/b3/testb3_5.cpp
 +++ b/Source/JavaScriptCore/b3/testb3_5.cpp
 @@ -195,8 +195,7 @@ void testSimpleCheck()
@@ -18147,7 +18345,76 @@ index a08f91de4d..16ec4c01b4 100644
          });
      root->appendNewControlValue(
          proc, Return, Origin(),
-@@ -2302,6 +2270,69 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(simpleFunctionFloat, float, (float a, float b)
+@@ -1962,6 +1930,21 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(simpleFunction, int, (int a, int b))
+     return a + b;
+ }
+ 
++extern "C" {
++// Reports the FULL doubleword the caller left in the argument register.
++//
++// Declared int64_t while B3 is handed an Int32 value, deliberately: that is
++// the only way to observe what the CALLER put there. A callee declared
++// int32_t re-reads only the low word, so a caller that failed to extend is
++// invisible to it -- which is exactly why this bug survived in FTL until a
++// negative virtual register offset reached operationLoadVarargs.
++static JSC_DECLARE_NOEXCEPT_JIT_OPERATION_WITHOUT_WTF_INTERNAL(reportRawArgument, int64_t, (int64_t));
++}
++JSC_DEFINE_NOEXCEPT_JIT_OPERATION(reportRawArgument, int64_t, (int64_t raw))
++{
++    return raw;
++}
++
+ void testCallSimple(int a, int b)
+ {
+     Procedure proc;
+@@ -2006,6 +1989,46 @@ void testCallRare(int a, int b)
+     CHECK_EQ(compileAndRun<int>(proc, true, a, b), a + b);
+ }
+ 
++// ELFv2 requires the CALLER to extend a sub-doubleword integer argument to the
++// full register, per the parameter's declared signedness, and lets the callee
++// rely on it. x86-64 SysV and AAPCS64 both let the callee read only the low 32
++// bits, so this is a ppc64-only contract -- and one the port got wrong twice.
++//
++// B3's in-place CCall lowering sign-extends Int32 now. Air's OUT-OF-LINE path
++// did not: AirLowerAfterRegAlloc builds its pre-call shuffle with
++// widthForType(), so an Int32 moved as Width32 and Move32 zero-extends. That
++// path needs a RARE block at optLevel >= 2, which no JSTests case reached, so
++// the defect was invisible to both suites.
++//
++// -16 is the witness: sign-extended it is 0xfffffffffffffff0, zero-extended
++// 0x00000000fffffff0.
++void testCallRareInt32ArgumentIsExtended()
++{
++    Procedure proc;
++    BasicBlock* root = proc.addBlock();
++    BasicBlock* common = proc.addBlock();
++    BasicBlock* rare = proc.addBlock();
++    auto arguments = cCallArgumentValues<intptr_t>(proc, root).eager();
++
++    root->appendNewControlValue(
++        proc, Branch, Origin(),
++        arguments[0],
++        FrequentedBlock(rare, FrequencyClass::Rare),
++        FrequentedBlock(common));
++
++    common->appendNewControlValue(
++        proc, Return, Origin(), common->appendNew<Const64Value>(proc, Origin(), 0));
++
++    rare->appendNewControlValue(
++        proc, Return, Origin(),
++        rare->appendNew<CCallValue>(
++            proc, Int64, Origin(),
++            rare->appendNew<ConstPtrValue>(proc, Origin(), tagCFunction<OperationPtrTag>(reportRawArgument)),
++            rare->appendNew<Const32Value>(proc, Origin(), -16)));
++
++    CHECK_EQ(compileAndRun<int64_t>(proc, true), static_cast<int64_t>(-16));
++}
++
+ void testCallRareLive(int a, int b, int c)
+ {
+     Procedure proc;
+@@ -2302,6 +2325,69 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(simpleFunctionFloat, float, (float a, float b)
      return a + b;
  }
  

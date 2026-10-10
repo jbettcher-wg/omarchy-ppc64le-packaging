@@ -21,29 +21,49 @@
 # exists to prevent.
 #
 # ONE SQUASHED PATCH, NOT A SERIES, and that is a correctness decision rather
-# than a convenience. The port's history contains six merge commits, and
-# `git format-patch` skips merges -- the 88 patches it emits do NOT apply
-# linearly: the twenty-third fails on Source/WTF/wtf/PlatformEnable.h with both
+# than a convenience. The port's history contains 135 commits, seven of them
+# merges, and `git format-patch` skips merges -- so the 128 patches it emits do
+# NOT apply linearly: one fails on Source/WTF/wtf/PlatformEnable.h with both
 # `patch -Np1` and `git apply`, because content that exists only in a merge is
 # missing by then. The squashed diff has no such gap, and it is verifiable in a
 # way a series is not: applied to a clean checkout of $_commit it produces a
-# tree whose hash equals the port branch's tree exactly
-# (74feb8927b2e7ef667b6e052e1527f1b76c70137), so the package provably builds the
-# same source the testb3 numbers were measured on. Per-commit provenance lives
-# in the git history this patch was generated from, not in the package.
+# tree whose hash equals $_tree exactly -- which is the port branch's own tree
+# hash -- so the package provably builds the same source the numbers in
+# .pkginfo were measured on. prepare() checks this rather than trusting it.
+# Per-commit provenance lives in the git history this patch was generated
+# from, not in the package.
 #
 # This installs SOURCE, not libraries, deliberately. Bun's build drives WebKit's
 # cmake itself (`--webkit=local`, reading $BUN_WEBKIT_PATH), which is the only
 # configuration this port has been validated in. A prebuilt tree would have to
 # match Bun's ASAN and ABI settings exactly -- WTF::Vector's layout changes with
 # ASAN -- and a mismatch corrupts memory silently rather than failing to link.
+#
+# TWO KNOWN UNIT-TEST CRASHES, both pre-existing and neither a build failure.
+# A build agent running the JSC unit tests will hit these; do not treat them as
+# regressions introduced by a rebuild.
+#
+#   testb3 aborts in testCallFunctionWithHellaDoubleArguments after ~63k
+#   passing checks. That test passes 26 doubles, and the port's
+#   marshallCCallArgumentPPC64 fires a deliberate RELEASE_ASSERT past the 12th
+#   float-class argument: f13 is JSC's fpTempRegister, so a 13th would home to
+#   the stack while the callee reads f13. The assert is the honest outcome --
+#   it refuses to miscompile. No JSC or Bun workload reaches 13 FP arguments;
+#   lifting it means giving ppc64le a real FP argument-area spill path.
+#
+#   testair crashes every run, with the number of checks completed before the
+#   crash varying from 9 to 41 across runs of the same binary. It is
+#   multi-threaded (one thread per core unless a filter is given), so it is
+#   non-deterministic by construction. Confirmed pre-existing by building an
+#   earlier port commit and running both: every run of both crashes.
+#   Uncharacterised.
 
 pkgname=webkit
 pkgdesc='JavaScriptCore for Bun, with the full ppc64le JIT backend incl. wasm BBQ/OMG (source)'
 _commit=cf1b36ec8703d8e87436094d21d478d358c7d886
-_tree=ec7b8263137a17df020092dded0a7be22b819784
-pkgver=0.20260911
-pkgrel=4
+_tree=2ea2dd3e9bfc63683dadf539ebc43781cd4cce13
+pkgver=0.20261010
+pkgrel=1
 arch=('powerpc64le')
 url='https://github.com/oven-sh/WebKit'
 license=('LGPL-2.1-only' 'BSD-2-Clause')
@@ -60,7 +80,7 @@ source=(
 
 sha256sums=(
   'SKIP'
-  '739280fad5855e3c7aaf9928def7d92df60e3404ce66adac583008c627f89f2c'
+  '4f3effe47916bba21ec212c19d64645bdf31f1d4cc189e1840f5ee731b54fe89'
 )
 
 prepare() {
@@ -100,16 +120,29 @@ package() {
   # an installed copy would not carry.
   rm -rf LayoutTests Websites PerformanceTests WebDriverTests ManualTests JSTests
 
+  # Only measured numbers belong here, with the configuration they were
+  # measured in named, because this file is what someone reads to decide
+  # whether a later run has regressed. A figure that cannot be reproduced in
+  # the configuration the package ships is worse than no figure.
   install -Dm644 /dev/stdin .pkginfo <<-INFO
 	base-commit: $_commit
 	patched-tree: $_tree
+	port-commits: 135
 	tiers: LLInt Baseline DFG FTL YARR + wasm IPInt BBQ OMG
-	testb3: 998/1000 groups, 0 SIGSEGV
-	testmasm: 446/446
-	testair: 78/82
-	JSTests/stress: 5833 planned, FAIL 31, failing set identical to the DFG+FTL reference
-	JSTests/wasm: 1500 planned, FAIL 2 (1 upstream, 1 concurrency flake)
-	wasm SIMD stress: 61/61
+	isa-floor: POWER8 / ISA 2.07; ISA 3.0 chosen per call site via hasISA30()
 	pruned: LayoutTests Websites PerformanceTests WebDriverTests ManualTests JSTests
+
+	# Unit tests, measured on tree $_tree built PORT=JSCOnly with clang,
+	# DEVELOPER_MODE=ON USE_BUN_JSC_ADDITIONS=ON USE_MIMALLOC=ON
+	# USE_BUN_EVENT_LOOP=OFF --ppc64-isa=power8, run on POWER9.
+	# See the PKGBUILD header for why testb3 and testair end in a crash.
+	testmasm: 497 tests completed, exit 0
+	testb3: 63181 checks pass, then the documented FP-argument RELEASE_ASSERT
+	testair: crashes every run, pre-existing, non-deterministic
+
+	# JSTests/stress and JSTests/wasm are run from a git checkout under a
+	# cgroup cap, not from this package, and their last figures were taken on
+	# an earlier tree. Measurement history is in powerpc64le-handbook rather
+	# than stamped here.
 	INFO
 }

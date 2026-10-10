@@ -5,11 +5,12 @@
 # Why this package exists:
 #
 #   The ppc64le JSC back end (offlineasm PPC64 backend, MacroAssemblerPPC64,
-#   the Baseline JIT, YARR JIT, bun:ffi via ELFv2, IPInt WebAssembly, the VSX
-#   SIMD set and the in-progress DFG) lives in one local branch and has never
-#   been installable.  The only built engine on this machine was a 269 MB
-#   binary under /var/tmp, which disappears with the next cleanup and can be
-#   reproduced by nobody else.  This recipe makes the engine a package: `jsc`
+#   the Baseline JIT, the DFG, FTL -- so B3 and Air -- YARR JIT, bun:ffi via
+#   ELFv2, and all three WebAssembly tiers: IPInt, BBQ and OMG, with the VSX
+#   SIMD set) lives in one local branch and has never been installable.  The
+#   only built engine on this machine was a 269 MB binary under /var/tmp,
+#   which disappears with the next cleanup and can be reproduced by nobody
+#   else.  This recipe makes the engine a package: `jsc`
 #   on $PATH, testmasm and testFFI beside it, rebuildable from this tree plus
 #   a network connection.
 #
@@ -26,17 +27,18 @@
 #   that bun 1.4.3 pins in scripts/build/deps/webkit.ts, so the engine here
 #   and the engine inside bun are the same JSC.
 #
-#   webkit-ppc64le-r1.tar.gz carries ONE squashed diff rather than the 52
+#   webkit-ppc64le-r2.tar.gz carries ONE squashed diff rather than the 135
 #   commits, and that is a correctness requirement, not a convenience.  The
-#   branch contains a merge (86c69140d5, ppc64le-port into ppc64le-wasm)
-#   whose conflict resolution -- the CPU(PPC64LE) block of PlatformEnable.h
-#   and the WTF_CPU_PPC64LE branch of WebKitFeatures.cmake -- exists in no
-#   single commit.  A `git format-patch` series therefore does not replay:
-#   it fails at patch 0023 in date order and at 0022 in --topo-order, and
-#   neither result reaches the right tree.  The squashed diff does: applied
-#   to cf1b36ec87 it produces tree 293c8e571086b420429364113372abf3d8976ad2,
-#   which is the branch tip's tree, byte for byte.  prepare() re-checks that
-#   on every build rather than trusting this comment.
+#   branch contains seven merges whose conflict resolutions exist in no single
+#   commit -- the first, 86c69140d5 (ppc64le-port into ppc64le-wasm), resolved
+#   the CPU(PPC64LE) block of PlatformEnable.h and the WTF_CPU_PPC64LE branch
+#   of WebKitFeatures.cmake.  `git format-patch` skips merges, so the series it
+#   emits does not replay: it fails on PlatformEnable.h with both `patch -Np1`
+#   and `git apply`, and no result reaches the right tree.  The squashed diff
+#   does: applied to cf1b36ec87 it produces tree
+#   2ea2dd3e9bfc63683dadf539ebc43781cd4cce13, which is the branch tip's tree,
+#   byte for byte.  prepare() re-checks that on every build rather than
+#   trusting this comment.
 #
 #   The per-commit history stays in the git branch (and is what any upstream
 #   submission would be built from); the tarball's job is only to reproduce
@@ -45,42 +47,40 @@
 #
 # What is turned on, and what is not
 #
-#   The configuration below is the one the port was actually brought up and
-#   tested with (/var/tmp/jsc-dfg/run-configure.sh), with one change: ruby's
-#   erb comes from the ruby-erb package instead of a hand-set RUBYLIB.
+#   The configuration below is the one the port is brought up and tested with,
+#   with one change: ruby's erb comes from the ruby-erb package instead of a
+#   hand-set RUBYLIB.
 #
 #     ENABLE_JIT           on   -- the Baseline JIT executes JavaScript
 #     ENABLE_C_LOOP        off  -- the native LLInt runs; CLoop is the
 #                                  fallback we no longer need, and leaving it
 #                                  on would silently hide a broken LLInt
-#     ENABLE_DFG_JIT       off by default, see _enable_dfg below
-#     ENABLE_FTL_JIT       off  -- FTL needs a B3/Air lowering for PPC64 that
-#                                  does not exist yet.  A target, not a
-#                                  closure: it is also what keeps BBQ and OMG
-#                                  off, so WebAssembly is IPInt-only for now
-#     ENABLE_WEBASSEMBLY   on   -- interpreted by IPInt, with the VSX SIMD set
+#     ENABLE_DFG_JIT       on   -- the DFG tier
+#     ENABLE_FTL_JIT       on   -- FTL, so B3 and Air.  It is also what turns
+#                                  on the two compiling wasm tiers, because
+#                                  ENABLE_WEBASSEMBLY_BBQJIT and _OMGJIT are
+#                                  defined as ENABLE_FTL_DEFAULT
+#     ENABLE_WEBASSEMBLY   on   -- IPInt, then BBQ and OMG, with the VSX SIMD
+#                                  set
 #     SAMPLING_PROFILER    on   -- the MachineContext arm this port added
 #     USE_SYSTEM_MALLOC    on   -- bmalloc's libpas is gated to X86_64/ARM64
 #                                  (BPlatform.h #errors otherwise) and the
 #                                  mimalloc path expects bun to supply the
 #                                  allocator, which nothing does here
 #
-#   _enable_dfg=1 builds the DFG tier.  It is off by default because the DFG
-#   work is the newest part of the port and still has a known failure (the
-#   last measured stress run was 99 PASS / 1 FAIL of 100), and because bun's
-#   own webkit.ts pins ENABLE_DFG_JIT=OFF for ppc64le today.  Turn it on to
-#   work on that tier:  _enable_dfg=1 makepkg
-#
-#   Override per build, as elsewhere in this tree:
-#     _enable_dfg=1 makepkg
+#   The DFG and FTL lines are written out even though the port's own
+#   WebKitFeatures.cmake now defaults both ON for WTF_CPU_PPC64LE, so that a
+#   change in those defaults shows up here as a conflict rather than as a
+#   silently different package.  The _enable_dfg override this recipe used to
+#   carry is gone: the tier it gated is on unconditionally now.
 
 pkgname=jsc
 # No upstream version number: oven-sh/WebKit is a rolling fork with no
 # release tags.  Date of our branch tip plus its short sha, so the version
 # both sorts forward and names the exact commit it was built from.
-pkgver=20260916.e11b216f
+pkgver=20261010.c1e31302
 pkgrel=1
-pkgdesc='JavaScriptCore shell from the ppc64le port of oven-sh/WebKit (Baseline JIT, YARR JIT, IPInt WebAssembly)'
+pkgdesc='JavaScriptCore shell from the ppc64le port of oven-sh/WebKit (all JIT tiers, wasm BBQ/OMG)'
 arch=('powerpc64le')
 url='https://github.com/oven-sh/WebKit'
 license=('LGPL-2.1-only' 'BSD-2-Clause')
@@ -98,22 +98,21 @@ options=('!lto')
 
 # oven-sh/WebKit at bun 1.4.3's WEBKIT_VERSION pin.
 _webkit_commit=cf1b36ec8703d8e87436094d21d478d358c7d886
-# The tree the port must produce once the patch is applied.
-_webkit_tree=293c8e571086b420429364113372abf3d8976ad2
-
-_enable_dfg=${_enable_dfg:-0}
+# The tree the port must produce once the patch is applied.  This is the port
+# branch tip's own tree hash, not a number chosen here.
+_webkit_tree=2ea2dd3e9bfc63683dadf539ebc43781cd4cce13
 
 source=("webkit::git+https://github.com/oven-sh/WebKit.git#commit=$_webkit_commit"
-        "webkit-ppc64le-r1.tar.gz")
+        "webkit-ppc64le-r2.tar.gz")
 sha256sums=('SKIP'
-            '8e7f872ef3f99a8602d8128c63878721688a8fed00b8bc570fb11e438effd889')
+            '3b5ec48ee6c97da5c01ddb9c39be7f4849bd15f55005907c2ba0b458979a9b17')
 
 prepare() {
   cd "$srcdir/webkit"
 
   # --index so the result can be checked against the branch tip's tree.  A
   # patch that applies but produces a different tree is the failure mode this
-  # guards against: the port is 52 commits of assembler back end, and "it
+  # guards against: the port is 135 commits of assembler back end, and "it
   # applied with fuzz" is not good enough to run a JIT from.
   git apply --index "$srcdir/webkit-ppc64le/0001-jsc-ppc64le-port.patch"
 
@@ -122,7 +121,7 @@ prepare() {
   if [[ $_tree != "$_webkit_tree" ]]; then
     echo "==> patched tree $_tree does not match the expected $_webkit_tree" >&2
     echo "==> the patch and the base commit have drifted apart; regenerate" >&2
-    echo "==> webkit-ppc64le-r1.tar.gz (see MANIFEST inside it)" >&2
+    echo "==> webkit-ppc64le-r2.tar.gz (see MANIFEST inside it)" >&2
     return 1
   fi
 }
@@ -139,8 +138,14 @@ build() {
   [[ $CFLAGS =~ (-mcpu=[a-z0-9]+) ]] && _cpuflags+=("${BASH_REMATCH[1]}")
   [[ $CFLAGS =~ (-mtune=[a-z0-9]+) ]] && _cpuflags+=("${BASH_REMATCH[1]}")
 
-  local _dfg=OFF
-  (( _enable_dfg )) && _dfg=ON
+  # Honour makepkg.conf's -j rather than letting Ninja pick nproc+2 on its own.
+  # cmake --build reads CMAKE_BUILD_PARALLEL_LEVEL and passes it through as
+  # ninja's -j; without it a 176-thread machine starts 178 compiles and the
+  # box stops being usable for anything else. Matched the same way build()
+  # already matches -mcpu, so "-j144 --other-flag" parses.
+  local _jobs=
+  [[ ${MAKEFLAGS-} =~ -j[[:space:]]*([0-9]+) ]] && _jobs="${BASH_REMATCH[1]}"
+  [[ -n $_jobs ]] && export CMAKE_BUILD_PARALLEL_LEVEL="$_jobs"
 
   local _cmakeflags=(
     -G Ninja
@@ -168,15 +173,15 @@ build() {
 
     -DENABLE_JIT=ON
     -DENABLE_C_LOOP=OFF
-    -DENABLE_DFG_JIT=$_dfg
-    -DENABLE_FTL_JIT=OFF
+    -DENABLE_DFG_JIT=ON
+    -DENABLE_FTL_JIT=ON
     -DENABLE_WEBASSEMBLY=ON
     -DENABLE_SAMPLING_PROFILER=ON
     -DUSE_SYSTEM_MALLOC=ON
 
     # Builds testmasm, the assembler test suite the PPC64 MacroAssembler was
-    # brought up against (435 tests).  It is the most useful thing to hand
-    # somebody who wants to check this back end on their own machine.
+    # brought up against.  It is the most useful thing to hand somebody who
+    # wants to check this back end on their own machine.
     -DDEVELOPER_MODE=ON
   )
 

@@ -1,5 +1,23 @@
 # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 # Contributor: Eric Bélanger <eric@archlinux.org>
+#
+# Arch's webkit2gtk-4.1 recipe, with ppc64le added and the JavaScriptCore JIT
+# port staged in prepare(). See prepare() and the powerpc64le branches of
+# build() for what differs from upstream's.
+#
+# TREAT THE FIRST ppc64le BUILD AS A BRING-UP, NOT A REBUILD. What has been
+# verified is the JSC half: the staged tree configures and builds with
+# PORT=JSCOnly and runs all four JS tiers plus all three wasm tiers on POWER9,
+# and prepare()'s stage.sh has been run against a pristine 2.54.1 tarball and
+# reports zero residue. What has NOT been verified is this recipe end to end --
+# no makepkg run has completed, and PORT=GTK has never been built on ppc64le.
+# PORT=GTK additionally compiles WebCore, which is far larger than JSC and is
+# what -mminimal-toc and -Wl,--no-keep-memory below exist for; expect to find
+# problems there that the JSCOnly builds could not have surfaced.
+#
+# The installed base/webkit2gtk-4.1 is 2.50.4 and is a CLoop build with no
+# ppc64 JIT symbols at all, so this is also a version bump. ours/artcraft
+# depends on webkit2gtk-4.1 and is the consumer that wants the JIT.
 
 pkgbase=webkit2gtk-4.1
 pkgname=(
@@ -140,8 +158,10 @@ prepare() {
     #
     # Not a single patch. stage.sh explains why and applies four layers; it is
     # self-contained and fails loudly rather than half-applying. Referenced
-    # from $startdir because it is a directory of 113 files rather than
-    # something source=() can carry.
+    # from $startdir because it is a directory of 126 files rather than
+    # something source=() can carry -- which means a clean-chroot build has to
+    # copy the whole recipe directory in, not just the source=() entries.
+    # makechrootpkg does; a hand-rolled chroot has to be told to.
     "$startdir/ppc64le-port/stage.sh" .
   fi
 }
@@ -200,6 +220,15 @@ build() {
   # Skia uses malloc_usable_size
   CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
   CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
+
+  # Honour makepkg.conf's -j rather than letting Ninja pick nproc+2 on its own.
+  # cmake --build reads CMAKE_BUILD_PARALLEL_LEVEL and passes it through as
+  # ninja's -j; without it a 176-thread machine starts 178 compiles and the
+  # box stops being usable for anything else. Matched as a pattern rather than
+  # by stripping, so "-j144 --other-flag" parses.
+  local _jobs=
+  [[ ${MAKEFLAGS-} =~ -j[[:space:]]*([0-9]+) ]] && _jobs="${BASH_REMATCH[1]}"
+  [[ -n $_jobs ]] && export CMAKE_BUILD_PARALLEL_LEVEL="$_jobs"
 
   cmake -S webkitgtk-$pkgver -B build -G Ninja "${cmake_options[@]}"
   cmake --build build
