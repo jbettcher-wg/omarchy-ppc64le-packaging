@@ -10,6 +10,21 @@ url="https://github.com/ROCm/rocm-libraries"
 license=('MIT')
 depends=('rocm10-core' 'glibc' 'libgcc' 'libstdc++' 'rocm10-hip-runtime-amd')
 makedepends=('git' 'cmake' 'ninja' 'rocm-cmake' 'rocm10-toolchain' 'rocm10-llvm' 'openmp')
+# Both ROCm generations install into /opt/rocm with identical paths, so without
+# these pacman cannot swap them: it reports a wall of "exists in both" file
+# conflicts and the only way through is --overwrite, which resolves the wrong
+# way round -- a swap done that way left rocm-core 7.2.4's 19 files on disk
+# while rocm10-core was recorded as owning them, and /opt/rocm/.info/version
+# still read 7.2.4.
+#
+# conflicts, deliberately WITHOUT replaces: replaces would make every -Syu
+# migrate ROCm 7 users to ROCm 10, and ROCm 10 dropped gfx900, which is the
+# entire reason the rocm7 generation exists. conflicts asks instead.
+# provides keeps existing dependents resolvable across the swap -- llama.cpp-hip
+# depends on rocblas and hip-runtime-amd by name.
+conflicts=('composable-kernel')
+provides=("composable-kernel=$pkgver")
+
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/therock-$pkgver/composablekernel.tar.gz")
 sha256sums=('2ae559e9e321f5fc290b7d46ffd64ce6a9491977f9d33e5fb11742bf50f8d931')
 # Build without default flags as they cause the final linking step to fail
