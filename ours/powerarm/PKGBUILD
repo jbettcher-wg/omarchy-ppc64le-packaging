@@ -102,7 +102,7 @@ pkgname=powerarm
 # #tag=$pkgver, so bumping this one value moves the package to the next
 # release; there is deliberately no pkgver() to recompute it at build time.
 # The older m1/m2 tags were milestones, not versions, and are obsolete.
-pkgver=0.10.0
+pkgver=0.12.0
 pkgrel=1
 pkgdesc='AArch64 emulation for 64-bit POWER'
 arch=('powerpc64le')

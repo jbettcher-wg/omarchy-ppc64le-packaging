@@ -216,7 +216,7 @@ cd ours/powerarm
 makepkg -s
 ```
 
-The source is the upstream release tag named by `pkgver` (`0.10.0`; the tags
+The source is the upstream release tag named by `pkgver` (`0.12.0`; the tags
 are bare, no `v`, so the tag, `git describe`, `pkgver` and the binary's own
 version string are identical). Point it at a local checkout to package work in
 progress -- the checkout must carry that tag, so tag the commit you want, or
