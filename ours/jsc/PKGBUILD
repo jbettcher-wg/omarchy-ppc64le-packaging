@@ -27,7 +27,7 @@
 #   that bun 1.4.3 pins in scripts/build/deps/webkit.ts, so the engine here
 #   and the engine inside bun are the same JSC.
 #
-#   webkit-ppc64le-r2.tar.gz carries ONE squashed diff rather than the 135
+#   webkit-ppc64le-r2.tar.gz carries ONE squashed diff rather than the 136
 #   commits, and that is a correctness requirement, not a convenience.  The
 #   branch contains seven merges whose conflict resolutions exist in no single
 #   commit -- the first, 86c69140d5 (ppc64le-port into ppc64le-wasm), resolved
@@ -36,7 +36,7 @@
 #   emits does not replay: it fails on PlatformEnable.h with both `patch -Np1`
 #   and `git apply`, and no result reaches the right tree.  The squashed diff
 #   does: applied to cf1b36ec87 it produces tree
-#   2ea2dd3e9bfc63683dadf539ebc43781cd4cce13, which is the branch tip's tree,
+#   6d5ec67dd57f5ba1d46f794b8e49afde0ac65f08, which is the branch tip's tree,
 #   byte for byte.  prepare() re-checks that on every build rather than
 #   trusting this comment.
 #
@@ -78,7 +78,7 @@ pkgname=jsc
 # No upstream version number: oven-sh/WebKit is a rolling fork with no
 # release tags.  Date of our branch tip plus its short sha, so the version
 # both sorts forward and names the exact commit it was built from.
-pkgver=20261010.c1e31302
+pkgver=20261010.21ef9d08
 pkgrel=1
 pkgdesc='JavaScriptCore shell from the ppc64le port of oven-sh/WebKit (all JIT tiers, wasm BBQ/OMG)'
 arch=('powerpc64le')
@@ -100,19 +100,19 @@ options=('!lto')
 _webkit_commit=cf1b36ec8703d8e87436094d21d478d358c7d886
 # The tree the port must produce once the patch is applied.  This is the port
 # branch tip's own tree hash, not a number chosen here.
-_webkit_tree=2ea2dd3e9bfc63683dadf539ebc43781cd4cce13
+_webkit_tree=6d5ec67dd57f5ba1d46f794b8e49afde0ac65f08
 
 source=("webkit::git+https://github.com/oven-sh/WebKit.git#commit=$_webkit_commit"
         "webkit-ppc64le-r2.tar.gz")
 sha256sums=('SKIP'
-            '3b5ec48ee6c97da5c01ddb9c39be7f4849bd15f55005907c2ba0b458979a9b17')
+            '8732197a49a3db43f681109b9abd97231a0ab1a46bac1fc86d39c14b47d077a7')
 
 prepare() {
   cd "$srcdir/webkit"
 
   # --index so the result can be checked against the branch tip's tree.  A
   # patch that applies but produces a different tree is the failure mode this
-  # guards against: the port is 135 commits of assembler back end, and "it
+  # guards against: the port is 136 commits of assembler back end, and "it
   # applied with fuzz" is not good enough to run a JIT from.
   git apply --index "$srcdir/webkit-ppc64le/0001-jsc-ppc64le-port.patch"
 

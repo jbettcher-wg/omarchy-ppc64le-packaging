@@ -8305,7 +8305,7 @@ index afe7041cf2..2e5998bb1d 100644
  
 diff --git a/Source/JavaScriptCore/assembler/PPC64Assembler.h b/Source/JavaScriptCore/assembler/PPC64Assembler.h
 new file mode 100644
-index 0000000000..e185f5c8b0
+index 0000000000..b56066df50
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/PPC64Assembler.h
 @@ -0,0 +1,1762 @@
@@ -8343,7 +8343,7 @@ index 0000000000..e185f5c8b0
 +#include "AssemblerBuffer.h"
 +#include "AssemblerCommon.h"
 +#include "PPC64Registers.h"
-+#include "SIMDInfo.h"
++#include <JavaScriptCore/SIMDInfo.h>
 +#include <wtf/Vector.h>
 +
 +#if OS(LINUX)

@@ -5,19 +5,34 @@
 # port staged in prepare(). See prepare() and the powerpc64le branches of
 # build() for what differs from upstream's.
 #
-# TREAT THE FIRST ppc64le BUILD AS A BRING-UP, NOT A REBUILD. What has been
-# verified is the JSC half: the staged tree configures and builds with
-# PORT=JSCOnly and runs all four JS tiers plus all three wasm tiers on POWER9,
-# and prepare()'s stage.sh has been run against a pristine 2.54.1 tarball and
-# reports zero residue. What has NOT been verified is this recipe end to end --
-# no makepkg run has completed, and PORT=GTK has never been built on ppc64le.
-# PORT=GTK additionally compiles WebCore, which is far larger than JSC and is
-# what -mminimal-toc and -Wl,--no-keep-memory below exist for; expect to find
-# problems there that the JSCOnly builds could not have surfaced.
+# PORT=GTK BUILDS AND THE RESULT CARRIES THE JIT, measured 2026-10-10 on
+# POWER9 with this recipe's own prepare() and build(), CARCH=powerpc64le and
+# /etc/makepkg.conf's flags (-mcpu=power9 -mtune=power9):
+#
+#   926 of 926 ninja edges, zero errors.  libjavascriptcoregtk-4.1.so (51 MB)
+#   and libwebkit2gtk-4.1.so (171 MB) link.  The JavaScriptCore library holds
+#   1661 PPC64Assembler symbols and 559 MacroAssemblerPPC64, and ZERO CLoop
+#   symbols -- so the native LLInt is in, not the portable interpreter.  FTL
+#   and the wasm JITs are in too, evidenced by B3::WasmBoundsCheckValue and
+#   B3::Procedure::setWasmBoundsCheckGenerator being exported over
+#   PPC64Registers::RegisterID.  The jsc shell this build produces, run against
+#   that shared library, reports useJIT/useDFGJIT/useFTLJIT/useBBQJIT/useOMGJIT
+#   all true and measurably compiles through all three JS tiers: Baseline
+#   0.549 ms, DFG 1.175 ms, FTL 2.322 ms.
+#
+# What is still NOT verified: no makepkg run has completed, so package(),
+# the two-package split and the .install side are untested.  Build and install
+# are what has been proven, not packaging.
 #
 # The installed base/webkit2gtk-4.1 is 2.50.4 and is a CLoop build with no
 # ppc64 JIT symbols at all, so this is also a version bump. ours/artcraft
 # depends on webkit2gtk-4.1 and is the consumer that wants the JIT.
+#
+# This build found one port bug that no PORT=JSCOnly build could: 
+# PPC64Assembler.h reached SIMDInfo.h in quotes, which only resolves while
+# jit/ is an include directory -- true inside JavaScriptCore, false for
+# WebCore, which sees only the forwarding headers.  Fixed in the port
+# (21ef9d08f2); it had blocked GTK, WPE and every embedder of them.
 
 pkgbase=webkit2gtk-4.1
 pkgname=(
@@ -221,14 +236,25 @@ build() {
   CFLAGS="${CFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
   CXXFLAGS="${CXXFLAGS/_FORTIFY_SOURCE=3/_FORTIFY_SOURCE=2}"
 
-  # Honour makepkg.conf's -j rather than letting Ninja pick nproc+2 on its own.
-  # cmake --build reads CMAKE_BUILD_PARALLEL_LEVEL and passes it through as
-  # ninja's -j; without it a 176-thread machine starts 178 compiles and the
-  # box stops being usable for anything else. Matched as a pattern rather than
-  # by stripping, so "-j144 --other-flag" parses.
-  local _jobs=
+  # Honour makepkg.conf's -j, but CLAMP IT, because WebCore will not fit
+  # otherwise. cmake --build reads CMAKE_BUILD_PARALLEL_LEVEL and passes it to
+  # ninja as -j; left alone Ninja picks nproc+2, which is 178 on this machine.
+  #
+  # The clamp is arithmetic, not caution. MEASURED 2026-10-10 on POWER9: this
+  # build peaks at 130 GiB of RSS at -j64, so roughly 2 GiB per job, and
+  # WebCore's largest unified-source translation units are well above that
+  # average. At -j144 it was killed by a 200 GiB cgroup cap partway through
+  # WebCore -- 144 jobs project past 280 GiB. 48 keeps the peak near 100 GiB,
+  # which leaves a 446 GiB machine usable for something else while it builds.
+  #
+  # Matched as a pattern rather than by stripping, so "-j144 --other-flag"
+  # parses. Override with _max_jobs= if you have more memory than sense.
+  local _jobs=$(nproc 2>/dev/null || echo 4)
   [[ ${MAKEFLAGS-} =~ -j[[:space:]]*([0-9]+) ]] && _jobs="${BASH_REMATCH[1]}"
-  [[ -n $_jobs ]] && export CMAKE_BUILD_PARALLEL_LEVEL="$_jobs"
+  local _cap=${_max_jobs:-48}
+  (( _jobs > _cap )) && _jobs=$_cap
+  export CMAKE_BUILD_PARALLEL_LEVEL="$_jobs"
+  echo "==> building with -j$_jobs (WebCore peaks near 2 GiB per job)"
 
   cmake -S webkitgtk-$pkgver -B build -G Ninja "${cmake_options[@]}"
   cmake --build build

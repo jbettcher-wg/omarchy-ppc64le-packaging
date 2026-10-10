@@ -32,7 +32,7 @@
 #include "AssemblerBuffer.h"
 #include "AssemblerCommon.h"
 #include "PPC64Registers.h"
-#include "SIMDInfo.h"
+#include <JavaScriptCore/SIMDInfo.h>
 #include <wtf/Vector.h>
 
 #if OS(LINUX)
