@@ -9,7 +9,7 @@
 
 pkgname=rocm10-hsa-rocr
 pkgver=10.0
-pkgrel=1
+pkgrel=2
 pkgdesc='HSA Runtime API and runtime for ROCm'
 arch=('x86_64' 'powerpc64le')
 url='https://github.com/ROCm/rocm-systems'
@@ -30,7 +30,11 @@ replaces=('hsakmt-roct')
 # No rocm-llvm-static: our rocm10-llvm is a 3-subpackage build that keeps its
 # static archives (201 of them, libLLVMCore.a included) in the main package,
 # where Arch's 9-way split breaks them out.
-makedepends=('cmake' 'rocm10-llvm' 'xxd')
+# tinyxxd, not 'xxd': nothing is named xxd -- tinyxxd and vim both
+# provides=(xxd) -- and bq resolves provides only for recipes in the
+# packaging tree, not from the Arch POWER repo dbs, so a virtual name
+# here fails with "not in Arch POWER and not yet built: xxd".
+makedepends=('cmake' 'rocm10-llvm' 'tinyxxd')
 # Both ROCm generations install into /opt/rocm with identical paths, so without
 # these pacman cannot swap them: it reports a wall of "exists in both" file
 # conflicts and the only way through is --overwrite, which resolves the wrong
@@ -46,10 +50,20 @@ makedepends=('cmake' 'rocm10-llvm' 'xxd')
 conflicts=('hsa-rocr')
 provides=("hsa-rocr=$pkgver")
 
-source=("rocm-${pkgver}.tar.gz::$url/archive/therock-$pkgver.tar.gz")
-sha256sums=('f30517ed6d9e18cde104eb487f173e62fed0175083a9498ca383f8136a9f4eec')
+source=("rocm-${pkgver}.tar.gz::$url/archive/therock-$pkgver.tar.gz"
+        0001-image-recognise-ppc64-in-the-clock-dispatch.patch)
+sha256sums=('f30517ed6d9e18cde104eb487f173e62fed0175083a9498ca383f8136a9f4eec'
+            'a9cabe5a66111eed32d20fa70310bc54ef560dbcf14442114cd5681916336ec9')
 _dirname="$(basename "$url")-therock-$pkgver"/projects/rocr-runtime/
 options=(!lto)
+
+prepare() {
+  # Needed only because IMAGE_SUPPORT=ON below compiles image/ -- without it
+  # util.h is never included and the #error never fires.
+  patch -Np1 -d "$_dirname" -i "$srcdir/0001-image-recognise-ppc64-in-the-clock-dispatch.patch"
+  grep -q '__powerpc64__' "$_dirname/runtime/hsa-runtime/image/util.h" || {
+    echo 'ERROR: the ppc64 clock-dispatch arm did not apply' >&2; return 1; }
+}
 
 build() {
   # Silence warnings on optional libraries with -DNDEBUG,
@@ -64,7 +78,31 @@ build() {
     -D Clang_DIR=/opt/rocm/lib/llvm/lib/cmake/clang
     -D LLVM_DIR=/opt/rocm/lib/llvm/lib/cmake/llvm
     -D CMAKE_CXX_FLAGS="$CXXFLAGS -DNDEBUG"
-    -DBUILD_SHARED_LIBS=ON)
+    -DBUILD_SHARED_LIBS=ON
+    # hsa-runtime/CMakeLists.txt:313 defaults IMAGE_SUPPORT ON only for
+    #   i?86|x86_64|amd64|AMD64|loongarch64
+    # and ppc64le is not in that list, so image/ -- addrlib plus the image
+    # module -- was never compiled into libhsa-runtime64. The consequence is
+    # not a missing library but a silently image-less runtime: ROCr then
+    # leaves the HSA_EXTENSION_IMAGES bit clear in HSA_AGENT_INFO_EXTENSIONS,
+    # ROCclr's rocdevice.cpp reads that as !image_is_supported and forces
+    # imageSupport_ = 0 even though comgr reports ImageSupport=1 for gfx1100,
+    # hipMallocArray returns hipErrorNotSupported, and maxTexture1D/2D/3D all
+    # report 0. Blender Cycles surfaces that as "Failed to create image.
+    # Maximum GPU image size or available GPU memory was likely exceeded"
+    # followed by an invalid hipModule handle -- which reads like an OOM and
+    # is not one. Measured on a 7900 XTX with 20 GB of VRAM free.
+    #
+    # The option is explicitly overridable: the arch test is guarded by
+    # NOT DEFINED and the result is a CACHE entry. loongarch64 is already in
+    # that list, so a non-x86 target carrying image support is an upstream
+    # configuration rather than new ground.
+    #
+    # Note runtime/hsa-ext-image/ is NOT the thing to build: that is the
+    # legacy standalone libhsa-ext-image64.so, and ROCm 10 does not dlopen it
+    # -- hsa_ext_interface.cpp calls rocr::image::LoadImage() directly, so the
+    # code has to be inside libhsa-runtime64 itself.
+    -D IMAGE_SUPPORT=ON)
   cmake "${cmake_args[@]}"
   cmake --build build
 }

@@ -1,0 +1,41 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] image: recognise ppc64 in the lightweight-clock dispatch
+
+image/util.h guards the include of a cheap cycle-counter header on the
+processor and stops the build with #error on anything it does not know. With
+-DIMAGE_SUPPORT=ON the image module is compiled into libhsa-runtime64, so every
+translation unit including util.h hits that #error on ppc64le.
+
+The loongarch64 arm is empty and that is the model followed here: the #if only
+decides whether a clock header is pulled in, and nothing in the image module
+calls __rdtsc(). Verified by compiling the whole module with this arm in place
+-- addrlib and all 27 image sources build clean and no undefined reference to
+__rdtsc appears.
+
+Should a caller ever appear, the POWER equivalent is
+__builtin_ppc_get_timebase(), reading the time base register: a
+userspace-readable monotonic counter, the role TSC plays on x86. Checked on
+this host, consecutive reads 2046578599920 -> 2046578599924.
+
+Nothing else needed touching. addrlib pulls x86 intrinsics only when
+__x86_64__ is defined and hsa-runtime's CMakeLists does not define it -- unlike
+runtime/hsa-ext-image/CMakeLists.txt, which hardcodes -D__AMD64__ -D__x86_64__.
+That directory is the legacy standalone libhsa-ext-image64.so and is not what
+ROCm 10 uses: hsa_ext_interface.cpp calls rocr::image::LoadImage() directly, so
+the image code belongs inside libhsa-runtime64.
+
+--- a/runtime/hsa-runtime/image/util.h
++++ b/runtime/hsa-runtime/image/util.h
+@@ -78,6 +78,12 @@
+ #if defined(__i386__) || defined(__x86_64__)
+ #include <x86intrin.h>
+ #elif defined(__loongarch64)
++#elif defined(__powerpc64__) || defined(__PPC64__)
++// ppc64, both endiannesses. Nothing to include, exactly as the loongarch64 arm
++// above includes nothing: this #if only guards the lightweight-clock header,
++// and the image module never calls __rdtsc(). Should a caller appear, the POWER
++// equivalent is __builtin_ppc_get_timebase(), reading the userspace-readable
++// time base register.
+ #else
+ #error                                                                                             \
+     "Processor not identified.  " \
