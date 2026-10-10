@@ -15,7 +15,15 @@
 #
 # Deterministic on purpose (sorted, fixed mtime/owner, gzip -n) so re-running it
 # on an unchanged directory reproduces the same bytes and the same hash.
+#   make-port-tarball.sh            pack, and update every consumer
+#   make-port-tarball.sh --check     verify the committed tarballs are current
+#
+# --check is the guard for the one failure mode this design introduces: the
+# directory is what you edit and the tarball is what makepkg consumes, so an
+# edit without a repack ships stale port material. --check repacks to a temp
+# file and compares, touching nothing. Run it before committing a port change.
 set -euo pipefail
+MODE="${1:-pack}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OURS="$(cd "$HERE/.." && pwd)"
 SRC="$HERE/ppc64le-port"
@@ -35,6 +43,23 @@ OUT="$TMP/ppc64le-port.tar.gz"
 tar -C "$TMP" --sort=name --mtime='UTC 2020-01-01' --owner=0 --group=0 \
     --numeric-owner -cf - ppc64le-port | gzip -n -9 > "$OUT"
 SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
+
+if [ "$MODE" = "--check" ]; then
+  rc=0
+  for c in "${CONSUMERS[@]}"; do
+    f="$OURS/$c/ppc64le-port.tar.gz"
+    if [ ! -f "$f" ]; then
+      echo "  MISSING  ours/$c/ppc64le-port.tar.gz"; rc=1
+    elif cmp -s "$OUT" "$f"; then
+      echo "  current  ours/$c"
+    else
+      echo "  STALE    ours/$c -- repack with $(basename "$0")"; rc=1
+    fi
+  done
+  echo
+  [ $rc -eq 0 ] && echo "all consumers current ($SHA)" || echo "ACTION NEEDED"
+  exit $rc
+fi
 
 for c in "${CONSUMERS[@]}"; do
   if [ -d "$OURS/$c" ]; then
