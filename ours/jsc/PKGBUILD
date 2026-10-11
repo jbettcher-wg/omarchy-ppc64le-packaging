@@ -90,7 +90,7 @@ pkgname=jsc
 # have called the rebuild a downgrade and refused it. Caught before building,
 # not after.
 #
-# HHMM is monotonic by construction and stays numeric, and 2122 > 21 is what
+# HHMM is monotonic by construction and stays numeric, and 2151 > 21 is what
 # makes this release newer than the sha-based one it replaces. The commit is
 # still named, in $_webkit_tip, which prepare() checks the tree hash against.
 pkgver=20261010.2151
