@@ -75,10 +75,25 @@
 #   carry is gone: the tier it gated is on unconditionally now.
 
 pkgname=jsc
-# No upstream version number: oven-sh/WebKit is a rolling fork with no
-# release tags.  Date of our branch tip plus its short sha, so the version
-# both sorts forward and names the exact commit it was built from.
-pkgver=20261010.1b13e516
+# No upstream version number: oven-sh/WebKit is a rolling fork with no release
+# tags, so the version is the branch tip's commit DATE AND TIME, UTC-less local
+# as git reports it: 2026-10-10 21:51.
+#
+# It used to be date + short sha, with a comment claiming that "both sorts
+# forward and names the exact commit". The second half was true and the first
+# was NOT. vercmp splits a version into runs of digits and runs of letters and
+# compares digit runs NUMERICALLY, so a hash is ordered by whatever its leading
+# digit run happens to be: 1b13e516 splits as 1/b/13/e/516 and 21ef9d08 as
+# 21/ef/9/d/08, and 1 < 21. The successor of the published
+# jsc-20261010.21ef9d08-1 therefore sorted BELOW it --
+# `vercmp 20261010.1b13e516-1 20261010.21ef9d08-1` is -1 -- and pacman would
+# have called the rebuild a downgrade and refused it. Caught before building,
+# not after.
+#
+# HHMM is monotonic by construction and stays numeric, and 2122 > 21 is what
+# makes this release newer than the sha-based one it replaces. The commit is
+# still named, in $_webkit_tip, which prepare() checks the tree hash against.
+pkgver=20261010.2151
 pkgrel=1
 pkgdesc='JavaScriptCore shell from the ppc64le port of oven-sh/WebKit (all JIT tiers, wasm BBQ/OMG)'
 arch=('powerpc64le')
@@ -101,6 +116,9 @@ _webkit_commit=cf1b36ec8703d8e87436094d21d478d358c7d886
 # The tree the port must produce once the patch is applied.  This is the port
 # branch tip's own tree hash, not a number chosen here.
 _webkit_tree=5c7f9e32df4d89dce3c367f51ee2182022c334c9
+# The port branch tip this was cut from. Not in pkgver -- see the pkgver
+# comment for why a sha there does not sort.
+_webkit_tip=1b13e51622
 
 source=("webkit::git+https://github.com/oven-sh/WebKit.git#commit=$_webkit_commit"
         "webkit-ppc64le-r2.tar.gz")

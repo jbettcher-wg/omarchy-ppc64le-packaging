@@ -47,9 +47,15 @@
 # one machine's git directory -- if they are ignored, the recipes build on
 # nothing but that machine. ours/jsc and ours/bun carry the same WebKit
 # tarball (identical sha256) so each recipe is self-contained.
-!ours/jsc/webkit-ppc64le-r1.tar.gz
-!ours/bun/webkit-ppc64le-r1.tar.gz
-!ours/bun/bun-ppc64le-patches-r1.tar.gz
+# Kept current against `git ls-files 'ours/**.tar.gz'`. The three r1 entries
+# that used to be here named files that no longer exist (jsc moved to r2, bun
+# no longer carries its own copies), while all three LIVE tarballs were missing
+# from the list -- they survived only because they were already tracked, so a
+# `git rm --cached` or a re-import would have dropped packaging material that
+# exists nowhere else, and `git status` would have stayed clean while it did.
+!ours/jsc/webkit-ppc64le-r2.tar.gz
+!ours/webkit2gtk/ppc64le-port.tar.gz
+!ours/webkitgtk-6.0/ppc64le-port.tar.gz
 
 # makepkg VCS mirrors, cloned next to the recipe when SRCDEST is unset.
 luajit/luajit-ppc64le/
