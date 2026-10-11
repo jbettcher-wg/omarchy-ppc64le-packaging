@@ -20,9 +20,19 @@
 #   all true and measurably compiles through all three JS tiers: Baseline
 #   0.549 ms, DFG 1.175 ms, FTL 2.322 ms.
 #
-# What is still NOT verified: no makepkg run has completed, so package(),
-# the two-package split and the .install side are untested.  Build and install
-# are what has been proven, not packaging.
+# Packaging is proven now too: webkit2gtk-4.1 2.54.1-1 built, packaged and
+# installed on this machine (pacman -U, 2026-10-10), and so did the 6.0
+# sibling.  Epiphany 50.4 then ran ten minutes on 6.0 with the JIT live.
+#
+# That run also found the bug pkgrel 2 exists for.  A code object whose
+# baseline machine code exceeds the +-32 MB a `b` reaches used to abort in the
+# jump-island allocator: JIT::privateCompileLinkPass() links jumps while the
+# code is still in the assembler buffer, and an island has to sit next to the
+# branch's FINAL address in the executable pool, which does not exist yet.  One
+# ordinary page with a large enough script body was enough -- measured at
+# 5,578,642 label slots and ~38 MB of code.  Fixed in the port layer; see
+# ppc64le-port/newfiles PPC64Assembler.h linkJump() and the invariant
+# tools/edits.py now asserts in ExecutableAllocator.cpp.
 #
 # The installed base/webkit2gtk-4.1 is 2.50.4 and is a CLoop build with no
 # ppc64 JIT symbols at all, so this is also a version bump. ours/artcraft
@@ -40,7 +50,7 @@ pkgname=(
   webkit2gtk-4.1-docs
 )
 pkgver=2.54.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Web content engine for GTK"
 url="https://webkitgtk.org"
 arch=(x86_64 powerpc64le)
@@ -156,10 +166,10 @@ source=(
 )
 sha256sums=('ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d'
             'SKIP'
-            '50959dd289556d40d083e5feae683f2d37d1bee54817ba70b8ca8671b8627288')
+            'c4fbf5322a881327a10a1f6b0cc0c43bfae9f2bfe6ad8a2fa2334c2be2b5bb4c')
 b2sums=('79c124b40fce5604c2adc81df7b640d1827b5e44577f1f728da77745f6f9859208d2ff51417d7a752c618ec02d62b3bb6b79f1db8230f83e5aed24b60f899928'
         'SKIP'
-        '661c84947a8d73fab4734e62884a084c0ac57aa8072d6ab29c816e39c12fbbabbf36c667ac6146bd18bf7c5ca7ba1edcdf24e6484269ec799da9d5332b5777d5')
+        '44a8b2c4fd1d8c0eab1a84dd5000f532b01a91eb7c9bc5928b0506f2cbd6e7ffbda06d0b5fce18e8ec55e7742692830d40589ea97a7f3d8b3fc3333e60b95734')
 case $CARCH in
   powerpc64le) options+=(!debug !lto) ;;
 esac

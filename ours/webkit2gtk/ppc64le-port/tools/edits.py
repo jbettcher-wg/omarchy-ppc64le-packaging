@@ -202,6 +202,25 @@ static constexpr size_t islandSizeInBytes = 4;''',
 static constexpr double islandRegionSizeFraction = 0.125;
 static constexpr size_t islandSizeInBytes = 4;'''),
 
+# PPC64Assembler::linkJump() links a jump while the code is still in the
+# AssemblerBuffer, where no island can be allocated, so it needs every
+# intra-object displacement in a code object that CAN be allocated to fit a
+# near branch. That is true exactly while a region's code area stays below
+# nearJumpRange, which it does by construction -- assert it so the reasoning
+# cannot rot. Holds for ARM64's numbers too (96 MB of a 128 MB range).
+('AFTER', J + 'jit/ExecutableAllocator.cpp',
+ '''                RELEASE_ASSERT(end <= reservationEnd);
+                m_allocators[i].configure(start, islandBegin, end);''',
+ '''                // The code area of a region has to stay strictly below
+                // nearJumpRange, which it does by construction here
+                // (m_regionSize is nearJumpRange - islandRegionSize, and the
+                // last region only ever gets less). PPC64Assembler::linkJump()
+                // relies on it: a jump linked inside the AssemblerBuffer
+                // cannot be given an island, so it needs every intra-object
+                // displacement in an object that CAN be allocated to fit a
+                // near branch.
+                RELEASE_ASSERT(m_allocators[i].allocatorSize() < static_cast<uintptr_t>(MacroAssembler::nearJumpRange));'''),
+
 # --- jit/OperationResult.h ------------------------------------------------
 ('REPLACE', J + 'jit/OperationResult.h',
  '#if CPU(ARM64) || CPU(ARM_THUMB2)',

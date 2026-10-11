@@ -23,10 +23,17 @@ pkgname=bun
 pkgdesc='Incredibly fast JavaScript runtime, bundler, test runner and package manager'
 _commit=471b5868b6b3a6aec4e738b4c08b868f409c1673
 pkgver=1.4.3
-# pkgrel 6: rebuild against webkit 0.20261010-1. Bun compiles JSC from that
-# package's source, so the ELFv2 caller-extension fixes in it (IPInt, B3's
-# CCall lowering, and Air's out-of-line cold path) only reach bun on a rebuild.
-pkgrel=6
+# pkgrel 7: rebuild against webkit 0.20261010-2. Bun compiles JSC from that
+# package's source, so a JIT fix in it only reaches bun on a rebuild. This one
+# is a crash, not a missed optimisation: a code object whose baseline machine
+# code exceeds the +-32 MB a `b` reaches used to abort in the jump-island
+# allocator, because the jump is linked while the code is still in the
+# assembler buffer and an island needs the final address. Any script body big
+# enough to produce >32 MB of code hit it; it took down a WebKitGTK web
+# process on an ordinary page. pkgrel 6 also carried the ELFv2
+# caller-extension fixes (IPInt, B3's CCall lowering, Air's out-of-line cold
+# path).
+pkgrel=7
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')

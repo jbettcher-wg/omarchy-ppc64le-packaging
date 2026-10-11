@@ -1421,11 +1421,19 @@ public:
                 target = ExecutableAllocator::singleton().getJumpIslandToUsingJITMemcpy(branchWord, target);
         }
 #endif
+        writeNearBranchWord(branchWord, target, link);
+    }
+
+    // The branch store on its own, with no island fallback: `branchWord` has
+    // to be within `b` range of `target` already.
+    //
+    // Not an ASSERT: out of range here is a silently truncated branch to the
+    // wrong address. Callers that can use islands have already brought the
+    // target into range, so this firing means the island machinery itself
+    // handed back something unreachable.
+    static void writeNearBranchWord(uint32_t* branchWord, void* target, bool link)
+    {
         intptr_t offset = reinterpret_cast<intptr_t>(target) - reinterpret_cast<intptr_t>(branchWord);
-        // Not an ASSERT: out of range here is a silently truncated branch to
-        // the wrong address. With islands enabled the hook above has already
-        // brought the target into range, so this firing means the island
-        // machinery itself handed back something unreachable.
         RELEASE_ASSERT(isValidNearBranchOffset(offset));
         *branchWord = formI(18, int32_t(offset), false, link);
     }
@@ -1449,13 +1457,46 @@ public:
         writeJumpSite(location, to, false);
     }
 
+    // Jump::link() and Jump::linkTo(): both ends are offsets into the
+    // AssemblerBuffer, so this runs BEFORE LinkBuffer has copied anything into
+    // the executable pool. That is why it writes the branch itself instead of
+    // going through writeJumpSite(), and why it must not ask for an island.
+    //
+    // An island is a branch allocated in the island region of the
+    // RegionAllocator that neighbours the branch, so it is a function of the
+    // branch's FINAL address. Here there is no final address: the buffer is
+    // ordinary fastMalloc'd memory, ExecutableAllocator::findRegion() finds no
+    // region for it and RELEASE_ASSERTs its way to an abort. That was a real
+    // crash -- a web page with one ~38 MB baseline code object asking for an
+    // island from the heap.
+    //
+    // Writing the branch here is still correct. ENABLE(BRANCH_COMPACTION) is
+    // off for this target, so LinkBuffer copies the buffer into the pool with
+    // a single memcpy and an intra-buffer displacement survives it unchanged.
+    //
+    // And an out-of-range displacement cannot belong to a code object that
+    // will ever be allocated. The largest block the pool can hand out is one
+    // region's code area, nearJumpRange - islandRegionSize, which is below
+    // nearJumpRange by construction -- FixedVMPoolExecutableAllocator's
+    // constructor RELEASE_ASSERTs that per region. So a displacement that does
+    // not fit a `b` means this object is already too large for allocate() to
+    // satisfy: LinkBuffer bails on !m_didAllocate before the memcpy, the
+    // compile reports CompilationFailed and the function stays in LLInt. Leave
+    // a trap in the branch word and let that happen; these words are never
+    // copied anywhere, let alone executed.
     void linkJump(AssemblerLabel from, AssemblerLabel to)
     {
         RELEASE_ASSERT(from.isSet() && to.isSet());
         if (!from.isSet() || !to.isSet())
             return;
+        uint32_t* location = reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(m_buffer.data()) + from.offset());
+        uint32_t* branchWord = &location[jumpSiteWords - 1];
         void* target = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_buffer.data()) + to.offset());
-        linkJump(m_buffer.data(), from, target);
+        if (!canEmitJump(branchWord, target)) [[unlikely]] {
+            *branchWord = trapInstruction;
+            return;
+        }
+        writeNearBranchWord(branchWord, target, false);
     }
 
     static void linkCall(void* code, AssemblerLabel from, void* to)
@@ -1684,9 +1725,19 @@ public:
     // fallbacks stay tested: a path reachable only on hardware nobody runs
     // CI on is untested code (power8-baseline-power9-paths.md). testmasm
     // flips this to exercise both arms of every hasISA30() seam.
+    //
+    // THREAD-LOCAL on purpose. testmasm runs its tests concurrently, one
+    // thread per test, and a process-global here is a race: a test that forces
+    // the POWER8 arm makes hasISA30() false for every other test compiling at
+    // that moment, so e.g. convertDoubleToFloat16()'s
+    // RELEASE_ASSERT(supportsFloat16()) fires in a test that never touched the
+    // flag. That was latent only because the schedule happened not to overlap
+    // the wrong pair; adding one test to the suite was enough to hit it.
+    // Nothing outside testmasm ever sets this, and a test always compiles on
+    // the thread that set it, so per-thread is both sufficient and correct.
     static bool& forcePOWER8Paths()
     {
-        static bool force = false;
+        static thread_local bool force = false;
         return force;
     }
 

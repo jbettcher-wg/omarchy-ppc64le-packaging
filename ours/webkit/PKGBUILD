@@ -21,8 +21,8 @@
 # exists to prevent.
 #
 # ONE SQUASHED PATCH, NOT A SERIES, and that is a correctness decision rather
-# than a convenience. The port's history contains 136 commits, seven of them
-# merges, and `git format-patch` skips merges -- so the 129 patches it emits do
+# than a convenience. The port's history contains 138 commits, seven of them
+# merges, and `git format-patch` skips merges -- so the 131 patches it emits do
 # NOT apply linearly: one fails on Source/WTF/wtf/PlatformEnable.h with both
 # `patch -Np1` and `git apply`, because content that exists only in a merge is
 # missing by then. The squashed diff has no such gap, and it is verifiable in a
@@ -61,9 +61,9 @@
 pkgname=webkit
 pkgdesc='JavaScriptCore for Bun, with the full ppc64le JIT backend incl. wasm BBQ/OMG (source)'
 _commit=cf1b36ec8703d8e87436094d21d478d358c7d886
-_tree=6d5ec67dd57f5ba1d46f794b8e49afde0ac65f08
+_tree=5c7f9e32df4d89dce3c367f51ee2182022c334c9
 pkgver=0.20261010
-pkgrel=1
+pkgrel=2
 arch=('powerpc64le')
 url='https://github.com/oven-sh/WebKit'
 license=('LGPL-2.1-only' 'BSD-2-Clause')
@@ -80,7 +80,7 @@ source=(
 
 sha256sums=(
   'SKIP'
-  '45a3f079d49fb924407296708f3de0dfe4283a46c361b9125f4eae280db4609a'
+  'f251c74d179f8fbc8093261eb9ce9feb8616a7b37dbcd0c05b0fc1d6dd580bc1'
 )
 
 prepare() {
@@ -127,7 +127,7 @@ package() {
   install -Dm644 /dev/stdin .pkginfo <<-INFO
 	base-commit: $_commit
 	patched-tree: $_tree
-	port-commits: 136
+	port-commits: 138
 	tiers: LLInt Baseline DFG FTL YARR + wasm IPInt BBQ OMG
 	isa-floor: POWER8 / ISA 2.07; ISA 3.0 chosen per call site via hasISA30()
 	pruned: LayoutTests Websites PerformanceTests WebDriverTests ManualTests JSTests
@@ -136,7 +136,7 @@ package() {
 	# DEVELOPER_MODE=ON USE_BUN_JSC_ADDITIONS=ON USE_MIMALLOC=ON
 	# USE_BUN_EVENT_LOOP=OFF --ppc64-isa=power8, run on POWER9.
 	# See the PKGBUILD header for why testb3 and testair end in a crash.
-	testmasm: 497 tests completed, exit 0
+	testmasm: 498 tests completed, exit 0
 	testb3: 63181 checks pass, then the documented FP-argument RELEASE_ASSERT
 	testair: crashes every run, pre-existing, non-deterministic
 

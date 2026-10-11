@@ -8305,10 +8305,10 @@ index afe7041cf2..2e5998bb1d 100644
  
 diff --git a/Source/JavaScriptCore/assembler/PPC64Assembler.h b/Source/JavaScriptCore/assembler/PPC64Assembler.h
 new file mode 100644
-index 0000000000..b56066df50
+index 0000000000..0a2a1f4123
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/PPC64Assembler.h
-@@ -0,0 +1,1762 @@
+@@ -0,0 +1,1813 @@
 +/*
 + * Copyright (C) 2026 Justin Bettcher. All rights reserved.
 + *
@@ -9732,11 +9732,19 @@ index 0000000000..b56066df50
 +                target = ExecutableAllocator::singleton().getJumpIslandToUsingJITMemcpy(branchWord, target);
 +        }
 +#endif
++        writeNearBranchWord(branchWord, target, link);
++    }
++
++    // The branch store on its own, with no island fallback: `branchWord` has
++    // to be within `b` range of `target` already.
++    //
++    // Not an ASSERT: out of range here is a silently truncated branch to the
++    // wrong address. Callers that can use islands have already brought the
++    // target into range, so this firing means the island machinery itself
++    // handed back something unreachable.
++    static void writeNearBranchWord(uint32_t* branchWord, void* target, bool link)
++    {
 +        intptr_t offset = reinterpret_cast<intptr_t>(target) - reinterpret_cast<intptr_t>(branchWord);
-+        // Not an ASSERT: out of range here is a silently truncated branch to
-+        // the wrong address. With islands enabled the hook above has already
-+        // brought the target into range, so this firing means the island
-+        // machinery itself handed back something unreachable.
 +        RELEASE_ASSERT(isValidNearBranchOffset(offset));
 +        *branchWord = formI(18, int32_t(offset), false, link);
 +    }
@@ -9760,13 +9768,46 @@ index 0000000000..b56066df50
 +        writeJumpSite(location, to, false);
 +    }
 +
++    // Jump::link() and Jump::linkTo(): both ends are offsets into the
++    // AssemblerBuffer, so this runs BEFORE LinkBuffer has copied anything into
++    // the executable pool. That is why it writes the branch itself instead of
++    // going through writeJumpSite(), and why it must not ask for an island.
++    //
++    // An island is a branch allocated in the island region of the
++    // RegionAllocator that neighbours the branch, so it is a function of the
++    // branch's FINAL address. Here there is no final address: the buffer is
++    // ordinary fastMalloc'd memory, ExecutableAllocator::findRegion() finds no
++    // region for it and RELEASE_ASSERTs its way to an abort. That was a real
++    // crash -- a web page with one ~38 MB baseline code object asking for an
++    // island from the heap.
++    //
++    // Writing the branch here is still correct. ENABLE(BRANCH_COMPACTION) is
++    // off for this target, so LinkBuffer copies the buffer into the pool with
++    // a single memcpy and an intra-buffer displacement survives it unchanged.
++    //
++    // And an out-of-range displacement cannot belong to a code object that
++    // will ever be allocated. The largest block the pool can hand out is one
++    // region's code area, nearJumpRange - islandRegionSize, which is below
++    // nearJumpRange by construction -- FixedVMPoolExecutableAllocator's
++    // constructor RELEASE_ASSERTs that per region. So a displacement that does
++    // not fit a `b` means this object is already too large for allocate() to
++    // satisfy: LinkBuffer bails on !m_didAllocate before the memcpy, the
++    // compile reports CompilationFailed and the function stays in LLInt. Leave
++    // a trap in the branch word and let that happen; these words are never
++    // copied anywhere, let alone executed.
 +    void linkJump(AssemblerLabel from, AssemblerLabel to)
 +    {
 +        RELEASE_ASSERT(from.isSet() && to.isSet());
 +        if (!from.isSet() || !to.isSet())
 +            return;
++        uint32_t* location = reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(m_buffer.data()) + from.offset());
++        uint32_t* branchWord = &location[jumpSiteWords - 1];
 +        void* target = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_buffer.data()) + to.offset());
-+        linkJump(m_buffer.data(), from, target);
++        if (!canEmitJump(branchWord, target)) [[unlikely]] {
++            *branchWord = trapInstruction;
++            return;
++        }
++        writeNearBranchWord(branchWord, target, false);
 +    }
 +
 +    static void linkCall(void* code, AssemblerLabel from, void* to)
@@ -9995,9 +10036,19 @@ index 0000000000..b56066df50
 +    // fallbacks stay tested: a path reachable only on hardware nobody runs
 +    // CI on is untested code (power8-baseline-power9-paths.md). testmasm
 +    // flips this to exercise both arms of every hasISA30() seam.
++    //
++    // THREAD-LOCAL on purpose. testmasm runs its tests concurrently, one
++    // thread per test, and a process-global here is a race: a test that forces
++    // the POWER8 arm makes hasISA30() false for every other test compiling at
++    // that moment, so e.g. convertDoubleToFloat16()'s
++    // RELEASE_ASSERT(supportsFloat16()) fires in a test that never touched the
++    // flag. That was latent only because the schedule happened not to overlap
++    // the wrong pair; adding one test to the suite was enough to hit it.
++    // Nothing outside testmasm ever sets this, and a test always compiles on
++    // the thread that set it, so per-thread is both sufficient and correct.
 +    static bool& forcePOWER8Paths()
 +    {
-+        static bool force = false;
++        static thread_local bool force = false;
 +        return force;
 +    }
 +
@@ -10373,7 +10424,7 @@ index 27d11b1e23..5f28546cf8 100644
  #error "The MacroAssembler is not supported on this platform."
  #endif
 diff --git a/Source/JavaScriptCore/assembler/testmasm.cpp b/Source/JavaScriptCore/assembler/testmasm.cpp
-index 3f495628f4..c25245c1c6 100644
+index 3f495628f4..cbf9a06b2b 100644
 --- a/Source/JavaScriptCore/assembler/testmasm.cpp
 +++ b/Source/JavaScriptCore/assembler/testmasm.cpp
 @@ -30,9 +30,14 @@
@@ -12629,7 +12680,7 @@ index 3f495628f4..c25245c1c6 100644
  static void testGPRInfoConsistency()
  {
      for (unsigned index = 0; index < GPRInfo::numberOfRegisters; ++index) {
-@@ -8439,6 +10405,2218 @@ static void testGPRInfoConsistency()
+@@ -8439,6 +10405,2259 @@ static void testGPRInfoConsistency()
      } while (false);
  
  // Using WTF_IGNORES_THREAD_SAFETY_ANALYSIS because the function is still holding crashLock when exiting.
@@ -12718,6 +12769,47 @@ index 3f495628f4..c25245c1c6 100644
 +    CHECK_EQ(invoke<size_t>(test32, static_cast<uint64_t>(0xffffffff00010000ull)), 16u);
 +
 +    PPC64Assembler::forcePOWER8Paths() = false;
++}
++
++// A jump whose target is further than `b` reaches, linked while the code is
++// still in the AssemblerBuffer.
++//
++// Jump::link() runs before LinkBuffer exists, so both ends are offsets into
++// fastMalloc'd memory, not addresses in the executable pool. There is no
++// island to be had there -- an island lives in the island region next to the
++// branch's FINAL address -- so linkJump() has to leave a trap behind and let
++// LinkBuffer fail the allocation instead. It used to ask for one anyway, and
++// ExecutableAllocator::findRegion() found no region for a heap address and
++// RELEASE_ASSERTed, which is how a web page with one ~38 MB baseline code
++// object took the whole web process down.
++//
++// nearJumpRange/4 nops plus slack is the cheap way to put the two ends of one
++// jump further apart than a `b` can reach, without needing a code object that
++// large to actually be compiled.
++void testPPC64LinkJumpBeyondNearBranchRange()
++{
++    CCallHelpers jit;
++    auto branchWordAt = [&] (AssemblerLabel site) {
++        const uint32_t* buffer = reinterpret_cast<const uint32_t*>(jit.m_assembler.buffer().data());
++        return buffer[(site.offset() / sizeof(uint32_t)) + PPC64Assembler::jumpSiteWords - 1];
++    };
++
++    // In range: still an ordinary `b`, which is the case that has to keep
++    // working.
++    AssemblerLabel nearSite = jit.m_assembler.label();
++    auto nearJump = jit.jump();
++    jit.nop();
++    nearJump.link(&jit);
++    CHECK_EQ(branchWordAt(nearSite) >> 26, 18u);
++
++    // Out of range: a trap, and above all no abort.
++    AssemblerLabel farSite = jit.m_assembler.label();
++    auto farJump = jit.jump();
++    const size_t words = (MacroAssembler::nearJumpRange / sizeof(uint32_t)) + 1024;
++    for (size_t i = 0; i < words; ++i)
++        jit.nop();
++    farJump.link(&jit);
++    CHECK_EQ(branchWordAt(farSite), 0x7fe00008u); // trap
 +}
 +
 +void testPPC64CountTrailingZeros()
@@ -14848,7 +14940,7 @@ index 3f495628f4..c25245c1c6 100644
  void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
  {
      JSC::initialize([] {
-@@ -8470,6 +12648,88 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8470,6 +12689,88 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      // reset to check a conversion result
      RUN(testBranchTruncateDoubleToInt32(123, 123));
  
@@ -14937,7 +15029,7 @@ index 3f495628f4..c25245c1c6 100644
  #define FOR_EACH_DOUBLE_CONDITION_RUN(__test) \
      do { \
          RUN(__test(MacroAssembler::DoubleEqualAndOrdered)); \
-@@ -8512,11 +12772,64 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8512,11 +12813,65 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testBranchTest8());
      RUN(testBranchTest16());
  
@@ -14999,11 +15091,12 @@ index 3f495628f4..c25245c1c6 100644
 +    RUN(testPPC64VectorTransfer());
 +    RUN(testPPC64VectorIntMinMax());
 +    RUN(testPPC64VectorReplaceLaneFloat32());
++    RUN(testPPC64LinkJumpBeyondNearBranchRange());
 +#endif
      RUN(testBranchTestBit64RegImm());
      RUN(testBranchTestBit64AddrImm());
  #endif
-@@ -8665,13 +12978,22 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8665,13 +13020,22 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
          RUN(testAtomicStrongCASFill8());
          RUN(testAtomicStrongCASFill16());
      }
@@ -15028,7 +15121,7 @@ index 3f495628f4..c25245c1c6 100644
      // Comparing 2 different registers.
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveConditionallyDouble2);
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveConditionallyDouble3);
-@@ -8708,7 +13030,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8708,7 +13072,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testMoveConditionallyTest32WithImmThenCaseImmMask(MacroAssembler::NonZero));
  #endif
  
@@ -15037,7 +15130,7 @@ index 3f495628f4..c25245c1c6 100644
      RUN(testSignExtend8To32());
      RUN(testSignExtend16To32());
      RUN(testSignExtend8To64());
-@@ -8768,6 +13090,31 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8768,6 +13132,31 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testCachedTempRegisterImm32Normalization());
  #endif
  
@@ -15069,7 +15162,7 @@ index 3f495628f4..c25245c1c6 100644
      RUN(testGPRInfoConsistency());
  
      if (tasks.isEmpty())
-@@ -8826,6 +13173,20 @@ int main(int argc, char** argv)
+@@ -8826,6 +13215,20 @@ int main(int argc, char** argv)
          break;
      }
  
@@ -20405,7 +20498,7 @@ index d6df2e6501..f222930e94 100644
          MacroAssembler::linkRegister);
  #if CPU(ARM64E)
 diff --git a/Source/JavaScriptCore/jit/ExecutableAllocator.cpp b/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
-index d133f03ce6..b084da60d0 100644
+index d133f03ce6..2460284281 100644
 --- a/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
 +++ b/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
 @@ -103,12 +103,25 @@ static constexpr size_t fixedExecutableMemoryPoolSize = 128 * MB;
@@ -20435,6 +20528,22 @@ index d133f03ce6..b084da60d0 100644
  static constexpr double islandRegionSizeFraction = 0.125;
  static constexpr size_t islandSizeInBytes = 4;
  #endif
+@@ -738,6 +751,15 @@ public:
+                     islandBegin = end = std::min(islandBegin, reservationEnd);
+                 RELEASE_ASSERT(end <= reservationEnd);
+                 m_allocators[i].configure(start, islandBegin, end);
++                // The code area of a region has to stay strictly below
++                // nearJumpRange, which it does by construction here
++                // (m_regionSize is nearJumpRange - islandRegionSize, and the
++                // last region only ever gets less). PPC64Assembler::linkJump()
++                // relies on it: a jump linked inside the AssemblerBuffer
++                // cannot be given an island, so it needs every intra-object
++                // displacement in an object that CAN be allocated to fit a
++                // near branch.
++                RELEASE_ASSERT(m_allocators[i].allocatorSize() < static_cast<uintptr_t>(MacroAssembler::nearJumpRange));
+                 m_bytesReserved += m_allocators[i].allocatorSize();
+                 start += m_regionSize;
+             }
 diff --git a/Source/JavaScriptCore/jit/FPRInfo.h b/Source/JavaScriptCore/jit/FPRInfo.h
 index 4bc1c53654..25ec641042 100644
 --- a/Source/JavaScriptCore/jit/FPRInfo.h
