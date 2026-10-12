@@ -1,0 +1,144 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Parametric 3D CAD in Rust. Native egui/eframe with egui-wgpu for the canvas
+# and winit for the window -- no webview, no Electron, no bundled JS toolchain,
+# so this ports by recompiling rather than by patching. Same shape as
+# ours/cadcraft.
+#
+# NAMING: the repository and the product are SolidCraft, but the crates and the
+# installed binaries are still `solvecraft` -- upstream's rename is in flight on
+# an unmerged `rename-solidcraft` branch and has not reached a release. Upstream's
+# own packaging/linux/package.sh installs usr/bin/solvecraft, and its .desktop
+# reads `Name=SolidCraft` with `Exec=solvecraft`, so this package follows that
+# exactly rather than inventing a third spelling. The app id is
+# ai.storyteller.solvecraft.
+#
+# The workspace holds four members and we want two:
+#   solvecraft       the GUI application
+#   solvecraft-cli   the command line tool, which also draws the app icon
+#   solvecraft-web   a wasm32 target -- not built here
+#   xtask            repo build tooling -- not built here
+# `cargo build --workspace` would take all four and fail on the wasm one, so the
+# packages are named explicitly.
+#
+# vendor/ holds third-party crates carrying local fixes (truck-shapeops and
+# friends) and is wired in through [patch.crates-io] with path dependencies, not
+# through cargo's source replacement -- so `cargo fetch --locked` is still what
+# populates the registry and --frozen is still correct.
+#
+# NO GTK: rfd resolves its file dialogs through the XDG desktop portal over zbus,
+# not the GTK3 backend -- there is no gtk-sys, glib-sys or gdk-sys anywhere in
+# Cargo.lock. ours/cadcraft lists gtk3; this one must not.
+#
+# ISA: nothing in this tree computes its own -mcpu, so RUSTFLAGS from the
+# buildroot's makepkg.conf governs codegen -- `-C target-cpu=pwr9` for the
+# POWER9 pool and pwr8 for the baseline. rustc only *warns* on an unrecognised
+# target-cpu and then silently emits generic ppc64, so the name is pwr8/pwr9,
+# never power8/power9. See tools/makepkg.conf.d/00-power8.conf, which asserts
+# the substitution took.
+
+pkgname=solidcraft
+pkgver=0.4.0
+pkgrel=1
+_commit=e6252ae094f3695e898b5b4ec8e76050cd2955eb   # refs/tags/v0.4.0
+_appid=ai.storyteller.solvecraft
+pkgdesc='Parametric 3D CAD: sketch, constrain, extrude, and change a parameter to rebuild'
+arch=('powerpc64le')
+url='https://github.com/bherbruck/solidcraft'
+license=('Apache-2.0' 'MIT')
+# Measured, not inherited from ours/cadcraft: the binaries link only libgcc_s,
+# libm and libc directly -- x11-dl, xkbcommon-dl and ash all dlopen, so every
+# other entry here comes from the SONAME strings in usr/bin/solvecraft mapped to
+# their owning package. Note what is NOT here: no libXrandr.so.2 and no
+# libfontconfig.so.1 appear anywhere in the binary, so neither libxrandr nor
+# fontconfig is a dependency, though cadcraft's recipe lists the latter.
+depends=(
+  glibc
+  gcc-libs
+  dbus                 # libdbus-1.so.3
+  libglvnd             # libEGL.so.1
+  libx11               # libX11.so.6, libX11-xcb.so.1
+  libxcb               # libxcb.so.1
+  libxcursor           # libXcursor.so.1
+  libxi                # libXi.so.6
+  libxkbcommon         # libxkbcommon.so.0
+  libxkbcommon-x11     # libxkbcommon-x11.so.0
+  wayland              # libwayland-client.so.0, libwayland-egl.so.1
+  vulkan-icd-loader    # libvulkan.so.1
+)
+makedepends=(
+  cargo
+  git
+  pkgconf
+  rust
+)
+optdepends=(
+  'xdg-desktop-portal: file open/save dialogs'
+)
+source=("$pkgname::git+$url.git#commit=$_commit")
+sha256sums=('SKIP')
+options=('!lto')   # the workspace sets its own release profile (lto = "thin")
+
+prepare() {
+  cd "$pkgname"
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch --locked
+}
+
+build() {
+  cd "$pkgname"
+  export CARGO_HOME="$srcdir/cargo-home"
+  # rustc takes pwr8/pwr9, NOT power8/power9, and an unrecognised value is a
+  # *warning* followed by silently emitting generic ppc64. Checked before
+  # building rather than after: a wrong name produced 125,763 ignored-processor
+  # warnings in one sweep here and still exited 0.
+  case " ${RUSTFLAGS:-} " in
+    *target-cpu=power*)
+      echo "ERROR: RUSTFLAGS names power8/power9; rustc wants pwr8/pwr9: $RUSTFLAGS" >&2
+      return 1 ;;
+  esac
+  case " ${RUSTFLAGS:-} " in
+    *target-cpu=pwr*) ;;
+    *) echo "ERROR: RUSTFLAGS sets no pwr8/pwr9 target-cpu: ${RUSTFLAGS:-<unset>}" >&2
+       return 1 ;;
+  esac
+
+  cargo build --release --frozen -p solvecraft -p solvecraft-cli
+}
+
+package() {
+  cd "$pkgname"
+
+  install -Dm755 "target/release/solvecraft"     "$pkgdir/usr/bin/solvecraft"
+  install -Dm755 "target/release/solvecraft-cli" "$pkgdir/usr/bin/solvecraft-cli"
+
+  # Upstream's own desktop entry, mime types and appstream metadata, rather than
+  # a hand-written approximation. The metainfo is a template: package.sh
+  # substitutes @VERSION@ and @DATE@, so do the same.
+  install -Dm644 "packaging/linux/$_appid.desktop" \
+    "$pkgdir/usr/share/applications/$_appid.desktop"
+  install -Dm644 "packaging/linux/$_appid.mime.xml" \
+    "$pkgdir/usr/share/mime/packages/$_appid.xml"
+  install -d "$pkgdir/usr/share/metainfo"
+  sed -e "s/@VERSION@/$pkgver/g" \
+      -e "s/@DATE@/$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y-%m-%d)/g" \
+      "packaging/linux/$_appid.metainfo.xml.in" \
+      > "$pkgdir/usr/share/metainfo/$_appid.metainfo.xml"
+
+  # The icon is drawn in code by the CLI we just built, not shipped as a file
+  # (app_icon.rs is shared between the GUI and the CLI). Native build, so the
+  # binary runs here. Upstream only emits 256x256 for its AppImage; a desktop
+  # install wants the usual hicolor set.
+  local _s
+  for _s in 16 22 24 32 48 64 128 256 512; do
+    ./target/release/solvecraft-cli icon --out "$srcdir/icon-$_s.png" --size "$_s"
+    install -Dm644 "$srcdir/icon-$_s.png" \
+      "$pkgdir/usr/share/icons/hicolor/${_s}x${_s}/apps/$_appid.png"
+  done
+
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+  install -Dm644 LICENSE-MIT    "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  install -Dm644 NOTICE         "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+  install -Dm644 THIRD-PARTY-LICENSES.txt \
+    "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES.txt"
+}
