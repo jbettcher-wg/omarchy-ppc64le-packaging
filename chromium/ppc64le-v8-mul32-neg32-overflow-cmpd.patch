@@ -1,10 +1,18 @@
 From: Jordan Bettcher <thebettcher@gmail.com>
 Subject: v8: ppc64 detect Int32 mul/neg overflow in CR0, not XER
 
-ppc64le-v8-int32-overflow-cmpd.patch moved kPPC_Add32 and kPPC_Sub32 off the
-XER path.  This does the same for the two remaining Int32 opcodes that still
-read XER[OV32] through mcrxrx (ISA 3.0; on POWER8 the emulated mcrxr, or the
-loadpc synthesis).
+kPPC_Mul32 and kPPC_Neg32 read XER[OV32] through mcrxrx (ISA 3.0; on POWER8
+the emulated mcrxr, or the loadpc synthesis).  Both of their overflow tests
+can be expressed as a compare into CR0 instead, with no XER read on either
+pool.
+
+kPPC_Add32 and kPPC_Sub32 are deliberately left on the XER path.  The
+withdrawn ppc64le-v8-int32-overflow-cmpd.patch moved them with an extsw+cmpd
+identity that assumed Word32 values arrive sign-extended; kPPC_LoadWordU32 is
+lwz, so they do not, and that patch miscompiled INT32_MIN + -1 to 2147483647.
+Mul32 and Neg32 do not rest on that assumption -- mullw ignores the inputs'
+upper words entirely, and the Neg32 test below reads only the low word --
+which is why these two are safe to move and add/sub are not.
 
 kPPC_Mul32 currently emits
 
@@ -57,10 +65,9 @@ independent of the value chain (neg -> extsw), so the branch resolves after
 two dependent instructions, the same depth as nego -> mcrxrx.
 
 FlagsConditionToCondition maps kOverflow/kNotOverflow to ne/eq for
-kPPC_Mul32, the same polarity as Add32/Sub32, and to eq/ne for kPPC_Neg32,
-where CR0 holds a compare against the one overflowing value.  No opcode
-produces overflow32/nooverflow32 any more; the cases that consume them are
-left in place.
+kPPC_Mul32, and to eq/ne for kPPC_Neg32, where CR0 holds a compare against
+the one overflowing value.  kPPC_Add32 and kPPC_Sub32 keep
+overflow32/nooverflow32.
 
 ip holds the untruncated product and the flipped input: it is outside the
 allocatable set (r3-r10, r14-r24, r30) and already serves as scratch in this
@@ -94,37 +101,43 @@ there.  Upstreamable as-is; not ppc64le packaging specific.
 
 --- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
 +++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
-@@ -341,11 +341,12 @@
+@@ -341,9 +341,15 @@
            return overflow64;
          case kPPC_Add32:
          case kPPC_Sub32:
-+        case kPPC_Mul32:
-           // Detected with extsw+cmpd rather than XER; CR0 holds the compare.
-           return ne;
-         case kPPC_Neg32:
+-        case kPPC_Neg32:
 -        case kPPC_Mul32:
--          return overflow32;
-+          // Overflows only for INT32_MIN; CR0 holds cmpwi against it.
+           return overflow32;
++        case kPPC_Mul32:
++          // mullw leaves the whole 64-bit product in its target, so int32
++          // overflow is (product != extsw(product)); CR0 holds that cmpd,
++          // not XER[OV32].
++          return ne;
++        case kPPC_Neg32:
++          // Overflows for INT32_MIN alone; CR0 holds a cmpwi against it.
 +          return eq;
          default:
            break;
        }
-@@ -359,11 +360,12 @@
+@@ -357,9 +363,15 @@
            return nooverflow64;
          case kPPC_Add32:
          case kPPC_Sub32:
-+        case kPPC_Mul32:
-           // See kOverflow above.
-           return eq;
-         case kPPC_Neg32:
+-        case kPPC_Neg32:
 -        case kPPC_Mul32:
--          return nooverflow32;
-+          // See kOverflow above.
+           return nooverflow32;
++        case kPPC_Mul32:
++          // mullw leaves the whole 64-bit product in its target, so int32
++          // overflow is (product != extsw(product)); CR0 holds that cmpd,
++          // not XER[OV32].
++          return eq;
++        case kPPC_Neg32:
++          // Overflows for INT32_MIN alone; CR0 holds a cmpwi against it.
 +          return ne;
          default:
            break;
        }
-@@ -1488,14 +1490,22 @@
+@@ -1455,14 +1467,22 @@
        break;
      case kPPC_Mul32:
        if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
@@ -151,7 +164,7 @@ there.  Upstreamable as-is; not ppc64le packaging specific.
        break;
      case kPPC_Mul64:
        if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
-@@ -1631,6 +1641,22 @@
+@@ -1598,6 +1618,22 @@
        break;
      case kPPC_Neg32:
      case kPPC_Neg64:
