@@ -1,0 +1,58 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 Assembler::mov wastes 4 instructions per immediate under a
+ blocked trampoline pool
+
+The guard that decides whether mov() may emit the short form reads
+
+    canOptimize =
+        !(relocatable ||
+          (is_trampoline_pool_blocked() &&
+           (!is_int16(value) ||
+            !(CpuFeatures::IsSupported(PPC_10_PLUS) && is_int34(value)))));
+
+Writing A for is_int16(value) and B for the PPC_10_PLUS && is_int34(value)
+test, the inner term is (!A || !B).  On any processor below POWER10 B is false,
+so !B is true, so the inner term is unconditionally true and the whole guard
+collapses to
+
+    canOptimize = !(relocatable || is_trampoline_pool_blocked());
+
+Every non-relocatable immediate emitted inside a BlockTrampolinePoolScope then
+takes bitwise_mov -- five instructions in a five-deep dependency chain -- even
+for Operand(0), which li handles in one.
+
+The body immediately below the guard admits exactly two single-instruction
+cases, li for is_int16 and pli for is_int34 on POWER10, which is what the
+trampoline-blocked arm was evidently meant to allow: while the pool is blocked,
+only emit the short form when it is genuinely short.  That reading is
+!(A || B), so the negation belongs outside the disjunction rather than
+distributed over both halves.
+
+Affected sites are the ones that block the pool deliberately: every deopt exit
+(code-generator.cc blocks around them), GetLabelAddress and therefore Switch,
+SwitchOnGeneratorState and SwitchOnSmiNoFeedback -- i.e. every generator and
+async resume -- and AssembleArchTableSwitch.
+
+Shortening a sequence inside a blocked region is safe for the trampoline
+mechanism itself, which blocks to prevent a trampoline being inserted mid
+sequence.  Callers that require a fixed-length, later-patchable sequence pass a
+relocatable operand, and relocatable short-circuits the guard before the
+trampoline test is reached, so those are unaffected.
+
+Found while profiling Sparkplug output on POWER9: 141 relocatable and ~85
+non-relocatable constant materialisations across 23 baseline functions, 4170
+instructions total.  Upstreamable as-is; not ppc64le packaging specific.
+
+--- a/v8/src/codegen/ppc/assembler-ppc.cc
++++ b/v8/src/codegen/ppc/assembler-ppc.cc
+@@ -1338,8 +1338,8 @@
+   canOptimize =
+       !(relocatable ||
+         (is_trampoline_pool_blocked() &&
+-         (!is_int16(value) ||
+-          !(CpuFeatures::IsSupported(PPC_10_PLUS) && is_int34(value)))));
++         !(is_int16(value) ||
++           (CpuFeatures::IsSupported(PPC_10_PLUS) && is_int34(value)))));
+ 
+   if (!src.IsHeapNumberRequest() &&
+       use_constant_pool_for_mov(dst, src, canOptimize)) {

@@ -19,7 +19,7 @@
 
 pkgname=chromium
 pkgver=153.0.8010.52
-pkgrel=5
+pkgrel=6
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -150,7 +150,8 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         ppc64le-v8-mul32-overflow-synth.patch
         ppc64le-v8-ov64-overflow-synth.patch
         ppc64le-crashpad-minidump-system-info-arch.patch
-        ppc64le-v8-compressed-load-zero-extend.patch)
+        ppc64le-v8-compressed-load-zero-extend.patch
+        ppc64le-v8-mov-trampoline-precedence.patch)
 sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
@@ -186,7 +187,8 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             'b5ddebae3fdf6fed543a4e5e8496ae2556839098d409e01dd8d8d956783454a8'
             '22a11940c55d9957a562273f68ee9006120a8a57be2d1676ce66fab27fb275be'
             '8ef785ac4aba077519189a4913cf0bb0b86af36dc27f04dbea2a5b39b495f3e8'
-            'fd4fc7d73bfc5eeb00e8991f66b3bab6954fd853626bf6b4e46ae41992b0542a')
+            'fd4fc7d73bfc5eeb00e8991f66b3bab6954fd853626bf6b4e46ae41992b0542a'
+            '067e92b9601805a33dabc221a928a5bf6ebdfc3f4dea1fa182c11865241fd7ce')
 
 if (( _manual_clone )); then
   source[0]=fetch-chromium-release
@@ -472,7 +474,8 @@ prepare() {
     # are shared with it, and that is the order verified against the real
     # extracted tree on both lanes.
     local _vp
-    for _vp in compressed-load-zero-extend maglev-correctness regexp-simd-scans \
+    for _vp in compressed-load-zero-extend mov-trampoline-precedence \
+               maglev-correctness regexp-simd-scans \
                select-roundtieseven-minmax single-bc-branches; do
       msg2 "Applying ppc64le patch: ppc64le-v8-$_vp.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-$_vp.patch"
