@@ -19,7 +19,7 @@
 
 pkgname=chromium
 pkgver=153.0.8010.52
-pkgrel=3
+pkgrel=5
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -148,7 +148,9 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         ppc64le-v8-select-roundtieseven-minmax.patch
         ppc64le-v8-single-bc-branches.patch
         ppc64le-v8-mul32-overflow-synth.patch
-        ppc64le-v8-ov64-overflow-synth.patch)
+        ppc64le-v8-ov64-overflow-synth.patch
+        ppc64le-crashpad-minidump-system-info-arch.patch
+        ppc64le-v8-compressed-load-zero-extend.patch)
 sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
@@ -182,7 +184,9 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             'ae27c0be4f29a6f786d7ee9059cee564c727a80db975f00b914d6a7af797ec81'
             'a2b07814d7c67b099e35b9389aec90169d9c6581f16df088fb41190a7ebda64f'
             'b5ddebae3fdf6fed543a4e5e8496ae2556839098d409e01dd8d8d956783454a8'
-            '22a11940c55d9957a562273f68ee9006120a8a57be2d1676ce66fab27fb275be')
+            '22a11940c55d9957a562273f68ee9006120a8a57be2d1676ce66fab27fb275be'
+            '8ef785ac4aba077519189a4913cf0bb0b86af36dc27f04dbea2a5b39b495f3e8'
+            'fd4fc7d73bfc5eeb00e8991f66b3bab6954fd853626bf6b4e46ae41992b0542a')
 
 if (( _manual_clone )); then
   source[0]=fetch-chromium-release
@@ -436,6 +440,19 @@ prepare() {
     msg2 "Applying ppc64le patch: ppc64le-seccomp-scv-return-abi.patch"
     patch -Np1 -i "$srcdir/ppc64le-seccomp-scv-return-abi.patch"
 
+    # The Raptor crashpad port in the debian-series loop above appends
+    # kCPUArchitecturePPC64 to crashpad::CPUArchitecture and returns it from
+    # SystemSnapshotLinux::GetCPUArchitecture(), but never teaches
+    # MinidumpSystemInfoWriter about it, so that switch takes its
+    # default: NOTREACHED() -- a `trap` on ppc64 -- the first time the handler
+    # writes a report. Both the handler and its --monitor-self twin die with
+    # SIGTRAP, leaving 0-byte files in the database's new/ and nothing in
+    # completed/, and every subsequent chromium crash falls through to the
+    # kernel core pattern with no minidump. Must stay after the loop, which is
+    # what defines the enumerator this case names.
+    msg2 "Applying ppc64le patch: ppc64le-crashpad-minidump-system-info-arch.patch"
+    patch -Np1 -i "$srcdir/ppc64le-crashpad-minidump-system-info-arch.patch"
+
     # Upstream V8 unconditionally emits addpcis (ISA 3.0 / POWER9) in LoadPC,
     # causing an illegal instruction crash in builtin prologues on real POWER8.
     if (( _power8_compat )); then
@@ -455,7 +472,7 @@ prepare() {
     # are shared with it, and that is the order verified against the real
     # extracted tree on both lanes.
     local _vp
-    for _vp in maglev-correctness regexp-simd-scans \
+    for _vp in compressed-load-zero-extend maglev-correctness regexp-simd-scans \
                select-roundtieseven-minmax single-bc-branches; do
       msg2 "Applying ppc64le patch: ppc64le-v8-$_vp.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-$_vp.patch"

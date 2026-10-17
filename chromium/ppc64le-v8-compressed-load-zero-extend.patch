@@ -1,0 +1,77 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 must zero-extend loads of compressed values
+
+Turboshaft's decompression optimization rewrites a tagged load to
+result_rep = Compressed() when every use needs only the low 32 bits, and
+explicitly permits such values to flow into a FrameState
+(v8/src/compiler/turboshaft/decompression-optimization.cc:91 -- "The deopt code
+knows how to handle compressed inputs").  On ppc64 the instruction selector
+emits those loads as kPPC_LoadWordS32, i.e. lwa/plwa/lwax, which SIGN-extends.
+x64 uses kX64Movl and arm64 uses kArm64LdrW; both zero-extend.
+
+The sign-extended value is then spilled with std into a 64-bit frame slot that
+the register allocator has recorded as a tagged safepoint root.  Two C++
+consumers decide whether such a slot holds a compressed pointer by testing
+value <= 0xFFFFFFFF:
+
+  v8/src/execution/frames.cc:1632         VisitSpillSlot
+  v8/src/deoptimizer/translated-state.cc:1851  DecompressIfNeeded
+
+Both carry a #if V8_TARGET_ARCH_LOONG64 carve-out that also accepts is_int32(),
+precisely because loong64 sign-extends the same way.  There is no ppc64 case.  So
+any compressed pointer at a cage offset >= 0x80000000 fails the test, is treated
+as a full pointer, and the root visitor dereferences it:
+
+  ld    r7,0(r6)        # load the slot
+  andi. r8,r7,1         # HeapObject tag?
+  blelr                 # Smi -> return
+  lwz   r7,-1(r7)       # untag and load the map -- SIGSEGV
+
+Observed on POWER9 as a renderer crash during Octane 2.0 with Web Workers:
+SIGSEGV, si_code 3, r7 = 0xffffffff87ee36f9, si_addr = r7-1.  The compressed
+value was 0x87ee36f9 -- bit 31 set.  It reproduces only in worker isolates
+because those allocate into the upper half of the 4 GB cage; the main isolate
+stays below 0x80000000 and never trips it.
+
+Fixed in the backend rather than by adding ppc64 to the two loong64 carve-outs,
+so that ppc64 matches the x64/arm64 contract the C++ side is written against.
+The addressing-mode downgrade is left in place: lwz is D-form and accepts every
+displacement lwa does, so restricting to kInt16Imm_4ByteAligned remains correct,
+merely unnecessary.
+
+VisitWord64Sar's folded kPPC_LoadWordS32 (same file, ~line 990) is deliberately
+untouched -- that one loads the high half of a 64-bit integer, where sign
+extension is correct.
+
+s390x has the identical mapping (kS390_LoadWordS32 in
+instruction-selector-s390.cc) and the same missing carve-out, so it is affected
+too.  Upstreamable as-is; this is not ppc64le-specific packaging.
+
+--- a/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
++++ b/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
+@@ -215,14 +215,14 @@
+     case MemoryRepresentation::TaggedPointer():
+       if (result_rep == RegisterRepresentation::Compressed()) {
+         if (*mode != kInt34Imm) *mode = kInt16Imm_4ByteAligned;
+-        return kPPC_LoadWordS32;
++        return kPPC_LoadWordU32;
+       }
+       DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+       return kPPC_LoadDecompressTagged;
+     case MemoryRepresentation::TaggedSigned():
+       if (result_rep == RegisterRepresentation::Compressed()) {
+         if (*mode != kInt34Imm) *mode = kInt16Imm_4ByteAligned;
+-        return kPPC_LoadWordS32;
++        return kPPC_LoadWordU32;
+       }
+       DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+       return kPPC_LoadDecompressTaggedSigned;
+@@ -279,7 +279,7 @@
+     case MachineRepresentation::kCompressed:
+ #ifdef V8_COMPRESS_POINTERS
+       if (*mode != kInt34Imm) *mode = kInt16Imm_4ByteAligned;
+-      return kPPC_LoadWordS32;
++      return kPPC_LoadWordU32;
+ #else
+       UNREACHABLE();
+ #endif

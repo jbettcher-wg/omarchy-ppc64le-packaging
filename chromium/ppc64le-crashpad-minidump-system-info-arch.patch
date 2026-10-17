@@ -1,0 +1,65 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: crashpad: ppc64: map kCPUArchitecturePPC64 in MinidumpSystemInfoWriter
+
+The Raptor Engineering ppc64 crashpad port carried in the ppc64le series
+(crashpad/0001-Implement-support-for-PPC64-on-Linux.patch) appends
+kCPUArchitecturePPC64 to crashpad::CPUArchitecture and returns it from
+SystemSnapshotLinux::GetCPUArchitecture(), but never teaches the minidump
+writer about it. minidump/minidump_system_info_writer.cc maps that enum onto
+the MINIDUMP_SYSTEM_INFO ProcessorArchitecture field with a switch whose
+default is NOTREACHED(), so on ppc64le the first thing the handler does when
+it writes a report is trap:
+
+  MinidumpCPUArchitecture cpu_architecture;
+  switch (system_snapshot->GetCPUArchitecture()) {
+    case kCPUArchitectureX86:     ... kMinidumpCPUArchitectureX86
+    case kCPUArchitectureX86_64:  ... kMinidumpCPUArchitectureAMD64
+    case kCPUArchitectureARM:     ... kMinidumpCPUArchitectureARM
+    case kCPUArchitectureARM64:   ... kMinidumpCPUArchitectureARM64
+    case kCPUArchitectureRISCV64: ... kMinidumpCPUArchitectureRISCV64Breakpad
+    default:                          NOTREACHED();
+  }
+
+NOTREACHED() is base::ImmediateCrash(), which on powerpc64 is a `trap`
+instruction, so the handler dies with SIGTRAP/TRAP_BRKPT rather than writing
+the dump. Observed as pairs of chrome_crashpad_handler coredumps five seconds
+apart -- the handler traps, the --monitor-self handler traps the same way
+snapshotting it -- with 0-byte files left in the database's new/ directory and
+nothing ever reaching pending/ or completed/. Because both handlers are then
+gone, the browser or renderer crash that asked for the dump falls through to
+the kernel core pattern instead, which is why the only usable evidence on
+ppc64le has been systemd-coredump's unsymbolized stacks.
+
+Verified in a core from a trapped handler: r3 (the GetCPUArchitecture() return
+value, unmodified between the compare chain and the trap) held 8, which is
+kCPUArchitecturePPC64's value once it is appended after kCPUArchitectureRISCV64,
+and the MINIDUMP_SYSTEM_INFO at the writer's +128 was still entirely zero with
+ProcessorArchitecture at its kMinidumpCPUArchitectureUnknown (0xffff) default,
+i.e. the trap fired before any field was stored.
+
+No new constant is needed: minidump/minidump_extensions.h already defines
+kMinidumpCPUArchitecturePPC64 = 0x8002, the value Breakpad used for ppc64
+(MD_CPU_ARCHITECTURE_PPC64), so dumps written with it stay readable by existing
+tooling. The new case is inserted ahead of the x86 case rather than after the
+RISCV64 one purely so the hunk's context stays stable across crashpad rolls;
+switch case order is immaterial.
+
+This is the only architecture-enumerating site in crashpad's dump-*writing*
+path that the port misses. The two reader-side sites,
+snapshot/minidump/minidump_context_converter.cc and
+snapshot/minidump/system_snapshot_minidump.cc, fall back to
+kCPUArchitectureUnknown instead of trapping, so they degrade rather than crash
+and are left alone here.
+
+--- a/third_party/crashpad/crashpad/minidump/minidump_system_info_writer.cc
++++ b/third_party/crashpad/crashpad/minidump/minidump_system_info_writer.cc
+@@ -119,6 +119,9 @@
+ 
+   MinidumpCPUArchitecture cpu_architecture;
+   switch (system_snapshot->GetCPUArchitecture()) {
++    case kCPUArchitecturePPC64:
++      cpu_architecture = kMinidumpCPUArchitecturePPC64;
++      break;
+     case kCPUArchitectureX86:
+       cpu_architecture = kMinidumpCPUArchitectureX86;
+       break;
