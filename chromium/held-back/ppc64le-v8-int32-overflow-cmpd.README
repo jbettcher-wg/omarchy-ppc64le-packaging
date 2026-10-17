@@ -1,0 +1,39 @@
+ppc64le-v8-int32-overflow-cmpd.patch -- WITHDRAWN 2026-10-17, shipped briefly in
+chromium 153.0.8010.52-7 and produces SILENT WRONG ARITHMETIC.
+
+The patch replaced the XER overflow check for kPPC_Add32/kPPC_Sub32 with
+"add; extsw; cmpd; bne", on the stated premise that the backend keeps every
+Word32 value sign-extended in its 64-bit register. That premise is FALSE.
+instruction-selector-ppc.cc maps MemoryRepresentation::Int32()/Uint32() and
+MachineRepresentation::kWord32 loads to kPPC_LoadWordU32, i.e. lwz, which
+ZERO-extends; lwa is used only for compressed pointers. slw/srw/rlwinm also
+zero-extend. So the upper word of a Word32 is simply undefined, which is why
+upstream's Tst32 register form carries its own extsw. and why Maglev's ppc port
+zero-extends.
+
+Consequences, reproduced on the shipped -7 binary:
+
+  const neg = new Int32Array([-2147483648]);
+  f = (a,i,x) => a[i] + x;          // warmed with positive loads only
+  f(neg, 0, -1)  ->  2147483647     // correct answer: -2147483649
+
+  lwz(INT32_MIN) = 0x0000000080000000; addi -1 -> 0x000000007fffffff;
+  extsw(0x7fffffff) == 0x7fffffff, so no overflow is flagged, while addo
+  reports OV32=1.
+
+The mirror case -- a loaded negative operand whose sum is not its own sign
+extension -- deopts spuriously on every checked add, which is merely slow.
+
+The original correctness test passed 1362 checks because it used literal
+constants and Smi arrays; Smi loads go through srawi, which sign-extends. It
+never loaded a negative int32 from an Int32Array. Any replacement MUST include
+that case.
+
+An exact fix inside the cmpd idea needs an explicit extsw of each register
+input first, which costs the +1/+2 instructions the patch existed to remove.
+The XER path and the POWER8 sign-XOR synthesis are both immune and remain
+correct.
+
+NOT affected and still valid: the same extsw/cmpd identity applied to
+kPPC_Mul32, because mullw reads only the low 32 bits of its operands and
+ignores the upper words entirely.
