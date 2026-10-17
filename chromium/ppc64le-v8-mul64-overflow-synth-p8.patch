@@ -1,0 +1,64 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 (POWER8 pool) Int64 multiply overflow without mcrxr
+
+This is the kPPC_Mul64 part of ppc64le-v8-mul32-overflow-synth.patch,
+rebased so that it applies after ppc64le-v8-mul32-neg32-overflow-cmpd.patch.
+That patch supersedes the kPPC_Mul32 half (mullw now leaves the full 64-bit
+product, so extsw+cmpd does the job on both pools) and rewrites the two
+FlagsConditionToCondition blocks that the original's first three hunks
+expected, so the original no longer applies: its Mul64 code hunk lands but
+the ne/eq mapping for Mul64 does not, which would leave mulhd/mulld/cmp
+writing CR0 while the branch still read XER.  This file carries exactly the
+Mul64 code hunk plus the Mul64 lines of the mapping, nothing else; the
+maglev-ir-ppc.cc hunk of the original is untouched and still has to be
+applied from there.
+
+Rationale unchanged from the original: a signed 64x64 product overflows iff
+the high doubleword differs from the sign extension of the low one, and
+reading XER[OV] on this lane needs mcrxr, emulated rather than implemented
+since POWER4.  POWER8 pool only, like the original; on POWER9 mcrxrx is
+native and measured at parity.
+
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -384,8 +384,13 @@
+         case kPPC_Add64:
+         case kPPC_Sub64:
+         case kPPC_Neg64:
+-        case kPPC_Mul64:
+           return overflow64;
++        case kPPC_Mul64:
++          // Multiply detects overflow by comparing the high word against the
++          // sign extension of the low word (see kPPC_Mul64 below), so the
++          // answer lands in CR0[EQ] rather than XER. Reading XER would need
++          // mcrxr, emulated rather than implemented since POWER4.
++          return ne;
+         case kPPC_Add32:
+         case kPPC_Sub32:
+         case kPPC_Mul32:
+@@ -403,8 +408,9 @@
+         case kPPC_Add64:
+         case kPPC_Sub64:
+         case kPPC_Neg64:
+-        case kPPC_Mul64:
+           return nooverflow64;
++        case kPPC_Mul64:
++          return eq;
+         case kPPC_Add32:
+         case kPPC_Sub32:
+         case kPPC_Mul32:
+@@ -1604,9 +1610,11 @@
+       break;
+     case kPPC_Mul64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        __ mulld(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
+-        __ MoveToCrFromXer(cr0);
++        // The same identity at 64 bits: mulhd against sradi(lo, 63).
++        __ mulhd(r0, i.InputRegister(0), i.InputRegister(1));
++        __ mulld(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1));
++        __ sradi(ip, i.OutputRegister(), 63);
++        __ cmp(r0, ip, cr0);
+       } else {
+         __ mulld(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+                  LeaveOE, i.OutputRCBit());

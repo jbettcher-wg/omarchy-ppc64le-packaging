@@ -1,0 +1,65 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 drop the dead extsw. from kPPC_Tst32's immediate form
+
+kPPC_Tst32 is the fused form of Word32And(x, m) compared with zero.  Its
+immediate form currently emits
+
+    andi.  r0,rA,UI       CR0 from the 64-bit result
+    extsw. r0,r0          CR0 again, from the sign-extended low word
+    bc                    on CR0[EQ]
+
+andi. ANDs with (48)0 || UI (Power ISA, Book I, "AND Immediate"), so bits
+16..63 of the result are zero: the result is already its own sign extension
+and the extsw. recomputes the CR0 that andi. just recorded.  It becomes
+
+    andi.  r0,rA,UI
+    bc
+
+The register form keeps its extsw.: the and. of two registers whose upper
+words are not defined for Word32 values (kPPC_LoadWordU32 is lwz, the
+bitwise ops are 64-bit) can be non-zero above bit 31 with a zero low word,
+and the extsw. is what re-derives CR0 from the low word there.
+
+The instruction is only ever selected with an equality continuation, so the
+LT/GT bits -- the only thing the extsw. could change for the immediate form
+-- are never read.  Checked in the selector and the code generator: the
+single emission site is VisitWordCompareZero in instruction-selector-ppc.cc,
+for a value that is a Word32BitwiseAnd (VisitWordCompare with kPPC_Tst32 and
+kInt16Imm_Unsigned, so the immediate is 0..0xffff).  VisitWordCompareZero's
+callers in instruction-selector.cc are VisitBranch (ForBranch kNotEqual),
+VisitDeoptimizeIf (kEqual or kNotEqual), VisitSelect (kNotEqual) and
+VisitTrapIf (kEqual or kNotEqual); ConsumeEqualZero only negates between
+those two, and no OverwriteAndNegateIfEqual runs on this path.  In the code
+generator FlagsConditionToCondition therefore yields eq or ne, and
+AssembleArchBranch, AssembleArchDeoptBranch, AssembleArchTrap and
+AssembleArchBoolean (isel on eq/ne) consume only CR0[EQ] for those.
+
+Verified on POWER9 by executing andi. with UI=0xffff on all-ones, on
+0xffffffffffff0000 and on 0x8000000080000000: results 0xffff, 0, 0 with CR0
+= GT, EQ, EQ, and extsw of each result is the identity.
+
+One instruction fewer on every immediate bit test, which includes the Smi
+tag check (Word32And(x, 1)) and bitfield tests on Map and feedback words.
+No benchmark was run; this is a pure dead-instruction removal.
+
+Valid for both pools: andi. is base ISA.  Nothing else in the file changes
+and there is no ordering dependency on the other patches in this series.
+
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -1725,10 +1725,14 @@
+     case kPPC_Tst32:
+       if (HasRegisterInput(instr, 1)) {
+         __ and_(r0, i.InputRegister(0), i.InputRegister(1), i.OutputRCBit());
++        // The upper words of Word32 inputs are not defined, so CR0 has to be
++        // taken from the sign-extended low word of the result.
++        __ extsw(r0, r0, i.OutputRCBit());
+       } else {
++        // andi. clears bits 16..63, so the result is already its own sign
++        // extension and the CR0 it recorded already describes the low word.
+         __ andi(r0, i.InputRegister(0), i.InputImmediate(1));
+       }
+-      __ extsw(r0, r0, i.OutputRCBit());
+       DCHECK_EQ(SetRC, i.OutputRCBit());
+       break;
+     case kPPC_Tst64:

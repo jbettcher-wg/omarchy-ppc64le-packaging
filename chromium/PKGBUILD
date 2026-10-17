@@ -19,7 +19,7 @@
 
 pkgname=chromium
 pkgver=153.0.8010.52
-pkgrel=8
+pkgrel=9
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -151,7 +151,13 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         ppc64le-v8-ov64-overflow-synth.patch
         ppc64le-crashpad-minidump-system-info-arch.patch
         ppc64le-v8-compressed-load-zero-extend.patch
-        ppc64le-v8-mov-trampoline-precedence.patch)
+        ppc64le-v8-mov-trampoline-precedence.patch
+        ppc64le-v8-compressed-load-addressing-mode.patch
+        ppc64le-v8-rldic-index-fusion.patch
+        ppc64le-v8-mul32-neg32-overflow-cmpd.patch
+        ppc64le-v8-tst32-dead-extsw.patch
+        ppc64le-v8-truncate-double-ool.patch
+        ppc64le-v8-mul64-overflow-synth-p8.patch)
 sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
@@ -188,7 +194,13 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '22a11940c55d9957a562273f68ee9006120a8a57be2d1676ce66fab27fb275be'
             '8ef785ac4aba077519189a4913cf0bb0b86af36dc27f04dbea2a5b39b495f3e8'
             'fd4fc7d73bfc5eeb00e8991f66b3bab6954fd853626bf6b4e46ae41992b0542a'
-            '067e92b9601805a33dabc221a928a5bf6ebdfc3f4dea1fa182c11865241fd7ce')
+            '067e92b9601805a33dabc221a928a5bf6ebdfc3f4dea1fa182c11865241fd7ce'
+            '301141c1e4bef63157cf477a7eb77b93cab365e6ff23b09215b8f8f2e75c9f8e'
+            '7c35b60364f22d5238ffba88260f76a1d0dbae94377ac010e232b80b2c751485'
+            'e9989a3fc2b4fec3fb74d7249b74c4cde97188926f439e3b101181a3a8f5262c'
+            'ba673a1e6a3b041a379101837d2e87f291f080ff1c61ca66ee429fb495201cec'
+            'b2f75ea74cd91f1b9ff46b4eef16c592c9a0adb7c9c8ea20a7bb213e60d40988'
+            'c9dc83799477716595c1fe9bd49a06a4b9f2ba526dc2247e2435dada3502182e')
 
 if (( _manual_clone )); then
   source[0]=fetch-chromium-release
@@ -474,7 +486,9 @@ prepare() {
     # are shared with it, and that is the order verified against the real
     # extracted tree on both lanes.
     local _vp
-    for _vp in compressed-load-zero-extend mov-trampoline-precedence \
+    for _vp in compressed-load-zero-extend compressed-load-addressing-mode \
+               rldic-index-fusion mov-trampoline-precedence \
+               mul32-neg32-overflow-cmpd tst32-dead-extsw truncate-double-ool \
                maglev-correctness regexp-simd-scans \
                select-roundtieseven-minmax single-bc-branches; do
       msg2 "Applying ppc64le patch: ppc64le-v8-$_vp.patch"
@@ -490,8 +504,16 @@ prepare() {
     # sequence measures 4.581 ns against 4.606 for mullwo+mcrxrx+mfcr, i.e.
     # parity. No gain, so no reason to put unexercised codegen into that lane.
     if (( _power8_compat )); then
-      msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-mul32-overflow-synth.patch"
-      patch -Np1 -i "$srcdir/ppc64le-v8-mul32-overflow-synth.patch"
+      # mul32-overflow-synth's code-generator hunks are superseded by the
+      # unconditional mul32-neg32-overflow-cmpd above: mullw leaves the full
+      # 64-bit product in RT, so extsw+cmpd is exact and needs no mulhw.
+      # Applying both would fail its first three hunks and leave Mul64 emitting
+      # a CR0 compare while its condition still read overflow64. Its Mul64 hunk
+      # is still wanted here, rebased as mul64-overflow-synth-p8.
+      # TODO: its Maglev Int32MultiplyWithOverflow hunk has not been re-homed --
+      # do that before the baseline pool is rebuilt.
+      msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-mul64-overflow-synth-p8.patch"
+      patch -Np1 -i "$srcdir/ppc64le-v8-mul64-overflow-synth-p8.patch"
       msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-ov64-overflow-synth.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-ov64-overflow-synth.patch"
     fi

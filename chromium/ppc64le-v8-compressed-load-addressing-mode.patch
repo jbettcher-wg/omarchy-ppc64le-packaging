@@ -1,0 +1,84 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 drop the DS-form alignment restriction from compressed loads
+
+SelectLoadOpcode returns an opcode and an ImmediateMode, and VisitLoadCommon
+picks the displacement form (kMode_MRI) only if CanBeImmediate(offset, mode)
+accepts the offset; kInt16Imm_4ByteAligned additionally demands
+!(value & 3).  Three sites downgrade to that mode for loads whose result
+representation is Compressed -- AnyTagged/TaggedPointer and TaggedSigned in
+the Turboshaft overload, and kCompressed in the LoadRepresentation overload
+the atomic loads use -- because they emitted kPPC_LoadWordS32, i.e. lwa.
+lwa is DS-form: the low two bits of its displacement are the extended
+opcode, so assembler-ppc.cc CHECKs !(offset & 3) and emits LD | ... |
+offset | 2.
+
+Since ppc64le-v8-compressed-load-zero-extend.patch those sites return
+kPPC_LoadWordU32, i.e. lwz, which is D-form: d_form(LWZ, ...) checks only
+is_int16, and ASSEMBLE_LOAD_INTEGER(lwz, plwz, lwzx, false) passes
+must_be_aligned = false, so a misaligned kMode_MRI displacement is emitted as
+a plain lwz.  The downgrade no longer protects anything; that patch noted it
+had become "merely unnecessary".  This removes it.
+
+It is not a corner case.  On ppc64 the load-store simplification converts
+tagged-base loads into raw loads and folds field_offset - kHeapObjectTag into
+the index constant (kNeedsUntaggedBase, load-store-simplification-reducer.h).
+Under pointer compression fields are 4-byte aligned and kHeapObjectTag is 1,
+so every such displacement is 3 mod 4: the map is at -1, a FixedArray length
+at 3.  CanBeImmediate rejects all of them, VisitLoadCommon falls through to
+kMode_MRR, and the constant is materialised:
+
+    li    r0,-1
+    lwzx  rT,rB,r0
+
+where
+
+    lwz   rT,-1(rB)
+
+encodes directly.  The loads concerned are those the decompression
+optimization narrows to a Compressed result -- any load whose every use is
+a tagged comparison, a store into a tagged field, a FrameState or a 32-bit
+bitcast (decompression-optimization.cc, ProcessOperation: ComparisonOp,
+WordBinopOp and ShiftOp force decompression only for Word64 reps).  A map
+check is the commonest: the loaded map is compared against a constant map.
+The fix is one instruction and one register fewer per such load.
+
+Kept as they are: Int64/Word64 and uncompressed tagged loads still use ld,
+which is DS-form, and keep the downgrade; VisitWord64Sar's folded lwa (~line
+990) tests kInt16Imm_4ByteAligned itself and is untouched; the kInt34Imm
+POWER10 path is untouched.  No new instruction is emitted -- lwz is what the
+same site already emits in the MRR form -- so this is valid for both the
+POWER8 (ISA 2.07) and POWER9 (ISA 3.0) pools.
+
+Ordering: this must apply after ppc64le-v8-compressed-load-zero-extend.patch,
+on whose hunks it sits.  With lwa still in place, lifting the restriction
+would send a 3 mod 4 displacement into ASSEMBLE_LOAD_INTEGER's plwa branch,
+whose CHECK(PPC_10_PLUS) fails on both pools.  Not separately benchmarked:
+the saving is static, one instruction and the scratch register per
+compressed-result load.  Upstreamable as-is together with the zero-extend
+change; not ppc64le packaging specific.
+
+--- a/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
++++ b/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
+@@ -214,14 +214,12 @@
+     case MemoryRepresentation::AnyTagged():
+     case MemoryRepresentation::TaggedPointer():
+       if (result_rep == RegisterRepresentation::Compressed()) {
+-        if (*mode != kInt34Imm) *mode = kInt16Imm_4ByteAligned;
+         return kPPC_LoadWordU32;
+       }
+       DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+       return kPPC_LoadDecompressTagged;
+     case MemoryRepresentation::TaggedSigned():
+       if (result_rep == RegisterRepresentation::Compressed()) {
+-        if (*mode != kInt34Imm) *mode = kInt16Imm_4ByteAligned;
+         return kPPC_LoadWordU32;
+       }
+       DCHECK_EQ(result_rep, RegisterRepresentation::Tagged());
+@@ -278,7 +276,6 @@
+     case MachineRepresentation::kCompressedPointer:  // Fall through.
+     case MachineRepresentation::kCompressed:
+ #ifdef V8_COMPRESS_POINTERS
+-      if (*mode != kInt34Imm) *mode = kInt16Imm_4ByteAligned;
+       return kPPC_LoadWordU32;
+ #else
+       UNREACHABLE();

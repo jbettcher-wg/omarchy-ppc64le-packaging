@@ -1,0 +1,176 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 detect Int32 mul/neg overflow in CR0, not XER
+
+ppc64le-v8-int32-overflow-cmpd.patch moved kPPC_Add32 and kPPC_Sub32 off the
+XER path.  This does the same for the two remaining Int32 opcodes that still
+read XER[OV32] through mcrxrx (ISA 3.0; on POWER8 the emulated mcrxr, or the
+loadpc synthesis).
+
+kPPC_Mul32 currently emits
+
+    mullwo rT,rA,rB      SetOE
+    mcrxrx cr0           XER[OV32] -> CR0
+    extsw  rT,rT         Word32 canonical form
+    bc deopt             on CR_OV32
+
+mullw reads only the low word of each operand and writes the *whole* 64-bit
+product to RT (Power ISA, Book I, "Multiply Low Word": "The 32-bit operands
+are the low-order 32 bits of RA and of RB.  The 64-bit product of the
+operands is placed into register RT").  So the int32 result overflows exactly
+when the product is not its own sign extension:
+
+    mullw rtmp,rA,rB     LeaveOE
+    extsw rT,rtmp        the extsw the canonical form needed anyway
+    cmpd  rT,rtmp
+    bne   deopt
+
+Three instructions plus the branch on both pools, no XER read, no mulhw.
+Unlike the add/sub identity this one does not need the inputs' upper words
+to be clean, because mullw never looks at them.  That matters here:
+kPPC_LoadWordU32 is lwz, so a negative int32 loaded from memory sits
+zero-extended in its register.
+
+kPPC_Neg32 currently emits
+
+    nego   rT,rA         SetOE
+    mcrxrx cr0
+    extsw  rT,rT
+    bc deopt
+
+Int32 negation overflows for exactly one input, INT32_MIN, so the test is a
+compare of the input's low word against 0x80000000 and needs no arithmetic
+flag at all:
+
+    xoris  rtmp,rA,0x8000   flip bit 31 of the low word
+    neg    rT,rA
+    extsw  rT,rT
+    cmpwi  rtmp,0           CR0[EQ] iff the low word of rA was 0x80000000
+    beq    deopt
+
+The 64-bit form neg+extsw+cmpd was considered and rejected: for a
+zero-extended INT32_MIN (0x0000000080000000, which is what lwz produces) neg
+yields 0xffffffff80000000, which is its own sign extension, and the overflow
+is missed; for any other zero-extended negative it reports an overflow that
+did not happen.  xoris and cmpwi look only at the low word, so this form is
+exact whatever the upper word holds.  The test chain (xoris -> cmpwi) is
+independent of the value chain (neg -> extsw), so the branch resolves after
+two dependent instructions, the same depth as nego -> mcrxrx.
+
+FlagsConditionToCondition maps kOverflow/kNotOverflow to ne/eq for
+kPPC_Mul32, the same polarity as Add32/Sub32, and to eq/ne for kPPC_Neg32,
+where CR0 holds a compare against the one overflowing value.  No opcode
+produces overflow32/nooverflow32 any more; the cases that consume them are
+left in place.
+
+ip holds the untruncated product and the flipped input: it is outside the
+allocatable set (r3-r10, r14-r24, r30) and already serves as scratch in this
+file.  Both sequences read every input before writing the output, so they
+are correct when the output register aliases an input.
+
+Verified on POWER9 (AC922) with a probe that executes the emitted mnemonics:
+mullw(0x7fffffff,2) = 0x00000000fffffffe and mullw(0xffffffff00000002,3) =
+6, i.e. the full product with the upper words ignored; the mul identity
+agreed with mullwo's OV32 and with __builtin_mul_overflow on 196 operand
+pairs including garbage upper words; the xoris/cmpwi test agreed with nego's
+OV32 on every edge value tried, while neg+extsw+cmpd disagreed on four.
+
+Cost.  POWER9: Mul32 stays at 3 instructions plus the branch, with the
+mcrxrx (an XER read serialised behind the multiply) replaced by a cmpd;
+Neg32 goes from 3 to 4 plus the branch at the same branch depth.  POWER8:
+Mul32 goes from 5 plus the branch (mulhw, mullw, srawi, cmpw, extsw, from
+ppc64le-v8-mul32-overflow-synth.patch) to 3; Neg32 from the loadpc
+synthesis (neg, and, srwi, mtcrf, mr, extsw -- 6) to 4, and no longer
+writes CR through mtcrf.  Neg32 is rare (a checked 0 - x); it is converted
+so that no Int32 overflow check in this backend reads XER any more.  No
+benchmark was run for this change; the figures are instruction counts.
+
+Valid for both pools: every instruction here is ISA 2.07 or older and
+nothing is ISA 3.1.  On the POWER8 pool this supersedes the kPPC_Mul32 hunk
+of ppc64le-v8-mul32-overflow-synth.patch and the kPPC_Mul32 lines of its two
+FlagsConditionToCondition hunks; that patch's kPPC_Mul64 hunk (mulhd, mulld,
+sradi, cmp, with Mul64 -> ne/eq) and its maglev-ir-ppc.cc hunk are not
+covered here.  The 64-bit opcodes are untouched -- extsw does not help
+there.  Upstreamable as-is; not ppc64le packaging specific.
+
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -341,11 +341,12 @@
+           return overflow64;
+         case kPPC_Add32:
+         case kPPC_Sub32:
++        case kPPC_Mul32:
+           // Detected with extsw+cmpd rather than XER; CR0 holds the compare.
+           return ne;
+         case kPPC_Neg32:
+-        case kPPC_Mul32:
+-          return overflow32;
++          // Overflows only for INT32_MIN; CR0 holds cmpwi against it.
++          return eq;
+         default:
+           break;
+       }
+@@ -359,11 +360,12 @@
+           return nooverflow64;
+         case kPPC_Add32:
+         case kPPC_Sub32:
++        case kPPC_Mul32:
+           // See kOverflow above.
+           return eq;
+         case kPPC_Neg32:
+-        case kPPC_Mul32:
+-          return nooverflow32;
++          // See kOverflow above.
++          return ne;
+         default:
+           break;
+       }
+@@ -1488,14 +1490,22 @@
+       break;
+     case kPPC_Mul32:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+-        __ mullw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+-                 SetOE);
+-        __ MoveToCrFromXer(cr0);
++        // mullw reads only the low word of each input and leaves the whole
++        // 64-bit product in its target, so int32 overflow is exactly
++        // (product != extsw(product)), which cmpd reports in CR0 without
++        // touching XER.  FlagsConditionToCondition maps kOverflow for this
++        // opcode to ne.  Nothing in the inputs' upper words can reach the
++        // test, and the extsw is the one the Word32 canonical form needs
++        // anyway, so the check costs one cmpd.  ip is outside the
++        // allocatable set, so it cannot alias an input or the output.
++        __ mullw(ip, i.InputRegister(0), i.InputRegister(1));
++        __ extsw(i.OutputRegister(), ip);
++        __ CmpS64(i.OutputRegister(), ip, cr0);
+       } else {
+         __ mullw(i.OutputRegister(), i.InputRegister(0), i.InputRegister(1),
+                  LeaveOE, i.OutputRCBit());
++        __ extsw(i.OutputRegister(), i.OutputRegister());
+       }
+-      __ extsw(i.OutputRegister(), i.OutputRegister());
+       break;
+     case kPPC_Mul64:
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+@@ -1631,6 +1641,22 @@
+       break;
+     case kPPC_Neg32:
+     case kPPC_Neg64:
++      if (FlagsModeField::decode(instr->opcode()) != kFlags_none &&
++          instr->arch_opcode() == kPPC_Neg32) {
++        // Int32 negation overflows for exactly one input, INT32_MIN, so test
++        // the input for that value instead of asking XER: xoris flips bit 31
++        // of the low word and cmpwi compares the low word with zero, so
++        // CR0[EQ] is set iff the input's low word is 0x80000000.  Only the
++        // low word takes part; the upper word of a Word32 register is not
++        // defined here (kPPC_LoadWordU32 is lwz).  FlagsConditionToCondition
++        // maps kOverflow for this opcode to eq.  ip takes the input before
++        // neg can overwrite it, so the output may alias the input.
++        __ xoris(ip, i.InputRegister(0), Operand(0x8000));
++        __ neg(i.OutputRegister(), i.InputRegister(0));
++        __ extsw(i.OutputRegister(), i.OutputRegister());
++        __ cmpwi(ip, Operand::Zero(), cr0);
++        break;
++      }
+       if (FlagsModeField::decode(instr->opcode()) != kFlags_none) {
+         __ neg(i.OutputRegister(), i.InputRegister(0), SetOE);
+         __ MoveToCrFromXer(cr0);

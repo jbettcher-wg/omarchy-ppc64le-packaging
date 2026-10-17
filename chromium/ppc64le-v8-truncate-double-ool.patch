@@ -1,0 +1,149 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 move the TruncateDoubleToI stub call out of line
+
+kArchTruncateDoubleToI calls MacroAssembler::TruncateDoubleToI, which lays
+the whole conversion in the hot stream:
+
+    fctidz f13,fN
+    mffprd rT,f13
+    extsw  rS,rT
+    cmpd   rS,rT
+    beq    done           in range: jump over the stub call
+    mflr   rS             -- slow path, 11 instructions, inline --
+    stdu   rS,-8(sp)
+    stfdu  fN,-8(sp)
+    ld     ip,<DoubleToI>(kRootRegister)
+    mtctr  ip
+    bctrl
+    ld     rT,0(sp)
+    addi   sp,sp,8
+    ld     rS,0(sp)
+    addi   sp,sp,8
+    mtlr   rS
+  done:
+
+Every in-range truncation -- ToInt32 of a double that already is an int32,
+i.e. nearly all of them -- takes a forward branch over eleven instructions
+of stub call that sit in the instruction stream and the fetch window.  x64
+keeps four instructions inline (cvttsd2siq, cmpq, jo, movl) and emits the
+call in OutOfLineTruncateDoubleToI.  Do the same here with this file's
+OutOfLineCode mechanism:
+
+    fctidz f13,fN
+    mffprd rT,f13
+    extsw  rS,rT
+    cmpd   rS,rT
+    bne    ool            out of range: go to the stub
+  exit:
+
+and the eleven instructions above, then the jump back to exit, in the
+out-of-line block at the end of the function with the other slow paths.
+Five instructions inline against sixteen, no taken branch on the fast path,
+and the slow path's contents are unchanged.
+
+The fast path is built from the macro-assembler's own pieces,
+ConvertDoubleToInt64 and TestIfInt32, rather than TryInlineTruncateDoubleToI,
+because that helper branches to its done label on success and falls through
+into the stub call, the wrong polarity for an out-of-line target.  The
+out-of-line block is a copy of MacroAssembler::TruncateDoubleToI's slow
+path with the same StubCallMode handling for wasm, so TruncateDoubleToI and
+its other callers are untouched: the macro-assembler keeps emitting inline
+for them, which is the limit of what this file alone can change.
+
+Branch distance: the bne to the out-of-line entry is a 16-bit bc
+displacement, the same form this file already uses for every other
+out-of-line entry (write barriers, traps) and for deoptimisation exits.
+
+The slow path still saves and restores LR itself, as it does today, so
+frame-elided code needs nothing extra, and the sp adjustments stay balanced
+inside the block.  No benchmark was run for this change; the justification
+is the instruction count above and that ToInt32 is on the path of every
+bitwise operator and typed-array index applied to a double.
+
+Valid for both pools: nothing ISA-level changes; fctidz, mffprd (ISA 2.07),
+extsw and cmpd are what the file already emits.  Independent of the other
+two patches in this set; applies on top of them or on the unpatched file.
+
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+@@ -281,6 +281,53 @@
+   Zone* zone_;
+ };
+ 
++class OutOfLineTruncateDoubleToI final : public OutOfLineCode {
++ public:
++  OutOfLineTruncateDoubleToI(CodeGenerator* gen, Register result,
++                             DoubleRegister input, StubCallMode stub_mode)
++      : OutOfLineCode(gen),
++        result_(result),
++        input_(input)
++#if V8_ENABLE_WEBASSEMBLY
++        ,
++        stub_mode_(stub_mode)
++#endif  // V8_ENABLE_WEBASSEMBLY
++  {
++  }
++
++  void Generate() final {
++    // The slow path of MacroAssembler::TruncateDoubleToI, unchanged: call
++    // the DoubleToI builtin with the input in a stack slot and read the
++    // result back from the same slot.
++    __ PushLR();
++    __ stfdu(input_, MemOperand(sp, -kDoubleSize));
++#if V8_ENABLE_WEBASSEMBLY
++    if (stub_mode_ == StubCallMode::kCallWasmRuntimeStub) {
++      // A direct call to a wasm runtime stub defined in this module.  Just
++      // encode the stub index; it is patched when the code is added to the
++      // native module and copied into wasm code space.
++      __ Call(static_cast<Address>(Builtin::kDoubleToI),
++              RelocInfo::WASM_STUB_CALL);
++#else
++    // For balance.
++    if (false) {
++#endif  // V8_ENABLE_WEBASSEMBLY
++    } else {
++      __ CallBuiltin(Builtin::kDoubleToI);
++    }
++    __ LoadU64(result_, MemOperand(sp));
++    __ addi(sp, sp, Operand(kDoubleSize));
++    __ PopLR();
++  }
++
++ private:
++  Register const result_;
++  DoubleRegister const input_;
++#if V8_ENABLE_WEBASSEMBLY
++  StubCallMode const stub_mode_;
++#endif  // V8_ENABLE_WEBASSEMBLY
++};
++
+ #if V8_ENABLE_WEBASSEMBLY
+ class OutOfLineTrap final : public OutOfLineCode {
+  public:
+@@ -1204,12 +1251,22 @@
+       __ LoadSmiLiteral(i.OutputRegister(),
+                         Smi::FromInt(GetStackCheckOffset()));
+       break;
+-    case kArchTruncateDoubleToI:
+-      __ TruncateDoubleToI(isolate(), zone(), i.OutputRegister(),
+-                           i.InputDoubleRegister(0), DetermineStubCallMode(),
+-                           kScratchDoubleReg);
++    case kArchTruncateDoubleToI: {
++      Register result = i.OutputRegister();
++      DoubleRegister input = i.InputDoubleRegister(0);
++      auto ool = zone()->New<OutOfLineTruncateDoubleToI>(
++          this, result, input, DetermineStubCallMode());
++      // The fast path of MacroAssembler::TruncateDoubleToI: fctidz, mffprd,
++      // then TestIfInt32's extsw+cmpd.  The DoubleToI stub call is out of
++      // line, so the common case runs straight through the join.
++      DCHECK(input != kScratchDoubleReg);
++      __ ConvertDoubleToInt64(input, result, kScratchDoubleReg);
++      __ TestIfInt32(result);
++      __ bne(ool->entry());
++      __ bind(ool->exit());
+       DCHECK_EQ(LeaveRC, i.OutputRCBit());
+       break;
++    }
+     case kArchStoreWithWriteBarrier: {
+       RecordWriteMode mode = RecordWriteModeField::decode(instr->opcode());
+       Register object = i.InputRegister(0);

@@ -1,0 +1,90 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 fuse the zero-extend and scale of an element index into rldic
+
+ppc64 is in V8_TARGET_ARCH_RESTRICTIVE_LOAD_STORE
+(v8/src/compiler/turboshaft/load-store-simplification-reducer.h:26), so its
+kMaxElementSizeLog2 is 0 and every element access with a scaled index is
+rewritten to
+
+    WordPtrShiftLeft(index, element_size_log2)          (same file, :160, :195)
+
+with the displacement folded in by a WordPtrAdd.  The index is a checked
+Word32 that the graph builder widens with ChangeUint32ToUintPtr -- six sites
+in turbolev-graph-builder.cc (:3327, :3360, :3367, :3936, :3953 among them),
+and ChangeUint32ToUint64 in simplified-lowering.cc:2120 on the TurboFan path
+-- which is ChangeUint32ToUint64 on a 64-bit target (assembler.h:2642).  So
+a typed-array or FixedArray element load arrives at the backend as
+
+    Word64Shl(ChangeUint32ToUint64(i), k)
+
+and today the two nodes are selected separately:
+
+    clrldi rT,ri,32        VisitChangeUint32ToUint64 -> kPPC_Uint32ToUint64
+    sldi   rT,rT,k         VisitWord64Shl            -> kPPC_ShiftLeft64
+
+rldic does both at once:
+
+    rldic  rT,ri,k,32-k
+
+VisitWord64Shl already matches Word64Shl(Word64BitwiseAnd(x, mask), k) and
+emits kPPC_RotLeftAndClear64 when the shifted mask is a single contiguous
+field.  ChangeUint32ToUint64(x) is Word64BitwiseAnd(x, 0xffffffff), so this
+adds that match for 0 < k < 32, reading the ChangeOp's input directly.  The
+operands follow the file's IsContiguousMask64 convention -- sh = k, mask =
+31 + k, the index of the highest surviving bit -- and the existing lowering
+in code-generator-ppc.cc
+
+    rldic(out, in, sh, 63 - mask)
+
+turns that into MB = 32 - k.  The code generator is not modified.
+
+Correctness: rldic RA,RS,SH,MB is ROTL64(RS, SH) & MASK(MB, 63 - SH).  With
+MB = 32 - k that keeps big-endian bits 32-k .. 63-k, i.e. little-endian bits
+k .. 31+k.  For 0 < k < 32 the rotate carries x's bits 0..31 to k..31+k
+without wrapping, and the mask clears x's bits 32..63 (now at 32+k..63 and
+0..k-1), so the result is (x & 0xffffffff) << k for every x.  Verified on
+POWER9 against that C expression for every k in 1..31 over random and edge
+inputs.  k = 0 and k >= 32 stay on the generic path: for k >= 32 the
+extension could be dropped altogether, as arm64 and loong64 do, but that is
+a different rewrite.  No CanCover check is needed: if the ChangeOp has other
+uses it is still emitted for them, so the fused sequence is never longer than
+the current one.  arm64 fuses the same shape with ubfiz, and arm64, loong64,
+mips64 and riscv64 all special-case Opmask::kChangeUint32ToUint64 as the left
+input of a 64-bit shift.
+
+rldic is a base 64-bit Book I instruction, present since the original PPC64
+architecture and absent from the ISA 3.0 "V2.07 bit" table, and the existing
+Word64BitwiseAnd match already emits it.  Valid for both the POWER8 (ISA
+2.07) and POWER9 (ISA 3.0) pools; it adds no ISA 3.0 or 3.1 instruction.
+
+Found by disassembling TurboFan output from the shipped build with
+--perf-prof: 4 clrldi+sldi pairs per lin_solve iteration in Octane
+NavierStokes and 3 per am3 iteration in Octane Crypto, one per element
+access, and the pattern covers every typed-array and FixedArray access the
+browser compiles.  Upstreamable as-is; not ppc64le packaging specific.
+
+--- a/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
++++ b/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
+@@ -820,6 +820,22 @@
+   const ShiftOp& shl = this->Get(node).template Cast<ShiftOp>();
+   const Operation& lhs = this->Get(shl.left());
+   int64_t value;
++  if (lhs.Is<Opmask::kChangeUint32ToUint64>() &&
++      this->MatchSignedIntegralConstant(shl.right(), &value) &&
++      base::IsInRange(value, 1, 31)) {
++    // Word64Shl(ChangeUint32ToUint64(x), sh) is (x & 0xffffffff) << sh, the
++    // Word64BitwiseAnd case below with a 32-bit mask.  One rldic rotates
++    // left by sh and clears the high 32 - sh bits (mask bit 31 + sh in the
++    // IsContiguousMask64 convention, which the code generator turns into
++    // MB = 32 - sh), replacing the clrldi + sldi pair that visiting the two
++    // nodes separately produces.  Turboshaft's load-store simplification
++    // emits exactly this shape for every scaled element index.
++    int sh = value;
++    Emit(kPPC_RotLeftAndClear64, g.DefineAsRegister(node),
++         g.UseRegister(lhs.Cast<ChangeOp>().input()), g.TempImmediate(sh),
++         g.TempImmediate(31 + sh));
++    return;
++  }
+   if (lhs.Is<Opmask::kWord64BitwiseAnd>() &&
+       this->MatchSignedIntegralConstant(shl.right(), &value) &&
+       base::IsInRange(value, 0, 63)) {
