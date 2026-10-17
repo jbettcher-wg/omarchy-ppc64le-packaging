@@ -510,8 +510,12 @@ prepare() {
       # Applying both would fail its first three hunks and leave Mul64 emitting
       # a CR0 compare while its condition still read overflow64. Its Mul64 hunk
       # is still wanted here, rebased as mul64-overflow-synth-p8.
-      # TODO: its Maglev Int32MultiplyWithOverflow hunk has not been re-homed --
-      # do that before the baseline pool is rebuilt.
+      # Its Maglev Int32MultiplyWithOverflow hunk is re-homed onto the same
+      # extsw+cmpd identity in ppc64le-v8-maglev-mul32-overflow-cmpd.patch,
+      # which is NOT wired in: nothing has been compiled from it yet. It is
+      # valid for both pools -- a large win on POWER8, parity on POWER9 --
+      # so wire it into the unconditional loop above, not here, once a build
+      # has exercised it.
       msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-mul64-overflow-synth-p8.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-mul64-overflow-synth-p8.patch"
       msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-ov64-overflow-synth.patch"

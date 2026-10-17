@@ -1,0 +1,91 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 detect Maglev Int32 multiply overflow in CR0, not XER
+
+Maglev's Int32MultiplyWithOverflow is the last Int32 overflow site in the
+ppc64 backend still reading XER.  Turbofan's kPPC_Mul32 was moved to an
+extsw+cmpd compare by ppc64le-v8-mul32-neg32-overflow-cmpd.patch; this
+applies the same identity in Maglev, which sees the same arithmetic from
+the same JS.
+
+The withdrawn ppc64le-v8-mul32-overflow-synth.patch carried a version of
+this hunk that tested the product with mulhw/mullw/srawi/cmpw -- four
+instructions and a second scratch register.  That is unnecessary: mullw
+reads only the low word of each operand and places the full 64-bit product
+in RT (Power ISA, Book I, "Multiply Low Word"), so the int32 product
+overflows exactly when it is not its own sign extension, and
+
+    mullw temp,left,right
+    extsw out,temp
+    cmpd  out,temp
+
+decides it in three instructions with the one scratch register the function
+already holds.  The extsw is not wasted work either -- ZeroExtWord32 below
+re-narrows the same low word, so the result is bit-identical to what mullw
+alone produced.  The patch that hunk came from was withdrawn for its
+Turbofan Add32/Sub32 hunks, which assumed Word32 values arrive
+sign-extended; nothing here rests on that, because mullw ignores the
+operands' upper words entirely.
+
+Ordering: temp takes the untruncated product, so out is written only after
+both inputs have been read, and out may alias left or right.  temp is the
+existing TemporaryRegisterScope scratch and is reused further down for the
+-0 check, after this sequence has finished with it.  DCHECK_REGLIST_EMPTY
+keeps the same register list.
+
+Polarity: EmitEagerDeoptIf moves from overflow32 to ne, matching the CR0
+compare.  The other EmitEagerDeoptIf(overflow32, ...) sites in this file
+are untouched -- they belong to add/subtract/negate/divide, which this
+identity does not cover.
+
+Why it matters on POWER8: mcrxr has been emulated rather than implemented
+since POWER4, and the loadpc synthesis this backend uses in its place
+measured 2805 ns/op against 4.58 ns for the sequence above.  On POWER9 the
+native mcrxrx measures 4.61 ns, i.e. parity, so this is a large win on one
+pool and free on the other.
+
+ISA: mullw, extsw and cmpd are all ISA 2.07 or older, so this is valid for
+both pools.
+
+NOT YET EXERCISED.  This was written against the extracted 153.0.8010.52
+tree and applies cleanly after the eleven unconditional ppc64le-v8-*
+patches, but no binary has been built from it and no benchmark has been
+run.  The mullw full-product identity it rests on is hardware-verified on
+POWER9 (196 operand pairs against __builtin_mul_overflow, including
+garbage upper words) by the Turbofan patch above; what is unverified here
+is this function, not the identity.  Upstreamable as-is.
+
+--- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
++++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
+@@ -422,17 +422,24 @@
+ 
+   MaglevAssembler::TemporaryRegisterScope temps(masm);
+   Register temp = temps.AcquireScratch();
+-  // Read XER[OV32] via mcrxrx, not CR0[SO]. SetRC copies the *sticky*
+-  // XER[SO] into CR0 bit 3, and nothing in a syscall-free stretch of JS ever
+-  // clears it -- so after a single genuine overflow every later int32 multiply
+-  // would deopt forever, permanently dropping the function out of Maglev.
+-  // This matches the idiom every other overflow site in this file uses.
+-  __ mullw(out, left, right, SetOE);
+-  __ MoveToCrFromXer(cr0);
++  // mullw reads only the low word of each operand and leaves the whole 64-bit
++  // product in its target, so the int32 product overflows exactly when it is
++  // not its own sign extension -- which cmpd reports in CR0 without reading
++  // XER at all. Two other options were rejected: SetRC copies the *sticky*
++  // XER[SO] into CR0 bit 3, which nothing in a syscall-free stretch of JS ever
++  // clears, so one genuine overflow would deopt every later int32 multiply
++  // forever and drop the function out of Maglev permanently; and reading
++  // XER[OV32] needs mcrxrx or, on POWER8, the emulated mcrxr, measured at
++  // 2805 ns against 4.58 ns for this sequence, with POWER9's native mcrxrx at
++  // parity (4.61 ns). `temp` takes the untruncated product, so `out` is not
++  // written until both inputs have been read and may alias either of them.
++  __ mullw(temp, left, right);
++  __ extsw(out, temp);
++  __ CmpS64(out, temp, cr0);
+ 
+   DCHECK_REGLIST_EMPTY(RegList{temp, out} &
+                        GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
+-  __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
++  __ EmitEagerDeoptIf(ne, DeoptimizeReason::kOverflow, this);
+ 
+   // Making sure that the 32-bit output is zero-extended.
+   __ ZeroExtWord32(out, out);
