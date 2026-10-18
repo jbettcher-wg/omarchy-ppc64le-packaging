@@ -102,7 +102,7 @@ pkgname=powerarm
 # #tag=$pkgver, so bumping this one value moves the package to the next
 # release; there is deliberately no pkgver() to recompute it at build time.
 # The older m1/m2 tags were milestones, not versions, and are obsolete.
-pkgver=0.12.0
+pkgver=0.20.0
 pkgrel=1
 pkgdesc='AArch64 emulation for 64-bit POWER'
 arch=('powerpc64le')
@@ -215,6 +215,59 @@ prepare() {
   git -c protocol.file.allow=always submodule update -- "${_paths[@]}"
 }
 
+# Assertions about the two things in this package that fail silently and
+# invisibly.  Defined as a function because it has to be called from build()
+# -- see the note there about --nocheck -- while staying available to check()
+# so a hand-run `makepkg` still performs it.
+_powerarm_assert() {
+  # Not a test suite -- one assertion, about the single thing in this package
+  # that fails silently and invisibly.  If the generated binfmt entry names any
+  # interpreter other than /usr/bin/POWERarm, systemd registers a handler for
+  # every aarch64 ELF on the machine that points at a file which is not there.
+  local _conf="$srcdir/build/Data/binfmts/POWERarm-aarch64.conf"
+  local _interp
+  _interp=$(cut -d: -f7 "$_conf")
+  if [[ $_interp != /usr/bin/POWERarm ]]; then
+    echo "==> binfmt interpreter is '$_interp', expected /usr/bin/POWERarm" >&2
+    echo "==> the build was configured with the wrong CMAKE_INSTALL_PREFIX" >&2
+    return 1
+  fi
+  # POCF, and F above all: see the header.
+  local _flags
+  _flags=$(cut -d: -f8 "$_conf")
+  if [[ $_flags != *F* ]]; then
+    echo "==> binfmt flags '$_flags' have lost F; the .install hook's" >&2
+    echo "==> re-registration assumes inode pinning" >&2
+    return 1
+  fi
+
+  # Upstream's own ISA 3.0 guard lint (new in 0.20.0).  The JIT gates its ISA
+  # 3.0 lowerings on HostFeatures.SupportsISA30, read from AT_HWCAP2, so one
+  # binary serves POWER8 and POWER9.  An ISA 3.0 emit that escapes such a guard
+  # is invisible to everything that normally catches things: clang -mcpu=power8
+  # assembles lxv without complaint, llvm-objdump decodes it at --mcpu=pwr8, it
+  # runs here because this box IS a POWER9, and POWERARM_HOSTFEATURES=
+  # disableisa30 only flips the flag -- the instruction still executes on POWER9
+  # hardware.  It traps on a real POWER8 and nowhere else, i.e. only at a user.
+  #
+  # This is a source lint, not a scan of the built binary, and it has to be:
+  # the guarded sequences are chosen at run time, so no amount of objdump over
+  # our own artifact can see which arm a user's machine will take.  It is also
+  # only a lint -- it proves each call sits in a function that consults the
+  # flag, not that it sits on the correct arm.
+  local _lint="$srcdir/$pkgname/Scripts/powerarm/check-isa30-guards.py"
+  if [[ -f $_lint ]]; then
+    if ! python3 -I "$_lint"; then
+      echo "==> ISA 3.0 guard lint failed: the JIT can emit an ISA 3.0" >&2
+      echo "==> instruction on a path that runs without ISA 3.0.  That traps" >&2
+      echo "==> only on real POWER8, so it must not ship." >&2
+      return 1
+    fi
+  else
+    echo "==> note: check-isa30-guards.py absent; skipping the guard lint" >&2
+  fi
+}
+
 build() {
   local _hash
   _hash="$(git -C "$srcdir/$pkgname" rev-parse HEAD)"
@@ -233,13 +286,26 @@ build() {
   # /usr/local/lib/binfmt.d, where systemd will read it and where the file it
   # names does not exist.  check() below asserts the result.
   #
-  # TUNE_CPU: the upstream default is "native", which appends -march=native.
-  # Built on the POWER9 AC922 that bakes ISA 3.0 into the emulator's own host
-  # code, and the package then SIGILLs on its first instruction on a POWER8
-  # machine -- including the POWER8 VM this is tested on.  "none" leaves the
-  # ISA floor to /etc/makepkg.conf (-mcpu=power8 -mtune=power8), which is the
-  # pool's baseline.  Do not set it to power9 or native here; a machine-tuned
-  # rebuild can, and only for a machine-local package.
+  # TUNE_CPU: the upstream default is "native".  As of 0.20.0 this is LOAD
+  # BEARING rather than belt-and-braces.  Up to 0.12.0 upstream probed only
+  # -march=native, which clang rejects outright on powerpc64le, so the check
+  # failed, the -mcpu= branch was an elseif and never ran, and a native ppc64le
+  # build got no tuning flag at all -- accidentally ISA 2.07.  0.20.0 fixes that
+  # (CMakeLists.txt:504-515) and falls back to -mcpu=native on targets with no
+  # -march, so the default now bakes ISA 3.0 into the emulator's own host code
+  # when built on this POWER9 AC922, and the package SIGILLs on its first
+  # instruction on a POWER8 machine -- including the POWER8 VM this is tested
+  # on.  The flags land through target_compile_options(... PRIVATE) and so come
+  # AFTER makepkg's CXXFLAGS on the command line, which means the baseline
+  # pool's -mcpu=power9 -> -mcpu=power8 drop-in cannot save us: it rewrites that
+  # literal string and never sees "native".
+  #
+  # "none" skips both branches and leaves the ISA floor to /etc/makepkg.conf
+  # (-mcpu=power8 -mtune=power8 in the baseline pool), which is what we want.
+  # Do not set it to power9 or native here; a machine-tuned rebuild can, and
+  # only for a machine-local package.  TUNE_ARCH=generic is likewise not
+  # cosmetic: any other value reaches a FATAL_ERROR on this target, since
+  # -march= is not a flag clang accepts for powerpc64le at all.
   #
   # This is about HOST code only.  The JIT chooses ISA 3.0 against ISA 2.07
   # sequences at run time from CTX->HostFeatures.SupportsISA30, so the code it
@@ -290,29 +356,17 @@ build() {
 
   cmake "${_cmakeflags[@]}"
   cmake --build build
+
+  # Run the assertions HERE, not only from check().  bq -- the pool builder --
+  # invokes makepkg with --nocheck (tools/bq.py, the makepkg argv), so check()
+  # does not run for any package built into either pool.  Everything this
+  # recipe asserts would therefore have been asserted only in a hand-run
+  # `makepkg`, which is not how anything that ships is built.
+  _powerarm_assert
 }
 
 check() {
-  # Not a test suite -- one assertion, about the single thing in this package
-  # that fails silently and invisibly.  If the generated binfmt entry names any
-  # interpreter other than /usr/bin/POWERarm, systemd registers a handler for
-  # every aarch64 ELF on the machine that points at a file which is not there.
-  local _conf="$srcdir/build/Data/binfmts/POWERarm-aarch64.conf"
-  local _interp
-  _interp=$(cut -d: -f7 "$_conf")
-  if [[ $_interp != /usr/bin/POWERarm ]]; then
-    echo "==> binfmt interpreter is '$_interp', expected /usr/bin/POWERarm" >&2
-    echo "==> the build was configured with the wrong CMAKE_INSTALL_PREFIX" >&2
-    return 1
-  fi
-  # POCF, and F above all: see the header.
-  local _flags
-  _flags=$(cut -d: -f8 "$_conf")
-  if [[ $_flags != *F* ]]; then
-    echo "==> binfmt flags '$_flags' have lost F; the .install hook's" >&2
-    echo "==> re-registration assumes inode pinning" >&2
-    return 1
-  fi
+  _powerarm_assert
 }
 
 package() {
