@@ -1,0 +1,273 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: ppc64 drop the redundant extsw from ChangeInt32ToInt64
+
+VisitChangeInt32ToInt64 still carries mbrandy's original
+"TODO: inspect input to see if nop is appropriate" and emits
+kPPC_ExtendSignWord32 unconditionally.  Two of its input shapes already hold
+the sign extension the extsw would write.
+
+    sar      srawi r4,r4,1          ChangeInt32ToInt64(Word32Sar(x, n))
+             extsw r3,r4            -> the extsw is the identity
+
+    extsb    extsb r4,r3            ChangeInt32ToInt64(Word32SignExtend8(x))
+             extsw r3,r4            -> the extsw is the identity
+
+    trunc    extsw r4,r3            ChangeInt32ToInt64(TruncateWord64ToWord32(x))
+             extsw r3,r4            -> extsw(extsw(x)); one suffices
+
+The first two become a rename and the third becomes a single extsw against the
+truncate's own input.
+
+Not a general claim about Word32 values.  Word32 is NOT canonically
+sign-extended in this backend: kPPC_LoadWordU32 is lwz, so a negative int32
+read from memory sits zero-extended, and the withdrawn
+ppc64le-v8-int32-overflow-cmpd.patch shipped a miscompile by assuming
+otherwise.  This is a whitelist of two producers, both guaranteed by the Power
+ISA and not by any V8 convention:
+
+  * VisitWord32Sar emits kPPC_ShiftRightAlg32, i.e. sraw or srawi.  Book I,
+    "Shift Right Algebraic Word": the result is
+    r&m | EXTS(RS[32])&~m -- a 64-bit value that is the sign extension of its
+    own low word for every shift amount, and it reads only RS[32:63], so the
+    input's upper word cannot reach it.  VisitWord32Sar also matches the
+    shl+sar 16 and shl+sar 24 idioms and emits kPPC_ExtendSignWord16 /
+    kPPC_ExtendSignWord8 instead; extsh and extsb sign-extend to 64 bits too,
+    so either selection is covered.
+  * VisitSignExtendWord8ToInt32 / VisitSignExtendWord16ToInt32 emit
+    kPPC_ExtendSignWord8 / kPPC_ExtendSignWord16, i.e. extsb / extsh.
+
+The truncate case needs no whitelist entry at all.  kPPC_Int64ToInt32 happens
+to be an extsw today, but rather than rest on that, the patch emits one extsw
+against the truncate's input directly -- extsw of x is by definition the sign
+extension of x's low word, whatever the truncate would have expanded to -- and
+covers the truncate.  Machine lowering builds that shape for every lossless
+int64 -> int32 check, Word64Equal(ChangeInt32ToInt64(TruncateWord64ToWord32(v)),
+v), at machine-lowering-reducer-inl.h:90, :997 and :1211, which is what guards
+BigInt64 element stores and the Smi range checks; it is also what
+i64.extend32_s compiles to.
+
+kPPC_Add32, kPPC_Sub32, kPPC_Neg32 and kPPC_Mul32 are deliberately NOT
+whitelisted even though all four end in an extsw in this tree
+(code-generator-ppc.cc, the "if (instr->arch_opcode() == kPPC_Add32)" tails and
+the two mul32-neg32-overflow-cmpd sequences), so eliding on top of them would
+be correct here.  That is a V8 canonicalisation and not an ISA property, and it
+is demonstrably not stable: node 26.4.0's V8 14.6 on this machine compiles
+i64.extend_i32_s(i32.mul(x,3)) to "mullw r4,r4,r5; extsw r3,r4" and
+i64.extend_i32_s(i32.sub(0,x)) to "neg r4,r4; extsw r3,r4" -- one extsw, not
+two -- while compiling i64.extend_i32_s(i32.add(x,7)) to
+"addi r4,r4,7; extsw r4,r4; extsw r3,r4".  A whitelist entry that silently
+turns into a miscompile when a code-generator tail moves is not worth one
+instruction, so those four are left alone.  If the Word32 canonicalisation is
+ever removed outright -- which is the larger change this one deliberately is
+not -- nothing here has to be revisited.
+
+Also absent, and not elidable: the logical ops (kPPC_And/Or/Xor are the 64-bit
+instructions, so an upper word survives into the result), shl, shr and the
+rotates (slw, srw and rlwinm zero-extend), kPPC_Div32 and kPPC_Mod32 (bare
+divw/modsw, whose RT[0:31] the ISA leaves undefined), kPPC_Uint32ToUint64
+(clrldi), the loads, and anything whose value does not come from a single
+instruction, such as a Phi.  kPPC_Cntlz32 (cntlzw, result 0..32) is elidable
+and left out only because widening a clz to int64 is rare.
+
+Why this is safe for the three consumers that can read the upper 32 bits of a
+Word32 value.  Every case here is the IDENTITY on the 64-bit register: the bits
+are the same before and after, so no consumer can tell the difference.  That is
+the whole correctness argument, and it is why the patch is this narrow.  The
+audit behind it, which is worth recording because it was the reason this was
+deferred:
+
+  * The deoptimizer never reads the upper word of a Word32.
+    code-generator.cc:1476 and :1523 emit StoreInt32StackSlot /
+    StoreInt32Register for MachineType::Int32(); translated-state.cc:1429 reads
+    a register as static_cast<int32_t>(intptr_t) and :1631 reads a slot with
+    GetUInt32Slot, which is Memory<uint32_t>(address) on little-endian.  Both
+    take exactly 32 bits.  Maglev reaches the same two translation opcodes
+    (maglev-code-generator.cc:1491, :1521) and therefore the same reads.
+  * The ELFv2 argument convention is untouched because the register contents
+    are untouched.  Worth recording separately: the ppc64 backend does not
+    extend Word32 C-call arguments at all.  kArchCallCFunction
+    (code-generator-ppc.cc:1101) places them through AssembleMove, which is
+    Move/mr for a register and StoreU64 for a stack slot, with no extsw
+    anywhere, while liftoff does extend them
+    (liftoff-assembler-ppc-inl.h:3176).  Since lwz leaves a negative int32
+    zero-extended, V8/ppc64 can already hand a C function an int argument whose
+    high word is not the sign extension the ABI asks for.  Stack arguments are
+    safe on little-endian -- the callee reads the low four bytes of the
+    doubleword -- so the exposure is register arguments to callees that rely on
+    PROMOTE_MODE.  That is pre-existing, is not made worse or better here, and
+    deserves its own look.
+  * Maglev is not touched: this is the TurboFan instruction selector, and
+    Maglev has its own code generator (maglev-ir-ppc.cc, which extsw's every
+    Int32 result itself).  The two share only the deopt translation above.
+
+One mechanical point.  The rename makes a register defined with
+MachineRepresentation::kWord32 be read as kWord64.  That already happens in
+this file -- VisitBitcastWord32ToWord64, twenty lines above, is an
+EmitIdentity across exactly that boundary and is live in a pointer-compression
+build -- and it is safe here because ByteWidthForStackSlot
+(register-allocation.h:71) gives kWord32 kSystemPointerSize, the same 8 bytes
+as kWord64, and this backend's AssembleMove stores and loads integer stack
+slots with StoreU64/LoadU64 regardless of representation.
+
+Verified on POWER9 (AC922, DD2.3) by executing the instructions: 8087 checks,
+0 failures.  extsw is idempotent; srawi for every shift 0..31 and sraw for
+every register shift amount 0..63 (including ones with garbage above bit 5)
+leave a value equal to its own extsw, ignore the input's upper word, and agree
+with C's int32_t >> for shifts below 32; extsb and extsh likewise.  The
+exclusions were measured rather than assumed: over 400 operand pairs, slw left
+a non-sign-extended result 199 times, srw 84, and 197, or 279, xor 316, add
+338, subf 311, mullw 233, rlwinm 9, and divw 75 -- divw(-7, 2) returns
+0x00000000fffffffd on this hardware, so kPPC_Div32's result really is not
+sign-extended.  The premise was re-checked in the same run: lwz of 0x80000000
+gives 0x0000000080000000, lwa gives 0xffffffff80000000.
+
+Measured opportunity, from TurboFan disassembly of hand-built Wasm on this
+machine (node --no-liftoff --print-wasm-code; V8 14.6, so indicative of the
+shapes rather than of 153's exact output): i64.extend_i32_s(i32.shr_s(load,1))
+compiles to "lwzx; srawi; extsw", i64.extend_i32_s(i32.extend8_s(x)) to
+"extsb; extsw", i64.extend_i32_s(i32.shr_s(a,b)) to "sraw; extsw", and
+i64.extend_i32_s(i32.wrap_i64(x)) to "extsw; extsw" -- one instruction saved in
+each.  The negative controls kept theirs: i64.extend_i32_s(i32.load) and the
+and/or/xor/shl/shr/div forms all stayed "lwzx; extsw".  On the JS side the
+shape that matters is ChangeInt32ToInt64(UntagSmi(x)): with 31-bit Smis UntagSmi
+is Word32ShiftRightArithmeticShiftOutZeros (assembler.h:2811), so every
+Smi-to-intptr conversion through
+ConvertJSPrimitiveToUntagged/UntaggedKind::kInt64
+(machine-lowering-reducer-inl.h:1278) is srawi followed by a dead extsw.
+
+NOT COMPILED AND NOT BENCHMARKED.  No chromium build was made for this patch.
+The inserted code was syntax-checked in isolation against a stub mirror of the
+Turboshaft API, and every name it uses (Opcode::kWordUnary, Opcode::kShift,
+WordUnaryOp::Kind::kSignExtend8/16, ShiftOp::Kind::kShiftRightArithmetic and
+kShiftRightArithmeticShiftOutZeros, ShiftOp::rep, WordUnaryOp::rep,
+Opmask::kTruncateWord64ToWord32, ChangeOp::input) was read out of this tree's
+operations.h, opmasks.h and the surrounding file, but the real translation unit
+has not been through a compiler.  The figures above are instruction counts and
+disassembly, not timings.
+
+Correctness battery: /var/tmp/v8set-test/test.js grew 1388 checks for this,
+1579 in total, all passing under node 26.4.0 -- in the default configuration,
+under --no-liftoff (every Wasm function through TurboFan) and under
+--liftoff --no-wasm-tier-up (Liftoff only, which always emits a plain extsw for
+i64_signextend_i32 and so acts as the reference tier).  The Wasm half builds a
+module by hand so that each i64.extend_i32_s has a chosen producer, reads every
+case once before warming and again after 40000 calls, and requires the two
+tiers to agree with each other and with the JS oracle.  The inputs are the ones
+that catch this class of bug: values read out of linear memory with lwz so that
+bit 31 is set and the upper word is zero, INT32_MIN and INT32_MAX, i64 inputs
+whose high word is garbage (0xdeadbeef80000000 and friends) for the truncate
+shape, and the non-whitelisted producers as negative controls -- with mem[0] =
+-1, dropping the extsw in the and/or/xor/shl/shr/div forms would return
+4294967295 instead of -1, which is what those cases assert against.  The JS
+half drives Int32Array -> BigInt64Array round trips, shifted and arithmetic
+widenings, BigInt64Array -> Number (the lossless-int64 check), and Smi ->
+BigInt across the Smi range.
+
+Valid for both pools.  extsw, sraw, srawi, extsb and extsh are base Book I
+instructions, absent from the ISA 3.0C Book III table of instructions
+controlled by the V2.07 bit; the patch adds no instruction at all, it removes
+them.
+
+No ordering dependency on the rest of the series.  It touches only
+VisitChangeInt32ToInt64 and inserts a helper above it;
+ppc64le-v8-tst32-dead-extsw.patch is the same idea in the code generator for
+kPPC_Tst32 and does not overlap, and the VisitChangeUint32ToUint64 peephole
+that ppc64le-v8-select-roundtieseven-minmax.patch adds forty lines below --
+which drops an extsw whose bits a following clrldi overwrites -- is the
+complement of this one from the consumer side.  Upstreamable as-is; not
+ppc64le packaging specific.  arm64 (kArm64Sbfx on the sar shape) and riscv64
+(IsSignExtendWord32ToWord64 -> kArchNop) already do the equivalent.
+
+--- a/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
++++ b/v8/src/compiler/backend/ppc/instruction-selector-ppc.cc
+@@ -1336,8 +1336,89 @@
+   EmitIdentity(node);
+ }
+ 
++namespace {
++
++// Does the instruction this backend selects for {op} leave a 64-bit register
++// whose bits 32..63 already hold the sign extension of bit 31?  Where that
++// holds, the kPPC_ExtendSignWord32 on top of it writes the bits that are
++// already there and can be dropped.
++//
++// Word32 values are not canonically sign-extended in this backend --
++// kPPC_LoadWordU32 is lwz, so a negative int32 read from memory sits
++// zero-extended -- so this is a whitelist of individual producers and never a
++// property of Word32 values in general.  Both entries are guaranteed by the
++// Power ISA alone and not by any V8 convention:
++//
++//   Word32 sar   VisitWord32Sar emits kPPC_ShiftRightAlg32 (sraw/srawi, whose
++//                64-bit result the ISA defines as EXTS of the shifted word),
++//                or, for the shl+sar 16/24 idioms, kPPC_ExtendSignWord16 and
++//                kPPC_ExtendSignWord8 (extsh/extsb).  All three sign-extend.
++//   Word32 SignExtend8/16   kPPC_ExtendSignWord8/16 -> extsb/extsh.
++//
++// kPPC_Add32, kPPC_Sub32, kPPC_Neg32 and kPPC_Mul32 do end in an extsw today
++// and would be elidable too, but that is a V8 canonicalisation rather than an
++// ISA guarantee -- V8 14.6 emits kPPC_Mul32 and kPPC_Neg32 without it -- so
++// they are deliberately left out rather than coupling this to code that may
++// move.  Also absent, and not elidable at all: the logical ops (and/or/xor are
++// 64-bit), shl, shr and the rotates (slw/srw/rlwinm zero-extend), kPPC_Div32
++// and kPPC_Mod32 (bare divw/modsw, whose high word the ISA leaves undefined
++// and which measure non-sign-extended on POWER9), kPPC_Uint32ToUint64
++// (clrldi), the loads, and anything whose value does not come from one
++// instruction, such as a Phi.
++bool Word32ResultIsSignExtended(const Operation& op) {
++  switch (op.opcode) {
++    case Opcode::kWordUnary: {
++      const WordUnaryOp& unop = op.Cast<WordUnaryOp>();
++      return unop.rep == WordRepresentation::Word32() &&
++             (unop.kind == WordUnaryOp::Kind::kSignExtend8 ||
++              unop.kind == WordUnaryOp::Kind::kSignExtend16);
++    }
++    case Opcode::kShift: {
++      const ShiftOp& shift = op.Cast<ShiftOp>();
++      return shift.rep == WordRepresentation::Word32() &&
++             (shift.kind == ShiftOp::Kind::kShiftRightArithmetic ||
++              shift.kind == ShiftOp::Kind::kShiftRightArithmeticShiftOutZeros);
++    }
++    default:
++      return false;
++  }
++}
++
++}  // namespace
++
+ void InstructionSelector::VisitChangeInt32ToInt64(OpIndex node) {
+-  // TODO(mbrandy): inspect input to see if nop is appropriate.
++  // TODO(mbrandy): inspect input to see if nop is appropriate.  Done below for
++  // the two producers the ISA already leaves sign-extended, and for the
++  // Word64 truncate; everything else still needs the extsw.
++  const ChangeOp& change = Cast<ChangeOp>(node);
++  const Operation& input_op = this->Get(change.input());
++
++  // ChangeInt32ToInt64(TruncateWord64ToWord32(x)) is extsw(extsw(x)): the
++  // truncate is kPPC_Int64ToInt32, which is an extsw of its own.  Emit a single
++  // extsw against x rather than dropping the second one, so that the result
++  // does not depend on what kPPC_Int64ToInt32 expands to.  Machine lowering
++  // builds this shape for every lossless int64 -> int32 check (the
++  // Word64Equal(ChangeInt32ToInt64(TruncateWord64ToWord32(v)), v) guarding
++  // BigInt64 and Smi stores), and it is also what i64.extend32_s compiles to.
++  if (input_op.Is<Opmask::kTruncateWord64ToWord32>() &&
++      CanCover(node, change.input())) {
++    PPCOperandGenerator g(this);
++    Emit(kPPC_ExtendSignWord32, g.DefineAsRegister(node),
++         g.UseRegister(input_op.Cast<ChangeOp>().input()));
++    return;
++  }
++
++  if (Word32ResultIsSignExtended(input_op)) {
++    // Rename instead of emitting.  The 64-bit register contents are bit for
++    // bit what the extsw would have produced, which is what leaves this
++    // value's frame-state, deoptimizer and C-call ABI consumers untouched.
++    // The same Word32-defined-register-used-as-Word64 rename already happens
++    // in VisitBitcastWord32ToWord64 above, and a Word32 spill slot is
++    // kSystemPointerSize wide here, the same as a Word64 one.
++    EmitIdentity(node);
++    return;
++  }
++
+   VisitRR(this, kPPC_ExtendSignWord32, node);
+ }
+ 

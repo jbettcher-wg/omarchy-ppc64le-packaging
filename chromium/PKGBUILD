@@ -19,7 +19,7 @@
 
 pkgname=chromium
 pkgver=153.0.8010.52
-pkgrel=9
+pkgrel=10
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
@@ -157,7 +157,10 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         ppc64le-v8-mul32-neg32-overflow-cmpd.patch
         ppc64le-v8-tst32-dead-extsw.patch
         ppc64le-v8-truncate-double-ool.patch
-        ppc64le-v8-mul64-overflow-synth-p8.patch)
+        ppc64le-v8-mul64-overflow-synth-p8.patch
+        ppc64le-v8-maglev-mul32-overflow-cmpd.patch
+        ppc64le-v8-silence-nan-after-arithmetic.patch
+        ppc64le-v8-changeint32-redundant-extsw.patch)
 sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
@@ -200,7 +203,10 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             '0d64f2e39ae5322b52f293a7900da064c6b3993250b05ab2a769de667a60a4f2'
             'ba673a1e6a3b041a379101837d2e87f291f080ff1c61ca66ee429fb495201cec'
             'b2f75ea74cd91f1b9ff46b4eef16c592c9a0adb7c9c8ea20a7bb213e60d40988'
-            'c9dc83799477716595c1fe9bd49a06a4b9f2ba526dc2247e2435dada3502182e')
+            'c9dc83799477716595c1fe9bd49a06a4b9f2ba526dc2247e2435dada3502182e'
+            'e65ab1ea4235c6028af80c8c4246e8b608d4d5ba2f708437656451b1720552c7'
+            'd0700aa8c5929f91b38a9bd4aed4947be09173a338dadedb30bd3da3caabf66f'
+            '4f177124eb9b73a1960ac1c1b6ec1882c6ff4af4e2404933edc99288fa7a2cdf')
 
 if (( _manual_clone )); then
   source[0]=fetch-chromium-release
@@ -480,17 +486,25 @@ prepare() {
     # Book III Table 1 ("Instructions Controlled by the V 2.07 Bit"), i.e.
     # ISA 2.07, so they are POWER8-legal and benefit both lanes equally.
     # The series carries no _ARCH_PWR9 guards, so what gets compiled is
-    # identical on both lanes and identical to what was measured.
+    # identical on both lanes.
     #
-    # Must come after the loadpc conditional above: six of the eleven files
-    # are shared with it, and that is the order verified against the real
+    # The first eleven were measured at pkgrel 9 against pkgrel 7 on POWER9:
+    # Octane Encrypt -4.5%, Decrypt -5.8%, NavierStokes -1.3%, RayTrace flat,
+    # and 1579 correctness checks clean where -7 failed 2. The last three are
+    # new at pkgrel 10 and have NOT been compiled or measured. All three were
+    # dry-run proven to apply after the eleven, on both lanes.
+    #
+    # Must come after the loadpc conditional above: 8 of these files are
+    # shared with it, and that is the order verified against the real
     # extracted tree on both lanes.
     local _vp
     for _vp in compressed-load-zero-extend compressed-load-addressing-mode \
                rldic-index-fusion mov-trampoline-precedence \
                mul32-neg32-overflow-cmpd tst32-dead-extsw truncate-double-ool \
                maglev-correctness regexp-simd-scans \
-               select-roundtieseven-minmax single-bc-branches; do
+               select-roundtieseven-minmax single-bc-branches \
+               maglev-mul32-overflow-cmpd silence-nan-after-arithmetic \
+               changeint32-redundant-extsw; do
       msg2 "Applying ppc64le patch: ppc64le-v8-$_vp.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-$_vp.patch"
     done
@@ -511,11 +525,10 @@ prepare() {
       # a CR0 compare while its condition still read overflow64. Its Mul64 hunk
       # is still wanted here, rebased as mul64-overflow-synth-p8.
       # Its Maglev Int32MultiplyWithOverflow hunk is re-homed onto the same
-      # extsw+cmpd identity in ppc64le-v8-maglev-mul32-overflow-cmpd.patch,
-      # which is NOT wired in: nothing has been compiled from it yet. It is
-      # valid for both pools -- a large win on POWER8, parity on POWER9 --
-      # so wire it into the unconditional loop above, not here, once a build
-      # has exercised it.
+      # extsw+cmpd identity as ppc64le-v8-maglev-mul32-overflow-cmpd.patch,
+      # which is applied unconditionally above rather than here: it is valid
+      # for both pools -- a large win on POWER8, parity on POWER9 -- so it
+      # does not belong in a POWER8-only block.
       msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-mul64-overflow-synth-p8.patch"
       patch -Np1 -i "$srcdir/ppc64le-v8-mul64-overflow-synth-p8.patch"
       msg2 "Applying ppc64le patch (_power8_compat=1): ppc64le-v8-ov64-overflow-synth.patch"

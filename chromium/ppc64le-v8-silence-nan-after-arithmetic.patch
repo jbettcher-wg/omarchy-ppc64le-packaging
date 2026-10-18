@@ -1,0 +1,294 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: v8: turboshaft drop SilenceNaN when the value came out of IEEE arithmetic
+
+V8 inserts SilenceNaN wherever a double is about to be written into a
+double-representation array or field.  The reason is not IEEE hygiene, it is
+that V8 spends two signalling NaN bit patterns as in-band sentinels:
+
+  kHoleNanInt64      = 0xFFF7FFFF'FFF7FFFF   the hole in a FixedDoubleArray
+  kUndefinedNanInt64 = 0xFFF6FFFF'FFF6FFFF   undefined in a double array
+                                             (v8_enable_undefined_double,
+                                             true by default in this Chromium)
+
+Both have bit 51, the fraction MSB, clear, i.e. both are signalling.  Script
+can get hold of an arbitrary signalling NaN -- write one through a
+Uint32Array and read the same buffer back as a Float64Array -- so without
+silencing, `a[i] = thatValue` on a double array would let script forge a
+hole or an undefined.  Silencing sets bit 51, which lands the value outside
+both sentinels while preserving sign and payload.
+
+The cost is per store.  On ppc64 it is MacroAssembler::CanonicalizeNaN,
+which is LoadDoubleLiteral(kDoubleRegZero, 0.0) followed by fsub.  On this
+target V8_EMBEDDED_CONSTANT_POOL_BOOL is true, so that is an lfd out of the
+constant pool plus a constant pool slot, plus the fsub, and it clobbers d14.
+kDoubleRegZero is not maintained as 0.0 anywhere on ppc64 -- CanonicalizeNaN
+is its only user, and the register is also handed out as an FP scratch via
+Assembler::DefaultFPTmpList -- so the load is not removable on its own.
+x64 pays xorpd+subsd; arm64 pays a single fsub against its reserved fp_zero.
+
+IEEE 754-2019 makes most of these stores unnecessary.  Clause 7.2 requires a
+general-computational operation handed a signalling NaN to signal invalid
+and deliver a *quiet* NaN, and clause 6.2 requires a NaN produced by an
+invalid operation to be quiet as well.  Addition, subtraction,
+multiplication, division and squareRoot are general-computational, and every
+V8 backend lowers them to the one hardware instruction the architecture
+documents to those rules.  So the result of `x/y` is never a signalling NaN
+no matter what x and y were, and SilenceNaN of it is a no-op.
+
+This adds that reduction to MachineOptimizationReducer::REDUCE(FloatUnary):
+SilenceNaN(v) folds to v when v is a FloatBinop of kind kAdd, kSub, kMul or
+kDiv, or a FloatUnary of kind kSqrt, at the same FloatRepresentation.
+kSilenceNaN itself is included too, since it is idempotent.
+
+What V8 already knew, and what is new here
+------------------------------------------
+TurboFan's simplified lowering already drops the node when the value cannot
+be a NaN at all: the kNumberSilenceNaN case in simplified-lowering.cc tests
+`input_type.Is(Type::OrderedNumber())` and replaces the node with its input.
+That is the better mechanism for that case and this patch does not duplicate
+it -- notably it does not try to cover integer-to-double conversions, which
+the type system already handles.
+
+The case the type system cannot reach is the one here: a value that *can* be
+NaN, so the type is Number and the node survives, but whose NaN can only
+ever be quiet because it came out of an arithmetic unit.  `a[i] = p/q` on a
+PACKED_DOUBLE_ELEMENTS array is exactly that, and it is the common shape --
+the insertion site is js-native-context-specialization.cc's keyed store
+("Make sure we do not store signalling NaNs into double arrays"), with
+js-create-lowering.cc and js-call-reducer.cc behind it.
+
+Doing it in Turboshaft rather than in the TurboFan simplified graph also
+picks up the Turbolev path: turbolev-graph-builder.cc maps both
+maglev::Float64ToSilencedFloat64 and maglev::ChangeFloat64ToHoleyFloat64 to
+Float64SilenceNaN with no typing in front of them, so a Maglev-origin graph
+has no equivalent of the OrderedNumber check at all.
+
+MachineOptimizationReducer sits in the MachineLoweringPhase reducer stack
+below MachineLoweringReducer, so it sees the SilenceNaN ops that machine
+lowering emits for stores as they are emitted, and it runs again in the
+load-elimination and memory-optimization phases.
+
+What is deliberately left out
+-----------------------------
+The in-code comment lists these; the reasoning in short:
+
+  Abs, Negate.  Clause 5.5.1 sign bit operations, not arithmetic: they copy
+  the operand and set or flip the sign bit, and a signalling NaN stays
+  signalling.  The FloatBinop reducer in this same file already depends on
+  this -- it refuses to rewrite `x * -1` as `-x` when signalling NaNs are
+  possible, with that exact comment.  Confirmed on hardware: Math.abs of
+  0x7FF00000'00000001 reads back unchanged, and unary minus returns
+  0xFFF00000'00000001.
+
+  Min, Max.  These cannot create a NaN, only propagate an input one, and
+  whether the propagation quiets is a property of eight separate lowerings
+  rather than of the operation: x64's kSSEFloat64Min branches to
+  OutOfLineLoadFloat64NaN on unordered, ppc64's MacroAssembler::MinF64 and
+  MaxF64 route the unordered case through fadd, arm64 emits Fmin/Fmax and
+  leans on FPProcessNaNs.  They all quiet today.  That is not the same as a
+  guarantee, and min/max of a NaN is rare enough in a store that it is not
+  worth the audit.
+
+  Mod, Power, and the transcendentals.  These are calls -- on ppc64,
+  kPPC_ModDouble is a CallCFunction to mod_two_doubles_operation and the
+  kIeee754* opcodes call into base::ieee754 -- and a libm is entitled to
+  return its NaN argument unchanged.  The SilenceNaN is also noise next to
+  the call.
+
+  RoundDown, RoundUp, RoundToZero, RoundTiesEven.  roundToIntegral* are
+  general-computational, so the IEEE argument does apply, but the premise
+  that each backend implements them in one instruction does not: RISC-V's
+  MacroAssembler::RoundHelper fmv_d's the operand straight to the
+  destination for the NaN/Inf case and then needs an explicit
+  fmin_d(dst, src, src) to canonicalise it.  That is a sequence whose
+  correctness has to be read per backend, not an appeal to the standard, so
+  the family stays out.  This is a narrowing, not a claim that it is unsafe.
+
+  Float32 to Float64 conversion.  convertFormat is general-computational,
+  but ppc64 keeps single precision in double format and lowers
+  kPPC_Float32ToDouble to a plain register Move, which does not quiet.  A
+  concrete counterexample, so conversions stay out.
+
+Why phase ordering cannot defeat it
+-----------------------------------
+The reducer's own algebraic identities fire on the input before the
+SilenceNaN is reduced, because a CopyingPhase has already mapped and reduced
+the input by then.  So `SilenceNaN(x * 1.0)` has become `SilenceNaN(x)` by
+the time this code runs, and `SilenceNaN(x * -1.0)` has become
+`SilenceNaN(FloatNegate(x))`.  In both cases the match simply does not fire
+and the SilenceNaN is kept -- which is the correct outcome, since neither x
+nor FloatNegate(x) is guaranteed quiet.  The ordering can only cost a missed
+optimisation, never correctness.
+
+The reduction does not consult signalling_nan_possible (which is
+data()->is_wasm()).  It does not need to: the claim is about what the
+operation produces, not about what reaches it.  Every producer of
+Float64SilenceNaN is a JS-pipeline or CSA site anyway -- machine lowering's
+JS primitive conversions and double-array stores, the TurboFan graph
+builder, Turbolev, and CodeStubAssembler -- none of them a wasm graph
+builder.
+
+Bit-exactness
+-------------
+The elision is not merely "quiet either way", it is bit-for-bit invisible.
+On every backend that implements SilenceNaN as a subtraction of zero
+(ppc64 fsub, x64 subsd, arm64 fsub), subtracting zero from an already-quiet
+NaN propagates it unchanged, so removing the operation changes nothing.  On
+RISC-V, where arithmetic canonicalises every NaN result to
+0x7FF8000000000000, the producing add/sub/mul/div/sqrt has already
+canonicalised the value before SilenceNaN would have seen it, so again
+nothing changes.  The only side effect dropped is the IEEE invalid flag that
+the subtraction would have raised on a signalling input -- and after
+arithmetic the input is never signalling, so that flag was never raised.
+JS does not observe the FP status flags in any case.
+
+Arch-independent, and upstreamable
+----------------------------------
+This touches only shared Turboshaft code; there is no ppc64 content in it,
+and nothing in it is specific to this port.  It is an upstream candidate
+rather than a port fix.  It is filed here because this is where the series
+lives, and because the ppc64 lowering is the most expensive of the three
+(constant pool load plus fsub plus a clobbered scratch register).
+
+It is NOT wired into the PKGBUILD.  It has not been compiled and it has not
+been benchmarked; nothing in this tree has built it.  The identifiers it
+uses were checked against this exact tree -- FloatBinopOp::Kind has kAdd,
+kMul, kMin, kMax, kSub, kDiv, kMod, kPower, kAtan2; FloatUnaryOp::Kind has
+kSqrt and kSilenceNaN; both ops carry a `rep` field; OperationMatcher::
+TryCast is already used in this file -- but that is not a compile.
+
+Behavioural baseline
+--------------------
+The observable contract was measured against node 26.4.0 (V8 14.6) on
+ppc64le before the patch was written, by loading a signalling NaN out of a
+Float64Array by index and reading the result back through a second
+Float64Array (a typed-array store is the one channel that does not silence).
+Everything was done inside functions warmed to the optimising tiers, because
+a NaN that the compiler can see as a constant folds to a canonical quiet NaN
+and tells you nothing.  Starting from 0x7FF00000'00000001:
+
+  no store, in optimised code
+    x+0, x+1, x-1, x*2, x/3, Math.sqrt(x)   ->  7FF80000'00000001  quieted
+    Math.abs(x)                             ->  7FF00000'00000001  NOT quieted
+    -x                                      ->  FFF00000'00000001  NOT quieted
+    Math.min(x,1), Math.max(x,1)            ->  7FF80000'00000001  quieted
+    Math.floor(x), x%7                      ->  7FF80000'00000001  quieted
+    x-0, x*1, x/1                           ->  7FF00000'00000001  NOT quieted
+
+  stored into a packed or holey double array (identical for both)
+    all of the above                        ->  7FF80000'00000001
+    -x                                      ->  FFF80000'00000001
+    x**3, Math.fround(x)                    ->  7FF80000'00000000
+
+  with an already-quiet 7FF80000'00000003 going in, every store comes back
+  7FF80000'00000003 (FFF80000'00000003 through unary minus), payload intact
+
+  sentinels, stored with and without arithmetic in front
+    hole NaN      ->  FFFFFFFF'FFF7FFFF   quiet, not a hole, typeof number
+    undefined NaN ->  FFFEFFFF'FFF6FFFF   quiet, not undefined
+    the untouched hole of a holey array still reads undefined
+
+  not silenced at all (the control, without which nothing can fail)
+    Float64Array element, object property   ->  7FF00000'00000001
+
+The x-0, x*1 and x/1 line is worth dwelling on, because it is the strongest
+evidence that this patch is in keeping with what V8 already does: those three
+come back *signalling* in optimised code because MachineOptimizationReducer
+deletes the operation outright (lhs - +0.0 => lhs, lhs * 1 => lhs,
+lhs / 1 => lhs), guarded only by !signalling_nan_possible, which is false for
+all of JS.  Under --jitless the interpreter performs the subtraction and the
+NaN comes back quiet.  V8 has therefore already accepted a script-observable
+deviation of exactly this kind; the hole and undefined sentinels are the only
+place the quiet bit is load-bearing, and that place keeps its SilenceNaN.
+
+Every expectation above is invariant under this patch.  The operations it
+elides have already quieted the NaN themselves, so the bits do not move; the
+operations it does not elide are where the store is what quiets.  The
+discriminating cases are Math.abs and unary minus: if either were ever added
+to the elided set, their stored results would come back with bit 51 clear.
+
+The battery in v8set-test/test.js was extended with 91 checks covering all of
+the above -- the control that proves a signalling NaN is visible from script
+at all, the direct and the stored tables for packed and for holey double
+arrays, the quiet-NaN payload passthrough, the two sentinels, and NaN and
+signed-zero propagation through min/max/abs/negate.  It reports 191 checks,
+0 failures on node 26.4.0 with the default flags and with --no-maglev.
+
+--- a/v8/src/compiler/turboshaft/machine-optimization-reducer.h
++++ b/v8/src/compiler/turboshaft/machine-optimization-reducer.h
+@@ -390,6 +390,11 @@
+     if (ShouldSkipOptimizationStep()) {
+       return Next::ReduceFloatUnary(input, kind, rep);
+     }
++    // SilenceNaN(x)  =>  x   if {x} can only ever be a quiet NaN.
++    if (kind == FloatUnaryOp::Kind::kSilenceNaN &&
++        CannotProduceSignallingNaN(input, rep)) {
++      return input;
++    }
+     if (float f32_k; rep == FloatRepresentation::Float32() &&
+                      matcher_.MatchFloat32Constant(input, &f32_k)) {
+       float result;
+@@ -2741,6 +2746,63 @@
+ #endif  // V8_ENABLE_WEBASSEMBLY
+ 
+  private:
++  // Returns true if {index} is the result of an operation that, by IEEE 754,
++  // returns a quiet NaN whenever it returns a NaN at all. SilenceNaN of such a
++  // value is a no-op and can be dropped.
++  //
++  // IEEE 754-2019 7.2 requires every general-computational operation to signal
++  // the invalid operation exception and deliver a *quiet* NaN when handed a
++  // signalling NaN, and 6.2 requires a NaN produced by an invalid operation to
++  // be quiet as well. Addition, subtraction, multiplication, division and
++  // squareRoot are general-computational and are a single hardware instruction
++  // on every backend, so their result is never signalling whatever their
++  // inputs were.
++  //
++  // Deliberately *not* listed here:
++  //  - kAbs and kNegate. These are 5.5.1 sign bit operations, not arithmetic:
++  //    they copy the operand and change the sign bit, leaving a signalling NaN
++  //    signalling. The FloatBinop reducer above relies on the same fact when it
++  //    refuses to turn `x * -1` into `-x` with signalling NaNs around.
++  //  - kMin and kMax. These cannot create a NaN, they can only propagate an
++  //    input one, and whether that propagation quiets depends on the lowering:
++  //    x64 branches to an out-of-line canonical NaN, ppc64 routes the unordered
++  //    case through fadd, arm64 relies on fmin/fmax. That is eight backend
++  //    sequences to audit rather than one IEEE guarantee.
++  //  - kMod, kPower and the transcendentals. These are C calls (std::fmod,
++  //    base::ieee754), and a libm is free to return its NaN argument unchanged.
++  //  - kRoundDown/kRoundUp/kRoundToZero/kRoundTiesEven. roundToIntegral* are
++  //    general-computational, but not every backend implements them with one
++  //    instruction: RISC-V's MacroAssembler::RoundHelper fmv_d's the operand
++  //    straight to the destination and needs a separate fmin_d to canonicalise
++  //    the NaN case, so this family wants a per-backend audit too.
++  //  - float32 -> float64 conversion. convertFormat is general-computational,
++  //    but ppc64 holds single precision in double format and lowers
++  //    kPPC_Float32ToDouble to a register move, which does not quiet.
++  //
++  // Nothing here depends on {signalling_nan_possible}: the claim is about what
++  // the operation produces, not about what reaches it.
++  bool CannotProduceSignallingNaN(V<Float> index, FloatRepresentation rep) {
++    if (const FloatBinopOp* binop = matcher_.TryCast<FloatBinopOp>(index)) {
++      if (binop->rep != rep) return false;
++      switch (binop->kind) {
++        case FloatBinopOp::Kind::kAdd:
++        case FloatBinopOp::Kind::kSub:
++        case FloatBinopOp::Kind::kMul:
++        case FloatBinopOp::Kind::kDiv:
++          return true;
++        default:
++          return false;
++      }
++    }
++    if (const FloatUnaryOp* unop = matcher_.TryCast<FloatUnaryOp>(index)) {
++      if (unop->rep != rep) return false;
++      // kSilenceNaN itself is idempotent.
++      return unop->kind == FloatUnaryOp::Kind::kSqrt ||
++             unop->kind == FloatUnaryOp::Kind::kSilenceNaN;
++    }
++    return false;
++  }
++
+   V<Word32> ReduceCompareEqual(V<Any> left, V<Any> right,
+                                RegisterRepresentation rep) {
+     if (left == right && !rep.IsFloat()) {
