@@ -46,7 +46,37 @@ pkgname=bun-bootstrap
 pkgdesc='Prebuilt native ppc64le bun, used only to build bun (self-hosting bootstrap)'
 pkgver=1.4.3
 pkgrel=2
-_revision='1.4.3-canary.1+782858f41'
+
+# Which prebuilt, and where it came from, is per pool.  Both are a bun that
+# already runs on the builder; that is the only property a bootstrap needs.
+#
+#   POWER9 pool: the original, made by running an x86_64 bun under fastppcx86
+#   on POWER9 to drive the first native ppc64le build (see above).  ISA 3.0
+#   throughout -- 230,599 instructions -- so it cannot run on POWER8.
+#
+#   baseline pool: NOT a second emulated bootstrap.  The emulated step existed
+#   only because no native ppc64le bun existed at all; one does now, and the
+#   baseline pool's own `bun` is already built with _power8_compat=1, so this
+#   is that binary repackaged.  It therefore inherits exactly the POWER8
+#   safety of the bun we already ship to POWER8 machines -- no more, no less.
+#   Its own code is POWER8 (251,830 ISA 3.0 instructions in the POWER9 build
+#   against 2,494 here); the remainder is vendored highway, which compiles a
+#   kernel per target and selects at run time, so it is present by design.
+#   That gating has not been proven by running on real POWER8 hardware, and a
+#   scan cannot prove it -- but if it were wrong, the shipped baseline `bun`
+#   would be broken too, which is the larger problem.
+_power8_compat=${_power8_compat:-0}
+if (( _power8_compat )); then
+  _revision='1.4.3-canary.1+471b5868b'
+  _provenance='repackaged from the baseline pool bun 1.4.3-7 (_power8_compat=1)'
+  _tarball="bun-bootstrap-$pkgver-power8-powerpc64le.tar.gz"
+  _tarsum='3c0584dc7df720f950e4454e2ae023f8bd75a42f85633a084f097456e053c1c7'
+else
+  _revision='1.4.3-canary.1+782858f41'
+  _provenance='x86_64 bun under fastppcx86 on POWER9 (one-time bootstrap)'
+  _tarball="bun-bootstrap-$pkgver-powerpc64le.tar.gz"
+  _tarsum='f283acce02f84958153210a99c5a5301e19e9db629e80d9d0f6f25885bb17f97'
+fi
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
@@ -61,8 +91,8 @@ provides=("bun-bootstrap=$pkgver")
 # bun's own build.sh checks for.
 options=('!strip')   # a stripped bun cannot report --revision, which the build verifies
 
-source=("bun-bootstrap-$pkgver-powerpc64le.tar.gz")
-sha256sums=('f283acce02f84958153210a99c5a5301e19e9db629e80d9d0f6f25885bb17f97')
+source=("$_tarball")
+sha256sums=("$_tarsum")
 
 # The archive holds the bun whose sha256 is
 #   165ea7488c9f68f6ae99cfb24742d1d745a8ce5af9fea58982b8f6c68c3aac2f
@@ -76,7 +106,7 @@ package() {
 
   install -Dm644 /dev/stdin "$pkgdir/usr/lib/bun-bootstrap/.pkginfo" <<-INFO
 	revision: $_revision
-	built-by: x86_64 bun under fastppcx86 on POWER9 (one-time bootstrap)
+	built-by: $_provenance
 	purpose: makedepends of bun only
 	INFO
 }
