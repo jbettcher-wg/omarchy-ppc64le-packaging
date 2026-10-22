@@ -33,7 +33,7 @@ pkgver=1.4.3
 # process on an ordinary page. pkgrel 6 also carried the ELFv2
 # caller-extension fixes (IPInt, B3's CCall lowering, Air's out-of-line cold
 # path).
-pkgrel=7
+pkgrel=8
 arch=('powerpc64le')
 url='https://bun.sh'
 license=('MIT')
@@ -67,6 +67,7 @@ source=(
   0011-ppc64le-turn-the-DFG-on.patch
   0012-ppc64le-turn-FTL-on.patch
   0013-ppc64le-build-for-POWER8-when-_power8_compat-is-set.patch
+  0014-deps-brotli-v1.1.1-for-CVE-2026-111497.patch
 )
 
 sha256sums=(
@@ -84,6 +85,7 @@ sha256sums=(
   'ed01f9b88bf62bb3fff7ec4e41e24508e7cd993d98c839968461d56aaf33f0f3'
   '79813c1392a777fdf0d7bdc94b79cd1575d32d08d5508003a121ebc6b59d17ae'
   'ec2d08102cfb0002e8c65eb91b603c06bed6ef5698ecff5d7d146ba6164a586c'
+  '2747135684f55238ca9d7b0ee57b4eb2c4484bc85bac0320ed53bca7c9911335'
 )
 
 prepare() {
