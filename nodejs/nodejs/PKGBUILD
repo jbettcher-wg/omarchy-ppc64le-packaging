@@ -90,7 +90,15 @@ build() {
   cd node
 
   case "${CARCH}" in
-    powerpc64*) _configure_flags=(--dest-cpu=ppc64 --without-snapshot --without-lief) ;;
+    # --without-snapshot is gone from configure.py in 26.12.1 and configure
+    # passes an unknown option through to gyp as a FILE, so the build dies with
+    #   gyp: --without-snapshot not found ... while trying to load --without-snapshot
+    # Nothing is lost by dropping it: upstream made it a no-op (0822bfaa9f5)
+    # before removing it, and that no-op commit is already an ancestor of the
+    # 26.4.0 this replaces -- so it had stopped disabling the V8 snapshot long
+    # before now. The Node-level snapshot has its own separate flag
+    # (--without-node-snapshot) which this has never passed and still does not.
+    powerpc64*) _configure_flags=(--dest-cpu=ppc64 --without-lief) ;;
   esac
 
   ./configure \
