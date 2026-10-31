@@ -1,0 +1,75 @@
+diff -ru wslay-1.1.1.orig/examples/echoserv.cc wslay-1.1.1/examples/echoserv.cc
+--- wslay-1.1.1.orig/examples/echoserv.cc	2026-05-01 11:09:32.977898958 +0200
++++ wslay-1.1.1/examples/echoserv.cc	2026-05-01 11:13:51.109517656 +0200
+@@ -50,7 +50,8 @@
+ #include <fstream>
+ 
+ #include <nettle/base64.h>
+-#include <nettle/sha.h>
++#include <nettle/sha1.h>
++#include <nettle/version.h>
+ #include <wslay/wslay.h>
+ 
+ int create_listen_socket(const char *service)
+@@ -112,7 +113,11 @@
+   sha1_init(&ctx);
+   sha1_update(&ctx, src.size(), reinterpret_cast<const uint8_t*>(src.c_str()));
+   uint8_t temp[SHA1_DIGEST_SIZE];
++#if NETTLE_VERSION_MAJOR > 3
++  sha1_digest(&ctx, temp);
++#else
+   sha1_digest(&ctx, SHA1_DIGEST_SIZE, temp);
++#endif
+   std::string res(&temp[0], &temp[SHA1_DIGEST_SIZE]);
+   return res;
+ }
+diff -ru wslay-1.1.1.orig/examples/fork-echoserv.c wslay-1.1.1/examples/fork-echoserv.c
+--- wslay-1.1.1.orig/examples/fork-echoserv.c	2026-05-01 11:09:32.976898952 +0200
++++ wslay-1.1.1/examples/fork-echoserv.c	2026-05-01 11:12:10.364435018 +0200
+@@ -53,7 +53,8 @@
+ #include <ctype.h>
+ 
+ #include <nettle/base64.h>
+-#include <nettle/sha.h>
++#include <nettle/sha1.h>
++#include <nettle/version.h>
+ #include <wslay/wslay.h>
+ 
+ /*
+@@ -127,7 +128,11 @@
+   struct sha1_ctx ctx;
+   sha1_init(&ctx);
+   sha1_update(&ctx, src_length, src);
++#if NETTLE_VERSION_MAJOR > 3
++  sha1_digest(&ctx, dst);
++#else
+   sha1_digest(&ctx, SHA1_DIGEST_SIZE, dst);
++#endif
+ }
+ 
+ /*
+diff -ru wslay-1.1.1.orig/examples/testclient.cc wslay-1.1.1/examples/testclient.cc
+--- wslay-1.1.1.orig/examples/testclient.cc	2026-05-01 11:09:32.976898952 +0200
++++ wslay-1.1.1/examples/testclient.cc	2026-05-01 11:14:27.212545004 +0200
+@@ -49,7 +49,8 @@
+ #include <fstream>
+ 
+ #include <nettle/base64.h>
+-#include <nettle/sha.h>
++#include <nettle/sha1.h>
++#include <nettle/version.h>
+ #include <wslay/wslay.h>
+ 
+ int connect_to(const char *host, const char *service)
+@@ -103,7 +104,11 @@
+   sha1_init(&ctx);
+   sha1_update(&ctx, src.size(), reinterpret_cast<const uint8_t*>(src.c_str()));
+   uint8_t temp[SHA1_DIGEST_SIZE];
++#if NETTLE_VERSION_MAJOR > 3
++  sha1_digest(&ctx, temp);
++#else
+   sha1_digest(&ctx, SHA1_DIGEST_SIZE, temp);
++#endif
+   std::string res(&temp[0], &temp[SHA1_DIGEST_SIZE]);
+   return res;
+ }

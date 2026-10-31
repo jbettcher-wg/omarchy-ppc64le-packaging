@@ -1,0 +1,167 @@
+# Maintainer: Alexander F. Rødseth <xyproto@archlinux.org>
+# Contributor: loqs
+# Contributor: Jorge Araya Navarro <jorgejavieran@yahoo.com.mx>
+# Contributor: Cristian Porras <porrascristian@gmail.com>
+# Contributor: Matthew Bentley <matthew@mtbentley.us>
+# Contributor: HurricanePootis <hurricanepootis@protonmail.com>
+# Contributor: Toolybird <toolybird at tuta dot io>
+
+pkgbase=godot
+pkgname=(godot godot-mono)
+pkgver=4.7.2
+pkgrel=2
+pkgdesc='Advanced cross-platform 2D and 3D game engine'
+url='https://godotengine.org/'
+license=(MIT)
+arch=(x86_64 powerpc64le)
+makedepends=(alsa-lib dotnet-sdk git pulse-native-provider scons setconf yasm)
+depends=(brotli ca-certificates embree freetype2 glslang graphite harfbuzz harfbuzz-icu icu libglvnd libjpeg-turbo libspeechd libtheora
+	 libvorbis libwebp libwslay libxcursor libxi libxinerama libxrandr mbedtls3 miniupnpc openxr pcre2 recastnavigation sdl3)
+optdepends=('pipewire-alsa: for audio support'
+            'pulse-native-provider: for audio support')
+source=("git+https://github.com/godotengine/godot#tag=$pkgver-stable")
+b2sums=('919de6e3b42dc774e1b706b6485ed19965164c650df0640df5c2665a7f9f538f5ead5bc0925331fe2d91cfca0efce3a250cf8db5a47cbb482422a2472f996ef1')
+
+prepare() {
+  cd $pkgname
+
+  # Patch for miniupnpc
+  sed -i 's/addr, 16/addr, 16, nullptr, 0/g' modules/upnp/upnp.cpp
+
+  cd misc/dist/linux
+
+  # Prepare the Godot Mono desktop file
+  cp -f org.godotengine.Godot.desktop org.godotengine.Godot-mono.desktop
+  setconf org.godotengine.Godot-mono.desktop Exec godot-mono
+  setconf org.godotengine.Godot-mono.desktop Icon godot-mono
+  setconf org.godotengine.Godot-mono.desktop Name 'Godot Engine Mono'
+
+  # Prepare the Godot Mono metainfo file
+  cp -f org.godotengine.Godot.appdata.xml org.godotengine.Godot-mono.appdata.xml
+  sed -i -e 's/org.godotengine.Godot/org.godotengine.Godot-mono/' \
+    -e 's|<name>Godot Engine</name>|<name>Godot Engine Mono</name>|' \
+    org.godotengine.Godot-mono.appdata.xml
+
+  # MIME info fix, ref FS#77810
+  sed -i 's,xmlns="https://specifications.freedesktop.org/shared-mime-info-spec",xmlns="http://www.freedesktop.org/standards/shared-mime-info",g' \
+    org.godotengine.Godot.xml
+
+  # Godot Mono MIME config
+  cp -f org.godotengine.Godot.xml org.godotengine.Godot-mono.xml
+
+  # GodotTools.OpenVisualStudio is a Windows-only exe; NuGet has no apphost
+  # package for linux-ppc64le, so do not ask for one on non-Windows hosts.
+  sed -i '/<SelfContained>False<\/SelfContained>/a\    <UseAppHost Condition="'"'"'$(OS)'"'"' != '"'"'Windows_NT'"'"'">false</UseAppHost>' \
+    "$srcdir/godot/modules/mono/editor/GodotTools/GodotTools.OpenVisualStudio/GodotTools.OpenVisualStudio.csproj"
+}
+
+case $CARCH in
+  x86_64*) _CARCH=x86_64; _march="-march=x86-64";;
+  aarch64) _CARCH=arm64; _march="-march=arm64";;
+  powerpc64le) _CARCH=ppc64; _march="";;  # -mcpu=power8 already in makepkg CFLAGS
+esac
+
+build() {
+  cd $pkgname
+
+  export BUILD_NAME=arch_linux
+
+  # Not unbundled (yet):
+  #  enet (contains no upstreamed IPv6 support)
+  #  AUR: libwebm, rvo2
+  #  xatlas
+
+  _args=(
+    -j$(nproc --all)
+    cflags="$CFLAGS -fPIC -Wl,-z,relro,-z,now $_march -w -I/usr/include/mbedtls3"
+    cxxflags="$CXXFLAGS -fPIC -Wl,-z,relro,-z,now $_march -w -I/usr/include/mbedtls3"
+    linkflags="$LDFLAGS -L/usr/lib/mbedtls3"
+    arch=$_CARCH
+    builtin_brotli=no
+    builtin_certs=no
+    builtin_clipper2=yes
+    builtin_embree=no
+    builtin_enet=yes
+    builtin_freetype=no
+    builtin_glslang=no
+    builtin_graphite=no
+    builtin_harfbuzz=no
+    builtin_icu4c=no
+    builtin_libjpeg_turbo=no
+    builtin_libogg=no
+    builtin_libpng=no
+    builtin_libtheora=no
+    builtin_libvorbis=no
+    builtin_libwebp=no
+    builtin_mbedtls=no
+    builtin_miniupnpc=no
+    builtin_msdfgen=yes
+    builtin_openxr=no
+    builtin_pcre2=no
+    builtin_pcre2_with_jit=no
+    builtin_recastnavigation=no
+    builtin_rvo2_2d=yes
+    builtin_rvo2_3d=yes
+    builtin_sdl=no
+    builtin_wslay=no
+    builtin_xatlas=yes
+    builtin_zlib=no
+    builtin_zstd=no
+    colored=yes
+    debug_symbols=yes
+    disable_exceptions=false
+    platform=linuxbsd
+    production=yes
+    pulseaudio=yes
+    system_certs_path=/etc/ssl/certs/ca-certificates.crt
+    target=editor
+    use_llvm=no
+    werror=no
+  )
+
+  # Regular build
+  scons "${_args[@]}"
+
+  # Mono build
+  _args+=(module_mono_enabled=yes mono_glue=no)
+  scons "${_args[@]}"
+
+  bin/godot.linuxbsd.editor.$_CARCH.mono --headless --generate-mono-glue modules/mono/glue
+  modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=linuxbsd
+}
+
+package_godot() {
+  cd $pkgbase
+
+  install -Dm755 bin/godot.linuxbsd.editor.$_CARCH "$pkgdir/usr/bin/godot"
+
+  install -Dm644 misc/logo/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+  install -Dm644 misc/logo/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$pkgname.svg"
+  install -Dm644 misc/dist/linux/org.godotengine.Godot.desktop "$pkgdir/usr/share/applications/org.godotengine.Godot.desktop"
+  install -Dm644 misc/dist/linux/org.godotengine.Godot.appdata.xml "$pkgdir/usr/share/metainfo/org.godotengine.Godot.appdata.xml"
+  install -Dm644 misc/dist/linux/org.godotengine.Godot.xml "$pkgdir/usr/share/mime/packages/org.godotengine.Godot.xml"
+
+  install -Dm644 misc/dist/linux/godot.6 "$pkgdir/usr/share/man/man6/$pkgname.6"
+  install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+package_godot-mono(){
+  depends+=(dotnet-sdk)
+
+  cd $pkgbase
+
+  install -Dm755 bin/godot.linuxbsd.editor.$_CARCH.mono "$pkgdir/usr/lib/$pkgname/godot.linuxbsd.editor.$_CARCH.mono"
+
+  cp -a bin/GodotSharp "$pkgdir/usr/lib/$pkgname/"
+  install -d "$pkgdir/usr/bin"
+  ln -s /usr/lib/$pkgname/godot.linuxbsd.editor.$_CARCH.mono "$pkgdir/usr/bin/$pkgname"
+
+  install -Dm644 misc/logo/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+  install -Dm644 misc/logo/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$pkgname.svg"
+  install -Dm644 misc/dist/linux/org.godotengine.Godot-mono.desktop "$pkgdir/usr/share/applications/org.godotengine.Godot-mono.desktop"
+  install -Dm644 misc/dist/linux/org.godotengine.Godot-mono.appdata.xml "$pkgdir/usr/share/metainfo/org.godotengine.Godot-mono.appdata.xml"
+  install -Dm644 misc/dist/linux/org.godotengine.Godot-mono.xml "$pkgdir/usr/share/mime/packages/org.godotengine.Godot-mono.xml"
+
+  install -Dm644 misc/dist/linux/godot.6 "$pkgdir/usr/share/man/man6/$pkgname.6"
+  install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
