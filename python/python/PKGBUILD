@@ -135,6 +135,31 @@ package_python() {
   # PEP668
   install -Dm644 "$srcdir"/EXTERNALLY-MANAGED -t "${pkgdir}/usr/lib/python${_pybasever}/"
 
+  # autoconf bakes the build tree into the installed config Makefile:
+  # abs_srcdir, abs_builddir and RUNSHARED's LD_LIBRARY_PATH all name
+  # $srcdir, which does not exist on an installed system. elf-pathguard
+  # refuses it as "build-tree path in a file other builds read", and it is
+  # right to: RUNSHARED exists so the build can run the not-yet-installed
+  # interpreter against the uninstalled libpython, and anything sourcing this
+  # Makefile afterwards would get an LD_LIBRARY_PATH pointing nowhere.
+  # Upstream ships the same leak; it just never notices.
+  local _cfgmk
+  _cfgmk="${pkgdir}/usr/lib/python${_pybasever}/config-${_pybasever}-${CARCH}-linux-gnu/Makefile"
+  if [ -f "$_cfgmk" ]; then
+    # Note the @ delimiter: | would end the s/// before the alternation.
+    sed -i -E -e 's@^(abs_srcdir|abs_builddir)=.*@\1=@' \
+              -e 's@^RUNSHARED=.*@RUNSHARED=@' "$_cfgmk"
+    # bq runs makepkg --nocheck, so assert here rather than in check().
+    if grep -q "$srcdir" "$_cfgmk"; then
+      echo "python: build path still present in $_cfgmk" >&2
+      grep -n "$srcdir" "$_cfgmk" >&2
+      return 1
+    fi
+  else
+    echo "python: expected config Makefile not found at $_cfgmk" >&2
+    return 1
+  fi
+
   # Split tests
   cd "$pkgdir"/usr/lib/python*/
   rm -r {test,idlelib/idle_test}
