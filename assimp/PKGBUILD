@@ -8,14 +8,39 @@ pkgrel=1
 pkgdesc="Library to import various well-known 3D model formats in an uniform manner"
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 license=('BSD-3-Clause')
-# minizip supplies unzip.h and libminizip, which ZipArchiveIOSystem.cpp needs
-# whenever ASSIMP_BUILD_NO_OWN_ZLIB is set (it is, below). Upstream never
-# declared it and only gets away with it on builders that happen to have it.
-depends=('zlib' 'minizip' 'glibc' 'libgcc' 'libstdc++')
+depends=('zlib' 'glibc' 'libgcc' 'libstdc++')
 makedepends=('cmake' 'ninja')
 url='https://github.com/assimp/assimp'
 source=("$pkgname-$pkgver.tar.gz::https://github.com/assimp/assimp/archive/v${pkgver}.tar.gz")
 sha512sums=('57326194bf3a8e2ae793c739878231067fdd6d031531e910d4d20fc8a673eacf48f75e11bd21ca2e6421682f78585d445bffb647bdcb52e01b2cd4d3ff0e2c62')
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+
+  # assimp's "system minizip" path is broken upstream.  code/CMakeLists.txt:
+  #
+  #     if (UNZIP_FOUND)
+  #       SET (unzip_compile_SRCS "")          # drop the bundled sources
+  #     else ()
+  #       SET (unzip_compile_SRCS ${unzip_SRCS})
+  #       INCLUDE_DIRECTORIES( "../contrib/unzip/" )
+  #     endif ()
+  #
+  # When pkg-config finds minizip it takes the first branch, which adds neither
+  # ${UNZIP_INCLUDE_DIRS} nor ${UNZIP_LIBRARIES} -- the link line is zlib only.
+  # So the build dies on "unzip.h: No such file or directory", because the
+  # header is /usr/include/minizip/unzip.h and nothing puts that on the path.
+  # Upstream and Arch never see it: minizip is absent from their build
+  # environments, so they always get the bundled copy.  It is present here.
+  #
+  # Take the bundled copy unconditionally -- the configuration upstream
+  # actually tests -- rather than depending on what the builder happens to have
+  # installed.
+  sed -i 's|^  if (UNZIP_FOUND)$|  if (FALSE) # bundled unzip -- see prepare()|' \
+    code/CMakeLists.txt
+  # bq runs makepkg --nocheck, so assert here rather than in check().
+  grep -q 'bundled unzip -- see prepare()' code/CMakeLists.txt
+}
 
 build() {
   cd ${pkgname}-${pkgver}
