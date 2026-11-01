@@ -11,8 +11,11 @@ license=('Apache-2.0')
 depends=('google-glog' 'suitesparse' 'lapack' 'libstdc++' 'glibc' 'libgcc')
 makedepends=('cmake' 'ninja' 'eigen')
 optdepends=('openmp')
-source=("http://ceres-solver.org/ceres-solver-${pkgver}.tar.gz")
-sha256sums=('48b2302a7986ece172898477c3bcd6deb8fb5cf19b3327bc49969aad4cede82d')
+# ceres-solver.org stopped answering on both 80 and 443 (checked 2026-10-31),
+# so the release tarball is unfetchable. The upstream git tag is the same
+# source -- include/ceres/version.h reads 2.2.0 -- so take it from GitHub.
+source=("$pkgname-$pkgver.tar.gz::https://github.com/ceres-solver/ceres-solver/archive/refs/tags/$pkgver.tar.gz")
+sha256sums=('12efacfadbfdc1bbfa203c236e96f4d3c210bed96994288b3ff0c8e7c6f350d4')
 options=('staticlibs')
 
 prepare() {
