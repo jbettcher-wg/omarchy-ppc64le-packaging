@@ -19,7 +19,7 @@ pkgdesc="Free peer-reviewed portable C++ source libraries"
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 url="https://www.boost.org/"
 license=('BSL-1.0')
-makedepends=('icu' 'python' 'python-numpy' 'bzip2' 'zlib' 'openmpi' 'zstd')
+makedepends=('icu' 'python' 'python-numpy' 'bzip2' 'zlib' 'openmpi' 'zstd' 'patchelf')
 source=(
   https://archives.boost.io/release/$pkgver/source/$_srcname.tar.bz2
   331-fix-boost-context-exception-state.patch
@@ -176,6 +176,12 @@ package_boost-libs() {
   touch "$pkgdir"$site_packages/boost/__init__.py
   python -m compileall -o 0 -o 1 -o 2 "$pkgdir"$site_packages/boost
   cp fakeinstall/lib/boost-python*/mpi.so "$pkgdir"$site_packages/boost/mpi.so
+  # That cp takes a b2 build artefact verbatim, so it still carries b2's
+  # bin.v2 RUNPATH entries -- six of them, naming the container/graph/mpi/
+  # python/serialization build directories. Nothing rewrites them, because
+  # nothing installed the file; it was copied. Everything it needs is in
+  # /usr/lib, already a default search path.
+  patchelf --remove-rpath "$pkgdir"$site_packages/boost/mpi.so
 }
 
 # vim:set ts=2 sw=2 et:
