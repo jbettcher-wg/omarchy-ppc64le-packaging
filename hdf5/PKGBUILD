@@ -40,6 +40,23 @@ source=("git+https://github.com/HDFGroup/hdf5.git#tag=$pkgver")
 b2sums=('a62e7cd3f6df1c71e10802052021969d97d019dcb4d81c76571548411bd9becb950320655d5fae2a0d410d4fd4f8a3f7cf3673fcce7b5bd39e78006cb26c8bf0')
 
 build() {
+  # -DHDF5_BUILD_JAVA=ON needs javac/jar/java, and Arch's JDK installs them
+  # under /usr/lib/jvm/<name>/bin.  The /usr/bin/java symlinks and the
+  # /usr/lib/jvm/default link are created by an archlinux-java post-install
+  # hook, and extracting packages into bq's sysroot never runs hooks -- so
+  # `default` is still the shipped `-> /dev/null` placeholder and CMake's
+  # FindJava reports "Could NOT find Java".  Point it at whatever JDK is
+  # actually staged.
+  local _jvm
+  _jvm=$(printf '%s\n' /usr/lib/jvm/java-*-openjdk | sort -V | tail -n1)
+  if [ ! -x "$_jvm/bin/javac" ]; then
+    # bq runs makepkg --nocheck, so assert here rather than in check().
+    echo "hdf5: no usable JDK under /usr/lib/jvm (looked at '$_jvm')" >&2
+    return 1
+  fi
+  export JAVA_HOME=$_jvm
+  export PATH="$JAVA_HOME/bin:$PATH"
+
   local common_cmake_args=(
     -DCMAKE_BUILD_TYPE=None
     -DCMAKE_INSTALL_PREFIX=/usr
