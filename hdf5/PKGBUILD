@@ -30,33 +30,28 @@ makedepends=(
   cmake
   gcc-fortran
   git
-  java-environment
   openmpi
   time
 )
 replaces=(hdf5-java)
-provides=(hdf5-java)
 source=("git+https://github.com/HDFGroup/hdf5.git#tag=$pkgver")
 b2sums=('a62e7cd3f6df1c71e10802052021969d97d019dcb4d81c76571548411bd9becb950320655d5fae2a0d410d4fd4f8a3f7cf3673fcce7b5bd39e78006cb26c8bf0')
 
 build() {
-  # -DHDF5_BUILD_JAVA=ON needs javac/jar/java, and Arch's JDK installs them
-  # under /usr/lib/jvm/<name>/bin.  The /usr/bin/java symlinks and the
-  # /usr/lib/jvm/default link are created by an archlinux-java post-install
-  # hook, and extracting packages into bq's sysroot never runs hooks -- so
-  # `default` is still the shipped `-> /dev/null` placeholder and CMake's
-  # FindJava reports "Could NOT find Java".  Point it at whatever JDK is
-  # actually staged.
-  local _jvm
-  _jvm=$(printf '%s\n' /usr/lib/jvm/java-*-openjdk | sort -V | tail -n1)
-  if [ ! -x "$_jvm/bin/javac" ]; then
-    # bq runs makepkg --nocheck, so assert here rather than in check().
-    echo "hdf5: no usable JDK under /usr/lib/jvm (looked at '$_jvm')" >&2
-    return 1
-  fi
-  export JAVA_HOME=$_jvm
-  export PATH="$JAVA_HOME/bin:$PATH"
-
+  # HDF5_BUILD_JAVA is OFF here, unlike upstream.  It cannot work in bq's
+  # sandbox: $JAVA_HOME/conf is a symlink to /etc/java-openjdk, and bq overlays
+  # only /usr and /opt, so the staged JDK's /etc tree is not visible at that
+  # path and `jar` dies with
+  #
+  #   java.lang.InternalError: Error loading java.security file
+  #   Caused by: java.nio.file.NoSuchFileException:
+  #     /usr/lib/jvm/java-26-openjdk/conf/security/java.security
+  #
+  # The JDK itself stages and is found correctly ("Found Java ... 26.0.2", JNI
+  # found); it is only the config tree that is missing.  The real fix is an
+  # /etc overlay in bq, which is not worth its risk for this: nothing in Arch
+  # POWER depends on hdf5-java, so the jar has no consumers.  Revisit if that
+  # overlay ever lands.
   local common_cmake_args=(
     -DCMAKE_BUILD_TYPE=None
     -DCMAKE_INSTALL_PREFIX=/usr
@@ -66,7 +61,7 @@ build() {
     -DHDF5_BUILD_CPP_LIB=ON
     -DHDF5_BUILD_HL_LIB=ON
     -DHDF5_BUILD_FORTRAN=ON
-    -DHDF5_BUILD_JAVA=ON
+    -DHDF5_BUILD_JAVA=OFF
     -DHDF5_ENABLE_ZLIB_SUPPORT=ON
     -DHDF5_ENABLE_SZIP_SUPPORT=ON
     -DHDF5_ENABLE_SZIP_ENCODING=ON
