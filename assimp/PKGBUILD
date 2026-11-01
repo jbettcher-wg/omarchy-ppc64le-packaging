@@ -8,7 +8,10 @@ pkgrel=1
 pkgdesc="Library to import various well-known 3D model formats in an uniform manner"
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 license=('BSD-3-Clause')
-depends=('zlib' 'glibc' 'libgcc' 'libstdc++')
+# minizip supplies unzip.h and libminizip, which ZipArchiveIOSystem.cpp needs
+# whenever ASSIMP_BUILD_NO_OWN_ZLIB is set (it is, below). Upstream never
+# declared it and only gets away with it on builders that happen to have it.
+depends=('zlib' 'minizip' 'glibc' 'libgcc' 'libstdc++')
 makedepends=('cmake' 'ninja')
 url='https://github.com/assimp/assimp'
 source=("$pkgname-$pkgver.tar.gz::https://github.com/assimp/assimp/archive/v${pkgver}.tar.gz")
