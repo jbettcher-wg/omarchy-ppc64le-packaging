@@ -44,8 +44,13 @@ build() {
     ;;
   esac
 
+  # The plugin objects install with the build tree still on their RUNPATH
+  # (/var/tmp/.../build), which our elf-pathguard refuses and which would point
+  # a shipped library at a directory that does not exist on a user's machine.
+  # Everything here installs under /usr/lib, already a default search path.
   cmake -B build -S ${pkgname}-c \
     -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_SKIP_INSTALL_RPATH=ON \
     -DCMAKE_BUILD_TYPE=Release \
     -DNETCDF_WITH_PLUGIN_DIR=/usr/lib/netcdf/plugin \
     -DENABLE_BYTERANGE=ON \
