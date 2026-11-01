@@ -56,7 +56,13 @@ optdepends=(
 )
 install=$pkgname.install
 source=(
-  git+https://dev.gnupg.org/source/gnupg.git?signed#tag=${pkgname}-${pkgver}
+  # dev.gnupg.org has had 443 closed since at least 2026-09-06 (DNS resolves,
+  # the port does not answer), so the canonical repo is unfetchable. gpg/gnupg
+  # on GitHub is GnuPG's own published mirror and carries the same signed tag
+  # objects. ?signed is kept, so makepkg still verifies the tag signature
+  # against validpgpkeys below -- the mirror cannot forge it, which is the
+  # whole point of ?signed and why repointing is safe here.
+  git+https://github.com/gpg/gnupg.git?signed#tag=${pkgname}-${pkgver}
   dirmngr{,@}.{service,socket}
   gpg-agent{,@}.{service,socket}
   gpg-agent-{browser,extra,ssh}{,@}.socket
