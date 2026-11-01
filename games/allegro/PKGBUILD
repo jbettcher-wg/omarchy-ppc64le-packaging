@@ -21,7 +21,7 @@ depends=(
     'glibc'
     'gtk3'
     'libgl'
-    'libjpeg'
+    'libjpeg-turbo'
     'libogg'
     'libopenmpt'
     'libpng'
