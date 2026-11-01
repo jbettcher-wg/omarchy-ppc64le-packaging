@@ -21,8 +21,13 @@ build() {
   mkdir build-libxcrypt build-libxcrypt-compat
 
   cd "${srcdir}/build-libxcrypt/"
+  # --disable-werror: gcc 16 reports -Wdiscarded-qualifiers on upstream's own
+  # crypt-sm3-yescrypt.c / crypt-gost-yescrypt.c, and libxcrypt builds with
+  # -Werror by default, so the warning is fatal. Upstream provides this flag
+  # for exactly this case; the code is unchanged, the compiler got stricter.
   "${srcdir}/${pkgbase}-${pkgver}"/configure \
     --prefix=/usr \
+    --disable-werror \
     --disable-static \
     --enable-hashes=strong,glibc \
     --enable-obsolete-api=no \
@@ -32,6 +37,7 @@ build() {
   cd "${srcdir}/build-libxcrypt-compat/"
   "${srcdir}/${pkgbase}-${pkgver}"/configure \
     --prefix=/usr \
+    --disable-werror \
     --disable-static \
     --enable-hashes=strong,glibc \
     --enable-obsolete-api=glibc \

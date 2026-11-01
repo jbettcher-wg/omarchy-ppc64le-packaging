@@ -17,6 +17,11 @@ options=(!emptydirs)
 
 build() {
   cd $pkgname
+  # liblqr declares lqr_carver_generate_rcache_* the old way, which C23 reads
+  # as taking no parameters -- gcc 16 defaults to C23, so every definition
+  # then "conflicts" with its own declaration. Upstream Arch sets the same
+  # flag for the same reason.
+  CFLAGS+=' -std=gnu17'
   ./configure \
     --prefix=/usr 
   make
