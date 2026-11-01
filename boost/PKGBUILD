@@ -85,6 +85,15 @@ package_boost() {
   cp -a fakeinstall/lib/cmake "$pkgdir"/usr/lib
   cp -a fakeinstall/{bin,include,share} "$pkgdir"/usr/
 
+  # b2 bakes --prefix into the cmake configs it generates: every
+  # boost_*-config.cmake carries "$srcdir/fakeinstall/lib/cmake" and *prefers*
+  # it over the CMAKE_CURRENT_LIST_DIR fallback whenever that path exists. On a
+  # user's machine it does not, so this is invisible there -- but on a builder
+  # it can exist during a later build, which is why elf-pathguard refuses it.
+  # Point the baked literal at where the files actually land.
+  grep -rlZ "$srcdir/fakeinstall/lib/cmake" "$pkgdir"/usr/lib/cmake 2>/dev/null |
+    xargs -0 -r sed -i "s|$srcdir/fakeinstall/lib/cmake|/usr/lib/cmake|g"
+
 }
 
 package_boost-libs() {
