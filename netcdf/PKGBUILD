@@ -10,7 +10,7 @@ pkgdesc="network Common Data Form interface for array-oriented data access and c
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 url="https://www.unidata.ucar.edu/software/netcdf/"
 depends=(hdf5 curl libxml2 libaec blosc bzip2 libzip zstd)
-makedepends=(cmake git)
+makedepends=(cmake git patchelf)
 checkdepends=(unzip)
 optdepends=('netcdf-fortran: fortran bindings' 'netcdf-cxx: c++ bindings')
 options=(!makeflags)
@@ -44,10 +44,9 @@ build() {
     ;;
   esac
 
-  # The plugin objects install with the build tree still on their RUNPATH
-  # (/var/tmp/.../build), which our elf-pathguard refuses and which would point
-  # a shipped library at a directory that does not exist on a user's machine.
-  # Everything here installs under /usr/lib, already a default search path.
+  # Everything here installs under /usr/lib, already a default search path, so
+  # no install RPATH is wanted. This does not reach the plugin objects -- see
+  # package() -- but it is still right for the libraries and binaries.
   cmake -B build -S ${pkgname}-c \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_SKIP_INSTALL_RPATH=ON \
@@ -75,5 +74,12 @@ check() {
 
 package() {
   make -C build DESTDIR="${pkgdir}" install
+
+  # The plugin objects ship with RUNPATH pointing at the build tree. CMake's
+  # CMAKE_SKIP_INSTALL_RPATH does not reach them: they are installed as plain
+  # files rather than through install(TARGETS), so CMake never rewrites them at
+  # all. Strip it here, which works whatever the install mechanism was.
+  find "${pkgdir}"/usr/lib/netcdf/plugin -name '*.so' -print0 2>/dev/null |
+    xargs -0 -r patchelf --remove-rpath
   install -Dm644 ${pkgname}-c/COPYRIGHT -t "${pkgdir}"/usr/share/licenses/${pkgname}/
 }
