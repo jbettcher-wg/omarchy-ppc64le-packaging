@@ -2,30 +2,33 @@
 # Contributor: ImFenyx <imfenyxdev@protonmail.com>
 #
 # omawrite -- Omarchy's Qt Quick Markdown writer.  Started from the AUR
-# `omawrite` recipe at 0.5.0 (aur.git 2437bc29).  0.5.0 is also the version
-# Omarchy ships (omarchy.db omawrite 0.5.0-1).
+# `omawrite` recipe at 0.5.0 (aur.git 2437bc29); version and metadata now
+# follow Omarchy's own recipe, omacom/omarchy-pkgs
+# pkgbuilds/omawrite@8b77e9aed427 (0.7.2-1, what their stable channel ships).
 #
 # ppc64le: adding powerpc64le to arch=() was the only change needed.  Plain
 # Qt 6 C++/QML, nothing architecture-specific.  It builds against our Qt
-# 6.11.2 set (qt6-base 6.11.2-4, qt6-declarative 6.11.2-1); every qt6-* module
-# must stay at one version (docs/build-queue.md, version-locked sets).
+# 6.11.2 set; every qt6-* module must stay at one version
+# (docs/build-queue.md, version-locked sets).
 #
-# Packaging differences from the AUR recipe: qmake is handed makepkg's
-# CFLAGS/CXXFLAGS/LDFLAGS; qt6-base and qt6-declarative are listed as
-# makedepends as Omarchy's package does; and check() runs upstream's
-# bin/test suite offscreen.
+# Packaging differences from Omarchy's recipe (which runs upstream's
+# bin/build): qmake is handed makepkg's CFLAGS/CXXFLAGS/LDFLAGS, and make is
+# not forced to -j$(nproc) so bq's per-slot MAKEFLAGS apply; check() runs
+# upstream's bin/test suite offscreen; and omawrite.install (desktop database
+# and icon cache refresh) is not carried, since pacman's own hooks already do
+# both.
 
 pkgname=omawrite
-pkgver=0.5.0
+pkgver=0.7.2
 pkgrel=1
 pkgdesc='Dead-simple Markdown writing app built with Qt Quick'
 arch=(powerpc64le)
-url='https://github.com/omacom-io/omawrite'
+url='https://github.com/omacom/omawrite'
 license=(MIT OFL-1.1)
 depends=(hicolor-icon-theme qt6-base qt6-declarative xdg-desktop-portal)
 makedepends=(gcc make qt6-base qt6-declarative)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('b57e418212f9bde0b8a12cff2424a43f15829a56a58fdc49542a0393a430f938')
+sha256sums=('a6c23b44ae5c5b11b357b0f7510141efbe3c590691e038ac6ee7b49afd006f56')
 
 _qmake() {
   qmake6 "$@" \
