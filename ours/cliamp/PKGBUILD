@@ -14,7 +14,18 @@
 #   default GOTOOLCHAIN=auto, a go older than that silently downloads a
 #   prebuilt toolchain from proxy.golang.org and builds with it instead of the
 #   repo's.  `local` makes an old go fail loudly instead.  The repo's go is
-#   1.27.1, so nothing is lowered.
+#   1.27.3, so nothing is lowered.
+# - golang.org/x/sys v0.49.0 -> v0.50.0.  v0.49.0 moved unix.Syscall,
+#   Syscall6, RawSyscall and RawSyscall6 on ppc64x into assembly that jumps to
+#   package syscall's ABI0 entry through R31/CTR.  ELFv2's global entry derives
+#   the TOC from R12, so in a PIE build every one of those calls returns with r2
+#   pointing wherever the stale R12 put it, and the next TOC-relative access
+#   lands in unrelated data.  2.4.1-1 died in lipgloss's init: x/term's isatty
+#   ioctl, then mapaccess2_faststr handed a struct's field table for a map type
+#   ("unexpected fault address", or "reflect: internal error: invalid method
+#   index" with an empty environment).  v0.50.0 jumps through R12 and is
+#   upstream's fix; drop this bump once cliamp's go.mod reaches it.
+#   build() runs the binary, since check() never runs under bq.
 # - GOPATH and GOCACHE under $srcdir, so the build writes nothing into $HOME.
 # - Arch Go packaging flags (CGO_*FLAGS from makepkg, -mod=readonly,
 #   -modcacherw, external link with makepkg's LDFLAGS) instead of upstream's
@@ -22,7 +33,7 @@
 
 pkgname=cliamp
 pkgver=2.4.1
-pkgrel=1
+pkgrel=2
 pkgdesc='A retro terminal music player inspired by Winamp 2.x'
 arch=(powerpc64le)
 url='https://github.com/bjarneo/cliamp'
@@ -49,6 +60,9 @@ _goenv() {
 prepare() {
   cd "$pkgname-$pkgver"
   _goenv
+  # See the x/sys note above. go get rewrites go.mod and go.sum, which
+  # -mod=readonly forbids, so it runs without it.
+  GOFLAGS="-modcacherw" go get golang.org/x/sys@v0.50.0
   go mod download
 }
 
@@ -58,6 +72,13 @@ build() {
   go build \
     -ldflags "-linkmode=external -extldflags '$LDFLAGS' -X main.version=v$pkgver" \
     -o cliamp .
+  # The x/sys v0.49.0 TOC clobber only shows at run time, so run it here.
+  if go version -m cliamp | grep -qP '^\tdep\tgolang.org/x/sys\tv0\.49\.0\t'; then
+    echo "cliamp: still linked against golang.org/x/sys v0.49.0" >&2
+    return 1
+  fi
+  ./cliamp --version | grep -qxF "cliamp version v$pkgver" ||
+    { echo "cliamp: the built binary does not run" >&2; return 1; }
 }
 
 package() {
