@@ -1,24 +1,41 @@
-# ppc64le: unchanged from the AUR recipe apart from the header, a check() and
-# the shared ELF path guard. arch=(any) was already the literal truth here --
-# the payload is sixteen .ttf files pulled straight out of iaolo/iA-Fonts at a
-# pinned commit, with no compilation and no machine code at any point. Nothing
-# was added to arch=(); there is no ppc64le-specific change in this recipe.
+# ppc64le: unchanged from the AUR recipe apart from the header, the font
+# verification in package() and the shared ELF path guard. arch=(any) was
+# already the literal truth here -- the payload is sixteen .ttf files pulled
+# straight out of iaolo/iA-Fonts at pinned commits, with no compilation and no
+# machine code at any point. Nothing was added to arch=(); there is no
+# ppc64le-specific change in this recipe.
 #
-# Matches the version Omarchy publishes (ttf-ia-writer-20181225-1-any), so this
-# package is interchangeable with theirs.
+# Version and sources follow Omarchy's own recipe, omacom/omarchy-pkgs
+# pkgbuilds/ttf-ia-writer@9fe60302264d (20261002.r63-3, what their stable
+# channel ships; -2 and -3 are republishes with no recipe change), so this
+# package is interchangeable with theirs. Mono, Quattro and Duo come from
+# iA-Fonts c6588670; Duospace was removed upstream, so it stays at its last
+# pin, b337fe1a. All sixteen files at those pins are byte-identical to the
+# ones the 20181225 recipe shipped (same sha512s, re-downloaded and checked
+# 2026-11-16) and to the fonts inside Omarchy's
+# ttf-ia-writer-20261002.r63-3-any.pkg.tar.zst: the new version is a new
+# label and a new pin, not new fonts.
+#
+# The fc-scan check that every face is an "iA Writer" family, and that there
+# are sixteen, runs in package() rather than check(): bq runs makepkg
+# --nocheck, so check() never runs on a real build.
 #
 # Maintainer: Adrián Pérez de Castro
 pkgname=ttf-ia-writer
 pkgdesc='Subset of the fonts provided by iA Writer'
-pkgver=20181225
+pkgver=20261002.r63
 pkgrel=1
 url=https://github.com/iaolo/iA-Fonts
 conflicts=(ttf-ia-writer-duospace)
 provides=(${conflicts[@]})
 license=(custom:OFL)
 arch=(any)
+makedepends=(fontconfig)
 
-_baseurl="${url}/raw/b337fe1a4c93026268f70e4b2678371f3e89e2ce/"
+_commit=c6588670c71e9ac628acc27b72cde4bf12726b7f
+_baseurl="${url}/raw/${_commit}/"
+# Duospace was removed upstream; the shipped legacy family stays at its last pin.
+_legacy_baseurl="${url}/raw/b337fe1a4c93026268f70e4b2678371f3e89e2ce/"
 source=("${_baseurl}/iA%20Writer%20Mono/Static/iAWriterMonoS-Bold.ttf"
         "${_baseurl}/iA%20Writer%20Mono/Static/iAWriterMonoS-BoldItalic.ttf"
         "${_baseurl}/iA%20Writer%20Mono/Static/iAWriterMonoS-Italic.ttf"
@@ -31,15 +48,15 @@ source=("${_baseurl}/iA%20Writer%20Mono/Static/iAWriterMonoS-Bold.ttf"
         "${_baseurl}/iA%20Writer%20Duo/Static/iAWriterDuoS-BoldItalic.ttf"
         "${_baseurl}/iA%20Writer%20Duo/Static/iAWriterDuoS-Italic.ttf"
         "${_baseurl}/iA%20Writer%20Duo/Static/iAWriterDuoS-Regular.ttf"
-        "${_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-Bold.ttf"
-        "${_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-BoldItalic.ttf"
-        "${_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-Italic.ttf"
-        "${_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-Regular.ttf")
+        "${_legacy_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-Bold.ttf"
+        "${_legacy_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-BoldItalic.ttf"
+        "${_legacy_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-Italic.ttf"
+        "${_legacy_baseurl}/iA%20Writer%20Duospace/TTF%20(PC)/iAWriterDuospace-Regular.ttf")
 
-check() {
-	# Verify the fonts are usable, not merely downloaded.  tools/build.sh runs
-	# makepkg --nocheck, so this is for `makepkg --check` and for the record;
-	# the staged fc-list run after the build is the check that actually gates.
+package () {
+	# Verify the fonts are usable, not merely downloaded: fontconfig parses
+	# each face and reports an "iA Writer" family, and there are sixteen.
+	# Here rather than in check(), which bq never runs (makepkg --nocheck).
 	local f fam n=0
 	for f in *.ttf; do
 		fam=$(fc-scan --format '%{family}' "$f") || return 1
@@ -51,9 +68,7 @@ check() {
 		n=$((n+1))
 	done
 	[ "$n" -eq 16 ] || { printf '%s: expected 16 faces, found %d\n' "$pkgname" "$n" >&2; return 1; }
-}
 
-package () {
 	install -m644 -D -t "${pkgdir}/usr/share/fonts/${pkgname}" *.ttf
 
 	# House policy (tools/elf-pathguard.sh): refuse to ship an ELF that records
