@@ -1,0 +1,31 @@
+# Maintainer: 
+# Contributor: damir <damir@archlinux.org>
+# Contributor: Sungjoon Moon <sumoon at seoulsaram dot org>
+# Contributor: Gaetan Bisson <bisson@archlinux.org>
+
+pkgname=libhangul
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='Input method library for Korean'
+url='https://github.com/libhangul/libhangul'
+license=('LGPL')
+arch=('x86_64' 'powerpc64le')
+makedepends=('git')
+source=("git+https://github.com/libhangul/libhangul.git#tag=${pkgname}-${pkgver}")
+sha512sums=('5632fe9fcf3439ce5ba70cc3dedf424f26a8b373df3ac3a12b4f361d6867f5e2cf1eb8d407bfe2c3181d920c3d847bb2763a4089cfed669fcc149cfe62d574d4')
+
+prepare() {
+  cd ${pkgname}
+  ./autogen.sh
+}
+
+build() {
+  cd ${pkgname}
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd ${pkgname}
+  make DESTDIR="${pkgdir}" install
+}

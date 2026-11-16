@@ -1,0 +1,31 @@
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: csslayer <wengxt AT gmail com>
+
+pkgname=fcitx5-hangul
+pkgver=5.1.11
+pkgrel=1
+pkgdesc="Hangul Wrapper for Fcitx5"
+arch=('x86_64' 'powerpc64le')
+url="https://github.com/fcitx/fcitx5-hangul"
+license=('GPL-2.0-or-later')
+depends=('fcitx5' 'libhangul')
+makedepends=('git' 'extra-cmake-modules')
+source=("git+https://github.com/fcitx/fcitx5-hangul.git#tag=$pkgver?signed")
+sha512sums=('e3ae6d5887b7a082af395df2fa52dded918da1cde6219f88d59b56ad2653f6afc3992aea8e15e2de0bb79afcc2076f27f02b75411085547753d8281e3b42619d')
+validpgpkeys=('2CC8A0609AD2A479C65B6D5C8E8B898CBF2412F9') # Weng Xuetian <wengxt@gmail.com>
+
+build() {
+  cd $pkgname
+  cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=/usr/lib .
+  make
+}
+
+check() {
+  cd $pkgname
+  make test
+}
+
+package() {
+  cd $pkgname
+  make DESTDIR="$pkgdir" install
+}

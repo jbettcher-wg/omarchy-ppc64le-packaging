@@ -1,0 +1,66 @@
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: csslayer <wengxt AT gmail com>
+
+pkgname=libime
+pkgver=1.1.17
+_lmver=20260629
+_dictver=20260907
+_tablever=20240108
+pkgrel=1
+pkgdesc="A library to support generic input method implementation"
+arch=('x86_64' 'powerpc64le')
+url="https://github.com/fcitx/libime"
+license=('LGPL-2.1-or-later' 'BSD-3-Clause' 'MIT')
+depends=('boost-libs' 'fcitx5')
+makedepends=('git' 'boost' 'extra-cmake-modules' 'ninja' 'python')
+source=("git+https://github.com/fcitx/libime.git#tag=$pkgver?signed"
+        "git+https://github.com/kpu/kenlm.git"
+        "https://download.fcitx-im.org/data/lm_sc.arpa-$_lmver.tar.zst"
+        "https://download.fcitx-im.org/data/dict-$_dictver.tar.zst"
+        "https://download.fcitx-im.org/data/table-$_tablever.tar.zst")
+noextract=("lm_sc.arpa-$_lmver.tar.zst"
+           "dict-$_dictver.tar.zst"
+           "table-$_tablever.tar.zst")
+sha512sums=('7234f866f723f86d7ddf8d3fcb665146a6e7376a286da7dce0ab4a0838df3bfe9648c0ad82994fbc131c22667df55f3379bbec9e611aaf82aee29bdb5d1ca886'
+            'SKIP'
+            'ae9b77e7ab3007579f5e7455d340e310caaca92b93387bd1025e895f355456601471decac36d8addc02deba9e79f6e8cbf453718d93f04780f0b1b815822e014'
+            '14cebfdac7edd200f1f755f1d024804d43030aac8faa41d0a7186ab0d8350f297e8f301c50d08de00750ffb19d914710043193b2b9ff5c2eeda3ccb02c6d4256'
+            '0d1642ff84e5da2c5b95710e17439bda11b39d3f65d53426bdc03a775dbe592ae64bff8f9191ce27c57b92db8cfed8284a3b6a4f7f02f8ab7fcc8f28cfa0c0ff')
+validpgpkeys=('2CC8A0609AD2A479C65B6D5C8E8B898CBF2412F9') # Weng Xuetian <wengxt@gmail.com>
+
+prepare() {
+  cd $pkgname
+  git submodule init
+  git config submodule.src/libime/kenlm.url "$srcdir"/kenlm
+  git -c protocol.file.allow=always submodule update
+
+  mv ../lm_sc.arpa-$_lmver.tar.zst data/
+  mv ../dict-$_dictver.tar.zst data/
+  mv ../table-$_tablever.tar.zst data/
+  # grep to make sure the version is correct
+  grep lm_sc.arpa-$_lmver.tar.zst data/CMakeLists.txt
+  grep dict-$_dictver.tar.zst data/CMakeLists.txt
+  grep table-$_tablever.tar.zst data/CMakeLists.txt
+}
+
+build() {
+  cd $pkgname
+
+  cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=/usr/lib .
+  ninja
+}
+
+check() {
+  cd $pkgname
+  ninja test
+}
+
+package() {
+  cd $pkgname
+  DESTDIR="$pkgdir" ninja install
+
+  install -Dm644 src/libime/core/kenlm/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE.kenlm"
+  install -Dm644 src/libime/core/kenlm/util/double-conversion/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE.double-conversion"
+  sed -n '6,33p' src/libime/core/kenlm/util/string_piece.hh > "$pkgdir/usr/share/licenses/$pkgname/LICENSE.string_piece"
+  sed -n '13,44p' src/libime/core/kenlm/util/integer_to_string.cc > "$pkgdir/usr/share/licenses/$pkgname/LICENSE.integer_to_string"
+}
