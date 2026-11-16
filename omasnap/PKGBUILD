@@ -1,0 +1,84 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: Tobi Lütke <tobi@lutke.com>
+#
+# Omarchy's native Wayland screenshot and annotation overlay. Omarchy 4.5's
+# migration 1788129995 ("Replace Satty and Tensaku with Omasnap") installs it
+# with omarchy-pkg-add, so without it every later migration is blocked. Taken
+# from upstream's own recipe (github.com/omacom/omarchy-pkgs, pkgbuilds/omasnap
+# at 5ac7d6891ee6); the version is Omarchy's stable channel
+# (pkgs.omarchy.org/stable omasnap 1.25.0-1). omarchy-pkgs HEAD is already at
+# 1.26.x, so this is the revision stable was built from, not HEAD.
+#
+# ppc64le: powerpc64le added to arch=(). Plain Qt 6 / C++23 plus
+# wayland-scanner output; no assembly, intrinsics or arch checks in the source.
+# tesseract is run as a program for OCR, not linked. Two packaging changes:
+#  - libdeflate added to depends. CMakeLists.txt links it through
+#    pkg_check_modules(Libdeflate REQUIRED), but upstream's 1.25.0 recipe left
+#    it out (their later revision 1ff3fe26 lists it).
+#  - "cmake --build build" without upstream's bare --parallel. A bare
+#    --parallel makes cmake ignore CMAKE_BUILD_PARALLEL_LEVEL, which is how bq
+#    caps ninja's jobs; with it ninja takes nproc+1 of the build box.
+
+pkgname=omasnap
+pkgver=1.25.0
+pkgrel=1
+pkgdesc="Native Wayland screenshot and annotation overlay for Hyprland"
+arch=('x86_64' 'aarch64' 'powerpc64le')
+url="https://github.com/omacom/omasnap"
+license=('MIT' 'OFL-1.1')
+depends=(
+  'hyprland'
+  'layer-shell-qt'
+  'libdeflate'
+  'qt6-base'
+  'tesseract'
+  'tesseract-data-eng'
+  'wayland'
+  'wl-clipboard'
+)
+makedepends=(
+  'cmake'
+  'ninja'
+  'pkgconf'
+  'wayland-protocols'
+)
+options=('!debug')
+
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('b5213f00427491a8afc9a6c234ca2cd7a11632c990ac811f403f3799fa2955bd')
+
+build() {
+  cmake -S "$pkgname-$pkgver" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+check() {
+  # The smoke suite fsyncs its working documents under /tmp. On the CI
+  # droplets the build leaves about a gigabyte of dirty pages, and the
+  # flush that starts a few seconds into the suite makes those fsyncs stall
+  # long enough to overrun the suite's 5-second settle windows. Flush first.
+  local runtime_dir status started
+  started=$(date +%s%N); sync
+  echo "flushed dirty pages in $(( ($(date +%s%N) - started) / 1000000 )) ms"
+  runtime_dir=$(mktemp -d /dev/shm/omasnap-runtime.XXXXXX)
+  if QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
+    XDG_RUNTIME_DIR="$runtime_dir" \
+    ./build/omasnap-smoke --output-dir "$srcdir/omasnap-smoke-output"; then
+    status=0
+  else
+    status=$?
+    echo "omasnap-smoke exited with status $status" >&2
+  fi
+  rm -r -- "$runtime_dir"
+  return "$status"
+}
+
+package() {
+  cmake --install build --prefix "$pkgdir/usr"
+  install -Dm644 "$pkgname-$pkgver/README.md" \
+    "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$pkgname-$pkgver/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
