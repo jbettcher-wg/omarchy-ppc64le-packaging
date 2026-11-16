@@ -4,7 +4,13 @@
 # xdg-desktop-portal-hyprland to use (config/hypr/xdph.conf).  Omarchy
 # publishes it from their own repository.  Upstream offers only a -git AUR
 # package and a sample PKGBUILD in its README, so this recipe is written from
-# that sample, pinned to the release Omarchy ships (omarchy.db 0.2.1-1).
+# that sample, pinned to the release Omarchy ships.
+#
+# Omarchy's stable channel is at 0.2.1-3 (omacom/omarchy-pkgs
+# pkgbuilds/hyprland-preview-share-picker@a1ad25bbae61).  Their -2 moved the
+# build from nightly to stable rust, which this recipe has done since 0.2.1-1,
+# and their -3 is a republish for mismatched cached archives with no recipe
+# change.  Neither changes this package, so its pkgrel stays at 1.
 #
 # What changed for ppc64le:
 #
