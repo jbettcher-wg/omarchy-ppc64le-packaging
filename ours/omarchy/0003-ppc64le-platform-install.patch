@@ -1,0 +1,156 @@
+Subject: [PATCH] ppc64le platform: package lists and install helpers
+
+The ppc64le and ppc64le-power9 package lists, the list of Omarchy packages
+with no POWER build (and why), the image-target and pacman helpers taught
+both platform names, defaulting to the stable channel.
+
+Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
+ppc64le platform" + 296d4d7ee "Refuse an unsupported CPU instead of calling
+it x86") with:
+
+    git diff v4.5.0..ppc64le-platform -- install/
+
+Paths are upstream's git paths. The PKGBUILD applies it with
+patch -p1 -d "$pkgdir/usr/share/omarchy", which lands them on the installed layout.
+
+diff --git a/install/helpers/image-target.sh b/install/helpers/image-target.sh
+index 50c4440c6..0cb3ea65a 100644
+--- a/install/helpers/image-target.sh
++++ b/install/helpers/image-target.sh
+@@ -8,7 +8,7 @@
+ #
+ #   /var/lib/omarchy/image/target
+ #     format=1
+-#     platform=x86|aarch64|aarch64-apple|aarch64-qualcomm|aarch64-n1x|aarch64-gb10
++#     platform=x86|aarch64|aarch64-apple|aarch64-qualcomm|aarch64-n1x|aarch64-gb10|ppc64le|ppc64le-power9
+ #
+ # While it exists, omarchy-apply-hardware queues each hardware leaf in
+ # /var/lib/omarchy/image/deferred-steps instead of running it, and arms
+@@ -103,7 +103,7 @@ omarchy_image_read_manifest() {
+     qualcomm) platform=aarch64-qualcomm ;;
+   esac
+   case $platform in
+-    x86 | aarch64 | aarch64-apple | aarch64-qualcomm | aarch64-n1x | aarch64-gb10) ;;
++    x86 | aarch64 | aarch64-apple | aarch64-qualcomm | aarch64-n1x | aarch64-gb10 | ppc64le | ppc64le-power9) ;;
+     *)
+       echo "Error: $omarchy_image_manifest names no known platform: ${platform:-none}" >&2
+       return 1
+diff --git a/install/helpers/pacman.sh b/install/helpers/pacman.sh
+index 4ca3f4271..684fcb35e 100644
+--- a/install/helpers/pacman.sh
++++ b/install/helpers/pacman.sh
+@@ -12,6 +12,9 @@ omarchy_pacman_templates() {
+     # Snapdragon, the N1x and the GB10 use Arch Linux ARM and Omarchy's aarch64
+     # repository like any other ARM machine, so they share its templates.
+     aarch64-qualcomm | aarch64-n1x | aarch64-gb10) echo "$OMARCHY_PATH/default/pacman/aarch64" ;;
++    # Each POWER platform has its own: they list different repositories, the
++    # POWER9 builds ahead of the POWER8-legal baseline on ppc64le-power9.
++    ppc64le | ppc64le-power9) echo "$OMARCHY_PATH/default/pacman/$1" ;;
+     *)
+       echo "Error: Unknown platform '${1:-}'." >&2
+       return 1
+@@ -24,7 +27,7 @@ omarchy_pacman_templates() {
+ # unless they choose another channel.
+ omarchy_pacman_default_channel() {
+   case ${1:-} in
+-    x86 | aarch64 | aarch64-qualcomm | aarch64-n1x | aarch64-gb10) echo stable ;;
++    x86 | aarch64 | aarch64-qualcomm | aarch64-n1x | aarch64-gb10 | ppc64le | ppc64le-power9) echo stable ;;
+     aarch64-apple) echo edge ;;
+     *)
+       echo "Error: Unknown platform '${1:-}'." >&2
+diff --git a/install/omarchy-ppc64le-power9.packages b/install/omarchy-ppc64le-power9.packages
+new file mode 100644
+index 000000000..a88564046
+--- /dev/null
++++ b/install/omarchy-ppc64le-power9.packages
+@@ -0,0 +1,7 @@
++# Additions for POWER9 and newer machines, which run ISA 3.0 code, composed
++# after omarchy-base.packages and omarchy-ppc64le.packages.
++
++# The NX gzip accelerator: the udev rule and group that make
++# /dev/crypto/nx-gzip usable without sudo. POWER8's NX has no gzip engine, and
++# the device needs a kernel with CONFIG_PPC_VAS.
++omarchy-nx-gzip
+diff --git a/install/omarchy-ppc64le-unavailable.packages b/install/omarchy-ppc64le-unavailable.packages
+new file mode 100644
+index 000000000..06376f602
+--- /dev/null
++++ b/install/omarchy-ppc64le-unavailable.packages
+@@ -0,0 +1,15 @@
++# Base packages with no ppc64le build: they build for x86_64 and aarch64 but not
++# for POWER. omarchy-pkg-defaults leaves them out of every ppc64le platform's
++# set. Each says why, and what takes its place where something does.
++
++# Packages of prebuilt x86_64 and aarch64 binaries. The programs themselves
++# build for ppc64le from source and come from omarchy-ppc64le.packages; a
++# ppc64le release asset upstream would let these be installed as they are.
++mise-bin
++disktree-bin
++
++# Closed source, published for x86_64 and aarch64 only.
++superwhisper-bin
++
++# Flutter: the Dart VM has no ppc64le back end.
++localsend
+diff --git a/install/omarchy-ppc64le.packages b/install/omarchy-ppc64le.packages
+new file mode 100644
+index 000000000..5ea546804
+--- /dev/null
++++ b/install/omarchy-ppc64le.packages
+@@ -0,0 +1,45 @@
++# Additions for every POWER (ppc64le) platform, composed after
++# omarchy-base.packages (omarchy-pkg-defaults). ppc64le-power9 composes this
++# list too, then its own.
++
++# POWER hardware. Omarchy's hardware layer is Intel, NVIDIA, Apple, Dell and
++# Framework; a POWER machine needs the platform's own tools instead: nvram,
++# lsprop and ofpathname, the OPAL firmware services on PowerNV, and BMC access.
++powerpc-utils
++opal-utils
++ipmitool
++
++# omarchy-settings configures swap on zram, and the x86_64 installer provides
++# zram-generator for it; POWER gets it here, as aarch64 does.
++zram-generator
++# Nothing pulls rtkit in on POWER either, so PipeWire gets no realtime
++# scheduling without it.
++rtkit
++
++# Built from source in place of base's mise-bin and disktree-bin, which package
++# x86_64 and aarch64 binaries only (omarchy-ppc64le-unavailable.packages).
++mise
++disktree
++
++# The mason registry publishes x86_64 and aarch64 assets only, so on POWER the
++# language servers and formatters LazyVim reaches for come from these packages,
++# and blink.cmp's fuzzy matcher from a native build rather than its prebuilt
++# library. clang is here for clangd, which base no longer installs.
++blink-cmp-fuzzy
++clang
++bash-language-server
++eslint
++gopls
++lua-language-server
++marksman
++prettier
++ruff
++rust-analyzer
++shfmt
++stylua
++taplo-cli
++typescript-language-server
++yaml-language-server
++
++# The generic PowerPC themes.
++omarchy-theme-powerpc
+diff --git a/install/omarchy-x86_64-only.packages b/install/omarchy-x86_64-only.packages
+index 7d773629f..dfde55d85 100644
+--- a/install/omarchy-x86_64-only.packages
++++ b/install/omarchy-x86_64-only.packages
+@@ -1,2 +1,4 @@
+-# Base packages with no aarch64 build in any repository Omarchy configures.
+-# omarchy-pkg-defaults leaves them out of every aarch64 platform's set.
++# Base packages that only x86_64 builds: no aarch64 or ppc64le build in any
++# repository Omarchy configures. omarchy-pkg-defaults leaves them out of every
++# other architecture's set. A package that builds for aarch64 but not for
++# ppc64le belongs in omarchy-ppc64le-unavailable.packages instead.

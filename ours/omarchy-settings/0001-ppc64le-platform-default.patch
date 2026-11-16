@@ -1,0 +1,125 @@
+Subject: [PATCH] ppc64le platform: pacman templates and the runtime profile
+
+pacman-stable.conf and mirrorlist-stable for both POWER platforms: our pool
+(and the POWER9 pool first on ppc64le-power9), then Arch POWER's base-any
+and base. Architecture is powerpc64le, not auto, which resolves to ppc64le.
+
+Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
+ppc64le platform" + 296d4d7ee "Refuse an unsupported CPU instead of calling
+it x86") with:
+
+    git diff v4.5.0..ppc64le-platform -- default/
+
+Paths are upstream's git paths. The PKGBUILD applies it with
+patch -p1 -d "$pkgdir/usr/share/omarchy", which lands them on the installed layout.
+
+diff --git a/default/pacman/ppc64le-power9/mirrorlist-stable b/default/pacman/ppc64le-power9/mirrorlist-stable
+new file mode 100644
+index 000000000..3084f3109
+--- /dev/null
++++ b/default/pacman/ppc64le-power9/mirrorlist-stable
+@@ -0,0 +1 @@
++Server = https://repo.archlinuxpower.org/base/$arch
+diff --git a/default/pacman/ppc64le-power9/pacman-stable.conf b/default/pacman/ppc64le-power9/pacman-stable.conf
+new file mode 100644
+index 000000000..e17f1cf8a
+--- /dev/null
++++ b/default/pacman/ppc64le-power9/pacman-stable.conf
+@@ -0,0 +1,38 @@
++# See the pacman.conf(5) manpage for option and repository directives
++# Arch POWER provides the ppc64le repositories used below.
++
++[options]
++Color
++ILoveCandy
++VerbosePkgLists
++HoldPkg = pacman glibc
++# Not "auto": pacman's auto takes uname -m, which is ppc64le, but Arch POWER
++# names the architecture powerpc64le, in its packages and its repository paths.
++Architecture = powerpc64le
++CheckSpace
++ParallelDownloads = 5
++DownloadUser = alpm
++
++# By default, pacman accepts packages signed by keys that its local keyring
++# trusts (see pacman-key and its man page), as well as unsigned packages.
++SigLevel = Required DatabaseOptional
++LocalFileSigLevel = Optional
++
++# pacman searches repositories in the order defined here. The POWER9 builds come
++# first and the POWER8-legal baseline after them: pacman takes the first
++# repository carrying a name, so the POWER9 build wins where one exists and the
++# baseline fills in the rest. Neither is signed yet, so signatures are checked
++# where present rather than required.
++[omarchy-power9]
++SigLevel = Optional TrustAll
++Server = https://omappc64le.download/omarchy-power9
++
++[omarchy-ppc64le]
++SigLevel = Optional TrustAll
++Server = https://omappc64le.download/omarchy-ppc64le
++
++[base-any]
++Server = https://repo.archlinuxpower.org/base/any
++
++[base]
++Include = /etc/pacman.d/mirrorlist
+diff --git a/default/pacman/ppc64le/mirrorlist-stable b/default/pacman/ppc64le/mirrorlist-stable
+new file mode 100644
+index 000000000..3084f3109
+--- /dev/null
++++ b/default/pacman/ppc64le/mirrorlist-stable
+@@ -0,0 +1 @@
++Server = https://repo.archlinuxpower.org/base/$arch
+diff --git a/default/pacman/ppc64le/pacman-stable.conf b/default/pacman/ppc64le/pacman-stable.conf
+new file mode 100644
+index 000000000..5b9d2e9a9
+--- /dev/null
++++ b/default/pacman/ppc64le/pacman-stable.conf
+@@ -0,0 +1,33 @@
++# See the pacman.conf(5) manpage for option and repository directives
++# Arch POWER provides the ppc64le repositories used below.
++
++[options]
++Color
++ILoveCandy
++VerbosePkgLists
++HoldPkg = pacman glibc
++# Not "auto": pacman's auto takes uname -m, which is ppc64le, but Arch POWER
++# names the architecture powerpc64le, in its packages and its repository paths.
++Architecture = powerpc64le
++CheckSpace
++ParallelDownloads = 5
++DownloadUser = alpm
++
++# By default, pacman accepts packages signed by keys that its local keyring
++# trusts (see pacman-key and its man page), as well as unsigned packages.
++SigLevel = Required DatabaseOptional
++LocalFileSigLevel = Optional
++
++# pacman searches repositories in the order defined here. Omarchy's ppc64le
++# repository comes first, as [omarchy] does on x86_64, so a package it also
++# publishes is installed from it. Its packages are not signed yet, so its
++# signatures are checked where present rather than required.
++[omarchy-ppc64le]
++SigLevel = Optional TrustAll
++Server = https://omappc64le.download/omarchy-ppc64le
++
++[base-any]
++Server = https://repo.archlinuxpower.org/base/any
++
++[base]
++Include = /etc/pacman.d/mirrorlist
+diff --git a/default/settings-runtime-profile b/default/settings-runtime-profile
+index 4e3fbe019..822bac32a 100644
+--- a/default/settings-runtime-profile
++++ b/default/settings-runtime-profile
+@@ -19,6 +19,7 @@
+ # default/systemd/zram-generator.conf.d/90-omarchy.conf,
+ # etc/sysctl.d/99-omarchy-sysctl.conf, etc/tmpfiles.d/omarchy-zswap.conf
+ #   Swap on zram everywhere: the installer provides zram-generator on x86_64,
+-#   install/omarchy-aarch64.packages on aarch64.
++#   install/omarchy-aarch64.packages on aarch64 and
++#   install/omarchy-ppc64le.packages on POWER.
+ # etc/modprobe.d/omarchy-usb-autosuspend.conf
+ #   Applies where usbcore is a module; a kernel that builds it in ignores it.

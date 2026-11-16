@@ -2,18 +2,28 @@
 #
 # Omarchy 4's settings package, repackaged for ppc64le.
 #
-# Like omarchy itself this is genuinely arch=any -- zero ELF files, enforced by
-# check() -- so there is no port.  Its depends (bash curl gum hicolor-icon-theme
-# plymouth) all resolve on ppc64le unchanged; plymouth is already built in this
-# repo.  **No dependency change was needed and none was made.**
+# Like omarchy itself this is genuinely arch=any -- zero ELF files, asserted at
+# the top of package() -- so there is no port.  Its depends (bash curl gum sudo
+# hicolor-icon-theme plymouth) all resolve on ppc64le unchanged.  **No
+# dependency change was needed and none was made**; provides and backup are
+# upstream's, minus the Limine files package() deletes.
 #
-# Two changes to the shipped tree, both for reasons that are specific to this
-# machine and provable rather than cautious:
+# Changes to the shipped tree, each for a reason specific to POWER and provable
+# rather than cautious:
 #
-#   1. etc/mkinitcpio.conf.d/omarchy_hooks.conf is removed.  It would break
-#      initramfs generation here.  See package().
-#   2. The .INSTALL scriptlet is replaced with one that does not rewrite /etc.
-#      See omarchy-settings.install.
+#   1. The ppc64le platforms' pacman templates and mkinitcpio HOOKS baseline,
+#      as patches from the ppc64le-platform branch.  4.0.4 had to delete
+#      etc/mkinitcpio.conf.d outright; 4.5.0 guards every drop-in there by
+#      platform or by what the kernel has, so patching 00-omarchy-hooks.conf
+#      is enough and the directory now ships.  See package().
+#   2. The .INSTALL scriptlet is replaced with one that does not rewrite /etc,
+#      but keeps upstream's passwordless-sudo grant lifecycle verbatim.  See
+#      omarchy-settings.install.
+#   3. The Limine entry-tool configuration is removed, and the browser menu is
+#      culled to the browsers that exist on POWER.
+#
+# Retired at 4.5.0: the Antigravity menu backport (0001-menu-antigravity.patch).
+# Upstream's menu has setup.default.agent.agy now.
 #
 # Everything else ships byte-for-byte as upstream built it, including the
 # /etc drop-ins that merely configure software (sddm, logind, resolved, sysctl,
@@ -27,8 +37,9 @@
 # arch=(any) was correct as it stood.  No architecture change was needed.
 
 pkgname=omarchy-settings
-pkgver=4.0.4
-# pkgrel above 1 marks this as locally modified: upstream's own build is 4.0.4-1.
+pkgver=4.5.0
+# pkgrel above upstream's marks this as locally modified: upstream's own build
+# is 4.5.0-3 (_upstream_rel below).
 pkgrel=4
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers (ppc64le: no destructive /etc overrides, no mkinitcpio drop-in)'
 arch=(any)
@@ -40,50 +51,87 @@ depends=(
   bash
   curl
   gum
+  sudo
   hicolor-icon-theme
   plymouth
+)
+# 4.5.0 moved omarchy-sudo-passwordless and its library here from omarchy;
+# omarchy depends on the library by this name.
+provides=(omarchy-security-functions)
+
+# Upstream's backup list. Upstream adds the last four only on x86_64, because
+# older sources left those files out of the aarch64 package; a source with
+# default/settings-runtime-profile (4.5.0 has it) ships them everywhere and they
+# decide at runtime, so they are configuration here too. The two
+# etc/limine-entry-tool.d files are left out because package() deletes them.
+backup=(
+  etc/fastfetch/config.jsonc
+  etc/docker/daemon.json
+  etc/gnupg/dirmngr.conf
+  etc/sysctl.d/99-omarchy-sysctl.conf
+  etc/sysctl.d/90-omarchy-file-watchers.conf
+  etc/systemd/logind.conf.d/10-ignore-power-button.conf
+  etc/systemd/logind.conf.d/20-inhibit-delay.conf
+  etc/systemd/resolved.conf.d/10-disable-multicast.conf
+  etc/systemd/resolved.conf.d/20-docker-dns.conf
+  etc/systemd/system.conf.d/10-faster-shutdown.conf
+  etc/systemd/system/user@.service.d/10-faster-shutdown.conf
+  etc/systemd/system/docker.service.d/no-block-boot.conf
+  etc/systemd/system/plocate-updatedb.service.d/ac-only.conf
+  etc/systemd/system.conf.d/20-omarchy-nofile.conf
+  etc/systemd/user.conf.d/20-omarchy-nofile.conf
+  etc/sddm.conf.d/10-theme.conf
+  etc/sddm.conf.d/10-wayland.conf
+  etc/udev/rules.d/60-omarchy-io-scheduler.rules
+  etc/udev/rules.d/99-omarchy-power-profile.rules
+  etc/udev/rules.d/99-omarchy-wifi-powersave.rules
+  etc/mkinitcpio.conf.d/omarchy_hooks.conf
+  etc/mkinitcpio.conf.d/00-omarchy-hooks.conf
+  etc/sysctl.d/90-omarchy-arp.conf
+  etc/mkinitcpio.conf.d/thunderbolt_module.conf
+  etc/modprobe.d/omarchy-usb-autosuspend.conf
+  etc/systemd/oomd.conf.d/10-omarchy.conf
+  etc/systemd/zram-generator.conf
 )
 
 optdepends=(
   'omarchy: Full Omarchy desktop'
   'inxi: System information for omarchy-debug'
   'fastfetch: System information for omarchy-upload-log'
-  'zram-generator: Reads the shipped /etc/systemd/zram-generator.conf.d drop-in to create the compressed swap device'
+  'zram-generator: Reads the shipped /etc/systemd/zram-generator.conf to create the compressed swap device'
   'snapper: Used with the shipped /etc/snapper/config-templates/omarchy template'
 )
 # Upstream's limine, limine-mkinitcpio-hook and limine-snapper-sync optdepends
 # are dropped: they describe drop-ins for a bootloader that does not apply on
-# OPAL/petitboot, and the mkinitcpio drop-in they referred to is removed below.
+# OPAL/petitboot.
 
 conflicts=(omarchy-settings-dev)
 
 install="${pkgname}.install"
 
-# Upstream's published artifact. From 4.0.3 upstream labels it arch=x86_64
-# (4.0.2 shipped as -any), but the content did not change class: re-verified for
-# 4.0.4-1 -- sha256 matches omarchy.db, 426 files (unchanged count), zero ELF or
-# object files.
+# Upstream's published artifact, from the stable channel. Upstream labels it
+# arch=x86_64 (4.0.2 shipped as -any), but the content did not change class:
+# re-verified for 4.5.0-3 -- sha256 matches
+# https://pkgs.omarchy.org/stable/x86_64/omarchy.db, 761 files, zero ELF or
+# object files. The files the patches touch were checked byte-identical to the
+# v4.5.0 tag before generating them, and every file package() names was
+# verified present in the 4.5.0-3 tree.
 #
-# 4.0.3 -> 4.0.4 changed 38 files here and they are almost entirely cosmetic: 36
-# are app icon PNGs under usr/share/icons/hicolor (both 48x48 and 256x256 of the
-# same 18 apps), plus etc/limine-entry-tool.d/omarchy-defaults.conf (which
-# package() deletes anyway, since limine cannot exist on POWER9) and
-# usr/share/omarchy/etc-overrides/os-release (the version string).  Every file
-# package() and check() reference was verified present in the 4.0.4 tree before
-# this bump, including both mkinitcpio drop-ins and neovim.lua.tpl.
-#
-# The relabel is in their build pipeline, not the source. check() keeps enforcing
-# zero machine code, so this stays arch=(any); if upstream ever ships a real
+# The relabel is in their build pipeline, not the source. _assert_upstream()
+# keeps enforcing zero machine code, so this stays arch=(any); if upstream ever ships a real
 # binary here, the build fails instead of trusting the label.
 _upstream_arch=x86_64
-_srcpkg="${pkgname}-${pkgver}-1-${_upstream_arch}.pkg.tar.zst"
-source=("https://pkgs.omarchy.org/x86_64/${_srcpkg}"
+_upstream_rel=3
+_srcpkg="${pkgname}-${pkgver}-${_upstream_rel}-${_upstream_arch}.pkg.tar.zst"
+source=("https://pkgs.omarchy.org/stable/${_upstream_arch}/${_srcpkg}"
         "${pkgname}.install"
-        0001-menu-antigravity.patch)
+        0001-ppc64le-platform-default.patch
+        0002-ppc64le-platform-etc.patch)
 noextract=("${_srcpkg}")
-sha256sums=('748c2ee7edc3c67f8c09bdfa9f0930837684297c7107b8a3a87540f8dfe1d100'
+sha256sums=('14a4f0cae0717df80fe2c08e7a3b0ba37b3935f09b31904d94c25b6baa141a87'
             'SKIP'
-            '520911c05a5caeae11876d577bbd3e287b82f265d138fff183f7d74259ce0a6f')
+            '79a52e89628df4afe163bdb825a24d963ac0ab8158ee40b47b34541ae15d33a1'
+            '19ba84142fa243a94ce2620b42d4d213fefc3591872264363db646ef7cc9941a')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -91,7 +139,10 @@ _unpack() {
     --exclude .PKGINFO --exclude .BUILDINFO --exclude .MTREE --exclude .INSTALL
 }
 
-check() {
+# Not check(): bq builds with makepkg --nocheck, so a check() never runs for a
+# package that ships. Through 4.0.4-4 these assertions sat in check() and were
+# inert. package() calls this first instead.
+_assert_upstream() {
   local found
   rm -rf "${srcdir}/upstream"
   mkdir -p "${srcdir}/upstream"
@@ -110,8 +161,23 @@ check() {
     return 1
   fi
 
-  # The file package() removes must exist, or the removal silently no-ops.
-  [ -f "${srcdir}/upstream/etc/mkinitcpio.conf.d/omarchy_hooks.conf" ]
+  # The files package() patches or removes must exist, or a removal silently
+  # no-ops.
+  [ -f "${srcdir}/upstream/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf" ]
+  [ -d "${srcdir}/upstream/etc/limine-entry-tool.d" ]
+  [ -f "${srcdir}/upstream/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc" ]
+
+  # omarchy-settings.install copies upstream's passwordless-sudo grant
+  # lifecycle verbatim. If upstream changes it, stop rather than ship a stale
+  # copy of a security mechanism.
+  bsdtar -xf "${srcdir}/${_srcpkg}" -C "${srcdir}/upstream" .INSTALL
+  local _fns='_passwordless_package_transition pre_remove pre_upgrade post_remove'
+  if ! diff -u \
+      <(bash -c "source '${srcdir}/upstream/.INSTALL' >/dev/null 2>&1; declare -f $_fns") \
+      <(bash -c "source '${srcdir}/${pkgname}.install' >/dev/null 2>&1; declare -f $_fns") >&2; then
+    echo "omarchy-settings: upstream's sudo-grant lifecycle changed; re-copy it into ${pkgname}.install" >&2
+    return 1
+  fi
 
   # The theming contract this package is actually here to satisfy: the
   # templates omarchy-theme-set-templates renders into the per-user theme
@@ -120,46 +186,45 @@ check() {
 }
 
 package() {
+  _assert_upstream
   _unpack "${pkgdir}"
 
-  # Remove the mkinitcpio drop-in.
+  # ppc64le: the platforms' pacman templates and mkinitcpio HOOKS baseline.
   #
-  # This is not a preference, it is a demonstrated breakage.  The drop-in
-  # replaces the HOOKS array wholesale with:
+  # 4.0.4 deleted etc/mkinitcpio.conf.d whole. Its omarchy_hooks.conf replaced
+  # HOOKS with a busybox line ending in btrfs-overlayfs (from
+  # limine-mkinitcpio-hook, which cannot exist here), and thunderbolt_module.conf
+  # put an unconditional MODULES=(thunderbolt) on a kernel with no such module;
+  # either made mkinitcpio fail, and the second aborted a full install run.
   #
-  #   HOOKS=(base udev plymouth keyboard autodetect microcode modconf kms
-  #          keymap consolefont block encrypt filesystems fsck btrfs-overlayfs)
+  # 4.5.0 fixed the shape of the problem: 00-omarchy-hooks.conf sets HOOKS per
+  # platform from omarchy-hw-platform, thunderbolt and i2c-hid-of load only where
+  # modinfo or the detector finds them, and omarchy_hooks.conf only filters kms
+  # for NVIDIA. So the directory ships and the patch adds the POWER line --
+  # base systemd plymouth autodetect modconf kms keyboard keymap sd-vconsole
+  # block filesystems fsck: no btrfs-overlayfs, no microcode, and no encryption
+  # hook, since petitboot cannot read an encrypted /boot. It is the line .24 and
+  # the installer's own drop-in already use, so on an installed system the
+  # effective HOOKS do not change.
   #
-  # On this machine:
-  #   - btrfs-overlayfs is provided by limine-mkinitcpio-hook, which does not
-  #     exist for ppc64le and is deliberately not a dependency.  There is no
-  #     /usr/lib/initcpio/install/btrfs-overlayfs, so mkinitcpio errors out.
-  #   - plymouth's initcpio hook is likewise absent unless plymouth is
-  #     installed, and the drop-in lists it unconditionally.
-  #   - microcode is x86 CPU microcode loading; meaningless on POWER9.
-  #   - it also converts a working systemd-based initramfs (the installed
-  #     HOOKS here begin `base systemd ... sd-vconsole`) into a busybox one,
-  #     which is a whole-boot-path change nobody asked for.
-  #
-  # The consequence is not cosmetic: the next kernel upgrade runs mkinitcpio -P,
-  # it fails, and the machine is left without a regenerated initramfs on a box
-  # that boots through petitboot.  Removing the drop-in leaves the working
-  # /etc/mkinitcpio.conf alone.
-  #
-  # Local workaround, not upstreamable: the drop-in is correct for x86 Omarchy.
-  # Take the whole directory, not just omarchy_hooks.conf. Upstream also ships
-  # thunderbolt_module.conf, which is MODULES=(thunderbolt) -- there is no
-  # Thunderbolt on POWER9 and no such module in our kernel, so mkinitcpio exits
-  # non-zero, p9-install treats that as fatal, and the install aborts before it
-  # writes a boot entry. That cost a full install run to find. Removing only the
-  # drop-in we happened to know about is what let the second one through, so
-  # remove the directory and let the installer's own omarchy-p9-hooks.conf be
-  # the only thing in it.
-  rm -rf "${pkgdir}/etc/mkinitcpio.conf.d"
+  # Paths are upstream's git paths: default/ lands under usr/share/omarchy,
+  # etc/ at the package root.
+  patch -p1 -d "${pkgdir}/usr/share/omarchy" < "${srcdir}/0001-ppc64le-platform-default.patch"
+  patch -p1 -d "${pkgdir}" < "${srcdir}/0002-ppc64le-platform-etc.patch"
+  grep -qF 'ppc64le | ppc64le-power9)' "${pkgdir}/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf" ||
+    { echo "omarchy-settings: the POWER HOOKS line did not apply" >&2; return 1; }
+  bash -n "${pkgdir}/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf"
+  local _p
+  for _p in ppc64le ppc64le-power9; do
+    grep -qx 'Architecture = powerpc64le' "${pkgdir}/usr/share/omarchy/default/pacman/${_p}/pacman-stable.conf" ||
+      { echo "omarchy-settings: no stable pacman template for ${_p}" >&2; return 1; }
+    [ -s "${pkgdir}/usr/share/omarchy/default/pacman/${_p}/mirrorlist-stable" ] ||
+      { echo "omarchy-settings: no stable mirrorlist for ${_p}" >&2; return 1; }
+  done
 
   # Remove the limine boot-entry configuration.
   #
-  # Inert without limine, so this is housekeeping rather than a fix: these two
+  # Inert without limine, so this is housekeeping rather than a fix: these
   # files configure limine-entry-tool, a package that is not and cannot be a
   # dependency here.  Dropped so the shipped tree matches the dependency list
   # rather than carrying dead configuration for a bootloader this platform
@@ -181,25 +246,8 @@ package() {
   #                               are no longer applied automatically; see
   #                               omarchy-settings.install.
 
-  # ppc64le: backport Antigravity (agy) from upstream quattro (commit ed7bae4ac5).
-  #
-  # Carried as a real patch rather than sed, because the patch is the artifact we
-  # would send upstream.  Its path is upstream's git path
-  # (default/omarchy/omarchy-menu.jsonc), so `-p1 -d "$pkgdir/usr/share/omarchy"`
-  # lands it on the installed layout with no rewriting.  patch(1) also fails loudly
-  # when upstream moves the context, where sed matches nothing silently.
-  #
-  # Authored against the 4.0.4 release; it does NOT apply to upstream main, which
-  # is ahead.  Rebase before submitting.
-  #
-  # Order matters: this runs BEFORE the browser cull below, because the cull
-  # deletes lines and would shift the context this patch is anchored to.
   local _menu="${pkgdir}/usr/share/omarchy/default/omarchy/omarchy-menu.jsonc"
   if [ -f "$_menu" ]; then
-    patch -p1 -d "${pkgdir}/usr/share/omarchy" < "${srcdir}/0001-menu-antigravity.patch"
-    grep -q 'setup.default.agent.agy' "$_menu" ||
-      { echo "omarchy-settings: agy patch applied but the menu lacks setup.default.agent.agy" >&2; return 1; }
-
     # ppc64le: cull the browser menu to the browsers that exist here.
     #
     # Three lists mention browsers: install.browser.*, setup.default.browser.*

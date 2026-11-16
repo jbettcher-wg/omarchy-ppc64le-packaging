@@ -1,0 +1,62 @@
+Subject: [PATCH] bin: let a distribution package satisfy the default agent
+
+omarchy-default-agent reaches mise for any agent without an explicit
+agent_installer, and already declines to shadow an install mise did not make --
+see user_install and its comment. A distribution package is the same case, and
+on an architecture the agent's publisher does not build for it is the only case
+that can arise: mise's backends resolve release assets by platform, so
+`omarchy default agent crush` on powerpc64le fails with
+
+    no asset found: crush_0.98.1_Linux_powerpc64.tar.gz
+
+even though /usr/bin/crush exists and is current, built from the source tarball
+Charm does publish alongside those binaries.
+
+distro_install() is checked after user_install, so a deliberate ~/.local/bin
+install still wins, and before mise, so the packaged build is preferred over a
+copy mise would have to fetch. It looks at /usr/bin and /usr/local/bin by path
+rather than through `command -v`, so a stale mise wrapper in ~/.local/bin
+cannot hide the package behind it.
+
+Not ppc64le-specific in form: on x86_64 the loop simply finds nothing for agents
+Omarchy does not package, and the behaviour is unchanged.
+
+Rebased onto 4.5.0, where presence is `mise where "$agent_tool"` and install
+goes through omarchy-mise-default-tools; both now consult distro_install first.
+
+--- a/bin/omarchy-default-agent
++++ b/bin/omarchy-default-agent
+@@ -102,7 +102,23 @@
+   user_install() {
+     [[ -x $HOME/.local/bin/$agent ]] && ! mise_wrapper "$HOME/.local/bin/$agent"
+   }
+-  agent_present() { user_install || mise where "$agent_tool" &>/dev/null; }
++  # An agent shipped as a distribution package is an install mise did not make
++  # and must not shadow, for the reason given above. On architectures the
++  # agent's publisher does not build for, it is also the only install that can
++  # exist: mise's backends resolve release assets by platform, so selecting
++  # Crush on powerpc64le fails with
++  #   no asset found: crush_0.98.1_Linux_powerpc64.tar.gz
++  # while /usr/bin/crush is present and current, built from the source tarball
++  # upstream does publish. Checked by path rather than through `command -v` so
++  # that a stale wrapper left in ~/.local/bin cannot hide it.
++  distro_install() {
++    local p
++    for p in /usr/bin/"$agent" /usr/local/bin/"$agent"; do
++      [[ -x $p ]] && pacman -Qoq "$p" &>/dev/null && return 0
++    done
++    return 1
++  }
++  agent_present() { user_install || distro_install || mise where "$agent_tool" &>/dev/null; }
+   # Omarchy declares the default agents as mise tools, so installing one is
+   # enough and leaves the user's config alone. A user who removed the
+   # preinstalls, like one without Omarchy's declarations, selects it instead.
+@@ -112,7 +128,7 @@
+     [[ $1 == npm:* || $(mise tool "${1%%\[*}" --backend 2>/dev/null) == npm:* ]]
+   }
+   agent_install() {
+-    user_install && return
++    { user_install || distro_install; } && return
+     if omarchy-mise-default-tools declares "$agent_tool"; then
+       if npm_backed "$agent_tool"; then
+         mise install node "$agent_tool"
