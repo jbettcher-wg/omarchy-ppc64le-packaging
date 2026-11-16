@@ -1,0 +1,72 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: owe contributors
+#
+# OWE, Omarchy's wallpaper engine (mp4, gif, stills). Omarchy 4.5's migration
+# 1789764927 installs owe and owe-lockfeed with omarchy-pkg-add and then uses
+# /usr/share/owe/10-owe-sync and the owed.service user unit this package
+# ships. Taken from upstream's own recipe (github.com/omacom/omarchy-pkgs,
+# pkgbuilds/owe at 68465f1f648d, which has the same PKGBUILD as fd9f543f), with
+# its pacman hook and restart helper; the version is Omarchy's stable channel
+# (pkgs.omarchy.org/stable owe 0.2.14-1). omarchy-pkgs HEAD is at 0.2.15.
+#
+# ppc64le: powerpc64le added to arch=(), nothing else. Plain C11 over
+# wayland/EGL/mpv/ffmpeg; the vendored yyjson only picks its unaligned-access
+# and endianness paths from predefined macros and has generic fallbacks. The
+# intel-media-driver optdepend is Intel's x86-only VAAPI driver and does not
+# exist on POWER; it is left as upstream wrote it, since an optdepend that
+# cannot be installed costs nothing.
+
+pkgname=owe
+pkgver=0.2.14
+pkgrel=1
+pkgdesc="High-performance wallpaper engine for Omarchy (mp4, gif, stills)"
+arch=('x86_64' 'aarch64' 'powerpc64le')
+url="https://github.com/omacom/owe"
+license=('MIT')
+depends=('mpv' 'ffmpeg' 'wayland' 'libglvnd' 'libepoxy' 'systemd-libs' 'socat')
+makedepends=('meson' 'ninja' 'gcc' 'pkgconf' 'wayland-protocols')
+checkdepends=('python')
+optdepends=('intel-media-driver: VAAPI hardware decode on Intel GPUs'
+            'libva-mesa-driver: VAAPI hardware decode on AMD GPUs')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/omacom/owe/archive/refs/tags/v$pkgver.tar.gz"
+        '90-owe-restart.hook'
+        'package-restart')
+sha256sums=('8b939fee65ae16e22b287f80da64c4a40c212c060848b21cb65dd6d81d75fe1f'
+            'aee4a08132f0528575d3b7364defc070b8af1648cc48559238ba089c09504b62'
+            'ef1fc780425343623c4a4ddd36cc58cd89ba8a71c528641f4b421db834a349cd')
+
+build() {
+  meson setup build "$srcdir/owe-$pkgver" -Dbuildtype=release -Dprefix=/usr
+  ninja -C build
+}
+
+check() {
+  # transition's "both outputs show intermediate colors" wants at least three
+  # blended frames from a 250 ms fade rendered with software GL. aarch64
+  # builds run under QEMU user-mode emulation, which renders too few frames
+  # in that window (reproduced 3/3 locally); it passes natively. Run every
+  # other test there.
+  local -a tests=()
+  if [[ $CARCH == aarch64 ]]; then
+    mapfile -t tests < <(meson test -C build --list | sed 's/^owe://' | grep -vx transition)
+    (( ${#tests[@]} )) || return 1
+  fi
+  meson test -C build --print-errorlogs "${tests[@]}"
+}
+
+package() {
+  DESTDIR="$pkgdir" ninja -C build install
+  install -Dm644 "$srcdir/90-owe-restart.hook" "$pkgdir/usr/share/libalpm/hooks/90-owe-restart.hook"
+  install -Dm755 "$srcdir/package-restart" "$pkgdir/usr/lib/owe/package-restart"
+  install -d "$pkgdir/usr/lib/systemd/user"
+  sed 's|%h/.local/bin/owed|/usr/bin/owed|' "$srcdir/owe-$pkgver/systemd/owed.service" \
+    >"$pkgdir/usr/lib/systemd/user/owed.service"
+  install -Dm755 "$srcdir/owe-$pkgver/hooks/owe-idle" "$pkgdir/usr/bin/owe-idle"
+  install -Dm644 "$srcdir/owe-$pkgver/hooks/theme-set.d/10-owe-sync" "$pkgdir/usr/share/owe/10-owe-sync"
+  install -Dm644 "$srcdir/owe-$pkgver/config/config.toml" "$pkgdir/usr/share/doc/$pkgname/config.toml.example"
+
+  # The migration runs these two paths; fail the build rather than ship a
+  # package it cannot use.
+  grep -q '^ExecStart=.*/usr/bin/owed ' "$pkgdir/usr/lib/systemd/user/owed.service"
+  test -s "$pkgdir/usr/share/owe/10-owe-sync"
+}
