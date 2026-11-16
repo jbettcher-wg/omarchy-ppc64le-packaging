@@ -1,15 +1,20 @@
-Subject: [PATCH] ppc64le platform: package lists and install helpers
+Subject: [PATCH] ppc64le platform: package lists, install helpers and migrations
 
-The ppc64le and ppc64le-power9 package lists, the list of Omarchy packages
-with no POWER build (and why), the image-target and pacman helpers taught
-both platform names, defaulting to the stable channel.
+The ppc64le and ppc64le-power9 package lists (POWERarm and sleeve on every
+POWER machine), the list of Omarchy packages with no POWER build (and why),
+the image-target and pacman helpers taught both platform names, defaulting
+to the stable channel. The migration rebuilds mise's system shims once
+omarchy-settings ships POWER's mise fragment.
 
 Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
 ppc64le platform", 296d4d7ee "Refuse an unsupported CPU instead of calling
 it x86", 9d077ad8d "Skip a platform's unavailable packages in
-omarchy-pkg-add" and a6cc8fc83 "Install base's disktree-bin on POWER") with:
+omarchy-pkg-add", a6cc8fc83 "Install base's disktree-bin on POWER",
+8f89ed9d4 "Install POWERarm on every POWER platform", 53bfb9e91 "Run agent
+CLIs with no POWER build as their arm64 builds" and 5187c8230 "Install
+sleeve on POWER") with:
 
-    git diff v4.5.0..ppc64le-platform -- install/
+    git diff v4.5.0..ppc64le-platform -- install/ migrations/
 
 Paths are upstream's git paths. The PKGBUILD applies it with
 patch -p1 -d "$pkgdir/usr/share/omarchy", which lands them on the installed layout.
@@ -105,10 +110,10 @@ index 000000000..83b4a8462
 +fcitx5-mozc
 diff --git a/install/omarchy-ppc64le.packages b/install/omarchy-ppc64le.packages
 new file mode 100644
-index 000000000..e2d5f7788
+index 000000000..58ec0c6fc
 --- /dev/null
 +++ b/install/omarchy-ppc64le.packages
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,54 @@
 +# Additions for every POWER (ppc64le) platform, composed after
 +# omarchy-base.packages (omarchy-pkg-defaults). ppc64le-power9 composes this
 +# list too, then its own.
@@ -119,6 +124,14 @@ index 000000000..e2d5f7788
 +powerpc-utils
 +opal-utils
 +ipmitool
++
++# AArch64 binaries run here through POWERarm's binfmt_misc handler, and its
++# user unit builds each user's guest rootfs at login. Agent CLIs that publish
++# no ppc64le build come through mise as their arm64 builds and run on it, as do
++# arm64 desktop apps. sleeve manages those apps: it scans for them and writes
++# their launchers, desktop entries and per-app POWERarm configuration.
++powerarm
++sleeve
 +
 +# omarchy-settings configures swap on zram, and the x86_64 installer provides
 +# zram-generator for it; POWER gets it here, as aarch64 does.
@@ -166,3 +179,37 @@ index 7d773629f..dfde55d85 100644
 +# repository Omarchy configures. omarchy-pkg-defaults leaves them out of every
 +# other architecture's set. A package that builds for aarch64 but not for
 +# ppc64le belongs in omarchy-ppc64le-unavailable.packages instead.
+diff --git a/migrations/1794867648.sh b/migrations/1794867648.sh
+new file mode 100644
+index 000000000..0c3400264
+--- /dev/null
++++ b/migrations/1794867648.sh
+@@ -0,0 +1,28 @@
++echo "Use POWER's native tools and arm64 agent builds through mise"
++
++# Only POWER ships etc/mise/conf.d/platform-ppc64le.toml.
++omarchy-hw-ppc64le || exit 0
++
++# The settings package ships the fragment that disables mise's gh and crush
++# in favour of the distribution's, and points the agent CLIs with no ppc64le
++# build at their arm64 builds. Until it has, stay pending so the shims
++# are rebuilt once it arrives.
++if [[ ! -f /etc/mise/conf.d/platform-ppc64le.toml ]]; then
++  echo "Waiting for the omarchy-settings package that ships POWER's mise settings" >&2
++  exit 1
++fi
++
++# Drops the lazy shims that shadow /usr/bin/gh and the rest with an install
++# that cannot succeed here, and builds the arm64 replacements. A user who
++# removed the preinstalls skips Omarchy's declarations and has none to rebuild.
++if omarchy-mise-default-tools declares claude; then
++  mise reshim --system
++fi
++
++# disable_tools does not merge across config files: one set in ~/.config/mise
++# replaces POWER's list, bringing back the gh and crush shims that shadow
++# /usr/bin. Say so rather than edit the user's config.
++if [[ $(mise settings get disable_tools 2>/dev/null) != *crush* ]]; then
++  echo "Your mise config sets its own disable_tools, which replaces POWER's list." >&2
++  echo "Add gh, crush, npm:@kilocode/cli and npm:freebuff to it, or remove it." >&2
++fi

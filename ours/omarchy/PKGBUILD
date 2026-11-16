@@ -49,7 +49,7 @@ pkgname=omarchy
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=5
+pkgrel=6
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -110,7 +110,6 @@ optdepends=(
   'snapper: btrfs snapshots (omarchy-snapshot); upstream also uses it to feed limine boot entries, which do not apply on OPAL/petitboot'
   'plocate: file indexing for the Omarchy menu search'
   'inxi: system information for omarchy-debug'
-  'powerarm: run Claude Code and other agents that ship only foreign binaries, via omarchy-install-claude-powerarm'
 )
 
 conflicts=(omarchy-dev)
@@ -131,7 +130,6 @@ _upstream_rel=3
 _srcpkg="${pkgname}-${pkgver}-${_upstream_rel}-${_upstream_arch}.pkg.tar.zst"
 source=("https://pkgs.omarchy.org/stable/${_upstream_arch}/${_srcpkg}"
         omarchy-pkg-aur-precheck
-        omarchy-install-claude-powerarm
         0001-agent-distro-package.patch
         0002-ppc64le-platform-bin.patch
         0003-ppc64le-platform-install.patch)
@@ -140,10 +138,9 @@ noextract=("${_srcpkg}")
 # local copy.
 sha256sums=('bfe75d086c8b5c919280372afdd72e8cc7b0f66745f052d826b5a588fdad33eb'
             '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
-            'd9bf212e4f02ac901b749ed386704fcd737ccf54a41d658a922acc9aa4703ba1'
             '4dbcc6e5b77bd530d5493bc7523ef346a8c4d3653c5e2c93581bae43afbc2a8b'
             '1eca141da0b4706b85dcc65a30aab639a2e7754323016d88093ec3e6ad6daa8e'
-            '1b15bfff52b248dd0728925b8c648762472617acc65e69935d36cf62686d6b71')
+            'd0f72b65540a9130fb7f0f06c6a35e81f3efc7016760788032962449b809ac37')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -213,50 +210,12 @@ package() {
   # itself the assertion worth keeping, and costs nothing.
   "${ELF_PATHGUARD:-$startdir/../../tools/elf-pathguard.sh}" "$pkgdir"
 
-  # ppc64le: install Claude Code as its native AArch64 build, under POWERarm.
-  #
-  # Claude Code publishes prebuilt per-platform binaries and no source that can
-  # be built for powerpc64le.  From 2.1.113 the npm package is a thin wrapper
-  # that execs one of eight @anthropic-ai/claude-code-<platform> natives, none of
-  # them ppc64le; 2.1.112 was the last pure-JavaScript release.
-  #
-  # This used to pin mise to 2.1.112.  That worked, but it froze the agent a few
-  # hundred releases behind upstream and quietly stopped it receiving fixes,
-  # which is not a defensible default on a daily driver.
-  #
-  # For the record, so nobody re-derives it the hard way: 2.1.112 does list nine
-  # optionalDependencies, but they are all @img/sharp-<platform>.  What matters
-  # is that it lists none of the eight claude-code natives 2.1.113 introduced,
-  # and its bin is {claude: cli.js}.  Count the claude-code-* entries, not the
-  # total.  Re-checked 2026-10-01: 528 published versions, latest 2.1.286, still
-  # eight natives and still no ppc64le among them.
-  #
-  # So route claude through agent_installer instead -- upstream's own extension
-  # point, already used for openclaw and hermes, where the installer is a command
-  # taking --check and --now.  omarchy-install-claude-powerarm ensures POWERarm,
-  # the AArch64 binfmt_misc handler and a guest rootfs, then runs upstream's own
-  # install.sh with the guest architecture reported so it fetches linux-arm64.
-  # binfmt_misc runs it from there, and Claude Code self-updates afterwards, so
-  # the agent stays current instead of being pinned.
-  #
-  # This also retires the ripgrep workaround that used to live here.  It existed
-  # because the npm package vendors rg for {arm64,x64}-{linux,darwin} and looks
-  # it up by process.arch, which is "ppc64" on little-endian POWER.  Inside the
-  # guest process.arch is "arm64", so the vendored arm64 ripgrep is found and
-  # runs under the same emulator -- nothing to patch.
-  sed -i \
-    's#^claude | claude-code) agent="claude"; name="Claude Code" ;;#claude | claude-code) agent="claude"; name="Claude Code"; agent_installer="omarchy-install-claude-powerarm" ;;#' \
-    "${pkgdir}/usr/bin/omarchy-default-agent"
-  grep -q 'agent_installer="omarchy-install-claude-powerarm"' \
-    "${pkgdir}/usr/bin/omarchy-default-agent" ||
-    { echo "omarchy: failed to route claude through the POWERarm installer; upstream changed the case line" >&2; return 1; }
-
-  # The installer itself. usr/share/omarchy/bin holds an absolute symlink for
-  # every command, as for the other scripts this package adds.
-  install -Dm755 "${srcdir}/omarchy-install-claude-powerarm" \
-    "${pkgdir}/usr/bin/omarchy-install-claude-powerarm"
-  ln -sf /usr/bin/omarchy-install-claude-powerarm \
-    "${pkgdir}/usr/share/omarchy/bin/omarchy-install-claude-powerarm"
+  # Claude Code needs nothing of its own here any more. It publishes no ppc64le
+  # build; omarchy-settings' POWER mise fragment points mise's aqua recipe for
+  # it at the linux/arm64 build, which POWERarm (a default package on POWER)
+  # runs through binfmt_misc. So claude installs through mise like every other
+  # agent, keeps the agent-account wrapper, and self-updates with auto_update.
+  # omarchy-install-claude-powerarm and its agent_installer routing are retired.
 
   # ppc64le: let a packaged agent satisfy omarchy-default-agent.
   #
@@ -283,9 +242,9 @@ package() {
 
   # ppc64le: the ppc64le and ppc64le-power9 platforms.
   #
-  # Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 + 296d4d7ee);
-  # each patch's header says how. bin/ lands under usr/, install/ under
-  # usr/share/omarchy/, as upstream's own package() lays them out. Without this,
+  # Generated from the ppc64le-platform branch; each patch's header names the
+  # commits and the command. bin/ lands under usr/, install/ and migrations/
+  # under usr/share/omarchy/, as upstream's own package() lays them out. Without this,
   # omarchy-hw-platform calls a POWER machine x86, omarchy-pkg-defaults hands
   # it the x86 package set, and the pacman helpers have no template for it.
   patch -p1 -d "${pkgdir}/usr" < "${srcdir}/0002-ppc64le-platform-bin.patch"
@@ -304,6 +263,11 @@ package() {
     { echo "omarchy: the detector still falls through to x86 on an unknown CPU" >&2; return 1; }
   [ -s "${pkgdir}/usr/share/omarchy/install/omarchy-ppc64le.packages" ] ||
     { echo "omarchy: the ppc64le package list is missing" >&2; return 1; }
+  # Rebuilds mise's system shims once omarchy-settings ships POWER's mise
+  # fragment; without it an upgraded system keeps the lazy gh and crush shims
+  # that shadow /usr/bin.
+  [ -f "${pkgdir}/usr/share/omarchy/migrations/1794867648.sh" ] ||
+    { echo "omarchy: the POWER mise migration is missing" >&2; return 1; }
   # Migrations install packages through omarchy-pkg-add, and omarchy-migrate
   # stops at the first that fails; on POWER it must skip what the platform
   # lists as unavailable (fcitx5-mozc) rather than stop every later migration.
@@ -314,7 +278,8 @@ package() {
             usr/bin/omarchy-hw-ppc64le-power9 usr/bin/omarchy-pkg-defaults \
             usr/bin/omarchy-default-agent \
             usr/share/omarchy/install/helpers/pacman.sh \
-            usr/share/omarchy/install/helpers/image-target.sh; do
+            usr/share/omarchy/install/helpers/image-target.sh \
+            usr/share/omarchy/migrations/1794867648.sh; do
     bash -n "${pkgdir}/${_f}"
   done
 
