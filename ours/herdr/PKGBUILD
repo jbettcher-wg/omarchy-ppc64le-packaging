@@ -12,14 +12,19 @@
 #   targets to zig targets through a fixed table and panics on powerpc64le.
 #   One row added.  (0.9 moved the table there from the top-level build.rs.)
 #   Portability fix worth sending upstream.
-# - libghostty-vt-no-bundled-compiler-rt-ppc64le.patch: the static
-#   libghostty-vt bundles zig's compiler_rt, and on powerpc64le zig 0.16's
-#   compiler_rt object has 103 .eh_frame FDEs relocated against an undefined,
-#   nameless symbol. They all resolve to address 0, so GNU ld fails the final
-#   link with ".eh_frame_hdr refers to overlapping FDEs" (linked alone, that
-#   one object reproduces it; the archive's other 11 link clean). Rust's
-#   compiler_builtins and libgcc already provide those routines, so the
-#   patch leaves zig's copy out on powerpc64le only. The real bug is zig's.
+# - libghostty-vt-no-bundled-runtimes-ppc64le.patch: the static
+#   libghostty-vt bundles zig's compiler_rt and ubsan_rt; on powerpc64le the
+#   patch leaves both out, since herdr links the archive from Rust, whose
+#   compiler_builtins and libgcc provide those routines.
+#   * zig 0.16's compiler_rt object has 103 .eh_frame FDEs relocated against
+#     an undefined, nameless symbol. They all resolve to address 0, so GNU ld
+#     fails the final link with ".eh_frame_hdr refers to overlapping FDEs".
+#     Linked alone, that one object reproduces it; the archive's other 11
+#     link clean. The real bug is zig's.
+#   * Without compiler_rt, ubsan_rt is left needing __extendxftf2 (an x87
+#     long-double conversion libgcc on ppc64le cannot have). Nothing calls
+#     ubsan_rt: libghostty-vt builds ReleaseFast, and no object in the
+#     archive references a __ubsan_handle_* symbol.
 # - zig.  The ghostty-vt crate's build.rs compiles the vendored libghostty-vt
 #   with zig (honouring $ZIG), and libghostty-vt's src/build/zig.zig
 #   requireZig() rejects any zig whose minor version differs from its
@@ -72,11 +77,11 @@ replaces=(omarchy-herdr)
 conflicts=(omarchy-herdr)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
         herdr-build-rs-powerpc64le.patch
-        libghostty-vt-no-bundled-compiler-rt-ppc64le.patch
+        libghostty-vt-no-bundled-runtimes-ppc64le.patch
         herdr.service)
 sha256sums=('a2486b09a8153630f6a19e72606ba1c961a6194bce13c09cba67ccce5e4252de'
             'fe4e28c66b038ef92a888406d64a985ca450c42ac5d8e9bb5ac545d5fd11904c'
-            '66ebff03e21dc8ce8ff3a4cd35719b51ff5fe28a6da918a28855e2e481120e34'
+            '483bb41ca00d4f6fd1422fcdaa3e91e130cf4a3841af66f13b9762c23b516f63'
             'efe7d27a4c990af67a1875004c718b0691ba42a766939fe2016d08cd1166a9d4')
 
 _env() {
@@ -90,7 +95,7 @@ prepare() {
   cd "$pkgname-$pkgver"
   _env
   patch -Np1 -i "$srcdir/herdr-build-rs-powerpc64le.patch"
-  patch -Np1 -i "$srcdir/libghostty-vt-no-bundled-compiler-rt-ppc64le.patch"
+  patch -Np1 -i "$srcdir/libghostty-vt-no-bundled-runtimes-ppc64le.patch"
 
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
 
