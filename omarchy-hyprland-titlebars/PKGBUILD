@@ -1,0 +1,61 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: Ryan Hughes <ryan@heyoodle.com>
+#
+# The Hyprland plugin that draws titlebars on Omarchy's floating workspaces;
+# Omarchy loads it from /usr/lib/omarchy-hyprland-titlebars/titlebars.so.
+# Omarchy 4.5 installs it through omarchy-pkg-add. Taken from upstream's own
+# recipe (github.com/omacom/omarchy-pkgs, pkgbuilds/omarchy-hyprland-titlebars
+# at c4474ede2e92); the version is Omarchy's stable channel
+# (pkgs.omarchy.org/stable omarchy-hyprland-titlebars 0.2.2-2), which pins
+# hyprland=0.56.2, the version our hyprland recipe builds. omarchy-pkgs HEAD
+# is at 0.4.0.
+#
+# ppc64le: powerpc64le added to arch=(). Plain C++23 against Hyprland's
+# headers, nothing architecture-specific. One packaging change: upstream pins
+# hyprland in depends_x86_64/depends_aarch64, one array per arch, because
+# their sync tooling moves each pin separately. bq reads only the plain
+# depends array, so a depends_powerpc64le pin would be invisible to its build
+# order and to the sysroot it stages the headers into. Every arch pins the
+# same Hyprland here, so the pin lives in depends, from _hyprland.
+#
+# A Hyprland plugin only loads into the exact Hyprland it was compiled
+# against, so build() refuses to run unless the hyprland.pc it compiles
+# against reports _hyprland. Rebuild this whenever hyprland moves, and move
+# _hyprland with it.
+
+pkgname=omarchy-hyprland-titlebars
+pkgver=0.2.2
+pkgrel=1
+_hyprland=0.56.2
+pkgdesc="Titlebars for Omarchy's floating workspaces"
+arch=('x86_64' 'aarch64' 'powerpc64le')
+url='https://github.com/omacom/omarchy-hyprland-titlebars'
+license=('BSD-3-Clause' 'MIT')
+depends=('glibc' 'libgcc' 'libstdc++' 'hyprlang' 'hyprutils' "hyprland=$_hyprland")
+makedepends=('cmake' 'pkgconf')
+options=('!lto' '!debug')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('98a2c43024b7e72dbe97620e6560b5e59d5b02eb25c5fd806586a6efacc7e23e')
+
+build() {
+  local built_against
+  built_against=$(pkg-config --modversion hyprland)
+  if [[ $built_against != "$_hyprland" ]]; then
+    echo "hyprland.pc reports $built_against, but depends pins hyprland=$_hyprland" >&2
+    return 1
+  fi
+
+  cmake -S "$srcdir/$pkgname-$pkgver" -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$pkgname-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$pkgname-$pkgver/LICENSE.MIT" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.MIT"
+
+  # Omarchy loads the plugin from this fixed path.
+  test -f "$pkgdir/usr/lib/omarchy-hyprland-titlebars/titlebars.so"
+}
