@@ -1,0 +1,41 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: David Heinemeier Hansson <david@hey.com>
+#
+# The theme intro videos, split out of omarchy in 4.5 so the main package stays
+# small; omarchy 4.5.0 hard-depends on this. 20 MP4s under
+# usr/share/omarchy/themes/*/backgrounds/intros and nothing else.
+#
+# Repackaged from Omarchy's stable-channel artifact, as ours/omarchy is, rather
+# than built from upstream's recipe (omacom/omarchy-pkgs), which clones the whole
+# omarchy repository at a pinned commit to copy those 20 files out. The sha256
+# is %SHA256SUM% from https://pkgs.omarchy.org/stable/x86_64/omarchy.db for
+# omarchy-themes-intros-2026.10.14-1-any, so this is pinned to what upstream
+# shipped. Upstream labels it arch=any and it is: package() fails if anything
+# but video turns up.
+
+pkgname=omarchy-themes-intros
+pkgver=2026.10.14
+pkgrel=1
+pkgdesc='Background intro videos for the Omarchy themes'
+arch=(any)
+url='https://github.com/basecamp/omarchy'
+license=(MIT)
+makedepends=(file)
+_srcpkg="${pkgname}-${pkgver}-1-any.pkg.tar.zst"
+source=("https://pkgs.omarchy.org/stable/x86_64/${_srcpkg}")
+noextract=("${_srcpkg}")
+sha256sums=('d748591bc725de043f6ce1895b1015af3085037ab4e5f1af58f039305e1d5d9a')
+
+package() {
+  bsdtar -xf "${srcdir}/${_srcpkg}" -C "${pkgdir}" --no-same-owner \
+    --exclude .PKGINFO --exclude .BUILDINFO --exclude .MTREE --exclude .INSTALL
+
+  local other
+  other=$(find "${pkgdir}" -type f -print0 | xargs -0 file -N --mime-type |
+    awk -F': ' '$2 != "video/mp4" { print $1 }')
+  if [ -n "$other" ]; then
+    printf 'omarchy-themes-intros: expected only MP4 video, found:\n%s\n' "$other" >&2
+    return 1
+  fi
+  [ -n "$(find "${pkgdir}/usr/share/omarchy/themes" -path '*/backgrounds/intros/*' -type f -print -quit)" ]
+}
