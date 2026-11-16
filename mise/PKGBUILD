@@ -27,10 +27,12 @@
 # native-tls is kept (it is mise's own default), so the binary links the system
 # OpenSSL rather than vendoring a TLS stack; hence depends=(openssl).
 #
-# Version tracks Omarchy's mise-bin 2026.9.1-1.
+# Version tracks Omarchy's stable mise-bin 2026.11.8-1. Omarchy 4.5's lazily
+# installed tools need 2026.10.11 or later. Default features are unchanged at
+# 2026.11.8 (native-tls, vfox/vendored-lua, self_update).
 
 pkgname=mise
-pkgver=2026.9.1
+pkgver=2026.11.8
 pkgrel=1
 pkgdesc='The front-end to your dev env'
 arch=('x86_64' 'powerpc64le')
@@ -44,7 +46,7 @@ replaces=('rtx')
 options=('!lto')
 optdepends=('usage: completion support')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/jdx/$pkgname/archive/v$pkgver.tar.gz")
-sha256sums=('a438ab1357196c996f6f2c15682ab4143ff4e474c05c6d731923b52d5fc25d73')
+sha256sums=('3192f568f3897dbd0dde4e47d1b8ac8f858459bc7d8ae1b061d5c12f2a8841ba')
 
 # mise's default feature set minus self_update (see the header).  Spelled out
 # rather than expressed as a subtraction because cargo has no way to say
@@ -64,20 +66,29 @@ build() {
   cargo build --frozen --release --no-default-features --features "$_features"
 }
 
-check() {
-  cd "$srcdir/$pkgname-$pkgver"
-  # `--version` alone would pass on a binary that cannot do anything; `doctor`
-  # exercises config loading, the shell probe and the build-info block, and is
-  # where a self-update feature that should not be here would show up.
-  ./target/release/mise --version
-  ./target/release/mise doctor | grep -q 'self_update_available: no' || {
-    printf '%s: self_update is compiled in -- see the header, it must not be\n' "$pkgname" >&2
-    return 1
-  }
-}
-
 package() {
   cd "$srcdir/$pkgname-$pkgver"
+
+  # Not check(): bq builds with makepkg --nocheck, so a check() never runs for a
+  # package that ships, and through 2026.9.1-1 this assertion sat there unrun.
+  # `--version` alone would pass on a binary that cannot do anything; `doctor`
+  # exercises config loading, the shell probe and the build-info block, and is
+  # where a self_update feature that must not be here shows up. It exits 1 in a
+  # clean HOME (no shell activation), so judge its output, not its status.
+  ./target/release/mise --version
+  local _h
+  _h=$(mktemp -d)
+  HOME=$_h XDG_CONFIG_HOME=$_h/.config XDG_DATA_HOME=$_h/.local/share \
+    XDG_CACHE_HOME=$_h/.cache XDG_STATE_HOME=$_h/.local/state \
+    ./target/release/mise doctor >"$_h/doctor" 2>&1 || true
+  grep -q 'self_update_available: no' "$_h/doctor" || {
+    printf '%s: self_update is compiled in -- see the header, it must not be\n' "$pkgname" >&2
+    cat "$_h/doctor" >&2
+    rm -rf "$_h"
+    return 1
+  }
+  rm -rf "$_h"
+
   install -Dm755 target/release/mise "$pkgdir/usr/bin/mise"
   install -Dm644 man/man1/mise.1 "$pkgdir/usr/share/man/man1/mise.1"
   install -Dm644 completions/mise.bash "$pkgdir/usr/share/bash-completion/completions/mise"
