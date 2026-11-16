@@ -11,7 +11,6 @@ arch=(powerpc64le)
 url='https://jpeg.org/jpegxl/'
 license=('BSD-3-Clause')
 makedepends=(
-    'add-determinism'
     'asciidoc'
     'brotli'
     'cmake'
@@ -22,7 +21,6 @@ makedepends=(
     'graphviz'
     'gtest'
     'highway'
-    'java-environment'
     'libjpeg-turbo'
     'libpng'
     'python'
@@ -60,6 +58,14 @@ prepare() {
     git -C libjxl -c protocol.file.allow='always' submodule update
 }
 
+# Built without the JNI Java wrapper (JPEGXL_ENABLE_JNI off), unlike upstream.
+# Java does not work in bq's sandbox: the staged JDK has no /usr/bin/java (the
+# archlinux-java hook never runs) and its conf/ symlinks into /etc/java-openjdk,
+# which the sandbox does not show. CMake then skips JNI silently -- the option
+# defaults on "if Java dependencies are installed" -- the build succeeds, and
+# package_libjxl() dies moving a jar that was never made. The jar was the only
+# thing add-determinism normalised, so that makedepend goes too. Nothing in the
+# tree uses jpegxl.jar; restore it when bq can run Java.
 build() {
     export CFLAGS+=' -DNDEBUG -ffat-lto-objects'
     export CXXFLAGS+=' -DNDEBUG -ffat-lto-objects'
@@ -84,7 +90,7 @@ build() {
         -DJPEGXL_FORCE_SYSTEM_BROTLI:BOOL='true' \
         -DJPEGXL_FORCE_SYSTEM_GTEST:BOOL='true' \
         -DJPEGXL_FORCE_SYSTEM_HWY:BOOL='true' \
-        -DJPEGXL_INSTALL_JARDIR:STRING='/usr/share/java' \
+        -DJPEGXL_ENABLE_JNI:BOOL='false' \
         -Wno-dev ${cmake_options[@]}
     cmake --build build
     make -C build doc
@@ -106,8 +112,6 @@ package_libjxl() {
         'libjpeg-turbo'
         'libpng'
         'libstdc++')
-    optdepends=(
-        'java-runtime: for JNI bindings')
     provides=(
         'libjxl.so'
         'libjxl_cms.so'
@@ -115,11 +119,6 @@ package_libjxl() {
 
     DESTDIR="$pkgdir" cmake --install build
     install -D -m644 libjxl/{LICENSE,PATENTS} -t "${pkgdir}/usr/share/licenses/${pkgname}"
-    mv "${pkgdir}/usr/share/java"/{org.jpeg.jpegxl,jpegxl}.jar
-
-    # Clamp timestamps to SOURCE_DATE_EPOCH and strip other metadata, to make
-    # the package reproducible.
-    add-det "${pkgdir}/usr/share/java"/jpegxl.jar
 }
 
 package_libjxl-doc() {
