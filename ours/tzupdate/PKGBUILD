@@ -34,9 +34,12 @@
 # binary actually uses relative to what Omarchy ships, and this way the crate
 # graph stays the one upstream chose.
 #
-# 3.1.0 is upstream's newest tag (checked against github.com/cdown/tzupdate),
-# so there is no newer release that would carry the bump already, and it is the
-# version Omarchy publishes (tzupdate-3.1.0-1).
+# 3.1.0 is upstream's newest tag (checked against github.com/cdown/tzupdate,
+# 2026-11-16), so there is no newer release that would carry the bump already,
+# and it is the version Omarchy publishes.  Omarchy's stable channel is at
+# 3.1.0-2 (omacom/omarchy-pkgs pkgbuilds/tzupdate@9fe60302264d); their -2 is a
+# release-ring bookkeeping bump with no recipe change, so pkgrel stays at 1
+# here.
 #
 # Maintainer: Chris Down <chris@chrisdown.name>
 
