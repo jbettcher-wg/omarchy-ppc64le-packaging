@@ -1,40 +1,40 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 #
 # herdr -- terminal workspace manager for AI coding agents.  Started from the
-# AUR `herdr` recipe at 0.8.2; metadata (url, license, conflicts, file list)
-# follows Omarchy's own package (omarchy.db herdr 0.8.2-1), which is what the
-# install manifest is pinned to.  Upstream moved from ogulcancelik/herdr to
-# herdrdev/herdr; the v0.8.2 tarball is byte-identical under both.
+# AUR `herdr` recipe at 0.8.2; version and metadata (url, license, conflicts,
+# replaces, file list) follow Omarchy's own recipe, omacom/omarchy-pkgs
+# pkgbuilds/herdr@954a4774257e, the 0.9.5-1 their stable channel ships.
 #
 # What changed for ppc64le:
 #
 # - arch=(powerpc64le).
-# - herdr-build-rs-powerpc64le.patch: build.rs maps rust targets to zig
-#   targets through a fixed table and panics on powerpc64le.  One row added.
+# - herdr-build-rs-powerpc64le.patch: crates/ghostty-vt/build.rs maps rust
+#   targets to zig targets through a fixed table and panics on powerpc64le.
+#   One row added.  (0.9 moved the table there from the top-level build.rs.)
 #   Portability fix worth sending upstream.
-# - zig.  herdr's build.rs compiles its vendored libghostty-vt with zig
-#   (honouring $ZIG), and libghostty-vt's src/build/zig.zig requireZig()
-#   rejects any zig whose minor version is not 0.15 -- so the repo's zig
-#   0.16.0 cannot build it.  makedepends=zig0.15: zig 0.15.2 built from source
-#   against packages/llvm20, clang20 and lld20, installed beside zig 0.16 as
-#   /usr/bin/zig-0.15.  This replaces the earlier stopgap that downloaded
-#   ziglang.org's prebuilt powerpc64le zig 0.15.2 as a build tool.
+# - zig.  The ghostty-vt crate's build.rs compiles the vendored libghostty-vt
+#   with zig (honouring $ZIG), and libghostty-vt's src/build/zig.zig
+#   requireZig() rejects any zig whose minor version differs from its
+#   minimum_zig_version -- 0.16.0 since herdr 0.9.1.  Upstream's recipe
+#   downloads ziglang.org's prebuilt x86_64/aarch64 zig 0.16.0 for that; here
+#   it is the repo's zig 0.16.0, built from source.  Up to 0.8.2 this needed
+#   zig0.15 (/usr/bin/zig-0.15) instead; that makedepend is gone.
+# - The zig has to carry zig-ppc64le-elfv2-c-abi.patch, and makedepends pins
+#   the first build that does (zig 0.16.0-2; zig0.15 0.15.2-2 for 0.8.2).
+#   Without it zig lowers by-value C structs wrongly on ELFv2, and herdr
+#   0.8.2-1's server segfaulted in ghostty_terminal_grid_ref(): rustc passed
+#   the 24-byte GhosttyPoint in r4-r6 and out_ref in r7, zig read the point
+#   from r9 and out_ref from the stack.  See packages/zig.
 # - The AUR's fetch loop (re-scanning every build.zig.zon for URLs until no
 #   new ones appear) is replaced by `zig build --fetch=all`, which walks the
 #   same dependency tree and fills the same global cache.
 # - CARGO_HOME and the zig caches under $srcdir, so the build writes nothing
 #   into $HOME.  The repo's rust (1:1.98.1) builds it; upstream's
 #   rust-toolchain.toml pin (1.96.1) is inert without rustup.
-# - pkgrel 2: rebuilt with zig0.15 0.15.2-2 (makedepends pinned to it). 0.8.2-1's
-#   libghostty-vt came from a zig that lowered by-value C structs wrongly on
-#   ELFv2, so the herdr server segfaulted in ghostty_terminal_grid_ref(): rustc
-#   passed the 24-byte GhosttyPoint in r4-r6 and out_ref in r7, zig read the
-#   point from r9 and out_ref from the stack.  See
-#   packages/zig0.15/zig-ppc64le-elfv2-c-abi.patch.
 #
 # What changed that is not ppc64le:
 #
-# - herdr.service, a systemd *user* unit for the headless server, and pkgrel 3.
+# - herdr.service, a systemd *user* unit for the headless server (since 0.8.2-3).
 #   Launched the usual way -- a client in a terminal spawning the server as its
 #   child -- the server lands in app-graphical.slice, so a compositor restart
 #   or a desktop logout takes every workspace with it. Nothing about the server
@@ -52,25 +52,26 @@
 #   included, and is worth sending there.
 
 pkgname=herdr
-pkgver=0.8.2
-pkgrel=3
+pkgver=0.9.5
+pkgrel=1
 pkgdesc='Herdr terminal workspace manager for AI coding agents'
 arch=(powerpc64le)
 url='https://github.com/herdrdev/herdr'
 license=(Apache-2.0)
 depends=(gcc-libs glibc)
-makedepends=(cargo git 'zig0.15>=0.15.2-2')
+makedepends=(cargo git 'zig>=0.16.0-2')
+replaces=(omarchy-herdr)
 conflicts=(omarchy-herdr)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
         herdr-build-rs-powerpc64le.patch
         herdr.service)
-sha256sums=('60453051025ee44ebf055d26cdaf665a0accd99a992cddd22c166a26c49cd161'
-            'daaa7ae4442d64ec28a64117a88c61f494d23d5297a113ccfd8799b3f625e1e1'
+sha256sums=('a2486b09a8153630f6a19e72606ba1c961a6194bce13c09cba67ccce5e4252de'
+            'fe4e28c66b038ef92a888406d64a985ca450c42ac5d8e9bb5ac545d5fd11904c'
             'efe7d27a4c990af67a1875004c718b0691ba42a766939fe2016d08cd1166a9d4')
 
 _env() {
   export CARGO_HOME="$srcdir/cargo-home"
-  export ZIG=/usr/bin/zig-0.15
+  export ZIG=/usr/bin/zig
   export ZIG_GLOBAL_CACHE_DIR="$srcdir/zig-cache"
   export ZIG_LOCAL_CACHE_DIR="$srcdir/zig-local-cache"
 }
