@@ -33,7 +33,7 @@
 
 pkgname=mise
 pkgver=2026.11.8
-pkgrel=1
+pkgrel=2
 pkgdesc='The front-end to your dev env'
 arch=('x86_64' 'powerpc64le')
 url='https://github.com/jdx/mise'
@@ -45,8 +45,10 @@ conflicts=('rtx' 'rtx-bin' 'mise-bin')
 replaces=('rtx')
 options=('!lto')
 optdepends=('usage: completion support')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/jdx/$pkgname/archive/v$pkgver.tar.gz")
-sha256sums=('3192f568f3897dbd0dde4e47d1b8ac8f858459bc7d8ae1b061d5c12f2a8841ba')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/jdx/$pkgname/archive/v$pkgver.tar.gz"
+        mise-node-ppc64le.patch)
+sha256sums=('3192f568f3897dbd0dde4e47d1b8ac8f858459bc7d8ae1b061d5c12f2a8841ba'
+            '0b9298efa2d2a6b1f6f2d4c0296cc2978118ffaec75cdceeb9a9d633ab55ad07')
 
 # mise's default feature set minus self_update (see the header).  Spelled out
 # rather than expressed as a subtraction because cargo has no way to say
@@ -56,6 +58,10 @@ _features='native-tls,vfox/vendored-lua'
 
 prepare() {
   cd "$srcdir/$pkgname-$pkgver"
+  # node fetched nodejs.org's tarball for "linux-powerpc64", which does not
+  # exist, and compiled node from source instead; the build is linux-ppc64le.
+  # Meant for upstream (jdx/mise); see the patch header.
+  patch -Np1 -i "$srcdir/mise-node-ppc64le.patch"
   cargo fetch --locked --target "$(rustc --print host-tuple)"
 }
 

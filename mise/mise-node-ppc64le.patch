@@ -1,0 +1,20 @@
+Subject: [PATCH] node: fetch nodejs.org's linux-ppc64le build on little-endian POWER
+
+mise names little-endian 64-bit POWER "powerpc64", as Rust does, and
+map_arch passed that through, so node asked nodejs.org for
+node-vX-linux-powerpc64.tar.gz, got a 404 and fell back to compiling
+node from source: hours of CPU on first use. nodejs.org publishes the
+build as linux-ppc64le. Map it.
+
+--- a/src/plugins/core/node.rs
++++ b/src/plugins/core/node.rs
+@@ -1089,6 +1089,9 @@
+             "aarch64" => "arm64",
+             "loongarch64" => "loong64",
+             "riscv64" => "riscv64",
++            // Rust (and so mise) names little-endian 64-bit POWER "powerpc64";
++            // nodejs.org publishes it as linux-ppc64le.
++            "powerpc64" if cfg!(target_endian = "little") => "ppc64le",
+             other => other,
+         }
+     }
