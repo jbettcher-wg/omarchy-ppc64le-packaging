@@ -9,16 +9,20 @@
 # Why this is built from the Nerd Fonts release instead of repackaging
 # Omarchy's binary package (as packages/ours/omarchy-nvim has to do):
 #
-#   Omarchy publishes no PKGBUILD, but for this package it does not matter,
-#   because its payload is verbatim upstream release files.  The four .ttf in
-#   ttf-jetbrains-mono-nerd-basic-3.5.0-1-any.pkg.tar.zst are byte-for-byte
-#   the same four files inside ryanoasis/nerd-fonts v3.5.0 JetBrainsMono.tar.xz,
-#   and the shipped OFL.txt is the release's OFL.txt unmodified:
+#   Omarchy's own recipe is omacom/omarchy-pkgs
+#   pkgbuilds/ttf-jetbrains-mono-nerd-basic@9fe60302264d (3.5.1-2, what their
+#   stable channel ships; -2 is a release-ring bump with no recipe change).
+#   It installs four faces from the release's JetBrainsMono.zip; this recipe
+#   takes the same four from JetBrainsMono.tar.xz, and the bytes are the
+#   same.  The four .ttf in ttf-jetbrains-mono-nerd-basic-3.5.1-2-any.pkg.tar.zst
+#   are byte-for-byte the same four files inside ryanoasis/nerd-fonts v3.5.1
+#   JetBrainsMono.tar.xz, and the shipped OFL.txt is the release's OFL.txt
+#   unmodified:
 #
-#     39878d75...  JetBrainsMonoNerdFont-Bold.ttf
-#     dafe5a96...  JetBrainsMonoNerdFont-BoldItalic.ttf
-#     19201113...  JetBrainsMonoNerdFont-Italic.ttf
-#     1767e08e...  JetBrainsMonoNerdFont-Regular.ttf
+#     e490660a...  JetBrainsMonoNerdFont-Bold.ttf
+#     19a2e3af...  JetBrainsMonoNerdFont-BoldItalic.ttf
+#     71d5466c...  JetBrainsMonoNerdFont-Italic.ttf
+#     1c680e8c...  JetBrainsMonoNerdFont-Regular.ttf
 #     30f0c136...  OFL.txt
 #
 #   (full digests in _upstream_sha256 below, asserted at build time).  So
@@ -27,8 +31,8 @@
 #   an opaque blob from pkgs.omarchy.org that we would have to trust and could
 #   not reproduce.
 #
-# What "basic" means, established by comparing the two file sets: the v3.5.0
-# JetBrainsMono release archive holds 98 .ttf -- three variants (the default
+# What "basic" means, established by comparing the two file sets: the v3.5.1
+# JetBrainsMono release archive holds 96 .ttf -- three variants (the default
 # proportional-metrics build, ...NerdFontMono, ...NerdFontPropo) x sixteen
 # weights x plus the "NL" (no-ligature) cut of each.  Omarchy's "basic"
 # package is the four faces a terminal and a UI toolkit actually resolve:
@@ -44,7 +48,7 @@
 # the one thing that would make rebuilding from source no longer equivalent.
 
 pkgname=ttf-jetbrains-mono-nerd-basic
-pkgver=3.5.0
+pkgver=3.5.1
 pkgrel=1
 pkgdesc='Basic JetBrains Mono Nerd Font family'
 arch=(any)
@@ -58,19 +62,20 @@ conflicts=('ttf-jetbrains-mono-nerd' 'nerd-fonts-jetbrains-mono')
 makedepends=(fontconfig)
 source=("JetBrainsMono-${pkgver}.tar.xz::https://github.com/ryanoasis/nerd-fonts/releases/download/v${pkgver}/JetBrainsMono.tar.xz")
 noextract=("JetBrainsMono-${pkgver}.tar.xz")
-sha256sums=('0227b220360a6f819b9ead92343e8112b34733054782561af50cfba1e8afab63')
+sha256sums=('04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf')
 
 # The four faces Omarchy's package contains, and nothing else.
 _faces=(Regular Bold Italic BoldItalic)
 
 # sha256 of the corresponding members of
-# ttf-jetbrains-mono-nerd-basic-3.5.0-1-any.pkg.tar.zst
-# (itself sha256 80efde6920fa7756ea93a72f9a57d1263dea347de8bf9fa7c5cb68e173c55725).
+# ttf-jetbrains-mono-nerd-basic-3.5.1-2-any.pkg.tar.zst
+# (itself sha256 c574e6266139fd24f668301d39d9faab386d7041ad3952b3012a2480e09cff0c,
+# as recorded in https://pkgs.omarchy.org/stable/x86_64/omarchy.db).
 _upstream_sha256=(
-  '1767e08e6b207eb57c114e833b817e26c6a7625bbcf474e3b4dd0f73c10e5bdc  JetBrainsMonoNerdFont-Regular.ttf'
-  '39878d753c3ae005172b8ee4c4f72c4e6a5c641ddb844110d66bf9eba77dc90a  JetBrainsMonoNerdFont-Bold.ttf'
-  '1920111383857d3b3785e661c334701729436901f53e087522c0fa73e55d1fc0  JetBrainsMonoNerdFont-Italic.ttf'
-  'dafe5a9603a94584f95926c99beb684b70d63200ff2af86ae92715e100505a4d  JetBrainsMonoNerdFont-BoldItalic.ttf'
+  '1c680e8cde9fcf8b88a5605ce8d1fb94dd3fb15841f7ca7bf4c55664855e5611  JetBrainsMonoNerdFont-Regular.ttf'
+  'e490660ad75e0b152c93b1604c2ea1a4ea675f1b8a3fe0d005b1998568f99f1f  JetBrainsMonoNerdFont-Bold.ttf'
+  '71d5466cc3ab31bee38b4e2c5cc99c2b41a749c4973ed4579b814ec992b0738e  JetBrainsMonoNerdFont-Italic.ttf'
+  '19a2e3af8ccf99954941ea07e0a29df27574500f12016d86d6c4c059b825ffe1  JetBrainsMonoNerdFont-BoldItalic.ttf'
   '30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad  OFL.txt'
 )
 
@@ -91,10 +96,10 @@ prepare() {
   }
 }
 
-check() {
-  # Verification that the fonts are usable, not merely present.  Skipped by
-  # tools/build.sh (--nocheck); run `makepkg --check` by hand, or the
-  # equivalent fc-scan/fc-query commands against the staged tree.
+_verify_fonts() {
+  # Verification that the fonts are usable, not merely present.  Called from
+  # package(), not check(): bq runs makepkg --nocheck, so check() never runs
+  # on a real build.  All three tests pass against the v3.5.1 release files.
   local d="${srcdir}/release" f fam
 
   # 1. Exactly the four faces exist, and no name drift in the release.
@@ -137,6 +142,8 @@ check() {
 }
 
 package() {
+  _verify_fonts || return 1
+
   local f
   # Same destination Omarchy uses (/usr/share/fonts/TTF), which is what makes
   # this a drop-in replacement for their package rather than a second copy.
