@@ -20,7 +20,11 @@
 
 pkgname=sleeve
 _repourl=https://github.com/jbettcher-wg/sleeve.git
-_repobranch=main
+# Pinned to a commit, as powerarm is to a tag, so a rebuild packages what was
+# tested rather than whatever main is at the time. To update, set this to the
+# new tip; pkgver() follows it. FTXUI comes in at the commit sleeve's own
+# gitlink records (prepare() checks the submodule out from that).
+_commit=b32e4206397c2ea6e2abd9b1b19bd82742de3b38
 pkgver=r13.b32e42063
 pkgrel=1
 pkgdesc="Manager and launcher generator for emulated applications"
@@ -42,7 +46,7 @@ optdepends=(
 )
 
 source=(
-  "$pkgname::git+$_repourl#branch=$_repobranch"
+  "$pkgname::git+$_repourl#commit=$_commit"
   "ftxui::git+https://github.com/ArthurSonzogni/FTXUI.git"
 )
 sha256sums=('SKIP' 'SKIP')
