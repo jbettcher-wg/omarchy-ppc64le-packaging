@@ -1,31 +1,23 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 #
-# `try` -- fresh scratch directories for every experiment.  One of the ten
-# packages Omarchy publishes itself with no PKGBUILD anywhere, so this recipe
-# is written from scratch against upstream (github.com/tobi/try).
+# `try` -- fresh scratch directories for every experiment.  Written from
+# scratch against upstream (github.com/tobi/try) when Omarchy published no
+# PKGBUILD for it; version and file layout now follow Omarchy's own recipe,
+# omacom/omarchy-pkgs pkgbuilds/tobi-try@9fe60302264d (1.10.1-3, what their
+# stable channel ships; their -2 and -3 are republishes with no recipe change).
 #
 # arch=(any) and it means it: the whole package is three Ruby source files and
 # a symlink.  No compiler is invoked, nothing is architecture-dependent, and
 # nothing was added to arch=() -- there is no ppc64le change in this recipe at
 # all.  This one was a repackage, not a port.
 #
-# Sourced from a *pinned commit* rather than the v1.8.1 tag, which is the one
-# thing here that took working out.  Omarchy labels their package 1.8.1-3, but
-# the files they ship are not what tag v1.8.1 contains: the shipped try.rb has
-# the Ctrl-G "graduate a try to a permanent project" dialog and TRY_PROJECTS
-# support, and the shipped tui.rb renders each frame into a single buffer to
-# avoid flicker.  Neither exists at v1.8.1.  Walking upstream's history for the
-# blob that matches finds exactly one:
-#
-#   4bb73376044e1ed8149a66513cec42155bb9f0d3
-#   "feat: graduate tries to permanent projects (Ctrl-G)", 2026-02-11
-#
-# at which all three shipped files match byte-for-byte (try.rb modulo the
-# shebang rewrite below).  That commit's own VERSION file says 1.8.2, so
-# Omarchy's "1.8.1-3" is a version label applied to post-1.8.1 main.  pkgver is
-# kept at 1.8.1-3 anyway so this package is interchangeable with theirs for
-# anything that compares versions; _commit is what actually defines the
-# contents, and prepare() asserts the bytes.
+# Sourced from a *pinned commit*: 0b5e884d, the commit tag v1.10.1 points to
+# (its VERSION file says 1.10.1).  Omarchy's recipe fetches the same three
+# files by tag from raw.githubusercontent.com; the commit pin and the
+# assertion in prepare() are what make this recipe's contents a fixed claim
+# rather than whatever a tag says today.  (Up to 1.8.1 this mattered more:
+# Omarchy's "1.8.1-3" was post-1.8.1 main, not the v1.8.1 tag, and only a
+# commit pin could reproduce it.  1.10.1 is the tag.)
 #
 # The single deliberate difference from upstream's file: the shebang.  Omarchy
 # ships `#!/usr/bin/ruby`, upstream has `#!/usr/bin/env ruby`.  Distribution
@@ -34,9 +26,8 @@
 # make the same substitution and assert the result matches their bytes.
 
 pkgname=tobi-try
-pkgver=1.8.1
-# pkgrel 3 mirrors Omarchy's own build number for this version.
-pkgrel=3
+pkgver=1.10.1
+pkgrel=1
 pkgdesc='Fresh directories for every vibe.'
 arch=(any)
 url='https://github.com/tobi/try'
@@ -44,19 +35,19 @@ license=(MIT)
 depends=(ruby)
 provides=(try)
 conflicts=(try)
-_commit=4bb73376044e1ed8149a66513cec42155bb9f0d3
+_commit=0b5e884d228c044279babef17d2560496a2a3b7e
 source=("${pkgname}-${pkgver}-${_commit:0:12}.tar.gz::https://github.com/tobi/try/archive/${_commit}.tar.gz")
-sha256sums=('d5f5df64bb86082c66c5f288400d098067ade251660953c2d278fb0ac96d4a19')
+sha256sums=('1b8fe03c18d283a01a2a176651689b8cd93f6651c1fb4acfadb40fbd353204e5')
 
 # sha256 of the corresponding members of
-# tobi-try-1.8.1-3-any.pkg.tar.zst (itself sha256
-# 6359cbb97d7a6986975c90830d470f5d18998272019bafa0c7087f3b13a77558,
-# as recorded in https://pkgs.omarchy.org/x86_64/omarchy.db).
+# tobi-try-1.10.1-3-any.pkg.tar.zst (itself sha256
+# bcaf19d1a6b271ac262e8ea794e2b49dcadb087516045a16f7bf7caf48a7568e,
+# as recorded in https://pkgs.omarchy.org/stable/x86_64/omarchy.db).
 # try.rb is listed post-shebang-rewrite, which is what we ship.
 _upstream_sha256=(
-  '41ee00b30706cfd9c430e50a9dcf5df5fc7d83f1add0c71dd9c2251221de1728  try.rb'
+  '399434dbe27595ccd9a702cd149fe9c92af948ede50a72e5a17d0b8b879e1f2f  try.rb'
   'cf815ed12c8147bbc7f67008cfc1f3fd05df1638ff290e2079188f1b9bf8f190  lib/fuzzy.rb'
-  'b62d2b61445d8266f064e2809e06ebc0a25da401ee5a13dc3a73d215c0a1ea71  lib/tui.rb'
+  '0ea1b79975f2bcf36dbb29c5b76738e7cac81cedde24bf3bde85d8e2a42fd225  lib/tui.rb'
 )
 
 prepare() {
