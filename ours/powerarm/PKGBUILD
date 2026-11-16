@@ -103,7 +103,7 @@ pkgname=powerarm
 # release; there is deliberately no pkgver() to recompute it at build time.
 # The older m1/m2 tags were milestones, not versions, and are obsolete.
 pkgver=0.20.0
-pkgrel=1
+pkgrel=2
 pkgdesc='AArch64 emulation for 64-bit POWER'
 arch=('powerpc64le')
 url='https://github.com/jbettcher-wg/POWERarm'
@@ -126,6 +126,13 @@ depends=(
   'xxhash'
   'qt6-base'
   'qt6-declarative'
+  # POWERarmRootFSFetcher, which powerarm-rootfs.service runs at login: the
+  # manifests are read by alarm_sysroot.py, every package is signature-checked
+  # with gpgv, and the packages are zstd-compressed downloads.
+  'python'
+  'gnupg'
+  'zstd'
+  'curl'
 )
 makedepends=(
   'clang'    # FEX refuses to build with GCC -- FATAL_ERROR in CMakeLists.txt:90
@@ -139,10 +146,6 @@ makedepends=(
   'range-v3' # optional: found, it avoids compiling the bundled copy
 )
 optdepends=(
-  'python: build a guest rootfs with /usr/share/powerarm/rootfs/build-alarm-sysroot.sh'
-  'gnupg: signature verification of the rootfs packages (gpg and gpgv)'
-  'zstd: zstd-compressed packages in the rootfs manifest'
-  'curl: downloading rootfs packages and the M2 source tarballs'
   'bubblewrap: run-in-sysroot.sh, the native-side rootfs runner'
   'erofs-utils: pack a built rootfs for a 4K KVM guest'
   'squashfs-tools: likewise, as squashfs'
@@ -423,9 +426,10 @@ package() {
 
   # System-wide default configuration: the LOWEST config layer
   # (LAYER_GLOBAL_MAIN, added before the user's ~/.config/powerarm/Config.json,
-  # which overrides it).  It names the rootfs that
-  # build-alarm-sysroot.sh builds at its default --dest, so a user who follows
-  # the post-install message ends up with a working guest and no file to edit.
+  # which overrides it).  It names the rootfs powerarm-rootfs.service builds,
+  # the vk manifest: the toolchain roots plus Vulkan/RADV and the desktop
+  # libraries, the shape VS Code, Chrome and the agent CLIs are run against.
+  # (The fetcher also writes the user's own Config.json when it builds.)
   #
   # A name that does not resolve behaves exactly as no RootFS at all does --
   # host paths, silently -- so this cannot make the no-rootfs case worse, only
@@ -433,10 +437,42 @@ package() {
   install -Dm644 /dev/stdin "$pkgdir/usr/share/powerarm/Config.json" <<'EOF'
 {
   "Config": {
-    "RootFS": "ArchLinuxARM-m2"
+    "RootFS": "ArchLinuxARM-vk"
   }
 }
 EOF
+
+  # A guest rootfs for every user, without anyone running a command.  Without
+  # one nothing useful runs: guest path lookups fall back to the host tree and
+  # an aarch64 binary dies on the host's ppc64le loader with no useful error.
+  # The rootfs is per user (it lives under XDG_DATA_HOME and carries a per-user
+  # overlay with guest pacman), so this is a user unit, enabled for everyone by
+  # the wants link below rather than by writing to /etc.
+  #
+  # ExecCondition asks the fetcher whether the configured rootfs is usable and
+  # skips the build when it is, so a user who built or chose one already (a
+  # development rootfs, an m2 sysroot) is left alone.  A failed build (offline
+  # at login, a mirror down) retries every 15 minutes for the session.
+  install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user/powerarm-rootfs.service" <<'EOF'
+[Unit]
+Description=Build POWERarm's AArch64 guest rootfs for this user
+Documentation=man:POWERarm(1) file:///usr/share/doc/powerarm/README.md
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecCondition=/bin/sh -c '! /usr/bin/POWERarmRootFSFetcher check >/dev/null 2>&1'
+ExecStart=/usr/bin/POWERarmRootFSFetcher build ArchLinuxARM-vk --manifest=vk -y
+Restart=on-failure
+RestartSec=15min
+Nice=10
+
+[Install]
+WantedBy=default.target
+EOF
+  install -dm755 "$pkgdir/usr/lib/systemd/user/default.target.wants"
+  ln -s ../powerarm-rootfs.service \
+    "$pkgdir/usr/lib/systemd/user/default.target.wants/powerarm-rootfs.service"
 
   local _doc
   for _doc in README.md docs/ENV_REFERENCE.md docs/DEPENDENCIES.md; do

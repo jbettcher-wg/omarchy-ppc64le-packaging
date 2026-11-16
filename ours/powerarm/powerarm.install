@@ -42,29 +42,20 @@ post_install() {
 
 POWERarm installed.  aarch64 binaries now run directly, through binfmt_misc.
 
-  NEXT STEP -- you do not have a guest root filesystem yet, and without one
-  nothing useful runs.  POWERarm resolves guest paths inside an AArch64 rootfs;
-  with none, lookups fall back to the host tree silently and a guest binary
-  dies on the host's ppc64le loader with no useful error.
+  A guest root filesystem is built for each user automatically: the
+  powerarm-rootfs user unit runs at login, and when the user has no usable
+  rootfs it builds the vk one (the toolchain, Vulkan/RADV and the desktop
+  libraries: what VS Code, Chrome and the agent CLIs run against) with
+  POWERarmRootFSFetcher, from POWERarm's pinned snapshot, every package
+  signature-checked.  ~120 MB downloaded, no root needed; it retries every
+  15 minutes until it is online.  To build it now instead of at next login:
 
-  Build one (no root needed, ~600 MB installed, ~120 MB downloaded, needs
-  network, python, gpg/gpgv and zstd):
-
-    /usr/share/powerarm/rootfs/build-alarm-sysroot.sh
-
-  It fetches pinned Arch Linux ARM packages, checks every sha256 and every
-  signature against the pinned Arch Linux ARM key, and extracts them to
-  ~/.local/share/powerarm/RootFS/ArchLinuxARM-m2 -- which is the rootfs this
-  package's /usr/share/powerarm/Config.json already selects.  Nothing to edit.
+    POWERarmRootFSFetcher build ArchLinuxARM-vk --manifest=vk -y
 
   Then:
 
     POWERarm /usr/bin/uname -m           # prints aarch64
-    ~/.local/share/powerarm/RootFS/ArchLinuxARM-m2/usr/bin/uname -m
-                                         # the same, via binfmt_misc
-
-  Do NOT use POWERarmRootFSFetcher: it is inherited from FEX and downloads
-  x86_64/i386 images, which are useless here.
+    POWERarmRootFSFetcher check          # the configured rootfs is usable
 
   Per-user settings live in ~/.config/powerarm/Config.json (POWERarmConfig is
   the GUI for it) and override the system defaults.
