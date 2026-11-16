@@ -26,7 +26,7 @@
 
 pkgname=yt-dlp-ejs
 pkgver=0.8.0
-pkgrel=1
+pkgrel=2
 pkgdesc='External JavaScript for yt-dlp supporting many runtimes'
 arch=(any)
 url='https://github.com/yt-dlp/ejs'
@@ -53,11 +53,17 @@ prepare() {
 
 build() {
   cd ejs
+  # hatch-vcs takes the version from git, and prepare()'s edit leaves the
+  # checkout dirty, which makes it 0.8.1.dev0+g<hash>.d<date> -- the version the
+  # solver scripts then report to yt-dlp. Name the release instead.
+  export SETUPTOOLS_SCM_PRETEND_VERSION=$pkgver
   python -m build --wheel --no-isolation >"$srcdir/wheel.log" 2>&1 ||
     { cat "$srcdir/wheel.log"; return 1; }
   cat "$srcdir/wheel.log"
   grep -q 'Building with bun' "$srcdir/wheel.log" ||
     { echo "yt-dlp-ejs: the bundle was not built with bun" >&2; return 1; }
+  [[ -f dist/yt_dlp_ejs-$pkgver-py3-none-any.whl ]] ||
+    { echo "yt-dlp-ejs: the wheel is not version $pkgver:" dist/* >&2; return 1; }
 }
 
 check() {
