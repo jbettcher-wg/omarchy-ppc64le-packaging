@@ -5,8 +5,9 @@ with no POWER build (and why), the image-target and pacman helpers taught
 both platform names, defaulting to the stable channel.
 
 Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
-ppc64le platform" + 296d4d7ee "Refuse an unsupported CPU instead of calling
-it x86") with:
+ppc64le platform", 296d4d7ee "Refuse an unsupported CPU instead of calling
+it x86", 9d077ad8d "Skip a platform's unavailable packages in
+omarchy-pkg-add" and a6cc8fc83 "Install base's disktree-bin on POWER") with:
 
     git diff v4.5.0..ppc64le-platform -- install/
 
@@ -73,31 +74,41 @@ index 000000000..a88564046
 +omarchy-nx-gzip
 diff --git a/install/omarchy-ppc64le-unavailable.packages b/install/omarchy-ppc64le-unavailable.packages
 new file mode 100644
-index 000000000..06376f602
+index 000000000..83b4a8462
 --- /dev/null
 +++ b/install/omarchy-ppc64le-unavailable.packages
-@@ -0,0 +1,15 @@
-+# Base packages with no ppc64le build: they build for x86_64 and aarch64 but not
-+# for POWER. omarchy-pkg-defaults leaves them out of every ppc64le platform's
-+# set. Each says why, and what takes its place where something does.
+@@ -0,0 +1,25 @@
++# Packages with no ppc64le build: they build for x86_64 and aarch64 but not for
++# POWER. omarchy-pkg-defaults leaves them out of every ppc64le platform's set,
++# and omarchy-pkg-add skips them with a notice, so a migration that installs one
++# alongside others still runs. Each says why, and what takes its place where
++# something does.
 +
 +# Packages of prebuilt x86_64 and aarch64 binaries. The programs themselves
 +# build for ppc64le from source and come from omarchy-ppc64le.packages; a
 +# ppc64le release asset upstream would let these be installed as they are.
++#
++# Not disktree-bin: a migration adds it and then removes dua-cli, so skipping
++# it would leave no disk usage tool at all. On POWER that name is a
++# transitional package that installs disktree built from source.
 +mise-bin
-+disktree-bin
 +
 +# Closed source, published for x86_64 and aarch64 only.
 +superwhisper-bin
 +
 +# Flutter: the Dart VM has no ppc64le back end.
 +localsend
++
++# Mozc builds with Bazel through bazelisk, which fetches a Bazel release, and
++# pulls prebuilt python-build-standalone and protoc, all published for x86_64
++# and aarch64 only. The other input-method engines build here.
++fcitx5-mozc
 diff --git a/install/omarchy-ppc64le.packages b/install/omarchy-ppc64le.packages
 new file mode 100644
-index 000000000..5ea546804
+index 000000000..e2d5f7788
 --- /dev/null
 +++ b/install/omarchy-ppc64le.packages
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,46 @@
 +# Additions for every POWER (ppc64le) platform, composed after
 +# omarchy-base.packages (omarchy-pkg-defaults). ppc64le-power9 composes this
 +# list too, then its own.
@@ -116,10 +127,11 @@ index 000000000..5ea546804
 +# scheduling without it.
 +rtkit
 +
-+# Built from source in place of base's mise-bin and disktree-bin, which package
-+# x86_64 and aarch64 binaries only (omarchy-ppc64le-unavailable.packages).
++# Built from source in place of base's mise-bin, which packages x86_64 and
++# aarch64 binaries only (omarchy-ppc64le-unavailable.packages). Base's
++# disktree-bin needs no stand-in: on POWER that name is a transitional package
++# that installs disktree built from source.
 +mise
-+disktree
 +
 +# The mason registry publishes x86_64 and aarch64 assets only, so on POWER the
 +# language servers and formatters LazyVim reaches for come from these packages,

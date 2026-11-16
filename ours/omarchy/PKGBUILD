@@ -49,7 +49,7 @@ pkgname=omarchy
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=4
+pkgrel=5
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -142,8 +142,8 @@ sha256sums=('bfe75d086c8b5c919280372afdd72e8cc7b0f66745f052d826b5a588fdad33eb'
             '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
             'd9bf212e4f02ac901b749ed386704fcd737ccf54a41d658a922acc9aa4703ba1'
             '4dbcc6e5b77bd530d5493bc7523ef346a8c4d3653c5e2c93581bae43afbc2a8b'
-            'd990f1fba4eb18d142ac239d6c569c060c67178e4b6b9e9564ff754916806e27'
-            'bb2b9a1c2aa8451d313142f8863bfcd934797f814d8e45d25efad632ce1a4b13')
+            '1eca141da0b4706b85dcc65a30aab639a2e7754323016d88093ec3e6ad6daa8e'
+            '1b15bfff52b248dd0728925b8c648762472617acc65e69935d36cf62686d6b71')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -304,6 +304,11 @@ package() {
     { echo "omarchy: the detector still falls through to x86 on an unknown CPU" >&2; return 1; }
   [ -s "${pkgdir}/usr/share/omarchy/install/omarchy-ppc64le.packages" ] ||
     { echo "omarchy: the ppc64le package list is missing" >&2; return 1; }
+  # Migrations install packages through omarchy-pkg-add, and omarchy-migrate
+  # stops at the first that fails; on POWER it must skip what the platform
+  # lists as unavailable (fcitx5-mozc) rather than stop every later migration.
+  grep -qF 'omarchy-ppc64le-unavailable.packages' "${pkgdir}/usr/bin/omarchy-pkg-add" ||
+    { echo "omarchy: omarchy-pkg-add does not skip the platform's unavailable packages" >&2; return 1; }
   local _f
   for _f in usr/bin/omarchy-hw-platform usr/bin/omarchy-hw-ppc64le \
             usr/bin/omarchy-hw-ppc64le-power9 usr/bin/omarchy-pkg-defaults \

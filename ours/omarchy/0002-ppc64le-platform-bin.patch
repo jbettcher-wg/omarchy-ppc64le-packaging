@@ -7,8 +7,9 @@ are the family predicates. omarchy-pkg-defaults composes base + ppc64le
 (+ ppc64le-power9) and skips the x86_64-only and ppc64le-unavailable lists.
 
 Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
-ppc64le platform" + 296d4d7ee "Refuse an unsupported CPU instead of calling
-it x86") with:
+ppc64le platform", 296d4d7ee "Refuse an unsupported CPU instead of calling
+it x86", 9d077ad8d "Skip a platform's unavailable packages in
+omarchy-pkg-add" and a6cc8fc83 "Install base's disktree-bin on POWER") with:
 
     git diff v4.5.0..ppc64le-platform -- bin/
 
@@ -151,6 +152,39 @@ index 000000000..eb9dd2ea0
 +[[ $dir != "${BASH_SOURCE[0]}" ]] || dir=.
 +platform=$("$dir/omarchy-hw-platform") || exit 1
 +[[ $platform == "ppc64le-power9" ]]
+diff --git a/bin/omarchy-pkg-add b/bin/omarchy-pkg-add
+index 1f5e40913..864902e5d 100755
+--- a/bin/omarchy-pkg-add
++++ b/bin/omarchy-pkg-add
+@@ -5,6 +5,28 @@
+ # omarchy:examples=omarchy pkg add jq ripgrep
+ # omarchy:requires-sudo=true
+ 
++# A platform names the packages it has no build for in its unavailable list,
++# the one omarchy-pkg-defaults leaves out of the platform's set. Asking for one
++# there is not an install failure: say so and install the rest, so a migration
++# that adds it alongside others carries on instead of stopping every migration
++# after it.
++case $(omarchy-hw-platform 2>/dev/null) in
++  ppc64le | ppc64le-power9) unavailable="${OMARCHY_PATH:-/usr/share/omarchy}/install/omarchy-ppc64le-unavailable.packages" ;;
++  *) unavailable="" ;;
++esac
++if [[ -n $unavailable && -r $unavailable ]]; then
++  available=()
++  for pkg in "$@"; do
++    if sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$unavailable" | grep -Fxq -- "$pkg"; then
++      echo "Skipping $pkg: no build for this platform (see $unavailable)" >&2
++    else
++      available+=("$pkg")
++    fi
++  done
++  set -- "${available[@]}"
++  (($#)) || exit 0
++fi
++
+ if omarchy-pkg-missing "$@"; then
+   if (( EUID == 0 )); then
+     pacman -S --noconfirm --needed -- "$@" || exit 1
 diff --git a/bin/omarchy-pkg-defaults b/bin/omarchy-pkg-defaults
 index 8fa54a25f..afac1be14 100755
 --- a/bin/omarchy-pkg-defaults
