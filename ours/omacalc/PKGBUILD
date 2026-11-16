@@ -1,30 +1,29 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 #
 # omacalc -- Omarchy's Qt Quick calculator.  Omarchy publishes it from their
-# own repository, and upstream (github.com/omacom-io/omacalc) carries no
-# packaging at v0.2.2 or at any later commit, so this recipe is written from
-# upstream's bin/build and bin/test.  Version is Omarchy's (omarchy.db
-# omacalc 0.2.2-1).
+# own repository; this recipe was written from upstream's bin/build and
+# bin/test, and version and metadata follow Omarchy's own recipe,
+# omacom/omarchy-pkgs pkgbuilds/omacalc@412a5b34c5ba (0.3.1-1, what their
+# stable channel ships).
 #
 # ppc64le: adding powerpc64le to arch=() was the only change needed.  Plain
 # Qt 6 C++/QML, nothing architecture-specific.  It builds against our Qt
-# 6.11.2 set (qt6-base 6.11.2-4, qt6-declarative 6.11.2-1); every qt6-* module
-# must stay at one version (docs/build-queue.md, version-locked sets).
+# 6.11.2 set; every qt6-* module must stay at one version
+# (docs/build-queue.md, version-locked sets).
 #
 # Packaging differences from upstream's bin/build: qmake is handed makepkg's
 # CFLAGS/CXXFLAGS/LDFLAGS, and make is not forced to -j$(nproc) so bq's
-# per-slot MAKEFLAGS apply.
+# per-slot MAKEFLAGS apply.  Omarchy's omacalc.install (desktop database and
+# icon cache refresh) is not carried: pacman's own hooks already do both, as
+# for omacut and omawrite.
 #
-# omacalc.desktop and omacalc.svg exist only in Omarchy's own package, not in
-# upstream's tree, so they are copied byte-for-byte out of
-# omacalc-0.2.2-1-x86_64.pkg.tar.zst (sha256
-# a4c902cc360d1b7a4857e299f20a4638b66f3ee56a533d4ab19f7b293d642ed0 in
-# https://pkgs.omarchy.org/x86_64/omarchy.db).  Both are text, nothing
-# architecture-dependent, and shipping them keeps this package's file list
-# identical to theirs.
+# Up to 0.2.2 the .desktop file and icon existed only in Omarchy's package and
+# were copied into this directory out of it.  From 0.3.x upstream's tree
+# carries them under pkgbuild/, byte-identical to those copies, so they are
+# installed from the source tarball and the copies are gone.
 
 pkgname=omacalc
-pkgver=0.2.2
+pkgver=0.3.1
 pkgrel=1
 pkgdesc='Dead-simple calculator built with Qt Quick'
 arch=(powerpc64le)
@@ -32,12 +31,8 @@ url='https://github.com/omacom-io/omacalc'
 license=(MIT OFL-1.1)
 depends=(hicolor-icon-theme qt6-base qt6-declarative xdg-desktop-portal)
 makedepends=(gcc make qt6-base qt6-declarative)
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
-        omacalc.desktop
-        omacalc.svg)
-sha256sums=('a42b39cd5a62c83f6667060da19c9bcc5dd8469ce69e48f19394b71322b9cba4'
-            'a8697a8606ab2ff6323e2923a835b1d3312e03f20614b71b1d5db57c84c93306'
-            'a6366f7167e657dd3be9c129a533fccc007dfb644db505f07068ad5a5986d34d')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('0f329bac3812d5440bb00f97bad0e63fd166ea9dedc1809f339d7e1f325499ee')
 
 _qmake() {
   qmake6 "$@" \
@@ -68,6 +63,6 @@ package() {
   install -Dm755 build/omacalc "$pkgdir/usr/bin/omacalc"
   install -Dm644 "$pkgname-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 "$pkgname-$pkgver/fonts/OFL.txt" "$pkgdir/usr/share/licenses/$pkgname/OFL.txt"
-  install -Dm644 omacalc.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/omacalc.svg"
-  install -Dm644 omacalc.desktop "$pkgdir/usr/share/applications/omacalc.desktop"
+  install -Dm644 "$pkgname-$pkgver/pkgbuild/omacalc.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/omacalc.svg"
+  install -Dm644 "$pkgname-$pkgver/pkgbuild/omacalc.desktop" "$pkgdir/usr/share/applications/omacalc.desktop"
 }
