@@ -35,7 +35,11 @@
 
 pkgname=omarchy-nvim
 pkgver=2026.9.21
-pkgrel=1
+# Above Omarchy's pkgrel (_uprel), never below it. Their migrations compare
+# against their own versions: 1788996284 refuses to run until omarchy-nvim is
+# 2026.9.21-2 or newer, and our -1 of their -5 content stopped omarchy-migrate
+# there. package() enforces this.
+pkgrel=6
 pkgdesc='Pre-built LazyVim configuration with cached plugins (native tools, no mason downloads)'
 arch=(any)
 url='https://github.com/LazyVim/LazyVim'
@@ -60,7 +64,7 @@ optdepends=(
   "rust: build blink.cmp's fuzzy matcher (falls back to the Lua one without it)"
 )
 conflicts=(omarchy-lazyvim)
-# Omarchy's pkgrel of the package repackaged here; ours is independent.
+# Omarchy's pkgrel of the package repackaged here; ours must stay above it.
 _uprel=5
 _upkg="${pkgname}-${pkgver}-${_uprel}-any.pkg.tar.zst"
 source=("https://pkgs.omarchy.org/stable/x86_64/${_upkg}"
@@ -86,6 +90,8 @@ prepare() {
 }
 
 package() {
+  [[ $(vercmp "$pkgver-$pkgrel" "$pkgver-$_uprel") -gt 0 ]] ||
+    { echo "omarchy-nvim: pkgrel $pkgrel must be above Omarchy's $_uprel (migrations compare versions)" >&2; return 1; }
   # The premise of this package: exactly one foreign binary, and it is the one
   # we replace.  If upstream ever vendors another, fail loudly rather than
   # shipping it.  Here rather than in check(): bq runs makepkg --nocheck, so
