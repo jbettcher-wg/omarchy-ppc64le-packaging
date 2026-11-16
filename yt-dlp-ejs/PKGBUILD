@@ -17,11 +17,12 @@
 # interpreter with no JIT) is the fallback: swap the depend and the runtime in
 # yt-dlp's /etc/yt-dlp.conf.
 #
-# Being a depend, bun is also in the build sandbox, and hatch_build.py bundles
-# with the first of pnpm, deno, bun or npm it finds, so bun does the bundling
-# too (bun install --frozen-lockfile against the repo's bun.lock, then rollup).
-# build() asserts that rather than let the choice drift with what the sandbox
-# happens to hold.
+# bun does the bundling too (bun install --frozen-lockfile against the repo's
+# bun.lock, then rollup), so node's V8 never minifies the solver either.
+# hatch_build.py takes the first of pnpm, deno, bun or npm on PATH, and bq's
+# sandbox carries the whole pool, pnpm included: the first build bundled with
+# pnpm. prepare() takes pnpm and deno out of that choice, and build() asserts
+# the result.
 
 pkgname=yt-dlp-ejs
 pkgver=0.8.0
@@ -41,6 +42,14 @@ optdepends=('quickjs-ng: fallback runtime, with --js-runtimes quickjs in /etc/yt
 checkdepends=(python-pytest)
 source=(git+https://github.com/yt-dlp/ejs#tag=$pkgver)
 sha256sums=('90b1d3285609709ec364fbd97ab3344346f21e1649484bf163a2b5c12f660082')
+
+prepare() {
+  cd ejs
+  sed -i -e 's/if pnpm := shutil.which("pnpm"):/if pnpm := None:/' \
+         -e 's/elif deno := shutil.which("deno"):/elif deno := None:/' hatch_build.py
+  grep -qF 'if pnpm := None:' hatch_build.py && grep -qF 'elif deno := None:' hatch_build.py ||
+    { echo "yt-dlp-ejs: hatch_build.py changed; redo the bundler selection" >&2; return 1; }
+}
 
 build() {
   cd ejs
