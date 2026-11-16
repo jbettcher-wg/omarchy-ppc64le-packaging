@@ -3,7 +3,7 @@
 
 pkgname=highway
 pkgver=1.4.0
-pkgrel=1
+pkgrel=2
 pkgdesc='A C++ library that provides portable SIMD/vector intrinsics'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 url='https://github.com/google/highway/'
@@ -25,6 +25,14 @@ sha256sums=('e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c')
 # (table_test) overruns that budget, discovery returns nothing, and CMake
 # fails parsing the empty JSON. Building tests we do not run is waste; not
 # building them removes the failure and the waste together.
+#
+# But not with HWY_ENABLE_TESTS=OFF, which 1.4.0-1 used. That switch also gates
+# *installing* libhwy_test, its hwy/tests/*.h headers and libhwy-test.pc --
+# public API that Arch's highway ships and downstream test suites include.
+# libjxl's tests stopped compiling against it (hwy/tests/hwy_gtest.h: No such
+# file). The executables and their gtest_discover_tests are gated by
+# HWY_ENABLE_TESTS *and* BUILD_TESTING, so turning off only BUILD_TESTING keeps
+# the full install while still building and discovering no test at all.
 build() {
     cmake -B build -S "${pkgname}-${pkgver}" \
         -G 'Unix Makefiles' \
@@ -32,7 +40,8 @@ build() {
         -DCMAKE_INSTALL_PREFIX:PATH='/usr' \
         -DBUILD_SHARED_LIBS:BOOL='ON' \
         -DHWY_SYSTEM_GTEST:BOOL='ON' \
-        -DHWY_ENABLE_TESTS:BOOL='OFF' \
+        -DHWY_ENABLE_TESTS:BOOL='ON' \
+        -DBUILD_TESTING:BOOL='OFF' \
         -Wno-dev #${_cmake_options[@]}
     cmake --build build
 }

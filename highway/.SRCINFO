@@ -1,7 +1,7 @@
 pkgbase = highway
 	pkgdesc = A C++ library that provides portable SIMD/vector intrinsics
 	pkgver = 1.4.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/google/highway/
 	arch = x86_64
 	arch = powerpc64le
