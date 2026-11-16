@@ -5,28 +5,36 @@
 
 pkgname='crush'
 pkgver=0.101.0
-pkgrel=1
+pkgrel=2
 pkgdesc='A powerful terminal-based AI assistant for developers, providing intelligent coding assistance directly in your terminal.'
 url='https://charm.sh/crush'
 # Ported from the GoReleaser-generated AUR recipe, which only lists the two
 # architectures Charm publishes binaries for. Nothing here is x86- or
 # arm-specific: it is a Go build from source, and cgo's external link picks
 # up the pool's CFLAGS. GOPPC64 is deliberately NOT set here so the ISA floor
-# comes from the pool's makepkg.conf -- power8 for the baseline pool, and the
-# Go default (also power8) for the POWER9 pool -- the same way ours/powerarm
+# comes from the pool: power8 from the baseline pool's makepkg.conf, and our
+# go's power9 default for the POWER9 pool -- the same way ours/powerarm
 # leaves TUNE_CPU to the config.
+#
+# GOTOOLCHAIN=local: go.mod pins a go directive (1.27.3 for 0.101.0), and
+# under the default GOTOOLCHAIN=auto a pool go older than that silently
+# downloads Google's toolchain and builds with it, so 0.101.0-1 shipped
+# upstream go1.27.3 at power8 in both pools. Fail instead; the makedepends
+# floor below tracks go.mod.
 arch=('powerpc64le')
 license=('FSL-1.1-MIT')
 depends=('glibc' 'gcc-libs')
-makedepends=('go' 'git')
+makedepends=('go>=2:1.27.3' 'git')
 source=("${pkgname}_${pkgver}.tar.gz::https://github.com/charmbracelet/crush/releases/download/v${pkgver}/crush-${pkgver}.tar.gz")
 sha256sums=('a73ecc12278179ae81a39df9efccf554923a30414c656720597f2e88c2bc156b')
 prepare() {
+  export GOTOOLCHAIN=local
   go mod download
 }
 build() {
   mkdir completions
   mkdir manpages
+  export GOTOOLCHAIN=local
   export CGO_CPPFLAGS="${CPPFLAGS}"
   export CGO_CFLAGS="${CFLAGS}"
   export CGO_CXXFLAGS="${CXXFLAGS}"
