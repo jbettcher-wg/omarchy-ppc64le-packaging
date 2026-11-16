@@ -1,0 +1,73 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Arch maintainer: Antonio Rojas <arojas@archlinux.org>
+#
+# yt-dlp's JavaScript challenge solver. yt-dlp 2026.10.26 pins
+# yt-dlp-ejs==0.8.0; without it YouTube's JS challenges go unsolved.
+# Imported from Arch, which runs it under deno.
+#
+# ppc64le: the runtime is bun, not deno.
+#  - deno is Rust around V8 and has no ppc64le build anywhere we can reach.
+#  - node's own V8 crashes in its deopt machinery on ppc64le and miscompiles
+#    in optimised code (it stores 250 for Uint8ClampedArray[i] = -5.5), so a
+#    challenge solver on it could return a wrong answer without an error.
+#  - bun is ours: our JavaScriptCore port, with a proven JIT.
+# The catch: yt-dlp has deprecated bun (yt-dlp/yt-dlp#16766) and names 1.3.14
+# the last supported version; with our 1.4.3 it still runs it, but warns on
+# every run. If that turns into failures, quickjs-ng (Arch POWER base, a C
+# interpreter with no JIT) is the fallback: swap the depend and the runtime in
+# yt-dlp's /etc/yt-dlp.conf.
+#
+# Being a depend, bun is also in the build sandbox, and hatch_build.py bundles
+# with the first of pnpm, deno, bun or npm it finds, so bun does the bundling
+# too (bun install --frozen-lockfile against the repo's bun.lock, then rollup).
+# build() asserts that rather than let the choice drift with what the sandbox
+# happens to hold.
+
+pkgname=yt-dlp-ejs
+pkgver=0.8.0
+pkgrel=1
+pkgdesc='External JavaScript for yt-dlp supporting many runtimes'
+arch=(any)
+url='https://github.com/yt-dlp/ejs'
+license=(Unlicense)
+depends=(bun
+         python)
+makedepends=(git
+             python-build
+             python-hatch-vcs
+             python-hatchling
+             python-installer)
+optdepends=('quickjs-ng: fallback runtime, with --js-runtimes quickjs in /etc/yt-dlp.conf')
+checkdepends=(python-pytest)
+source=(git+https://github.com/yt-dlp/ejs#tag=$pkgver)
+sha256sums=('90b1d3285609709ec364fbd97ab3344346f21e1649484bf163a2b5c12f660082')
+
+build() {
+  cd ejs
+  python -m build --wheel --no-isolation >"$srcdir/wheel.log" 2>&1 ||
+    { cat "$srcdir/wheel.log"; return 1; }
+  cat "$srcdir/wheel.log"
+  grep -q 'Building with bun' "$srcdir/wheel.log" ||
+    { echo "yt-dlp-ejs: the bundle was not built with bun" >&2; return 1; }
+}
+
+check() {
+  cd ejs
+  python -m venv --system-site-packages test-env
+  test-env/bin/python -m installer dist/*.whl
+  cp -r test test-env/lib/python*/site-packages # tests search for js files in relative paths
+  test-env/bin/python -m pytest -v `ls -d test-env/lib/python*`/site-packages/test
+}
+
+package() {
+  cd ejs
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # The two bundles are the package; a wheel without them installs and does
+  # nothing.
+  local f
+  for f in core lib; do
+    [[ -s $(find "$pkgdir" -path "*/yt_dlp_ejs/yt/solver/$f.min.js" -print -quit) ]] ||
+      { echo "yt-dlp-ejs: solver/$f.min.js is missing from the wheel" >&2; return 1; }
+  done
+}

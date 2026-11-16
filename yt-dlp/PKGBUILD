@@ -11,19 +11,21 @@
 # /etc/yt-dlp.conf of `--js-runtimes node`.  This recipe keeps building the
 # wheel from the release sdist.
 #
-# One deliberate difference from Arch: no yt-dlp-ejs in depends.  Arch's
-# yt-dlp-ejs depends on deno, and neither exists for powerpc64le here, so
-# depending on it would make the package uninstallable.  Without it YouTube's
-# JS challenges are not solved, which is no change from 2026.07.04.
+# One deliberate difference from Arch: the challenge solver runs under bun.
+# Arch's yt-dlp-ejs depends on deno, which has no ppc64le build; ours depends
+# on bun instead (see yt-dlp-ejs/PKGBUILD for why not node), and
+# /etc/yt-dlp.conf turns bun on with --js-runtimes, since yt-dlp enables only
+# deno by default.  The file is a backup, so local edits survive upgrades.
 
 pkgname=yt-dlp
 pkgver=2026.10.26
-pkgrel=1
+pkgrel=2
 pkgdesc='A youtube-dl fork with additional features and fixes'
 arch=(any)
 url='https://github.com/yt-dlp/yt-dlp'
 license=(Unlicense)
 depends=(python
+         yt-dlp-ejs
          python-certifi
          python-requests
          python-urllib3)
@@ -45,8 +47,11 @@ optdepends=('ffmpeg: for video post-processing'
             'python-xattr: for writing xattr metadata'
             'python-pyxattr: for writing xattr metadata (alternative option)'
             'python-secretstorage: For -cookies-from-browser to access the GNOME keyring while decrypting cookies of Chromium-based browsers')
-source=($pkgname-$pkgver.tar.gz::https://github.com/yt-dlp/yt-dlp/releases/download/$pkgver/yt-dlp.tar.gz)
-sha256sums=('21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95')
+source=($pkgname-$pkgver.tar.gz::https://github.com/yt-dlp/yt-dlp/releases/download/$pkgver/yt-dlp.tar.gz
+        yt-dlp.conf)
+sha256sums=('21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95'
+            '24ede20a3709f3aeeab16711f767838657a79ecd571598ab3b84b5d6565268cc')
+backup=(etc/yt-dlp.conf)
 
 build() {
   cd $pkgname
@@ -59,6 +64,7 @@ check() {
 }
 
 package() {
+  install -Dm644 yt-dlp.conf "$pkgdir/etc/yt-dlp.conf"
   cd $pkgname
   python -m installer --destdir="$pkgdir" dist/*.whl
 }
