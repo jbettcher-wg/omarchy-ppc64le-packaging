@@ -2,24 +2,28 @@
 #
 # Omarchy's theming tool, built from source.
 #
-# The AUR recipe (aur/aether) is a prebuilt-binary repackage: it downloads
-# aether-linux-amd64 or aether-linux-arm64 from the GitHub release and installs
-# it, with the source tarball present only to supply the .desktop files and
-# icons.  There is no ppc64le release asset, so that recipe cannot work here at
-# all -- the same shape of block as mise-bin, and with the same answer, which
-# is to compile it.  Omarchy compiles it too: their repo carries an
-# aether-debug package, which only exists for a package built from source.
+# Version and metadata follow Omarchy's own recipe, omacom/omarchy-pkgs
+# pkgbuilds/aether at a1ad25bbae61 (4.32.0-2, the stable channel's build; its
+# -2 is a cache-mismatch rebuild with no recipe change).  Like the AUR recipe
+# (aur/aether) it started from, that recipe is a prebuilt-binary repackage: it
+# downloads aether-linux-amd64 or aether-linux-arm64 from the GitHub release
+# and installs it, with the source tarball present only to supply the .desktop
+# files and icons.  There is no ppc64le release asset, so that recipe cannot
+# work here at all -- the same shape of block as mise-bin, and with the same
+# answer, which is to compile it.
 #
 # aether is Go + Wails v2 (webkit2gtk-4.1) with a Svelte/Vite frontend, and the
 # Go half needed nothing: `go build -tags webkit2_41` produces a working POWER9
 # binary with no patch, no flag and no dependency change.
 #
 # The frontend half is where the work was, and none of it is aether's fault.
-# Two of its build-time npm packages ship prebuilt native node addons with no
-# ppc64le artifact and no usable fallback:
+# Its build-time npm packages ship prebuilt native node addons, and two of them
+# have no ppc64le artifact and no usable fallback:
 #
-#   lightningcss 1.32.0        Required by @tailwindcss/node, so not optional
-#                              and not configurable away.  Its loader tries
+#   lightningcss 1.32.0        Required by @tailwindcss/node (an exact pin),
+#   lightningcss 1.33.0        and by vite 8.2 (^1.33.0, so npm nests a second
+#                              copy under node_modules/vite).  Neither is
+#                              optional or configurable away.  The loader tries
 #                              `lightningcss-<platform>-<arch>-gnu` and then
 #                              `../lightningcss.<platform>-<arch>-gnu.node`,
 #                              with no wasm path at all.  Fixed by building the
@@ -27,7 +31,10 @@
 #                              napi-rs cdylib, `cargo build -p
 #                              lightningcss_node` produces it, and dropping the
 #                              .so in under the name the loader looks for is
-#                              the whole fix.  6m29s on this machine.
+#                              the whole fix.  6m29s per version on this
+#                              machine.  Up to 4.29.8 vite 8.0 accepted ^1.32.0
+#                              and shared tailwind's copy, so one addon served
+#                              both; 4.32.0 is the first to need two.
 #
 #   @tailwindcss/oxide 4.2.4   Has a wasm32-wasi fallback, but npm refuses to
 #                              install the package that carries it because its
@@ -36,6 +43,9 @@
 #                              own loader then finds it after the native
 #                              lookup fails.  Slower than native; it runs once
 #                              per build and does not ship.
+#
+# rolldown, vite 8's bundler, is the third native addon and needs nothing: it
+# publishes @rolldown/binding-linux-ppc64-gnu.
 #
 # The name the addon has to be given is `linux-ppc64`, not `linux-ppc64le`:
 # Node reports process.arch as "ppc64" on this machine (there is no "ppc64le"
@@ -50,16 +60,24 @@
 # dependency that would itself have to be packaged -- but it does mean
 # reproducing the CLI's build tags by hand, and that is the one place this
 # recipe can silently go wrong.  See the comment on the tag list in build().
+# Re-checked at 4.32.0: go.mod moved to Wails v2.16.0, whose tag assembly in
+# pkg/commands/build/base.go is unchanged from v2.11.0, and upstream's release
+# workflow still builds with `-tags webkit2_41 -ldflags -X aether/cli.Version`.
 #
-# Verified by running, not by compiling: `--help` and `--version` are the weak
-# test, so the real one is `--extract-palette` over a JPEG, which exercises the
-# image decode and the colour-quantisation engine that is the entire point of
-# the program.  It returns a 16-colour palette.  The Wails GUI itself was not
-# opened -- this is the user's live COSMIC desktop, not a test rig -- so
-# "the window appears" remains unverified; everything behind it is not.
+# The binary assertions (version injected, desktop backend linked) run in
+# package(), not check(): bq runs makepkg --nocheck, so check() never runs on
+# a real build, and a GUI-less binary is exactly what it would otherwise ship.
+#
+# Verified at 4.29.8 by running, not by compiling: `--help` and `--version` are
+# the weak test, so the real one is `--extract-palette` over a JPEG, which
+# exercises the image decode and the colour-quantisation engine that is the
+# entire point of the program.  It returns a 16-colour palette.  The Wails GUI
+# itself was not opened -- this is the user's live COSMIC desktop, not a test
+# rig -- so "the window appears" remains unverified; everything behind it is
+# not.
 
 pkgname=aether
-pkgver=4.29.8
+pkgver=4.32.0
 pkgrel=1
 pkgdesc='Desktop theming application - extract colors from wallpapers and apply cohesive themes'
 arch=('x86_64' 'aarch64' 'powerpc64le')
@@ -67,30 +85,40 @@ url='https://github.com/omacom/aether'
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3' 'glibc')
 makedepends=('go' 'nodejs' 'npm' 'rust' 'cargo')
-# The lightningcss revision the frontend build resolves to.  Asserted against
-# node_modules in build(), so a drift fails loudly instead of silently
-# building an addon that does not match the JS that loads it.
-_lightningcss_ver=1.32.0
+# The lightningcss revisions the frontend build resolves to: 1.32.0 for
+# @tailwindcss/node, 1.33.0 for vite.  build() gives every copy npm installs
+# the addon built from its own version's source, and fails on a copy it has no
+# addon for, so a drift fails loudly instead of silently pairing an addon with
+# JS that does not match it.
+_lightningcss_vers=(1.32.0 1.33.0)
 source=("aether-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
-        "lightningcss-${_lightningcss_ver}.tar.gz::https://github.com/parcel-bundler/lightningcss/archive/refs/tags/v${_lightningcss_ver}.tar.gz")
-sha256sums=('b83e0eeb1332b4ed655389a051d5b9b14a3e109968b7f278005e52c5e69a1e9c'
-            'ca67b9ba532d439f5f91d23debfc2543d6decac130ee88bc4c66202fc7173ad9')
+        "lightningcss-${_lightningcss_vers[0]}.tar.gz::https://github.com/parcel-bundler/lightningcss/archive/refs/tags/v${_lightningcss_vers[0]}.tar.gz"
+        "lightningcss-${_lightningcss_vers[1]}.tar.gz::https://github.com/parcel-bundler/lightningcss/archive/refs/tags/v${_lightningcss_vers[1]}.tar.gz")
+sha256sums=('3234e5138a46699f8f47330ba582244d5063c8356ffaae1458323e4dda02be82'
+            'ca67b9ba532d439f5f91d23debfc2543d6decac130ee88bc4c66202fc7173ad9'
+            '3197aa5188b66d0d1e5026cbc8b65c4c0c53fdc949f9ed497fe75df2d13f722a')
 
 prepare() {
-  # lightningcss pins a rust-toolchain.toml (channel 1.92.0) that would send
-  # cargo looking for rustup.  Arch POWER ships rust 1.97.1 as the system
-  # toolchain and the crate builds fine on it, so the pin just gets in the way.
-  rm -f "${srcdir}/lightningcss-${_lightningcss_ver}/rust-toolchain.toml"
+  # lightningcss pins a rust-toolchain.toml (channel 1.92.0 at 1.32.0, 1.96.0
+  # at 1.33.0) that would send cargo looking for rustup.  The repo's rust
+  # (1:1.98.1) is the system toolchain and the crate builds fine on it, so the
+  # pin just gets in the way.
+  local v
+  for v in "${_lightningcss_vers[@]}"; do
+    rm -f "${srcdir}/lightningcss-${v}/rust-toolchain.toml"
+  done
 }
 
 build() {
-  local nodeplat
+  local nodeplat v
   # e.g. "linux-ppc64"; both native loaders derive their filename this way.
   nodeplat=$(node -p 'process.platform + "-" + process.arch')
 
-  # 1. The lightningcss node addon (see header).
-  cd "${srcdir}/lightningcss-${_lightningcss_ver}"
-  cargo build --release -p lightningcss_node
+  # 1. The lightningcss node addons (see header), one per version.
+  for v in "${_lightningcss_vers[@]}"; do
+    cd "${srcdir}/lightningcss-${v}"
+    cargo build --release -p lightningcss_node
+  done
 
   # 2. The frontend.  npm's cache and its update notifier both default into
   # $HOME; keep everything this build touches inside $srcdir.
@@ -100,20 +128,32 @@ build() {
   # `npm ci` is not usable: on this architecture npm resolves a different set
   # of @emnapi packages than the committed package-lock.json records, and ci
   # refuses a lockfile that is not in sync.  npm install resolves the same
-  # dependency ranges and the assertion below covers the one version that has
+  # dependency ranges and the assertion below covers the versions that have
   # to match something outside node_modules.
   npm install --no-audit --no-fund
 
-  local have
-  have=$(node -p 'require("./node_modules/lightningcss/package.json").version')
-  if [[ "$have" != "$_lightningcss_ver" ]]; then
-    printf '%s: frontend resolved lightningcss %s, addon built from %s\n' \
-      "$pkgname" "$have" "$_lightningcss_ver" >&2
+  # Every lightningcss copy npm installed gets the addon built from its own
+  # version.  A copy with no matching build fails here rather than later in
+  # vite or tailwind with "Cannot find module".
+  local dir have built
+  local -a copies=()
+  # From ".", so the top-level copy matches too: ./node_modules/lightningcss
+  # and ./node_modules/vite/node_modules/lightningcss.
+  mapfile -t copies < <(find . -type d -path '*/node_modules/lightningcss' | sort)
+  if (( ${#copies[@]} == 0 )); then
+    printf '%s: no lightningcss in node_modules\n' "$pkgname" >&2
     return 1
   fi
-  install -Dm755 \
-    "${srcdir}/lightningcss-${_lightningcss_ver}/target/release/liblightningcss_node.so" \
-    "node_modules/lightningcss/lightningcss.${nodeplat}-gnu.node"
+  for dir in "${copies[@]}"; do
+    have=$(node -p "require('${dir}/package.json').version")
+    built="${srcdir}/lightningcss-${have}/target/release/liblightningcss_node.so"
+    if [[ ! -f "$built" ]]; then
+      printf '%s: frontend resolved lightningcss %s at %s; addons are built for %s only\n' \
+        "$pkgname" "$have" "$dir" "${_lightningcss_vers[*]}" >&2
+      return 1
+    fi
+    install -Dm755 "$built" "${dir}/lightningcss.${nodeplat}-gnu.node"
+  done
 
   # @tailwindcss/oxide's wasm fallback, which npm will not install on its own
   # because the package declares "cpu": ["wasm32"].  --force is what gets past
@@ -135,7 +175,7 @@ build() {
   #                has no GUI in it at all, no gtk or webkit symbol anywhere in
   #                the binary and libc as its only DT_NEEDED.  That is what a
   #                bare `go build -tags webkit2_41` produces here, and it is
-  #                silent, which is why check() greps for a webkit symbol.
+  #                silent, which is why package() greps for a webkit symbol.
   #   production   the mode Wails uses for a release build.
   #   webkit2_41   what upstream's Makefile selects when webkit2gtk-4.0 is
   #                absent, which it is on a current Arch.
@@ -149,6 +189,13 @@ build() {
 
 check() {
   cd "${srcdir}/${pkgname}-${pkgver}"
+  go test ./internal/... ./cli/...
+}
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  # Moved here from check(), which bq never runs (makepkg --nocheck).
   ./aether --version | grep -qx "aether ${pkgver}" || {
     printf '%s: version was not injected into the binary\n' "$pkgname" >&2
     return 1
@@ -164,11 +211,7 @@ check() {
     printf '%s: binary does not link webkit2gtk-4.1\n' "$pkgname" >&2
     return 1
   }
-  go test ./internal/... ./cli/...
-}
 
-package() {
-  cd "${srcdir}/${pkgname}-${pkgver}"
   install -Dm755 aether "${pkgdir}/usr/bin/aether"
   install -Dm644 build/linux/aether.desktop \
     "${pkgdir}/usr/share/applications/aether.desktop"
