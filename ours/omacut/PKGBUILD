@@ -2,35 +2,37 @@
 #
 # omacut -- Omarchy's Qt Quick video trimmer (a front end over the ffmpeg
 # binary).  Omarchy publishes it from their own repository and there is no
-# AUR or Arch recipe.  Upstream (github.com/omacom-io/omacut) keeps a
-# pkgbuild/ directory, but its PKGBUILD builds the working tree in place
-# ($startdir/..) at a stale pkgver, so this recipe is written from upstream's
-# bin/build and bin/test and takes only the .desktop and .svg from pkgbuild/.
-# Version is Omarchy's (omarchy.db omacut 0.4.0-1).
+# AUR or Arch recipe.  Upstream (github.com/omacom/omacut, formerly
+# omacom-io) keeps a pkgbuild/ directory, which up to 0.4.0 also held a
+# PKGBUILD that built the working tree in place at a stale pkgver; it now
+# holds only the .desktop and .svg.  So this recipe is written from upstream's
+# bin/build and bin/test and takes those two files from pkgbuild/.  Version
+# and metadata follow Omarchy's own recipe,
+# omacom/omarchy-pkgs pkgbuilds/omacut@2f34bdc4d9ba (0.7.2-1, what their
+# stable channel ships).
 #
 # ppc64le: adding powerpc64le to arch=() was the only change needed.  Plain
 # Qt 6 C++/QML, nothing architecture-specific.  It builds against our Qt
-# 6.11.2 set (qt6-base 6.11.2-4, qt6-declarative 6.11.2-1, qt6-multimedia
-# 6.11.2-1); every qt6-* module must stay at one version
+# 6.11.2 set; every qt6-* module must stay at one version
 # (docs/build-queue.md, version-locked sets).
 #
 # Packaging differences from upstream's bin/build: qmake is handed makepkg's
 # CFLAGS/CXXFLAGS/LDFLAGS, and make is not forced to -j$(nproc) so bq's
-# per-slot MAKEFLAGS apply.  Upstream's omacut.install (desktop database and
-# icon cache refresh) is not carried: pacman's own hooks already do both, and
-# Omarchy's package ships without it too.
+# per-slot MAKEFLAGS apply.  Upstream's and Omarchy's omacut.install (desktop
+# database and icon cache refresh) is not carried: pacman's own hooks already
+# do both.
 
 pkgname=omacut
-pkgver=0.4.0
+pkgver=0.7.2
 pkgrel=1
 pkgdesc='Dead-simple video length trimmer built with Qt Quick and ffmpeg'
 arch=(powerpc64le)
-url='https://github.com/omacom-io/omacut'
+url='https://github.com/omacom/omacut'
 license=(MIT)
 depends=(ffmpeg hicolor-icon-theme qt6-base qt6-declarative qt6-multimedia xdg-desktop-portal)
 makedepends=(gcc make qt6-base qt6-declarative qt6-multimedia)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('0e1b0665e0304a1ecbdb06b8574e8abf385e1cffa431821032902340c2c5d7df')
+sha256sums=('93ea48761f516964c2ccfdc0a6cd00a5d36165b8a82588e63235a27ae355dc8c')
 
 _qmake() {
   qmake6 "$@" \
