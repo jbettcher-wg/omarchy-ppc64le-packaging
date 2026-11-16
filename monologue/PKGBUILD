@@ -1,0 +1,60 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: David Heinemeier Hansson <david@hey.com>
+#
+# Monologue, Omarchy's theme-synced webcam recorder (Qt Quick over Qt
+# Multimedia and the ffmpeg binary). Omarchy 4.5 installs it through
+# omarchy-pkg-add. Taken from upstream's own recipe
+# (github.com/omacom/omarchy-pkgs, pkgbuilds/monologue at 0cda54605912); the
+# version is Omarchy's stable channel (pkgs.omarchy.org/stable monologue
+# 0.3.1-1). omarchy-pkgs HEAD is at 0.4.0.
+#
+# ppc64le: powerpc64le added to arch=(). Plain Qt 6 C++/QML, nothing
+# architecture-specific. The build is upstream's bin/build written out, with
+# two changes that matter on the build box rather than for the architecture,
+# the same ones ours/omacut makes:
+#  - qmake is handed makepkg's CFLAGS/CXXFLAGS/LDFLAGS. qmake ignores them in
+#    the environment, which would drop the hardening flags and the baseline
+#    pool's -mcpu=power8.
+#  - make runs without bin/build's -j$(nproc), so bq's MAKEFLAGS apply.
+
+pkgname=monologue
+pkgver=0.3.1
+pkgrel=1
+pkgdesc='A simple, theme-synced webcam recorder for Omarchy'
+arch=('x86_64' 'aarch64' 'powerpc64le')
+url='https://github.com/omacom/monologue'
+license=('MIT')
+install='monologue.install'
+options=('!debug')
+depends=(
+  'ffmpeg'
+  'hicolor-icon-theme'
+  'libpulse'
+  'qt6-base'
+  'qt6-declarative'
+  'qt6-multimedia>=6.8'
+  'xdg-desktop-portal'
+)
+makedepends=('gcc' 'make' 'pkgconf')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('b32c22d9efbf54bbd56a40174da0029e924dcfcf410188805d4e26a5ffe3907c')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  mkdir -p build
+  cd build
+  qmake6 "$srcdir/$pkgname-$pkgver/monologue.pro" \
+    QMAKE_CFLAGS_RELEASE="$CFLAGS" \
+    QMAKE_CXXFLAGS_RELEASE="$CXXFLAGS" \
+    QMAKE_LFLAGS_RELEASE="$LDFLAGS"
+  make
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  install -Dm755 build/monologue "$pkgdir/usr/bin/monologue"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 pkgbuild/monologue.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/monologue.svg"
+  install -Dm644 pkgbuild/monologue.desktop "$pkgdir/usr/share/applications/monologue.desktop"
+}
