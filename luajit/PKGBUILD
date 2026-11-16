@@ -23,6 +23,13 @@ _srcdir=luajit-ppc64le
 _branch=ppc64le-modern
 pkgver=2.1.1788641781
 pkgrel=2
+# Arch POWER's base repo ships its own luajit as 1:2.1.0+<date>. That epoch
+# outranks any version without one, so ours (2.1.1788641781, no epoch) only
+# won because our repo is listed first: with [base] ahead of it, or our pool
+# briefly without luajit, theirs would install and ours would never come back
+# as an upgrade. epoch=1 makes this build newer by version as well as by repo
+# order. Keep it at least as high as Arch POWER's.
+epoch=1
 pkgdesc='Just-in-time compiler and drop-in replacement for Lua 5.1 (ppc64le JIT backend)'
 arch=(powerpc64le)
 url='https://luajit.org/'
