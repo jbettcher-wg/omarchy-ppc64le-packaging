@@ -1,18 +1,114 @@
-Subject: [PATCH] ppc64le platform: the mkinitcpio HOOKS baseline
+Subject: [PATCH] ppc64le platform: the mkinitcpio HOOKS baseline and mise
 
 POWER boots a systemd initramfs with no Limine (so no btrfs-overlayfs),
 no CPU microcode and no encryption hook, since petitboot cannot read an
 encrypted /boot.
 
+mise: omarchy-tools.toml gains platforms_linux_powerpc64_* keys that send
+the http and github agent tools to their arm64 builds, and the POWER-only
+platform-ppc64le.toml disables mise's gh and crush in favour of the
+distribution's, names the aqua overlay, and redeclares the npm launchers
+for x64/arm64-only binaries under their arm64 release channels.
+
 Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
-ppc64le platform" + 296d4d7ee "Refuse an unsupported CPU instead of calling
-it x86") with:
+ppc64le platform", 296d4d7ee "Refuse an unsupported CPU instead of calling
+it x86" and 53bfb9e91 "Run agent CLIs with no POWER build as their arm64
+builds") with:
 
     git diff v4.5.0..ppc64le-platform -- etc/
 
 Paths are upstream's git paths. The PKGBUILD applies it with
 patch -p1 -d "$pkgdir", which lands them on the installed layout.
 
+diff --git a/etc/mise/conf.d/omarchy-tools.toml b/etc/mise/conf.d/omarchy-tools.toml
+index b784d7198..460947309 100644
+--- a/etc/mise/conf.d/omarchy-tools.toml
++++ b/etc/mise/conf.d/omarchy-tools.toml
+@@ -8,23 +8,26 @@ system_shims_dir = "~/.local/share/mise/shims"
+ # Agent CLIs update themselves before they run, at most once every four hours (mise auto_update).
+ # Backend options go inside a tool's table, never in a "tool[...]" key: mise drops bracket options from a
+ # key whose value is a table, so a tool declared that way installs without them.
++# platforms_linux_powerpc64_* keys: on ppc64le (mise's linux-powerpc64), where these tools
++# publish no build, fetch their linux arm64 build instead; POWERarm runs it. Inert elsewhere.
++
+ [tools]
+ amp = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["amp"], minimum_release_age = "0s" }
+ antigravity-cli = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+-basecamp = { version = "latest", lazy = true, minimum_release_age = "0s" }
++basecamp = { version = "latest", lazy = true, minimum_release_age = "0s", platforms_linux_powerpc64_asset_pattern = "basecamp_*_linux_arm64.tar.gz" }
+ claude = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+ codex = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+ copilot = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+ crush = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+-cursor-agent = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
++cursor-agent = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s", platforms_linux_powerpc64_url = "https://downloads.cursor.com/lab/{{ version }}/linux/arm64/agent-cli-package.tar.gz" }
+ gh = { version = "latest", lazy = true, minimum_release_age = "0s" }
+ ghui = { version = "latest", lazy = true, minimum_release_age = "0s" }
+-grok = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+-hey-cli = { version = "latest", lazy = true, minimum_release_age = "0s" }
+-"http:devin" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["devin"], minimum_release_age = "0s", platforms_linux_x64_url = "https://static.devin.ai/cli/{{ version }}/devin-{{ version }}-x86_64-unknown-linux.tar.gz", platforms_linux_arm64_url = "https://static.devin.ai/cli/{{ version }}/devin-{{ version }}-aarch64-unknown-linux.tar.gz", bin_path = "bin", version_list_url = "https://static.devin.ai/cli/current/manifest.json", version_json_path = ".version" }
+-"http:kiro-cli" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["kiro-cli"], minimum_release_age = "0s", platforms_linux_x64_url = "https://prod.download.cli.kiro.dev/stable/{{version}}/kirocli-x86_64-linux.tar.gz", platforms_linux_arm64_url = "https://prod.download.cli.kiro.dev/stable/{{version}}/kirocli-aarch64-linux.tar.gz", version_list_url = "https://prod.download.cli.kiro.dev/stable/latest/manifest.json", version_json_path = ".version" }
++grok = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s", platforms_linux_powerpc64_url = "https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-{{ version }}-linux-aarch64" }
++hey-cli = { version = "latest", lazy = true, minimum_release_age = "0s", platforms_linux_powerpc64_asset_pattern = "hey_*_linux_arm64.tar.gz" }
++"http:devin" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["devin"], minimum_release_age = "0s", platforms_linux_x64_url = "https://static.devin.ai/cli/{{ version }}/devin-{{ version }}-x86_64-unknown-linux.tar.gz", platforms_linux_arm64_url = "https://static.devin.ai/cli/{{ version }}/devin-{{ version }}-aarch64-unknown-linux.tar.gz", bin_path = "bin", version_list_url = "https://static.devin.ai/cli/current/manifest.json", version_json_path = ".version", platforms_linux_powerpc64_url = "https://static.devin.ai/cli/{{ version }}/devin-{{ version }}-aarch64-unknown-linux.tar.gz" }
++"http:kiro-cli" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["kiro-cli"], minimum_release_age = "0s", platforms_linux_x64_url = "https://prod.download.cli.kiro.dev/stable/{{version}}/kirocli-x86_64-linux.tar.gz", platforms_linux_arm64_url = "https://prod.download.cli.kiro.dev/stable/{{version}}/kirocli-aarch64-linux.tar.gz", version_list_url = "https://prod.download.cli.kiro.dev/stable/latest/manifest.json", version_json_path = ".version", platforms_linux_powerpc64_url = "https://prod.download.cli.kiro.dev/stable/{{version}}/kirocli-aarch64-linux.tar.gz" }
+ hunk = { version = "latest", lazy = true, minimum_release_age = "0s" }
+-muse = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
++muse = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s", platforms_linux_powerpc64_url = "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version={{ version }}&file=muse-aarch64-linux" }
+ node = { version = "latest", lazy = true, minimum_release_age = "0s" }
+ "npm:@deepseek-ai/dsh" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["dsh"], minimum_release_age = "0s" }
+ "npm:@kilocode/cli" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["kilo"], minimum_release_age = "0s" }
+@@ -33,7 +36,7 @@ node = { version = "latest", lazy = true, minimum_release_age = "0s" }
+ "npm:cf" = { version = "latest", lazy = true, lazy_bins = ["cf"], minimum_release_age = "0s" }
+ "npm:command-code" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["commandcode"], minimum_release_age = "0s" }
+ "npm:freebuff" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["freebuff"], minimum_release_age = "0s" }
+-oh-my-pi = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
++oh-my-pi = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s", platforms_linux_powerpc64_asset_pattern = "omp-linux-arm64" }
+ opencode = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+ ori = { version = "latest", lazy = true, minimum_release_age = "0s" }
+ pi = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+diff --git a/etc/mise/conf.d/platform-ppc64le.toml b/etc/mise/conf.d/platform-ppc64le.toml
+new file mode 100644
+index 000000000..a9dd52f96
+--- /dev/null
++++ b/etc/mise/conf.d/platform-ppc64le.toml
+@@ -0,0 +1,36 @@
++# Omarchy on POWER (ppc64le and ppc64le-power9). Ship this file only on POWER:
++# its tool aliases change backends, which would be wrong on x86 or arm.
++#
++# It sorts after omarchy*.toml, so it is read later and wins. Settings merge per
++# key, but a key set here replaces the earlier value whole, and likewise a user
++# who sets disable_tools or aqua.registries in ~/.config/mise replaces this
++# file's list rather than adding to it. Keep every entry below in such a list.
++
++[settings]
++# The distribution packages these natively. Keep mise's copies, and their lazy
++# shims, out of PATH so the /usr/bin builds win (`mise reshim --system` after a
++# change, or old shims stay). Their aqua recipes have no ppc64le asset.
++# npm:@kilocode/cli and npm:freebuff are npm launchers for x64/arm64-only
++# binaries, replaced by the arm64 entries under [tools] below.
++disable_tools = ["gh", "crush", "npm:@kilocode/cli", "npm:freebuff"]
++
++# aqua recipes for claude, codex, copilot, antigravity-cli, ori, pi, hunk and
++# opencode with powerpc64 mapped to their linux/arm64 asset; POWERarm runs those
++# through binfmt_misc. uv's recipe there fetches astral's native ppc64le build,
++# which the stock recipe never names. Only the packages listed there are
++# overridden; every other aqua tool keeps mise's bundled recipe. (node needs no
++# entry: the distribution's mise maps POWER to nodejs.org's linux-ppc64le.)
++aqua.registries = ["file:///usr/share/omarchy/default/mise/aqua-powerpc64.yaml"]
++
++# npm tools that only launch a prebuilt x64/arm64 binary cannot run natively.
++# Their linux/arm64 builds come from upstream's own release channels instead.
++[tool_alias]
++amp = "http:amp[url=https://registry.npmjs.org/@ampcode/cli-linux-arm64/-/cli-linux-arm64-{{ version }}.tgz,version_list_url=https://registry.npmjs.org/@ampcode/cli-linux-arm64/latest,version_json_path=.version,bin_path=package]"
++ghui = "github:kitlangton/ghui[asset_pattern=ghui-linux-arm64.tar.gz]"
++opencode = "aqua:anomalyco/opencode"
++
++[tools]
++# Omarchy declares these under full npm: keys, which an alias cannot redirect,
++# so they are disabled above and declared again here.
++"github:Kilo-Org/kilocode" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["kilo"], minimum_release_age = "0s", asset_pattern = "kilo-linux-arm64.tar.gz" }
++"http:freebuff" = { version = "latest", lazy = true, auto_update = "4h", lazy_bins = ["freebuff"], minimum_release_age = "0s", url = "https://www.codebuff.com/api/releases/download/{{ version }}/freebuff-linux-arm64.tar.gz", version_list_url = "https://registry.npmjs.org/freebuff/latest", version_json_path = ".version" }
 diff --git a/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf b/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf
 index dda5da9a0..8ea7a4326 100644
 --- a/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf

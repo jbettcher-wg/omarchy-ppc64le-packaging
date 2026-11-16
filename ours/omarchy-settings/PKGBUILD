@@ -11,8 +11,10 @@
 # Changes to the shipped tree, each for a reason specific to POWER and provable
 # rather than cautious:
 #
-#   1. The ppc64le platforms' pacman templates and mkinitcpio HOOKS baseline,
-#      as patches from the ppc64le-platform branch.  4.0.4 had to delete
+#   1. The ppc64le platforms' pacman templates, mkinitcpio HOOKS baseline and
+#      mise configuration (agent CLIs with no ppc64le build fetched as their
+#      arm64 builds for POWERarm; mise's gh and crush disabled in favour of
+#      ours), as patches from the ppc64le-platform branch.  4.0.4 had to delete
 #      etc/mkinitcpio.conf.d outright; 4.5.0 guards every drop-in there by
 #      platform or by what the kernel has, so patching 00-omarchy-hooks.conf
 #      is enough and the directory now ships.  See package().
@@ -40,7 +42,7 @@ pkgname=omarchy-settings
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=4
+pkgrel=5
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers (ppc64le: no destructive /etc overrides, no mkinitcpio drop-in)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -130,8 +132,8 @@ source=("https://pkgs.omarchy.org/stable/${_upstream_arch}/${_srcpkg}"
 noextract=("${_srcpkg}")
 sha256sums=('14a4f0cae0717df80fe2c08e7a3b0ba37b3935f09b31904d94c25b6baa141a87'
             'SKIP'
-            '79a52e89628df4afe163bdb825a24d963ac0ab8158ee40b47b34541ae15d33a1'
-            '19ba84142fa243a94ce2620b42d4d213fefc3591872264363db646ef7cc9941a')
+            '28e54413689d3b2e3752ec09caf9f6d45b6ec4373a0b07cef11b00771e6ed88b'
+            '7a8a2dacc40bff8fc0e0d3fd71996738df0b8173471059cced1614747d6e967b')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -214,6 +216,14 @@ package() {
   grep -qF 'ppc64le | ppc64le-power9)' "${pkgdir}/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf" ||
     { echo "omarchy-settings: the POWER HOOKS line did not apply" >&2; return 1; }
   bash -n "${pkgdir}/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf"
+  # POWER's mise fragment, and the aqua overlay it names by absolute path.
+  # omarchy's migration 1794867648 waits for the fragment before reshimming.
+  grep -qF 'file:///usr/share/omarchy/default/mise/aqua-powerpc64.yaml' "${pkgdir}/etc/mise/conf.d/platform-ppc64le.toml" ||
+    { echo "omarchy-settings: POWER's mise fragment is missing or no longer names the overlay" >&2; return 1; }
+  [ -s "${pkgdir}/usr/share/omarchy/default/mise/aqua-powerpc64.yaml" ] ||
+    { echo "omarchy-settings: the aqua overlay for POWER is missing" >&2; return 1; }
+  grep -qF 'platforms_linux_powerpc64_' "${pkgdir}/etc/mise/conf.d/omarchy-tools.toml" ||
+    { echo "omarchy-settings: omarchy-tools.toml lost its POWER platform keys" >&2; return 1; }
   local _p
   for _p in ppc64le ppc64le-power9; do
     grep -qx 'Architecture = powerpc64le' "${pkgdir}/usr/share/omarchy/default/pacman/${_p}/pacman-stable.conf" ||
