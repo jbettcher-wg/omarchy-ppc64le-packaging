@@ -1,0 +1,120 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: Tobi Lütke <tobi@shopify.com>
+# Contributor: Douglas de Moura <douglasdemoura@users.noreply.github.com> (AUR disktree)
+#
+# disktree, a disk space treemap for Omarchy (Rust, GPUI over wgpu). The
+# version is Omarchy's stable channel (pkgs.omarchy.org/stable disktree-bin
+# 0.11.0-3); stable has no disktree package, only disktree-bin.
+#
+# Why a split package. Omarchy ships disktree-bin, which repackages the
+# prebuilt x86_64/aarch64 release tarball (github.com/omacom/omarchy-pkgs,
+# pkgbuilds/disktree-bin at 9fe60302264d), and Omarchy 4.5's migration runs
+# `omarchy-pkg-add disktree-bin`. That helper checks the result with
+# `pacman -Q disktree-bin`, which matches package names only and never
+# resolves provides, so a source-built disktree that merely provided
+# disktree-bin would install and still fail the migration. Hence:
+#  - disktree: the real build, from the v0.11.0 source tag. It does not
+#    conflict with disktree-bin; on Omarchy's own repo the two conflict
+#    because both carry the binary.
+#  - disktree-bin: a transitional package with no files that depends on the
+#    disktree of the same build, so `pacman -S disktree-bin` pulls the real
+#    one in and `pacman -Q disktree-bin` succeeds. It is arch=any because it
+#    holds nothing, and package_disktree-bin() refuses to package any file.
+#    It must not be dropped with replaces=(), or -Syu would remove it and a
+#    later run of that migration would fail again.
+#
+# ppc64le: we cannot ship the prebuilt binary, so this builds the project the
+# way its Makefile and release workflow do (cargo build --release -p
+# disktree-app), with the Arch Rust recipe conventions and the AUR disktree
+# recipe's approach. Checked for this architecture:
+#  - every crate comes from crates.io (no git sources), and the graph resolved
+#    for powerpc64le-unknown-linux-gnu has no bindgen, ring/rustls or rav1e,
+#    which only other targets pull in;
+#  - the SIMD users that remain (pathfinder_simd, exr's DCT through pulp,
+#    zune-jpeg, simd-adler32, memchr) gate their x86/aarch64 paths behind
+#    cfg(target_arch) and fall back to scalar or autovectorised code, and the
+#    gpui crates carry no target_arch code;
+#  - rust-toolchain.toml pins 1.97, the MSRV, which only rustup reads; our
+#    rust is 1.98.1 and Arch POWER's 1.99.1. RUSTUP_TOOLCHAIN=stable keeps a
+#    rustup-provided cargo from trying to download 1.97.
+# The depends are what the build links, which is more than the -bin recipe
+# lists: fontconfig and freetype2 (through zed-font-kit; freetype-sys uses
+# the system library when pkg-config finds it), libxkbcommon(-x11) and libxcb.
+# wayland, libglvnd's EGL and the Vulkan loader are opened with dlopen at run
+# time, and need a Mesa (or vendor) Vulkan or GL driver to draw.
+# options=(!lto), as in the AUR recipe: makepkg's -flto=auto would turn the C
+# that cc-rs compiles (wayland-backend's log shim) into GCC LTO bytecode
+# inside Rust's static archives. Cargo.toml's own thin LTO still applies to
+# the Rust code.
+
+pkgbase=disktree
+pkgname=(disktree disktree-bin)
+pkgver=0.11.0
+pkgrel=1
+pkgdesc="Disk space treemap for Omarchy: see what fills a disk by kind, mark what should go, and remove it"
+arch=('x86_64' 'aarch64' 'powerpc64le')
+url="https://github.com/tobi/disktree"
+license=('MIT')
+# At the top level so the build (and bq, which reads only these arrays) sees
+# them; package_disktree-bin() replaces them with its own.
+depends=('glibc' 'libgcc' 'fontconfig' 'freetype2' 'libxcb' 'libxkbcommon'
+         'libxkbcommon-x11' 'wayland' 'libglvnd' 'vulkan-icd-loader')
+makedepends=('cargo' 'pkgconf')
+options=('!lto' '!debug')
+source=("$pkgbase-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('b7a3c173dd7e95f5258eaddb146dd8503e97c171e5318baa9962eabf8ee64913')
+
+prepare() {
+  cd "$pkgbase-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$pkgbase-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p disktree-app
+}
+
+# The scanner, layout and removal tests run headless; the window-harness
+# tests need a GPU-backed Wayland/X11 session, which a build cannot provide.
+check() {
+  cd "$pkgbase-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen -p disktree-core
+}
+
+package_disktree() {
+  optdepends=('trash-cli: move to the trash with trash-put (gio or a built-in XDG trash otherwise)'
+              'git: changes, stashes and unpushed commits of a selected checkout')
+
+  cd "$pkgbase-$pkgver"
+  install -Dm755 target/release/disktree "$pkgdir/usr/bin/disktree"
+  # The desktop entry as disktree-bin writes it: Exec by name, from PATH.
+  install -dm755 "$pkgdir/usr/share/applications"
+  sed -e 's|@BINDIR@/||' -e "s|@VERSION@|$pkgver|" packaging/disktree.desktop.in \
+    > "$pkgdir/usr/share/applications/disktree.desktop"
+  chmod 644 "$pkgdir/usr/share/applications/disktree.desktop"
+  install -Dm644 assets/disktree.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/disktree.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+  # The binary loads and runs here: --help prints usage and exits before any
+  # window or GPU work, so it needs no session.
+  HOME="$srcdir" XDG_CONFIG_HOME="$srcdir/.config" \
+    "$pkgdir/usr/bin/disktree" --help >/dev/null
+}
+
+package_disktree-bin() {
+  pkgdesc="Transitional package that installs disktree, built from source"
+  arch=('any')
+  depends=("disktree=$pkgver-$pkgrel")
+
+  # It exists only for its name; it must not carry a file.
+  if [[ -n $(find "$pkgdir" -mindepth 1 -print -quit) ]]; then
+    echo "disktree-bin must be empty" >&2
+    return 1
+  fi
+}
