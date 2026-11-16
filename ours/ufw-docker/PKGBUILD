@@ -3,8 +3,10 @@
 # script (`ufw-docker`) plus a LICENSE and a post-install message.  There is no
 # build() at all, so there is nothing architecture-dependent to get wrong.
 #
-# Nothing was added to arch=().  Matches the version Omarchy publishes
-# (ufw-docker-251123-1-any).
+# Nothing was added to arch=().  Matches the version Omarchy publishes.
+# Omarchy's stable channel is at 251123-2 (omacom/omarchy-pkgs
+# pkgbuilds/ufw-docker@9fe60302264d); their -2 is a release-ring bookkeeping
+# bump with no recipe change, so pkgrel stays at 1 here.
 #
 # Runtime note for the user, not a build problem: depends=(ufw docker).  `ufw`
 # is in Arch POWER (base-any 0.36.2-7) but is NOT installed on this box, and
