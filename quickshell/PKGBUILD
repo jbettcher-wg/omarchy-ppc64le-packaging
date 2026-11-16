@@ -1,59 +1,88 @@
-# ppc64le: added powerpc64le to arch(). That was the only change needed.
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 #
-# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Omarchy's quickshell recipe (github.com/omacom/omarchy-pkgs,
+# pkgbuilds/quickshell at 7feddfd0), replacing the Arch 0.3.1 import this
+# directory held. Omarchy 4.5's shell is written against master at 2b4501a,
+# the version in Omarchy's stable channel (0.3.2.r7.g2b4501a).
+#
+# Their two additions come with it: load_qtquick_611.patch, which pins an
+# unversioned `import QtQuick` to 6.11 under the shell's
+# `//@ pragma OmarchyLoadPatch` because Qt 6.12's QtQuick Color singleton
+# shadows Omarchy's own -- inert on our Qt 6.11 set, needed once it moves --
+# and a pacman hook that re-checks compatibility after a Qt upgrade.
+#
+# ppc64le: powerpc64le added to arch=(). pkgrel restarts at 1: upstream's -2
+# through -11 are rebuilds against their own dependency updates.
 
 pkgname=quickshell
-pkgver=0.3.1
+pkgver=0.3.2.r7.g2b4501a
 pkgrel=1
 pkgdesc='Flexible toolkit for making desktop shells with QtQuick'
 arch=(x86_64 aarch64 powerpc64le)
-url="https://git.outfoxxed.me/$pkgname/$pkgname"
+url='https://github.com/quickshell-mirror/quickshell'
 license=(LGPL-3.0-only)
-depends=(cpptrace libcpptrace.so
-         glibc # libc.so libm.so
-         hicolor-icon-theme
-         jemalloc libjemalloc.so
-         libdrm # libdrm.so
-         libgcc libgcc_s.so
-         libglvnd libEGL.so libOpenGL.so
-         libpipewire libpipewire-0.3.so
-         libstdc++ libstdc++.so
-         libxcb # libxcb.so
-         mesa # libgbm.so
-         pam libpam.so
-         polkit
-         qt6-base # libQt6Core.so libQt6DBus.so libQt6Gui.so libQt6Network.so libQt6Widgets.so
-         qt6-declarative # libQt6Qml.so libQt6Quick.so
-         qt6-svg
-         qt6-wayland # libQt6WaylandClient.so
-         wayland libwayland-client.so)
-makedepends=(cli11
-             cmake
-             ninja
-             qt6-shadertools
-             spirv-tools
-             vulkan-headers
-             wayland-protocols)
-_archive="$pkgname-$pkgver"
-source=("$_archive.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('d60592622f1aa1cbb853d4814f605dfde827bc692befbfecffaccf4c90e352d8')
+depends=(
+  cpptrace
+  glibc
+  hicolor-icon-theme
+  jemalloc
+  libdrm
+  libgcc
+  libglvnd
+  libpipewire
+  libstdc++
+  libxcb
+  mesa
+  pam
+  polkit
+  qt6-base
+  qt6-declarative
+  qt6-svg
+  qt6-wayland
+  wayland
+)
+makedepends=(
+  cli11
+  cmake
+  git
+  ninja
+  qt6-shadertools
+  spirv-tools
+  vulkan-headers
+  wayland-protocols
+)
+provides=("$pkgname")
+conflicts=(quickshell-git)
+# master past v0.3.2; the upstream watch writes the tag's commit here when
+# the next release lands.
+_commit=2b4501a282689792b62e94f3fb30d8f512324fe6
+_archive="$pkgname"
+source=("$_archive::git+$url.git#commit=$_commit"
+        load_qtquick_611.patch
+        quickshell-check.hook)
+sha256sums=('SKIP'
+            '23b65d205d825f11a1cd8501acbc6e50250d09a6ce607e2ff8b3cf5d438bd0ce'
+            '8543e21aeaaa5441b73a679160e7601a957f16c433e8d6bd9257e80bd0e94083')
+
+prepare() {
+  cd "$_archive"
+  patch -Np1 --fuzz=0 -i "$srcdir/load_qtquick_611.patch"
+}
 
 build() {
-	cd "$pkgname"
-	local cmake_options=(
-		-D CMAKE_BUILD_TYPE=RelWithDebInfo
-		-D DISTRIBUTOR='Arch Linux'
-		-D DISTRIBUTOR_DEBUGINFO_AVAILABLE=Yes
-		-D CRASH_REPORTER=Off
-		-D CMAKE_INSTALL_PREFIX=/usr
-		-D INSTALL_QML_PREFIX=lib/qt6/qml
-	)
-	cmake -G Ninja -B build -W no-dev "${cmake_options[@]}"
-	cmake --build build
+  cd "$_archive"
+  cmake -G Ninja -B build -W no-dev \
+    -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+    -D DISTRIBUTOR='Omarchy' \
+    -D CRASH_REPORTER=Off \
+    -D CMAKE_INSTALL_PREFIX=/usr \
+    -D INSTALL_QML_PREFIX=lib/qt6/qml
+  cmake --build build
 }
 
 package() {
-	cd "$pkgname"
-	DESTDIR="$pkgdir" cmake --install build
-	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+  install -Dm644 quickshell-check.hook -t "$pkgdir/usr/share/libalpm/hooks"
+  cd "$_archive"
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
 }
