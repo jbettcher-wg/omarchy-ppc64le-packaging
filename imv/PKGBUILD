@@ -6,7 +6,7 @@
 
 pkgname=imv
 pkgver=5.0.1
-pkgrel=2
+pkgrel=3
 pkgdesc='Image viewer for Wayland and X11'
 url='https://sr.ht/~exec64/imv/'
 arch=(x86_64 powerpc64le)
