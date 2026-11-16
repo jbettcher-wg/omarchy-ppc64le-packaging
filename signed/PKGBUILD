@@ -1,0 +1,69 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: David Heinemeier Hansson <david@hey.com>
+#
+# Signed, Omarchy's app for signing PDFs and filling them in with text and
+# dates. Omarchy 4.5 installs it through omarchy-pkg-add. Taken from
+# upstream's own recipe (github.com/omacom/omarchy-pkgs, pkgbuilds/signed at
+# 427c1063ca66); the version is Omarchy's stable channel
+# (pkgs.omarchy.org/stable signed 0.3.1-1). A later commit at the same version
+# (f71cc5ae, "build with cmake") only added cmake to makedepends and was never
+# built into stable; omarchy-pkgs HEAD is at 0.3.2.
+#
+# ppc64le: powerpc64le added to arch=(). Plain Qt 6 C++/QML over poppler-qt6
+# and libqpdf, nothing architecture-specific. The build is upstream's
+# bin/build written out, with two changes that matter on the build box rather
+# than for the architecture, the same ones ours/omacut makes:
+#  - qmake is handed makepkg's CFLAGS/CXXFLAGS/LDFLAGS. qmake ignores them in
+#    the environment, which would drop the hardening flags and the baseline
+#    pool's -mcpu=power8.
+#  - make runs without bin/build's -j$(nproc), so bq's MAKEFLAGS apply.
+#
+# qpdf is a real dependency, not a leftover: signed.pro links libqpdf through
+# pkg-config and src/stamper.cpp writes the signed PDF with QPDFWriter. Our
+# qpdf recipe (12.3.2-2) has not been built for the baseline pool; Arch
+# POWER's base repo ships the same qpdf 12.3.2-2 for powerpc64le, and the
+# omarchy-power9 pool has its own.
+
+pkgname=signed
+pkgver=0.3.1
+pkgrel=1
+pkgdesc='Sign PDFs and fill them in with text and dates'
+arch=('x86_64' 'aarch64' 'powerpc64le')
+url='https://github.com/omacom/signed'
+license=('MIT')
+install='signed.install'
+options=('!debug')
+depends=(
+  'hicolor-icon-theme'
+  'noto-fonts'
+  'poppler-qt6'
+  'qpdf'
+  'qt6-base'
+  'qt6-declarative'
+  'qt6-wayland'
+  'xdg-desktop-portal'
+)
+makedepends=('gcc' 'make')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('e38bc1a4c9b034a361d6cfbd1e9a41e4871f93fa2ef0b4b4e36276f57b2f566f')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  mkdir -p build
+  cd build
+  qmake6 "$srcdir/$pkgname-$pkgver/signed.pro" \
+    QMAKE_CFLAGS_RELEASE="$CFLAGS" \
+    QMAKE_CXXFLAGS_RELEASE="$CXXFLAGS" \
+    QMAKE_LFLAGS_RELEASE="$LDFLAGS"
+  make
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  install -Dm755 build/signed "$pkgdir/usr/bin/signed"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 pkgbuild/signed.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/signed.svg"
+  install -Dm644 pkgbuild/signed.desktop "$pkgdir/usr/share/applications/signed.desktop"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
