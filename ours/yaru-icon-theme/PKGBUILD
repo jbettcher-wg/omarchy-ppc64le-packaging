@@ -1,11 +1,15 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 #
 # Yaru's icon theme -- the icon set Omarchy's GTK apps resolve against.
-# Another package Omarchy publishes with no PKGBUILD anywhere (it is not in the
-# AUR either: aur.archlinux.org/yaru-icon-theme.git is an empty repo), so this
-# recipe is written from scratch against upstream, github.com/ubuntu/yaru.
+# Written from scratch against upstream, github.com/ubuntu/yaru, when Omarchy
+# published no PKGBUILD for it (it is not in the AUR either:
+# aur.archlinux.org/yaru-icon-theme.git is an empty repo).  Version follows
+# Omarchy's own recipe, omacom/omarchy-pkgs pkgbuilds/yaru-icon-theme@
+# 9fe60302264d (pkgbase yaru, 26.10.3-3, what their stable channel ships),
+# which builds every component and splits it nine ways; this recipe builds
+# and ships only the icons (see below).
 #
-# arch=(any), and there is no port here.  The payload is 17335 PNGs, 5050 SVGs,
+# arch=(any), and there is no port here.  The payload is 17335 PNGs, 5062 SVGs,
 # 140 .cur cursors and 20 icon themes; the "build" is meson colourising
 # SVGs, generating index.theme files and copying, with no compiler invoked at
 # any point.  Nothing was added to arch=() -- this was a repackage, not a port.
@@ -28,7 +32,11 @@
 #
 # The result is upstream's default accent-colors list untouched: 20 themes,
 # Yaru and Yaru-dark plus the nine accent colours in light and dark, which is
-# the same set Omarchy's package contains.
+# the same set Omarchy's package contains (checked against
+# yaru-icon-theme-26.10.3-3-any.pkg.tar.zst, whose sha256 matches the stable
+# db).  Every -D option build() passes still exists in 26.10.3's
+# meson_options.txt; meson rejects an unknown one, so a removal would fail
+# loudly rather than widen the package.
 #
 # Bitmap rendering does NOT need inkscape.  icons/meson.build declares it
 # `required: false` and only warns; the rendered PNGs are checked into the
@@ -37,7 +45,7 @@
 # 1.4.3-7) if a future version changes that, but it is not a dependency today.
 
 pkgname=yaru-icon-theme
-pkgver=26.04.5.1ubuntu
+pkgver=26.10.3
 pkgrel=1
 pkgdesc='Yaru default ubuntu icon theme'
 arch=(any)
@@ -46,7 +54,7 @@ license=('GPL-3.0-only' 'CC-BY-SA-4.0')
 depends=(hicolor-icon-theme gtk-update-icon-cache librsvg)
 makedepends=(meson ninja sassc python)
 source=("yaru-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
-sha256sums=('4e35b71d37aedb44302c811f63d325f4abd7699961f76f130323b361d4c6a7d7')
+sha256sums=('ac396932559dd1b515ee4d94d470093dfac407027d9609e756299df9e06c3f7b')
 
 # The 20 themes Omarchy's package contains, and the assertion that we produced
 # the same set.  A silent change to upstream's default accent-colors list would
