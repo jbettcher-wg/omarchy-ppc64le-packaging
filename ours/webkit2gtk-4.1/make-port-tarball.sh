@@ -30,7 +30,7 @@ SRC="$HERE/ppc64le-port"
 [ -d "$SRC" ] || { echo "no such directory: $SRC" >&2; exit 1; }
 
 # Consumers. Add a recipe here when it starts staging the port.
-CONSUMERS=(webkit2gtk webkitgtk-6.0)
+CONSUMERS=(webkit2gtk-4.1 webkitgtk-6.0)
 
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT

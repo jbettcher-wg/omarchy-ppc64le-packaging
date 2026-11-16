@@ -4,8 +4,9 @@
 # webkitgtk-6.0 -- the GTK4 / libsoup3 API build of WebKitGTK, with the ppc64le
 # JavaScriptCore JIT port staged in prepare().
 #
-# DERIVED FROM ours/webkit2gtk, NOT from the webkitgtk-6.0 recipe in this tree,
-# and that is deliberate. Both are the same upstream tarball and the same
+# DERIVED FROM ours/webkit2gtk-4.1, NOT from Arch's webkitgtk-6.0 recipe (whose
+# stale 2.52.5 import sat at the top of this tree until it was retired), and
+# that is deliberate. Both are the same upstream tarball and the same
 # PORT=GTK; the only real difference is USE_GTK4 and the package names. Our 4.1
 # recipe is the one that has been proven to build 2.54.1 on ppc64le, so 6.0 is
 # generated from it and the two are kept textually close enough to diff.
@@ -156,7 +157,7 @@ makedepends=(
 source=(
   $url/releases/webkitgtk-$pkgver.tar.xz{,.asc}
   # The ppc64le JIT port, as a checksummed input rather than an ambient
-  # directory. Regenerate with ours/webkit2gtk/make-port-tarball.sh, which
+  # directory. Regenerate with ours/webkit2gtk-4.1/make-port-tarball.sh, which
   # writes an identical copy beside every recipe that stages the port -- so
   # the sha256 below must be the same in all of them. A difference means
   # somebody packed a different port.

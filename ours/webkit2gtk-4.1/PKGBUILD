@@ -158,7 +158,7 @@ makedepends=(
 source=(
   $url/releases/webkitgtk-$pkgver.tar.xz{,.asc}
   # The ppc64le JIT port, as a checksummed input rather than an ambient
-  # directory. Regenerate with ours/webkit2gtk/make-port-tarball.sh, which
+  # directory. Regenerate with ours/webkit2gtk-4.1/make-port-tarball.sh, which
   # writes an identical copy beside every recipe that stages the port -- so
   # the sha256 below must be the same in all of them. A difference means
   # somebody packed a different port.
