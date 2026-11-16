@@ -20,7 +20,9 @@
 #     an undefined, nameless symbol. They all resolve to address 0, so GNU ld
 #     fails the final link with ".eh_frame_hdr refers to overlapping FDEs".
 #     Linked alone, that one object reproduces it; the archive's other 11
-#     link clean. The real bug is zig's.
+#     link clean. That is our zig 0.16.0-2 (upstream source + our ELFv2
+#     C-ABI patch, built against Arch POWER's llvm21); whether upstream zig
+#     has the same fault has not been tested yet.
 #   * Without compiler_rt, ubsan_rt is left needing __extendxftf2 (an x87
 #     long-double conversion libgcc on ppc64le cannot have). Nothing calls
 #     ubsan_rt: libghostty-vt builds ReleaseFast, and no object in the
