@@ -2,9 +2,22 @@
 # Maintainer: Antonio Rojas <arojas@archlinux.org>
 # Contributor: Stefan Tatschner <stefan@rumpelsepp.org>
 # Contributor: katt <magunasu.b97@gmail.com>
+#
+# Arch's source build (archlinux/packaging/packages/yt-dlp at e057c001,
+# 2026.10.26-1), via Arch POWER, at the version Omarchy's stable channel
+# ships.  Omarchy's own recipe (omacom/omarchy-pkgs pkgbuilds/yt-dlp at
+# a1734f98a962) is a different shape: it installs upstream's prebuilt zipapp,
+# which bundles yt-dlp-ejs, with depends=(python nodejs) and an
+# /etc/yt-dlp.conf of `--js-runtimes node`.  This recipe keeps building the
+# wheel from the release sdist.
+#
+# One deliberate difference from Arch: no yt-dlp-ejs in depends.  Arch's
+# yt-dlp-ejs depends on deno, and neither exists for powerpc64le here, so
+# depending on it would make the package uninstallable.  Without it YouTube's
+# JS challenges are not solved, which is no change from 2026.07.04.
 
 pkgname=yt-dlp
-pkgver=2026.07.04
+pkgver=2026.10.26
 pkgrel=1
 pkgdesc='A youtube-dl fork with additional features and fixes'
 arch=(any)
@@ -22,6 +35,7 @@ optdepends=('ffmpeg: for video post-processing'
             'rtmpdump: for rtmp streams support'
             'atomicparsley: for embedding thumbnails into m4a files'
             'aria2: for using aria2 as external downloader'
+            'python-curl_cffi: support for impersonating browser requests'
             'python-mutagen: for embedding thumbnail in certain formats'
             'python-pycryptodome: for decrypting AES-128 HLS streams and various other data'
             'python-pycryptodomex: for decrypting AES-128 HLS streams and various other data'
@@ -30,10 +44,9 @@ optdepends=('ffmpeg: for video post-processing'
             'python-brotlicffi: brotli content encoding support'
             'python-xattr: for writing xattr metadata'
             'python-pyxattr: for writing xattr metadata (alternative option)'
-            'phantomjs: for extractors with javascript code'
             'python-secretstorage: For -cookies-from-browser to access the GNOME keyring while decrypting cookies of Chromium-based browsers')
 source=($pkgname-$pkgver.tar.gz::https://github.com/yt-dlp/yt-dlp/releases/download/$pkgver/yt-dlp.tar.gz)
-sha256sums=('31c32457d1a573a341bb0929386c624fe47339a5338829e6e9c9454bdfa7397a')
+sha256sums=('21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95')
 
 build() {
   cd $pkgname
