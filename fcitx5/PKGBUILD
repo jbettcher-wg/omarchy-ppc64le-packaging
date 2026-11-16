@@ -1,24 +1,23 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 # Contributor: csslayer <wengxt AT gmail com>
 
 pkgname=fcitx5
-pkgver=5.1.21
+pkgver=5.1.23
 _dictver=20121020
 pkgrel=1
 pkgdesc="Next generation of fcitx, cross-platform input method framework"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=('x86_64' 'powerpc64le')
 url="https://github.com/fcitx/fcitx5"
-license=('LGPL-2.1-or-later AND Unicode-DFS-2016')
+license=('LGPL-2.1-or-later' 'Unicode-DFS-2016')
 conflicts=('fcitx')
 groups=('fcitx5-im')
 depends=('cairo' 'enchant' 'iso-codes' 'libgl' 'libxkbcommon-x11' 'pango' 'systemd' 'wayland'
-         'xcb-imdkit' 'xcb-util-wm' 'libxkbfile' 'gdk-pixbuf2' 'yoga')
+         'xcb-imdkit' 'xcb-util-wm' 'libxkbfile' 'gdk-pixbuf2' 'librsvg' 'yoga')
 makedepends=('git' 'extra-cmake-modules' 'ninja' 'nlohmann-json' 'plasma-wayland-protocols' 'wayland-protocols')
 source=("git+https://github.com/fcitx/fcitx5.git#tag=$pkgver?signed"
         "https://download.fcitx-im.org/data/en_dict-$_dictver.tar.gz")
 noextract=("en_dict-$_dictver.tar.gz")
-sha512sums=('7c692ce6bfc7c6cc27ebc6040e8a2ee8be496cce99575e64b6e1ba3b9eb066dfa4288032568d54b8c8f4b26219b39295ef2b49c0579e20d088b9c875bf801b80'
+sha512sums=('d9a2ae7820170accec9dd64ab79067dafe6ba7ce96b4381f5b64955dd234a3ed440ae74aac2130174337a69f3dfa85738fb846e06e3adaeb19cda6b2b69e203f'
             '8418bd02492bfd786c0fab93be4400ef027ec8e9fac02220cc1f653f5eb67f54573a6a84a15baba19bb34ab892745c87df16499d6304ea75009131e2ab3b97f2')
 validpgpkeys=('2CC8A0609AD2A479C65B6D5C8E8B898CBF2412F9') # Weng Xuetian <wengxt@gmail.com>
 
