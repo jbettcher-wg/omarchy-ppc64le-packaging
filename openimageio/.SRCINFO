@@ -1,7 +1,7 @@
 pkgbase = openimageio
 	pkgdesc = A library for reading and writing images, including classes, utilities, and applications
 	pkgver = 3.1.11.0
-	pkgrel = 3
+	pkgrel = 6
 	url = http://www.openimageio.org/
 	arch = x86_64
 	arch = powerpc64le
@@ -30,6 +30,7 @@ pkgbase = openimageio
 	depends = libwebp
 	depends = pugixml
 	depends = libheif
+	depends = libjxl
 	depends = freetype2
 	depends = libstdc++
 	depends = glibc
