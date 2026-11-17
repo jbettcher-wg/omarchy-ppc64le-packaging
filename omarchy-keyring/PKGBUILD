@@ -1,0 +1,41 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Omarchy's signing keyring: omarchy.gpg, omarchy-trusted and omarchy-revoked
+# under usr/share/pacman/keyrings, populated by its install scriptlet. 4.5's
+# `omarchy update` runs omarchy-update-keyring, which installs and refreshes
+# omarchy-keyring on every platform and stopped POWER's update at "target not
+# found: omarchy-keyring". It is keys only, so it exists here as it does on
+# x86 and ARM; nothing in our repos is signed with it yet, but it is the key
+# Omarchy proper will sign with once POWER is integrated.
+#
+# Repackaged from Omarchy's stable-channel artifact, as omarchy-themes-intros
+# is. The sha256 is %SHA256SUM% from
+# https://pkgs.omarchy.org/stable/x86_64/omarchy.db for
+# omarchy-keyring-20251027-1-any, so this is pinned to what upstream shipped.
+# omarchy-keyring.install is that package's .INSTALL, unchanged. package()
+# fails on anything but the three keyring files.
+
+pkgname=omarchy-keyring
+pkgver=20251027
+pkgrel=1
+pkgdesc='Omarchy keyring'
+arch=(any)
+url='https://omarchy.org'
+license=(GPL-3.0-or-later)
+install=omarchy-keyring.install
+_srcpkg="${pkgname}-${pkgver}-1-any.pkg.tar.zst"
+source=("https://pkgs.omarchy.org/stable/x86_64/${_srcpkg}")
+noextract=("${_srcpkg}")
+sha256sums=('f4bc258879f493462736f9a072c4f4c7f753eb559f6b346f5bdf8ed816f75f66')
+
+package() {
+  bsdtar -xf "${srcdir}/${_srcpkg}" -C "${pkgdir}" --no-same-owner \
+    --exclude .PKGINFO --exclude .BUILDINFO --exclude .MTREE --exclude .INSTALL
+
+  local files
+  files=$(cd "${pkgdir}" && find . -type f | sort | tr '\n' ' ')
+  if [[ $files != "./usr/share/pacman/keyrings/omarchy-revoked ./usr/share/pacman/keyrings/omarchy-trusted ./usr/share/pacman/keyrings/omarchy.gpg " ]]; then
+    printf 'omarchy-keyring: expected the three keyring files, found: %s\n' "$files" >&2
+    return 1
+  fi
+}
