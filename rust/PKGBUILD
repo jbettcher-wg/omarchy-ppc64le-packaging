@@ -7,6 +7,9 @@
 # ppc64le: Omarchy ppc64le -- see README.md.  Arch POWER's recipe, narrowed to
 # little-endian POWER9: the big-endian ELFv2 hotfix and the powerpc/espresso
 # branches are gone, and the shipped compiler is built -C target-cpu=pwr9.
+# rustc-dev (1.99.1) is split out as Arch does (their bbcb9b5 + 44ca714):
+# chromium 157's crubit links rustc's own crates, so it needs the compiler
+# libraries that a plain install leaves out.
 
 # LTO passes may not produce any output for quite some time
 # especially on slower systems
@@ -17,9 +20,10 @@ pkgname=(
   rust
   rust-src
   rust-wasm
+  rustc-dev
 )
 epoch=1
-pkgver=1.98.1
+pkgver=1.99.1
 pkgrel=1
 pkgdesc="Systems programming language focused on safety, speed and concurrency"
 url=https://www.rust-lang.org/
@@ -73,25 +77,28 @@ source=(
   # Use our *-pc-linux-gnu targets, making LTO with clang simpler
   0004-compiler-Change-LLVM-targets.patch
 
-  # Use our aarch64-linux-gnu-gcc
-  0005-compiler-Use-aarch64-linux-gnu-gcc-to-link-aarch64-t.patch
+  # Use our target-specific GCC linkers (aarch64-linux-gnu-gcc etc.); only
+  # matters when cross-compiling to those targets
+  0006-compiler-Use-target-specific-GCC-linkers.patch
 
   # Prefer "lib" over "lib64"
-  0006-compiler-Swap-primary-and-secondary-lib-dirs.patch
+  0008-compiler-Swap-primary-and-secondary-lib-dirs.patch
 
-  # Arch POWER also carries hotfix-abi.powerpc64.elfv2.patch, which flips the
-  # big-endian powerpc64 target from ELFv1 to ELFv2. That is their BE target's
-  # problem; powerpc64le is ELFv2 in upstream rustc already, and the patch does
-  # not apply to 1.98.1 anyway. Dropped.
+  # The patch files are Arch's 1.99.1 set, unchanged (the b2sums match theirs).
+  # Not taken: Arch's 0005 makes ld.lld the default linker flavor for every
+  # target, ppc64le included, and this recipe links with gcc (lld = false
+  # below); 0007 is riscv64-musl only. Arch POWER's hotfix-abi.powerpc64.elfv2
+  # stays dropped: powerpc64le is ELFv2 upstream, it only ever fixed the
+  # big-endian target.
 )
-b2sums=('a055c8341556f29a6e2ca5137ca7943365d61d3b7dc30b182c5c62907659d16ad0caf8c5e884ce2bcf79a01844e19563c9c208fecbebe0c38f8ae6473f60e0eb'
+b2sums=('b200e9114673449d5a3d227289e308f1a55450b3e887f7322324f2d9098407e03308eabc15084f90d3798f7af4a8c395da4a7973a23858af05a1f3b1de949cca'
         'SKIP'
-        '48d81e3cfb2009426ca5ee22f2e17a0fb5b253507892fe77489d080ee78d8094dc959f35def651f8518669f85a024986d821e4666afc31bf78ce320bf2aa7c57'
-        '45946e9789dd75f7c61e3c99ffc6c20dce8c6a86c2abed807969f46c3f463a5c9801156ca4aab8c88748e51ba7d451c934aaf093707b29367de3bf5fa2579a46'
-        '73498b1a504e4f7f4a3e3ba9f79b02b475e2cbc6e5ba65f633add3dc1aca2a2097094ca0e6a933614f461285ef8a82d360f4b3b199a178e4f85d85a705df27c7'
-        'edb55e641b6b8ef70e8a696cc13ca5907c3c0cb48982b515034f4a0fd66520215cd5447bc16d61ac81b5fcc92b752b3195acaa171ed1cf63f2accf51ed12ec50'
-        '40e14ccc8b5dfff5d87f43a8763d1d2a49435c7a76633a920648a43dd25df0ab056107722ccdc574d9d603322699c6f3990878e19ab25d5e0117689d8f6b99b8'
-        '3db6d42bb77db44fc220084314b015280507d4afe81990baefdb6c9303d7b9e102497042c67969105b7d1d6206e947f29ec44788299ee8b7e39562be610091aa')
+        '3736aa3f6f891cb94dbe549d5b2c74bc56e9d484a1598c2a446fbfd4db10a90a34f2e371c65743cf01e1266470fd6fe2fc52cbc365564c62ba61e20ea11c8e22'
+        'eb57683802be1114452d0864bdabd1f2a42f83c0c45532ff968c693cb98dd5cf61342880bd75e731e91fde318b0f61cc30183374348a56db883ba32c900a4949'
+        'd39a31a9260ba1e60e34f2481a4ef19ce18178736539450e57df19b9a3364a35f23b9055eecb36175de0e01a154b04f86c2645cffc7d637aab8b38dbf2eb0832'
+        '8a5238d5807673d498ca330b8d1d7c3c14d12be1bd0dec361613b09fd04527060a7f661acd9205f6a03586e2ea4a650c890d2549eed2e207fc03cce3bdb1cf03'
+        '859806770bed41dca2c48e7ac01f0fe31b9c4811e76eab173a9cac254a8cdfda0c85ae4a01dd7238fa0018d06721bf3bda5d74348e5c296a19ec534c1b8763c9'
+        'd5fcda00c46e1e1ea9ed1d269d3ef549d4ad96148d7d0744acd673de802b3bf3747ceec1fa506d3e7c128cdff742410b1e69218d59ef20a5f246755c1bd02694')
 validpgpkeys=(
   108F66205EAEB0AAA8DD5E1C85AB96E6FA1BE5FE  # Rust Language (Tag and Release Signing Key) <rust-key@rust-lang.org>
 )
@@ -157,6 +164,7 @@ tools = [
   "rust-analyzer-proc-macro-srv",
   "analysis",
   "src",
+  "rustc-dev",
 ]
 sanitizers = true
 profiler = true
@@ -313,7 +321,37 @@ build() {
     rmdir -p --ignore-fail-on-non-empty "$d"
   done
 
-  _pick dest-src  usr/lib/rustlib/src
+  # rustc-dev, as Arch splits it (bbcb9b5 + 44ca714). The host lib dir holds
+  # std, as rlib+rmeta pairs plus libstd's .so (27 pairs at 1.98.1), and with
+  # the rustc-dev tool also the compiler's own crates, which come unpaired. A
+  # .so with an rlib beside it or a copy in usr/lib (librustc_driver, which
+  # rustc itself loads) stays in rust, linked from usr/lib; any other .so, and
+  # any rlib or rmeta without its pair, is the compiler's and goes to
+  # rustc-dev.
+  local host_tuple=$CHOST
+  for f in usr/lib/rustlib/$host_tuple/lib/*.so; do
+    if [[ -e usr/lib/${f##*/} || -e ${f%.so}.rlib ]]; then
+      ln -srvft usr/lib "$f"
+    else
+      _pick dest-dev "$f"
+    fi
+  done
+  for f in usr/lib/rustlib/$host_tuple/lib/*.rlib; do
+    if [[ ! -e ${f%.rlib}.rmeta ]]; then
+      _pick dest-dev "$f"
+    fi
+  done
+  for f in usr/lib/rustlib/$host_tuple/lib/*.rmeta; do
+    if [[ ! -e ${f%.rmeta}.rlib ]]; then
+      _pick dest-dev "$f"
+    fi
+  done
+  # crubit's cc_bindings_from_rs links the compiler's crates (rustc_middle
+  # and the rest); fail here rather than ship a rustc-dev without them.
+  compgen -G "$srcdir/dest-dev/usr/lib/rustlib/$host_tuple/lib/librustc_middle-*" >/dev/null ||
+    { echo "rust: rustc-dev has no compiler crates (librustc_middle)" >&2; return 1; }
+
+  _pick dest-src  usr/lib/rustlib/{src,rustc-src}
   _pick dest-wasm usr/lib/rustlib/wasm32{,v1}-*
 }
 
@@ -353,6 +391,28 @@ package_rust-wasm() {
 
   install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 \
     rustc-$pkgver-src/{COPYRIGHT,LICENSE-MIT}
+}
+
+package_rustc-dev() {
+  pkgdesc="Compiler libraries for Rust"
+  depends=(
+    glibc
+    libgcc
+    rust
+  )
+
+  cp -a dest-dev/* "$pkgdir"
+
+  install -Dt "$pkgdir/usr/share/licenses/$pkgname" -m644 \
+    rustc-$pkgver-src/{COPYRIGHT,LICENSE-MIT}
+
+  # Link whatever shared objects rustc-dev carries into usr/lib, as Arch does;
+  # there may be none, which is not an error.
+  cd "$pkgdir"
+  local _so=(usr/lib/rustlib/*/lib/*.so)
+  if [[ -e ${_so[0]} ]]; then
+    ln -srvft usr/lib "${_so[@]}"
+  fi
 }
 
 package_rust-src() {
