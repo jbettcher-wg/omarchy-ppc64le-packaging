@@ -9,7 +9,7 @@ pkgname=(
   at-spi2-core-docs
 )
 pkgver=2.60.5
-pkgrel=1
+pkgrel=1.1
 pkgdesc="Protocol definitions and daemon for D-Bus at-spi"
 url="https://gitlab.gnome.org/GNOME/at-spi2-core"
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
@@ -23,6 +23,8 @@ depends=(
   libgcc
   libx11
   libxi
+  libxres  # ppc64le: libatspi links libXRes when the build finds it, and bq's
+           # sysroot has it; without this, every GTK3 process fails to load
   libxtst
   systemd-libs
   xorg-xprop
