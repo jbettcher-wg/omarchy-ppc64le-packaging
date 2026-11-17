@@ -49,7 +49,7 @@ pkgname=omarchy
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=6
+pkgrel=7
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -139,7 +139,7 @@ noextract=("${_srcpkg}")
 sha256sums=('bfe75d086c8b5c919280372afdd72e8cc7b0f66745f052d826b5a588fdad33eb'
             '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
             '4dbcc6e5b77bd530d5493bc7523ef346a8c4d3653c5e2c93581bae43afbc2a8b'
-            '1eca141da0b4706b85dcc65a30aab639a2e7754323016d88093ec3e6ad6daa8e'
+            '0779d35dd682ab88c4cadf79f067e5432ab08d2334aa0d374376498757d7e835'
             'd0f72b65540a9130fb7f0f06c6a35e81f3efc7016760788032962449b809ac37')
 
 _unpack() {
@@ -249,11 +249,11 @@ package() {
   # it the x86 package set, and the pacman helpers have no template for it.
   patch -p1 -d "${pkgdir}/usr" < "${srcdir}/0002-ppc64le-platform-bin.patch"
   patch -p1 -d "${pkgdir}/usr/share/omarchy" < "${srcdir}/0003-ppc64le-platform-install.patch"
-  # The two family predicates are new files. patch(1) honours the git mode
-  # line, but say it rather than rely on it, and give them the absolute
-  # usr/share/omarchy/bin symlink every other command has.
+  # The two family predicates and the POWERarm guest check are new files.
+  # patch(1) honours the git mode line, but say it rather than rely on it, and
+  # give them the absolute usr/share/omarchy/bin symlink every other command has.
   local _hw
-  for _hw in omarchy-hw-ppc64le omarchy-hw-ppc64le-power9; do
+  for _hw in omarchy-hw-ppc64le omarchy-hw-ppc64le-power9 omarchy-hw-powerarm-guest; do
     chmod 755 "${pkgdir}/usr/bin/${_hw}"
     ln -sf "/usr/bin/${_hw}" "${pkgdir}/usr/share/omarchy/bin/${_hw}"
   done
@@ -268,6 +268,10 @@ package() {
   # that shadow /usr/bin.
   [ -f "${pkgdir}/usr/share/omarchy/migrations/1794867648.sh" ] ||
     { echo "omarchy: the POWER mise migration is missing" >&2; return 1; }
+  # A terminal in an arm64 app is an AArch64 guest under POWERarm with its own
+  # pacman database; migrations run there check the guest's packages instead.
+  grep -qx 'if omarchy-hw-powerarm-guest; then' "${pkgdir}/usr/bin/omarchy-migrate" ||
+    { echo "omarchy: omarchy-migrate does not refuse a POWERarm guest" >&2; return 1; }
   # Migrations install packages through omarchy-pkg-add, and omarchy-migrate
   # stops at the first that fails; on POWER it must skip what the platform
   # lists as unavailable (fcitx5-mozc) rather than stop every later migration.
@@ -276,7 +280,8 @@ package() {
   local _f
   for _f in usr/bin/omarchy-hw-platform usr/bin/omarchy-hw-ppc64le \
             usr/bin/omarchy-hw-ppc64le-power9 usr/bin/omarchy-pkg-defaults \
-            usr/bin/omarchy-default-agent \
+            usr/bin/omarchy-default-agent usr/bin/omarchy-migrate \
+            usr/bin/omarchy-hw-powerarm-guest \
             usr/share/omarchy/install/helpers/pacman.sh \
             usr/share/omarchy/install/helpers/image-target.sh \
             usr/share/omarchy/migrations/1794867648.sh; do

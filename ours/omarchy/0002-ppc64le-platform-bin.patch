@@ -5,11 +5,18 @@ omarchy-hw-platform names ppc64le (POWER8-legal baseline) and ppc64le-power9
 of falling through to x86. omarchy-hw-ppc64le and omarchy-hw-ppc64le-power9
 are the family predicates. omarchy-pkg-defaults composes base + ppc64le
 (+ ppc64le-power9) and skips the x86_64-only and ppc64le-unavailable lists.
+omarchy-hw-powerarm-guest detects a shell running as an AArch64 guest under
+POWERarm, and omarchy-migrate refuses to run there, since the guest's pacman
+database is not this system's.
 
 Generated from the ppc64le-platform branch (v4.5.0 + 380bd7170 "Add the
 ppc64le platform", 296d4d7ee "Refuse an unsupported CPU instead of calling
 it x86", 9d077ad8d "Skip a platform's unavailable packages in
-omarchy-pkg-add" and a6cc8fc83 "Install base's disktree-bin on POWER") with:
+omarchy-pkg-add", a6cc8fc83 "Install base's disktree-bin on POWER",
+8f89ed9d4 "Install POWERarm on every POWER platform", 53bfb9e91 "Run agent
+CLIs with no POWER build as their arm64 builds", 5187c8230 "Install
+sleeve on POWER" and bb2372aca "Refuse to run migrations inside a POWERarm
+guest") with:
 
     git diff v4.5.0..ppc64le-platform -- bin/
 
@@ -118,6 +125,34 @@ index d912986b1..f8a02cfff 100755
 +    esac
      ;;
  esac
+diff --git a/bin/omarchy-hw-powerarm-guest b/bin/omarchy-hw-powerarm-guest
+new file mode 100755
+index 000000000..69e4b6097
+--- /dev/null
++++ b/bin/omarchy-hw-powerarm-guest
+@@ -0,0 +1,22 @@
++#!/bin/bash
++
++# omarchy:summary=Detect whether this shell runs as an AArch64 guest under POWERarm on a POWER machine.
++
++# POWERarm runs AArch64 binaries on ppc64le through binfmt_misc, against its own
++# AArch64 root filesystem. A shell started there (an arm64 editor's terminal, say)
++# sees uname -m report aarch64 and a pacman whose database is the guest's, not
++# this system's. The emulator is mapped into every process it runs, this one
++# included, so look for it there rather than guess from the architecture. After
++# a powerarm upgrade binfmt_misc can still pin the previous emulator, which then
++# reads "(deleted)". OMARCHY_PROC_ROOT points the check at a fixture proc tree.
++
++maps="${OMARCHY_PROC_ROOT:-/proc}/self/maps"
++status=1
++
++while read -r _ _ _ _ _ path; do
++  if [[ $path =~ /POWERarm( \(deleted\))?$ ]]; then
++    status=0
++  fi
++done <"$maps"
++
++exit "$status"
 diff --git a/bin/omarchy-hw-ppc64le b/bin/omarchy-hw-ppc64le
 new file mode 100755
 index 000000000..fef4850f2
@@ -152,6 +187,27 @@ index 000000000..eb9dd2ea0
 +[[ $dir != "${BASH_SOURCE[0]}" ]] || dir=.
 +platform=$("$dir/omarchy-hw-platform") || exit 1
 +[[ $platform == "ppc64le-power9" ]]
+diff --git a/bin/omarchy-migrate b/bin/omarchy-migrate
+index e64aae32d..9741c0148 100755
+--- a/bin/omarchy-migrate
++++ b/bin/omarchy-migrate
+@@ -65,6 +65,16 @@ if [[ $mode == "pending" ]]; then
+   fi
+ fi
+ 
++# Migrations query and install packages through pacman. A shell running under
++# POWERarm is an AArch64 guest with its own root filesystem and pacman database,
++# so every migration there would check the guest instead of this system and stop
++# at the first package the guest lacks.
++if omarchy-hw-powerarm-guest; then
++  echo "This shell runs under POWERarm, as an AArch64 guest with its own pacman database." >&2
++  echo "Run omarchy-migrate from a native terminal instead." >&2
++  exit 1
++fi
++
+ wait_for_pacman_transaction() {
+   local lock_file=/var/lib/pacman/db.lck
+ 
 diff --git a/bin/omarchy-pkg-add b/bin/omarchy-pkg-add
 index 1f5e40913..864902e5d 100755
 --- a/bin/omarchy-pkg-add
