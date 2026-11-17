@@ -49,20 +49,17 @@ pkgname=omarchy
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=7
+pkgrel=8
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
 license=(MIT)
 makedepends=(file)
 
-# Upstream's depends, minus five entries:
+# Upstream's depends, minus four entries. (omarchy-keyring was a fifth until
+# 4.5.0-8: 4.5's `omarchy update` installs and refreshes it on every platform,
+# so it is packaged here now and depended on as upstream does.)
 #
-#   omarchy-keyring          Verifies package signatures from pkgs.omarchy.org.
-#                            That repo has no ppc64le tree and is not in this
-#                            machine's pacman.conf, so the keyring is never
-#                            consulted.  Requiring it would only be a package
-#                            that must be built to sit unused.
 #   limine                   x86/aarch64 bootloader.  POWER9 boots via
 #   limine-mkinitcpio-hook   OPAL/petitboot.  Wrong component, not a missing
 #   limine-snapper-sync      port.
@@ -77,6 +74,7 @@ makedepends=(file)
 # dependency closure genuinely resolves on ppc64le.
 depends=(
   "omarchy-settings=${pkgver}"
+  omarchy-keyring
   # New in 4.5.0: the theme intro videos ship separately, the network speed
   # test runs its own client, and omarchy-update needs the sudo-grant library
   # that omarchy-settings now provides.
