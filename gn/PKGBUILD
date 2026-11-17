@@ -34,7 +34,10 @@ build() {
   # GCC-only warnings (-Werror=format-security without -Wformat, -Wcomment).
   export CC=clang CXX=clang++ AR=ar
   ./build/gen.py
-  ninja -C out
+  # Name the targets: since ~0.2560 the default includes check_all, whose
+  # check_formatter runs tools/run_formatter.sh, which fetches clang-format
+  # through cipd and fails with "cipd: command not found" in a package build.
+  ninja -C out gn gn_unittests
 }
 
 check() {
