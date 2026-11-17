@@ -21,7 +21,7 @@
 pkgbase=ghostty
 pkgname=(ghostty ghostty-shell-integration ghostty-terminfo ghostty-nautilus)
 pkgver=1.3.1
-pkgrel=3
+pkgrel=3.1
 pkgdesc='Fast, native, feature-rich terminal emulator pushing modern features'
 arch=(x86_64 aarch64 i686 powerpc64le)
 url="https://github.com/ghostty-org/$pkgbase"
@@ -97,6 +97,29 @@ prepare() {
 			return 1
 		}
 	done < build.zig.zon.txt
+
+	# Baseline pool only: _power8_compat comes from tools/makepkg.conf.d/
+	# 00-power8.conf. -Dcpu=baseline keeps ghostty's own code POWER8, but its
+	# vendored highway still compiles POWER9 and POWER10 kernels beside the
+	# POWER8 one (1.3.1-3's libghostty-vt exports ghostty::N_PPC9:: and
+	# N_PPC10:: IndexOf, DecodeUTF8, CodepointWidth). That is the layout that
+	# left POWER9 code on an ordinary call path in libjxl 0.12.0-1, which
+	# SIGILLed as a POWER8. The drop-in answers it lane-wide with
+	# -DHWY_COMPILE_ONLY_STATIC, but zig never reads CFLAGS, so put the define
+	# in the two flag lists that compile highway code: highway itself, and
+	# ghostty's src/simd C++ (x86_64 has its own list there; this edits the
+	# other arm). build() checks the result.
+	if (( ${_power8_compat:-0} )); then
+		sed -i 's|^\(\s*\)"-fmerge-all-constants",$|&\n\1"-DHWY_COMPILE_ONLY_STATIC",|' \
+			pkg/highway/build.zig
+		sed -i 's|} else &.{},$|} else \&.{"-DHWY_COMPILE_ONLY_STATIC"},|' \
+			src/build/SharedDeps.zig
+		grep -q '^\s*"-DHWY_COMPILE_ONLY_STATIC",$' pkg/highway/build.zig &&
+		grep -q '} else &.{"-DHWY_COMPILE_ONLY_STATIC"},$' src/build/SharedDeps.zig || {
+			echo "ghostty: HWY_COMPILE_ONLY_STATIC did not apply; upstream moved" >&2
+			return 1
+		}
+	fi
 }
 
 build() {
@@ -133,6 +156,23 @@ build() {
 		"${_docs[@]}" \
 		-Dversion-string="$pkgver-arch$pkgrel" \
 		--build-id=sha1
+
+	# Here, not in check(): bq builds with --nocheck. libghostty-vt exports its
+	# per-target SIMD entry points, so a POWER9 or POWER10 namespace in its
+	# dynamic symbols means highway still compiled those targets.
+	if (( ${_power8_compat:-0} )); then
+		local _vt
+		_vt=$(find build/usr/lib -name 'libghostty-vt.so.*' -type f | head -1)
+		[[ -n $_vt ]] || { echo "ghostty: no libghostty-vt to check" >&2; return 1; }
+		grep -a -q 'N_PPC8' "$_vt" || {
+			echo "ghostty: no N_PPC8 symbols in $_vt; the check below proves nothing" >&2
+			return 1
+		}
+		if grep -a -q -E 'N_PPC(9|10)' "$_vt"; then
+			echo "ghostty: $_vt still has POWER9/POWER10 highway targets" >&2
+			return 1
+		fi
+	fi
 }
 
 package_ghostty() {
