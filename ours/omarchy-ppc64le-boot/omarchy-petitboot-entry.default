@@ -1,0 +1,9 @@
+# omarchy-petitboot-entry reads this when it writes /boot/grub/grub.cfg.
+# The kernel command line is /etc/kernel/cmdline.
+
+# The menu title before each kernel's name.
+TITLE="Omarchy"
+# The kernel listed first, which petitboot and GRUB boot by default.
+DEFAULT_KERNEL="linux-omarchy"
+# Seconds GRUB shows its menu on pSeries; petitboot keeps its own timeout.
+TIMEOUT=5

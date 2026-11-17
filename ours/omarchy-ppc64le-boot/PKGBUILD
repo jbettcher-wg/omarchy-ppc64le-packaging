@@ -1,0 +1,60 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# omarchy-ppc64le-boot -- how Omarchy boots on POWER, as a platform boot
+# package (Omarchy's docs/lifecycle-dispatch.md; omarchy-mac-boot is the
+# Apple Silicon one).
+#
+# POWER firmware boots no EFI and no UKI. On PowerNV, petitboot in the
+# firmware reads /boot/grub/grub.cfg off an ext4 /boot and kexecs the kernel
+# and initramfs it names; on pSeries, GRUB in the PReP partition reads the
+# same file. This package keeps that file current:
+#
+#   omarchy-petitboot-entry    writes the entries, from the kernels in /boot
+#                              and the command line in /etc/kernel/cmdline
+#   95-omarchy-petitboot-entry.hook
+#                              runs it after every kernel change, after
+#                              mkinitcpio's own hook has rebuilt the initramfs
+#   95-omarchy-ppc64le-encrypt.conf
+#                              sd-encrypt in the systemd initramfs, so a LUKS
+#                              root unlocks from /etc/crypttab.initramfs
+#
+# The ISO's installer writes the first command line and runs the generator;
+# after that the hook does. The lifecycle operations (provisioning the LUKS
+# key, factory reset, update checks) come next, in /usr/lib/omarchy/ppc64le-boot.
+
+pkgname=omarchy-ppc64le-boot
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Omarchy's boot setup for POWER: petitboot and OpenFirmware GRUB entries from /boot"
+arch=(any)
+url='https://github.com/jbettcher-wg/omarchy-ppc64le'
+license=(MIT)
+depends=(bash coreutils gawk grep mkinitcpio sed util-linux)
+optdepends=('grub: GRUB in the PReP partition, which pSeries (SLOF, PowerVM) boots')
+backup=(etc/default/omarchy-petitboot-entry)
+source=(omarchy-petitboot-entry
+        95-omarchy-petitboot-entry.hook
+        95-omarchy-ppc64le-encrypt.conf
+        omarchy-petitboot-entry.default
+        test-omarchy-petitboot-entry.sh)
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+# bq builds with --nocheck, so the generator's tests run here, where a failure
+# stops the package.
+build() {
+  bash "$srcdir/test-omarchy-petitboot-entry.sh" "$srcdir/omarchy-petitboot-entry"
+}
+
+package() {
+  install -Dm755 "$srcdir/omarchy-petitboot-entry" "$pkgdir/usr/bin/omarchy-petitboot-entry"
+  install -Dm644 "$srcdir/95-omarchy-petitboot-entry.hook" \
+    "$pkgdir/usr/share/libalpm/hooks/95-omarchy-petitboot-entry.hook"
+  install -Dm644 "$srcdir/95-omarchy-ppc64le-encrypt.conf" \
+    "$pkgdir/etc/mkinitcpio.conf.d/95-omarchy-ppc64le-encrypt.conf"
+  install -Dm644 "$srcdir/omarchy-petitboot-entry.default" \
+    "$pkgdir/etc/default/omarchy-petitboot-entry"
+}

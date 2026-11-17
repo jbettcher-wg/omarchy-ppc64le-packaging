@@ -1,0 +1,157 @@
+#!/bin/bash
+#
+# omarchy-petitboot-entry: write the boot entries POWER firmware reads.
+#
+# POWER boots no EFI and runs no boot loader Omarchy installs on PowerNV.
+# Petitboot, in the machine's firmware, mounts every partition it can, looks
+# for grub/grub.cfg (and boot/grub/grub.cfg) on each, parses it with its own
+# grammar and kexecs the kernel an entry names. On pSeries (SLOF, PowerVM) GRUB
+# in the PReP partition reads the same file. So the boot setup is this file.
+#
+# Grammar: what petitboot's parser and real GRUB both read. Petitboot takes
+# menuentry, set, search, linux, initrd and a few more; `search --file` is not
+# among them. grub-mkconfig is not used: its ieee1275 output is full of insmod,
+# load_video and if-blocks outside that intersection.
+#
+# Paths: names are resolved against the partition the file was found on. /boot
+# is its own ext4 partition, so the kernel is /vmlinuz-<pkgbase>, never
+# /boot/vmlinuz-<pkgbase>.
+#
+# The kernel command line is /etc/kernel/cmdline, which the installer writes
+# with root= and the rest, as it does for a UKI elsewhere. LUKS needs nothing
+# on it: the initramfs unlocks the root from /etc/crypttab.initramfs.
+#
+# Only the region between the markers is rewritten; whatever an owner added
+# around it stays.
+#
+# Usage: omarchy-petitboot-entry [--check]
+#   --check  print the block that would be written and change nothing
+
+set -euo pipefail
+
+# Fixed paths. OMARCHY_PETITBOOT_ROOT prefixes them, for tests only.
+root=${OMARCHY_PETITBOOT_ROOT:-}
+boot_dir=$root/boot
+grub_cfg=$boot_dir/grub/grub.cfg
+cmdline_file=$root/etc/kernel/cmdline
+defaults=$root/etc/default/omarchy-petitboot-entry
+modules_dir=$root/usr/lib/modules
+begin_mark='### BEGIN omarchy-petitboot-entry ###'
+end_mark='### END omarchy-petitboot-entry ###'
+
+check_only=0
+case ${1:-} in
+  --check) check_only=1 ;;
+  "") ;;
+  *)
+    echo "Usage: omarchy-petitboot-entry [--check]" >&2
+    exit 2
+    ;;
+esac
+
+# A system whose boot is not set up yet (the root image as it is built, before
+# an installer writes the real command line) has nothing to point an entry at.
+cmdline=""
+[[ -r $cmdline_file ]] && cmdline=$(tr -s '\n\t ' ' ' <"$cmdline_file" | sed 's/^ //; s/ $//')
+if [[ " $cmdline " != *" root="* ]]; then
+  echo "omarchy-petitboot-entry: $cmdline_file names no root=; this system's boot is not set up, nothing to write" >&2
+  exit 0
+fi
+
+# The mistake that leaves a machine unbootable: writing into the root
+# filesystem's /boot directory while the real /boot partition is unmounted.
+# Petitboot would read the partition and find the old entries, or none.
+if [[ -z $root ]] && ! mountpoint -q "$boot_dir"; then
+  echo "omarchy-petitboot-entry: $boot_dir is not mounted." >&2
+  echo "  /boot is its own partition, the one petitboot reads; mount it and run this again." >&2
+  exit 1
+fi
+
+if [[ -n ${OMARCHY_PETITBOOT_BOOT_UUID:-} && -n $root ]]; then
+  boot_uuid=$OMARCHY_PETITBOOT_BOOT_UUID
+else
+  boot_uuid=$(findmnt -no UUID "$boot_dir" || true)
+fi
+if [[ -z $boot_uuid ]]; then
+  echo "omarchy-petitboot-entry: cannot read the UUID of the filesystem at $boot_dir" >&2
+  exit 1
+fi
+
+title="Omarchy"
+default_kernel=""
+timeout=5
+# shellcheck source=/dev/null
+[[ -r $defaults ]] && . "$defaults"
+title=${TITLE:-$title}
+default_kernel=${DEFAULT_KERNEL:-$default_kernel}
+timeout=${TIMEOUT:-$timeout}
+
+entry() { # label kernel initrd
+  printf "menuentry '%s' {\n" "$1"
+  printf '    search --set=root --fs-uuid %s\n' "$boot_uuid"
+  printf '    linux /%s %s\n' "$2" "$cmdline"
+  [[ -z $3 ]] || printf '    initrd /%s\n' "$3"
+  printf '}\n'
+}
+
+# The default kernel first: GRUB's default=0 and petitboot both take the first
+# entry. The rest follow in module directory order.
+kernels=()
+for pkgbase_file in "$modules_dir"/*/pkgbase; do
+  [[ -r $pkgbase_file ]] || continue
+  pkgbase=$(<"$pkgbase_file")
+  [[ -n $pkgbase && -f $boot_dir/vmlinuz-$pkgbase ]] || continue
+  [[ " ${kernels[*]} " == *" $pkgbase "* ]] && continue
+  if [[ $pkgbase == "$default_kernel" ]]; then
+    kernels=("$pkgbase" "${kernels[@]}")
+  else
+    kernels+=("$pkgbase")
+  fi
+done
+if (( ${#kernels[@]} == 0 )); then
+  echo "omarchy-petitboot-entry: no packaged kernel in $boot_dir." >&2
+  echo "  Each entry needs $modules_dir/<release>/pkgbase and $boot_dir/vmlinuz-<pkgbase>," >&2
+  echo "  which mkinitcpio's pacman hook puts there." >&2
+  exit 1
+fi
+
+# GRUB waits at its menu for a key unless the file sets a timeout, which on a
+# pSeries guest is forever; petitboot applies its own.
+block="set timeout=$timeout"$'\n'"set default=0"$'\n'
+for pkgbase in "${kernels[@]}"; do
+  initrd=""
+  [[ -f $boot_dir/initramfs-$pkgbase.img ]] && initrd="initramfs-$pkgbase.img"
+  block+=$(entry "$title ($pkgbase)" "vmlinuz-$pkgbase" "$initrd")$'\n'
+  if [[ -f $boot_dir/initramfs-$pkgbase-fallback.img ]]; then
+    block+=$(entry "$title ($pkgbase, fallback initramfs)" "vmlinuz-$pkgbase" "initramfs-$pkgbase-fallback.img")$'\n'
+  fi
+done
+
+if (( check_only )); then
+  printf '%s\n%s%s\n' "$begin_mark" "$block" "$end_mark"
+  exit 0
+fi
+
+mkdir -p "$boot_dir/grub"
+tmp=$(mktemp "$boot_dir/grub/.grub.cfg.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+# The installer before this package (omp-install) wrote its block between
+# "petitboot-entry" markers; this one takes that block over.
+legacy_begin='### BEGIN petitboot-entry ###'
+legacy_end='### END petitboot-entry ###'
+if [[ -f $grub_cfg ]] && grep -qxF -e "$begin_mark" -e "$legacy_begin" "$grub_cfg"; then
+  awk -v b="$begin_mark" -v e="$end_mark" -v lb="$legacy_begin" -v le="$legacy_end" -v block="$block" '
+    ($0 == b || $0 == lb) && !done { print b; printf "%s", block; skip = 1; done = 1; next }
+    $0 == b || $0 == lb { skip = 1; next }
+    $0 == e || $0 == le { if (!printed) print e; printed = 1; skip = 0; next }
+    !skip { print }
+  ' "$grub_cfg" >"$tmp"
+else
+  [[ -f $grub_cfg ]] && cat "$grub_cfg" >"$tmp"
+  printf '%s\n%s%s\n' "$begin_mark" "$block" "$end_mark" >>"$tmp"
+fi
+chmod 0644 "$tmp"
+mv -f "$tmp" "$grub_cfg"
+trap - EXIT
+sync "$grub_cfg" 2>/dev/null || sync
+echo "omarchy-petitboot-entry: wrote ${#kernels[@]} kernel(s) to $grub_cfg" >&2

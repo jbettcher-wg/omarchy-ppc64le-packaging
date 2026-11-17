@@ -1,0 +1,17 @@
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = usr/lib/modules/*/vmlinuz
+
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = omarchy-ppc64le-boot
+
+[Action]
+Description = Updating the boot entries petitboot and GRUB read...
+When = PostTransaction
+Exec = /usr/bin/omarchy-petitboot-entry
