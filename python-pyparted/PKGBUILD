@@ -1,0 +1,46 @@
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Maintainer: Leonidas Spyropoulos <artafinde@archlinux.org>
+# Contributor: loqs <bugs-archlinux@entropy-collector.net>
+# Contributor: Nikos Skalkotos <skalkoto at gmail dot com>
+# Contributor: Christian Hesse <mail@eworm.de>
+# Contributor: Dennis Værum <dennis.vaerum (at) gmail (dot) com> 
+# Contributor: Achilleas Pipinellis <axilleas archlinux info>
+# Contributor: Stéphane Gaudreault <stephane@archlinux.org>
+# Contributor: kfgz <kfgz at interia pl>
+# Contributor: Gökmen Görgen <gkmngrgn at gmail dot com>
+# Contributor: Baurzhan Muftakhidinov <baurthefirst (at) gmail (dot) com>
+
+pkgname=python-pyparted
+_pkgname="${pkgname/#python-}"
+pkgver=3.13.0
+pkgrel=6
+pkgdesc='Python module for GNU parted'
+url="https://github.com/dcantrell/$_pkgname"
+arch=(x86_64 powerpc64le)
+license=(GPL-2.0-or-later)
+depends=(parted
+		 python)
+replaces=(pyparted)
+makedepends=(python-{build,installer,wheel}
+             python-setuptools)
+_archive="$_pkgname-$pkgver"
+source=("$url/releases/download/v$pkgver/$_archive.tar.gz")
+sha256sums=('8fc6758abd16c7b0429fd4c07b6a7672678d493bfe1811040cd77d45e04964ea')
+
+build() {
+	cd "$_archive"
+	python -m build -wn
+}
+
+check() {
+	cd "${_pkgname}-${pkgver}"
+	export PYTHONPATH=$(find $(pwd) -name "*.so" | head -n 1 | xargs dirname):src/parted:src
+	python -m unittest discover -v
+}
+
+package() {
+	cd "$_archive"
+	python -m installer -d "$pkgdir" dist/*.whl
+	install -Dm0755 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+	install -Dm0755 -t "$pkgdir/usr/share/doc/$pkgname/" AUTHORS README.md TODO
+}
