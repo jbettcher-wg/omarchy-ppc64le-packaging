@@ -19,9 +19,19 @@ This patch:
 - Routes Turbofan modulo opcodes through `MacroAssembler::Mod*` and implements `div/mul/sub` fallbacks on POWER8.
 - Gates SIMD128 support behind `_ARCH_PWR9` and `PPC_9_PLUS`, preventing `stxvx`/`lxvx` from being emitted into builtins on POWER8.
 
-diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.cc mod-test-chromium/v8/src/codegen/ppc/assembler-ppc.cc
---- a/v8/src/codegen/ppc/assembler-ppc.cc	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/codegen/ppc/assembler-ppc.cc	2026-09-22 17:34:35.553383475 -0600
+157 rebase (V8 15.7, chromium 157.0.8103.78):
+- Int32IncrementWithOverflow / Int32DecrementWithOverflow: upstream now
+  materialises the constant in a Maglev TemporaryRegisterScope scratch
+  instead of r0. Both branches use that scratch; the POWER8 sequence is
+  unchanged apart from the register name.
+- Audited every added line that names r0/ip/r11/r12/r25/r26 against 157's
+  move from r0 to the {ip, r25, r26, r11} scratch pool: no r0 or scratch
+  live range spans a helper that acquires a scratch or uses r0, and no 157
+  caller passes r0 to a helper whose POWER8 body uses r0. No other change.
+
+diff -ruN a/v8/src/codegen/ppc/assembler-ppc.cc b/v8/src/codegen/ppc/assembler-ppc.cc
+--- a/v8/src/codegen/ppc/assembler-ppc.cc
++++ b/v8/src/codegen/ppc/assembler-ppc.cc
 @@ -58,9 +58,8 @@
  }
  
@@ -45,9 +55,9 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.cc mod-test-chrom
  void Assembler::creqv(int bt, int ba, int bb) {
    emit(EXT1 | CREQV | bt * B21 | ba * B16 | bb * B11);
  }
-diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.h mod-test-chromium/v8/src/codegen/ppc/assembler-ppc.h
---- a/v8/src/codegen/ppc/assembler-ppc.h	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/codegen/ppc/assembler-ppc.h	2026-09-22 17:34:28.770683873 -0600
+diff -ruN a/v8/src/codegen/ppc/assembler-ppc.h b/v8/src/codegen/ppc/assembler-ppc.h
+--- a/v8/src/codegen/ppc/assembler-ppc.h
++++ b/v8/src/codegen/ppc/assembler-ppc.h
 @@ -1077,6 +1077,7 @@
  
    // Special register access
@@ -56,9 +66,9 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/assembler-ppc.h mod-test-chromi
    void crclr(int bt) { crxor(bt, bt, bt); }
    void creqv(int bt, int ba, int bb);
    void crset(int bt) { creqv(bt, bt, bt); }
-diff -uNr clean-test-chromium/v8/src/codegen/ppc/constants-ppc.h mod-test-chromium/v8/src/codegen/ppc/constants-ppc.h
---- a/v8/src/codegen/ppc/constants-ppc.h	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/codegen/ppc/constants-ppc.h	2026-09-22 17:34:38.802239628 -0600
+diff -ruN a/v8/src/codegen/ppc/constants-ppc.h b/v8/src/codegen/ppc/constants-ppc.h
+--- a/v8/src/codegen/ppc/constants-ppc.h
++++ b/v8/src/codegen/ppc/constants-ppc.h
 @@ -3065,7 +3065,11 @@
  
  constexpr uint8_t kInstrSize = 4;
@@ -71,10 +81,10 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/constants-ppc.h mod-test-chromi
  
  class Instruction {
   public:
-diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc
---- a/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc	2026-09-22 17:35:38.839585988 -0600
-@@ -577,11 +577,12 @@
+diff -ruN a/v8/src/codegen/ppc/macro-assembler-ppc.cc b/v8/src/codegen/ppc/macro-assembler-ppc.cc
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.cc
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.cc
+@@ -589,11 +589,12 @@
  }
  
  void MacroAssembler::MultiPushV128(Simd128RegList simd_regs,
@@ -88,7 +98,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
    for (int16_t i = Simd128Register::kNumRegisters - 1; i >= 0; i--) {
      if ((simd_regs.bits() & (1 << i)) != 0) {
        Simd128Register simd_reg = Simd128Register::from_code(i);
-@@ -589,6 +590,7 @@
+@@ -601,6 +602,7 @@
        StoreSimd128(simd_reg, MemOperand(location, stack_offset));
      }
    }
@@ -96,7 +106,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
  }
  
  void MacroAssembler::MultiPopDoubles(DoubleRegList dregs, Register location) {
-@@ -607,6 +609,7 @@
+@@ -619,6 +621,7 @@
  void MacroAssembler::MultiPopV128(Simd128RegList simd_regs, Register location) {
    int16_t stack_offset = 0;
  
@@ -104,7 +114,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
    for (int16_t i = 0; i < Simd128Register::kNumRegisters; i++) {
      if ((simd_regs.bits() & (1 << i)) != 0) {
        Simd128Register simd_reg = Simd128Register::from_code(i);
-@@ -614,6 +617,9 @@
+@@ -626,6 +629,9 @@
        stack_offset += kSimd128Size;
      }
    }
@@ -114,7 +124,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
    addi(location, location, Operand(stack_offset));
  }
  
-@@ -1144,7 +1150,13 @@
+@@ -1193,7 +1199,13 @@
  }
  
  void MacroAssembler::LoadPC(Register dst) {
@@ -128,7 +138,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
  }
  
  void MacroAssembler::ComputeCodeStartAddress(Register dst) {
-@@ -2564,19 +2576,43 @@
+@@ -2622,19 +2634,43 @@
  }
  
  void MacroAssembler::ModS64(Register dst, Register src, Register value) {
@@ -176,7 +186,7 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
    ZeroExtWord32(dst, dst);
  }
  
-@@ -4895,12 +4931,26 @@
+@@ -4956,12 +4992,26 @@
  
  void MacroAssembler::CountTrailingZerosU32(Register dst, Register src,
                                             RCBit r) {
@@ -203,10 +213,10 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.cc mod-test
  }
  
  void MacroAssembler::ClearByteU64(Register dst, int byte_idx) {
-diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h
---- a/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/codegen/ppc/macro-assembler-ppc.h	2026-09-22 17:35:04.541100931 -0600
-@@ -961,7 +961,13 @@
+diff -ruN a/v8/src/codegen/ppc/macro-assembler-ppc.h b/v8/src/codegen/ppc/macro-assembler-ppc.h
+--- a/v8/src/codegen/ppc/macro-assembler-ppc.h
++++ b/v8/src/codegen/ppc/macro-assembler-ppc.h
+@@ -972,7 +972,13 @@
    // Usage: call the appropriate arithmetic function and then call one of the
    // flow control functions with the corresponding label.
    void MoveToCrFromXer(CRegister cr) {
@@ -220,9 +230,9 @@ diff -uNr clean-test-chromium/v8/src/codegen/ppc/macro-assembler-ppc.h mod-test-
    }
  
    // Performs a truncating conversion of a floating point number as used by
-diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc mod-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc
---- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-08-05 14:17:42.000000000 -0600
-+++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc	2026-09-22 17:56:06.357165781 -0600
+diff -ruN a/v8/src/compiler/backend/ppc/code-generator-ppc.cc b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
+--- a/v8/src/compiler/backend/ppc/code-generator-ppc.cc
++++ b/v8/src/compiler/backend/ppc/code-generator-ppc.cc
 @@ -1402,14 +1402,33 @@
      case kPPC_Add32:
      case kPPC_Add64:
@@ -346,7 +356,7 @@ diff -uNr clean-test-chromium/v8/src/compiler/backend/ppc/code-generator-ppc.cc 
        } else {
          __ neg(i.OutputRegister(), i.InputRegister(0), LeaveOE,
                 i.OutputRCBit());
-diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
+diff -ruN a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
 --- a/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
 +++ b/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h
 @@ -216,9 +216,17 @@
@@ -368,7 +378,7 @@ diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-t
    } else {
      SmiTag(dst, src);
    }
-@@ -248,9 +256,20 @@
+@@ -249,9 +257,20 @@
  
    Move(scratch, Smi::FromInt(value));
    if (SmiValuesAre31Bits()) {
@@ -389,7 +399,7 @@ diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-t
    } else {
      AddS64(dst, src, scratch, SetOE, SetRC);
      JumpIf(kOverflow, fail, distance);
-@@ -270,9 +289,20 @@
+@@ -271,9 +290,20 @@
  
    Move(scratch, Smi::FromInt(value));
    if (SmiValuesAre31Bits()) {
@@ -410,7 +420,7 @@ diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-assembler-ppc-inl.h mod-t
    } else {
      SubS64(dst, src, scratch, SetOE, SetRC);
      JumpIf(kOverflow, fail, distance);
-diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc
+diff -ruN a/v8/src/maglev/ppc/maglev-ir-ppc.cc b/v8/src/maglev/ppc/maglev-ir-ppc.cc
 --- a/v8/src/maglev/ppc/maglev-ir-ppc.cc
 +++ b/v8/src/maglev/ppc/maglev-ir-ppc.cc
 @@ -32,8 +32,15 @@
@@ -448,49 +458,49 @@ diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-chromi
    DCHECK_REGLIST_EMPTY(RegList{out} &
                         GetGeneralRegistersUsedAsInputs(eager_deopt_info()));
    __ EmitEagerDeoptIf(overflow32, DeoptimizeReason::kOverflow, this);
-@@ -93,9 +106,17 @@
-                                               const ProcessingState& state) {
-   Register value = ToRegister(ValueInput());
+@@ -95,9 +108,17 @@
    Register out = ToRegister(result());
--    __ li(r0, Operand(1));
--    __ add(out, value, r0, SetOE);
--    __ MoveToCrFromXer(cr0);
-+    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-+      __ li(r0, Operand(1));
-+      __ add(out, value, r0, SetOE);
-+      __ MoveToCrFromXer(cr0);
-+    } else {
-+      __ addi(r0, value, Operand(1));
-+      __ andc(r0, r0, value);
-+      __ srwi(r0, r0, Operand(1));
-+      __ mtcrf(r0, 0x80);
-+      __ addi(out, value, Operand(1));
-+    }
+   MaglevAssembler::TemporaryRegisterScope temps(masm);
+   Register scratch = temps.AcquireScratch();
+-  __ li(scratch, Operand(1));
+-  __ add(out, value, scratch, SetOE);
+-  __ MoveToCrFromXer(cr0);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    __ li(scratch, Operand(1));
++    __ add(out, value, scratch, SetOE);
++    __ MoveToCrFromXer(cr0);
++  } else {
++    __ addi(scratch, value, Operand(1));
++    __ andc(scratch, scratch, value);
++    __ srwi(scratch, scratch, Operand(1));
++    __ mtcrf(scratch, 0x80);
++    __ addi(out, value, Operand(1));
++  }
  
-     // Output register must not be a register input into the eager deopt info.
-     DCHECK_REGLIST_EMPTY(RegList{out} &
-@@ -114,9 +135,17 @@
-                                               const ProcessingState& state) {
-   Register value = ToRegister(ValueInput());
+   // Output register must not be a register input into the eager deopt info.
+   DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -118,9 +139,17 @@
    Register out = ToRegister(result());
--    __ li(r0, Operand(-1));
--    __ add(out, value, r0, SetOE);
--    __ MoveToCrFromXer(cr0);
-+    if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
-+      __ li(r0, Operand(-1));
-+      __ add(out, value, r0, SetOE);
-+      __ MoveToCrFromXer(cr0);
-+    } else {
-+      __ addi(r0, value, Operand(-1));
-+      __ andc(r0, value, r0);
-+      __ srwi(r0, r0, Operand(1));
-+      __ mtcrf(r0, 0x80);
-+      __ addi(out, value, Operand(-1));
-+    }
+   MaglevAssembler::TemporaryRegisterScope temps(masm);
+   Register scratch = temps.AcquireScratch();
+-  __ li(scratch, Operand(-1));
+-  __ add(out, value, scratch, SetOE);
+-  __ MoveToCrFromXer(cr0);
++  if (CpuFeatures::IsSupported(PPC_9_PLUS)) {
++    __ li(scratch, Operand(-1));
++    __ add(out, value, scratch, SetOE);
++    __ MoveToCrFromXer(cr0);
++  } else {
++    __ addi(scratch, value, Operand(-1));
++    __ andc(scratch, value, scratch);
++    __ srwi(scratch, scratch, Operand(1));
++    __ mtcrf(scratch, 0x80);
++    __ addi(out, value, Operand(-1));
++  }
  
-     // Output register must not be a register input into the eager deopt info.
-     DCHECK_REGLIST_EMPTY(RegList{out} &
-@@ -369,6 +398,9 @@
+   // Output register must not be a register input into the eager deopt info.
+   DCHECK_REGLIST_EMPTY(RegList{out} &
+@@ -373,6 +402,9 @@
    UseRegister(LeftInput());
    UseRegister(RightInput());
    DefineAsRegister(this);
@@ -500,7 +510,7 @@ diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-chromi
  }
  
  void Int32AddWithOverflow::GenerateCode(MaglevAssembler* masm,
-@@ -376,8 +408,20 @@
+@@ -380,8 +412,20 @@
    Register left = ToRegister(LeftInput());
    Register right = ToRegister(RightInput());
    Register out = ToRegister(result());
@@ -523,7 +533,7 @@ diff -uNr clean-test-chromium/v8/src/maglev/ppc/maglev-ir-ppc.cc mod-test-chromi
      // The output register shouldn't be a register input into the eager deopt
      // info.
      DCHECK_REGLIST_EMPTY(RegList{out} &
-@@ -390,14 +434,29 @@
+@@ -394,14 +438,29 @@
    UseRegister(LeftInput());
    UseRegister(RightInput());
    DefineAsRegister(this);
