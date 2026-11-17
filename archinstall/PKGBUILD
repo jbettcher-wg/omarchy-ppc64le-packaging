@@ -45,9 +45,8 @@ makedepends=(
   python-sphinx
   python-wheel
   python-sphinx_rtd_theme
-  # python-pylint and python-pylint-pydantic dropped: they serve only the
-  # pylint call check() keeps commented out, and pylint-pydantic has no
-  # ppc64le build. ruff stays for check()'s one live line.
+  python-pylint
+  python-pylint-pydantic
   ruff
 )
 optdepends=(

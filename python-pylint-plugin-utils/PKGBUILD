@@ -1,0 +1,51 @@
+# Maintainer: Anton Hvornum <anton@hvornum.se>
+
+pkgname=python-pylint-plugin-utils
+pkgver=0.9.0
+pkgrel=3
+pkgdesc="Utilities and helpers for writing Pylint plugins"
+arch=(any)
+url="https://github.com/pylint-dev/pylint-plugin-utils"
+license=(MIT)
+depends=(
+    python-pylint
+    python-wrapt
+    python-lazy-object-proxy
+)
+makedepends=(
+    git
+    python-build
+    python-poetry-core
+    python-pylint
+    python-pytest
+    python-installer
+    python-setuptools
+)
+provides=(python-pylint-plugin-utils)
+conflicts=(python-pylint-plugin-utils python-pylint-plugin-utils-git)
+replaces=(python-pylint-plugin-utils python-pylint-plugin-utils-git)
+source=(
+    $pkgname-$pkgver::git+https://github.com/pylint-dev/pylint-plugin-utils.git#tag=$pkgver
+)
+sha512sums=('053b3f838c4252d5137ce9dfc6e79a415c61eb58eed484fa5940a54c1a440943d73a9cd12fbd2687abc642fe5d7e36254080604aa5a3254a9878919d90df8812')
+b2sums=('99a5faf908f6ca4a6ab59301e252f2271f4e7364111c2b0f127c968e2b730fc215989aed0abb78d777fa262953cd019a0571d47797349ceea1c1279149bc841b')
+
+pkgver() {
+    cd "$pkgname-$pkgver"
+    git describe --tags --abbrev=0
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    python3 -m pytest tests/
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+}
