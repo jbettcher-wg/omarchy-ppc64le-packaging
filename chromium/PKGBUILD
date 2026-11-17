@@ -185,7 +185,7 @@ sha256sums=('9fdce9d3c866f97f14f7a4250915e8e5b729dc952fcfb3a35507b126233f0660'
             '4fc040a0656a0a524dd8ad090cd129fc5b6cb21adcc66be82080165789e8c13e'
             'c382830318c5b37826ecf44f3ba9def6be8affdad1bce819ecb83f3222ff4b3a'
             'b9e6339221efe03540ffb360c161d93604a1fc93a5a1c53e5e9849066f987d05'
-            '1b5190fa030850cf30a97dc90e35b31f3097243c88743fbfaedbd64ea80f1327'
+            '15fbe520744e4c44a87be3c9008e66d72fd64580c1f7189ad3c55e8a25810e75'
             '951514535be65f0e2f84e82305d96292be1da353c1427ba1048ea24be70003c4'
             '5f6ccb7b945c8a13c690493723bad816b36f2f25792d47e677b56f8200907e60'
             '890e5d98088ef1c7c075a551442f03385d1db266cad8a65576704a22720683f9'
@@ -317,6 +317,9 @@ prepare() {
   # calls that require the UBSan runtime, which is not linked in a trap-mode
   # build. Drop the entire sanitize_c_array_bounds cflags block.
   # Can be dropped when arch has LLVM 23.
+  # 157 builds these from a ubsan_hardening() template that always passes
+  # -fsanitize-ignore-for-ubsan-feature, and adds a third user, "unreachable";
+  # the patch turns off all three (c_array_bounds, return, unreachable).
   patch -Np1 -i ../chromium-149-drop-unknown-clang-flag.patch
 
   # Causes a build failure with our clang version
