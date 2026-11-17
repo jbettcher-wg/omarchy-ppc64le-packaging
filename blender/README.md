@@ -77,6 +77,15 @@ onto it. Patches:
   them by default. Arch POWER builds them OFF.
 - `WITH_CYCLES_PATH_GUIDING=OFF WITH_USD=OFF WITH_HYDRA=OFF`: `openpgl`
   and `usd` are not packaged for POWER.
+- `WITH_OPENTIMELINEIO=OFF`, new in 5.3.0. OTIO is optional and
+  auto-detected. Arch's chroot has none, so Arch's package is built without
+  it. bq stages the whole baseline pool, which includes `opentimelineio
+  0.18.1` (for kdenlive), so cmake turned it on. 5.3's `source/blender/io/otio`
+  is written against the unreleased OTIO main that its
+  `build_environment/cmake/versions.cmake` pins (2026-09-09, which defines
+  `OPENTIMELINEIO_VERSION_NS`), and against 0.18.1 it fails to compile
+  `[MEASURED]`. Turning it on later needs an OTIO release with that
+  namespace macro.
 - `WITH_CYCLES_DEVICE_HIP=ON WITH_CYCLES_HIP_BINARIES=OFF
   WITH_CYCLES_DEVICE_HIPRT=OFF`, set explicitly; CUDA/OptiX/oneAPI off.
 - `WITH_LINKER_MOLD=OFF`, `mold` dropped from makedepends: mold 2.x on this

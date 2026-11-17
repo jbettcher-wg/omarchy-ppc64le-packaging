@@ -206,6 +206,12 @@ build() {
     -D WITH_CYCLES_PATH_GUIDING=OFF
     -D WITH_USD=OFF
     -D WITH_HYDRA=OFF
+    # ppc64le: OpenTimelineIO is optional and auto-detected.  Arch's chroot
+    # has none, so Arch's 5.3.0 builds without it.  bq stages the whole pool,
+    # which includes opentimelineio 0.18.1 (for kdenlive), and 5.3's io/otio
+    # wants the unreleased OTIO main its build_environment pins
+    # (OPENTIMELINEIO_VERSION_NS); against 0.18.1 it fails to compile.
+    -D WITH_OPENTIMELINEIO=OFF
     # ppc64le: the HIP device is compiled in but dormant.  hipew dlopens
     # libamdhip64.so at runtime and, with HIP_BINARIES=OFF, Cycles compiles
     # its GPU kernels at runtime with hipcc -- so a ROCm/HIP port landing
