@@ -9,7 +9,7 @@
 pkgbase=godot
 pkgname=(godot godot-mono)
 pkgver=4.7.2
-pkgrel=2
+pkgrel=3
 pkgdesc='Advanced cross-platform 2D and 3D game engine'
 url='https://godotengine.org/'
 license=(MIT)
