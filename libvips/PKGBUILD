@@ -3,7 +3,7 @@
 
 pkgname=libvips
 pkgver=8.18.4
-pkgrel=3
+pkgrel=3.1
 pkgdesc="A fast image processing library with low memory needs"
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 license=('LGPL-2.1-or-later')
