@@ -3,7 +3,7 @@
 
 pkgname=highway
 pkgver=1.4.0
-pkgrel=2
+pkgrel=2.1
 pkgdesc='A C++ library that provides portable SIMD/vector intrinsics'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 url='https://github.com/google/highway/'
