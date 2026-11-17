@@ -21,9 +21,10 @@ libm, libgcc_s and libc `[MEASURED]`. bq builds over the host's `/usr`, and
 OIIO links any optional library it finds. So 3.1.12.1-6 linked
 `libopenvdb.so.12.1`, `libPtex.so.2.5`, `libavcodec.so.63` and `libtbb.so.12`
 without declaring any of them `[MEASURED]`. A first 3.2.1.2 build with only
-the TODO four off still linked `libtbb.so.12` into `libOpenImageIO_Util`. When Arch POWER's `openvdb` moved to 13.0
-(2026-11-16), `ldd /usr/lib/libOpenImageIO.so.3.1` on the build host
-reported `libopenvdb.so.12.1 => not found`. That broke blender 5.1.0-5, and
+the TODO four off still linked `libtbb.so.12` into `libOpenImageIO_Util`.
+When Arch POWER's `openvdb` moved to 13.0 (2026-11-16),
+`ldd /usr/lib/libOpenImageIO.so.3.1` on the build host reported
+`libopenvdb.so.12.1 => not found`. That broke blender 5.1.0-5, and
 anything else that loads OIIO, on any system with the new openvdb.
 
 Turning them off makes the package's links match its `depends=()` and
@@ -47,5 +48,25 @@ and `openshadinglanguage`. OSL is in neither pool and Arch POWER's build
 links 3.1, so it is rebuilt here too (`openshadinglanguage/`).
 
 ## Verification
+
+All `[MEASURED]`, 2026-11-17: baseline lane, packaging `1e1d6e98`,
+`openimageio-3.2.1.2-3-powerpc64le.pkg.tar.zst`.
+
+- **Links.** Every NEEDED across the package's libraries, tools and python
+  module comes from `depends=()`. The exceptions are Qt6 and libOpenGL, which
+  belong to `iv` and are covered by the `qt6-base` optdepend, as in Arch.
+  There is no openvdb, Ptex, FFmpeg or TBB. The RUNPATH is upstream's
+  `$ORIGIN:$ORIGIN/lib:$ORIGIN/../lib`.
+- **Run.** `oiiotool --version` prints `3.2.1.2`. The python module imports,
+  reports `3.2.1.2 30201`, and fills and averages an 8x8 `ImageBuf`
+  correctly. Input formats: bmp, cineon, dds, dpx, fits, gif, hdr, heif, ico,
+  iff, jpeg, jpeg2000, jpegxl, null, openexr, png, pnm, psd, raw, rla, sgi,
+  softimage, targa, tiff, webp, zfile.
+- **ISA 3.0 scan** (`tools/isa30-pkgscan.sh`): 7, against 4 for 3.1.12.1-6.
+  All 7 sit in `OpenImageIO::tag_table()`, in a switch table right after
+  `lwax`/`add`/`mtctr`/`bctr`: the offset `0xfffffbc8` decodes as
+  `xsnmsubqp v31,v31,v31`. That is data, not code. The 4 in 3.1.12.1-6 were
+  the same artifact (`xsdivqp` in `tag_table`, `xscpsgnqp` in
+  `Filesystem::scan_for_matching_filenames`). Real ISA 3.0: none.
 
 bq runs makepkg `--nocheck`, so OIIO's own test suite does not run.

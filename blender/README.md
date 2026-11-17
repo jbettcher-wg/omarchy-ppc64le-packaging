@@ -45,9 +45,10 @@ onto it. Patches:
 | BVH build + ray traversal | **Embree 4.4.1, SSE4.2 kernels on VSX** (`packages/embree`) | `ldd`: `libembree4.so.4`; `_cycles.with_embree == True` `[MEASURED]` |
 | Cycles shading/integrator kernel | **native VSX 4-wide kernel** via `cycles-vsx.patch` (see below); the SSE-through-compat-headers kernel and scalar are build-time alternatives | `_cycles.system_info()` -> `CPU device capabilities: VSX`; 2,194 fused vector multiply-adds and 895 control-vector permutes in the kernel object vs 6 and 10,675 for the compat kernel `[MEASURED]` |
 | Denoiser | **OpenImageDenoise 2.4.1 CPU device** (`packages/openimagedenoise`) | `ldd`: `libOpenImageDenoise.so.2`; `_cycles.with_openimagedenoise == True` `[MEASURED]` |
-| Open Shading Language | on | `_cycles.with_osl == True` `[MEASURED]` |
+| Open Shading Language | **on**, against `openshadinglanguage 1.15.7.0` from this repo (OIIO 3.2 build) | `_cycles.with_osl == True`; a CPU render with `shading_system = True` matches the SVM render (`idiff` PASS) `[MEASURED]` |
 | Path guiding (Open PGL) | **off** -- `openpgl` is not packaged for ppc64le; it is Embree-based and portable, a later job | |
 | USD / Hydra | **off** -- `usd` is not packaged for ppc64le | |
+| OpenTimelineIO import/export | **off** -- new in 5.3.0, needs an unreleased OTIO; see Deviations | |
 | GPU: HIP | **compiled in, dormant** -- see "GPU" below | `HIPEW initialization failed: Error opening HIP dynamic library` at startup; `_cycles.get_device_types()` reports HIP `[MEASURED]` |
 | GPU: CUDA / OptiX / oneAPI | off; no such stack exists for POWER | |
 
@@ -103,6 +104,57 @@ onto it. Patches:
   so their build resolved this differently; their recipe does not say how.)
 - The manpage `LD_LIBRARY_PATH` sed and the `!lto` option are kept as in
   Arch's recipe.
+
+## 5.3.0-1: build and verification
+
+Built in the baseline lane (`tools/build-ppc64le.sh`, POWER8 drop-in),
+packaging `edddd9c0`, against `openimageio 3.2.1.2-3` and
+`openshadinglanguage 1.15.7.0-2.1` from the same pool. The link is LLD
+22.1.8, which blender 5.3 selects by default when mold is off.
+
+**The buildroot was on tmpfs (`/dev/shm`), not `/var/tmp`.** On .24
+(kernel 7.2.9-64k, btrfs with `compress=zstd:3`), a clone or
+`copy_file_range` of a file whose pages are still dirty can come back
+missing a 64K page, which reads as zeros. makepkg's strip does exactly that
+(`strip -o tmp; cat tmp > binary`; coreutils `cat` uses
+`copy_file_range`). Two `/var/tmp` builds of OSL shipped a `liboslexec.so`
+with an all-zero `.dynamic`, and that is what broke blender's link (lld:
+`undefined reference ... @LLVM_22.1` from liboslexec). The same steps
+outside bq reproduce it every time. `sync` before the copy, a read/write
+copy, or a tmpfs build directory all avoid it `[MEASURED]`. The blender
+package has no all-zero section windows outside the known-legitimate
+classes, and every ELF's dynamic section is intact.
+
+**Links** `[MEASURED]`: `libOpenImageIO.so.3.2`, `liboslexec.so.1.15`,
+`libembree4.so.4`, `libOpenImageDenoise.so.2`, `libopenvdb.so.13.0`. There
+is no RUNPATH. 5.1.0-5 linked `libopenvdb.so.12.1`, so it no longer starts
+on a system with Arch POWER's openvdb 13. `libshaderc_shared.so.1` is NEEDED
+but not in `depends=()`, the same as 5.1.0-5 and Arch's recipe.
+
+**Runtime**, natively on .24 (POWER9), from the extracted package with
+`BLENDER_SYSTEM_RESOURCES` pointing into it, `blender --background
+--factory-startup --python-expr` `[MEASURED]`:
+
+    bpy.app.version_string                 5.3.0
+    bpy.app.build_options.cycles           True
+    _cycles.system_info()                  CPU device capabilities: VSX
+    _cycles.with_embree                    True
+    _cycles.with_openimagedenoise          True
+    _cycles.with_osl                       True
+    _cycles.get_device_types()             (False, False, True, False, False, False)   # HIP
+    default cube, Cycles CPU, 64x64, 8 spp, OIDN on -> PNG, 205 distinct colours, luminance 0.193..0.659
+    same with shading_system = True (OSL)  -> PNG; idiff against the SVM render: PASS
+
+**ISA 3.0 scan** (`tools/isa30-pkgscan.sh`, like for like): 5.1.0-5: 36,
+5.3.0-1: 7. Every hit in both is a switch-table offset right after
+`lwax`/`add`/`mtctr`/`bctr`, decoding as `xsiexpqp`/`xsnmsubqp`/`xsmulqp`/
+`xssubqp` with `v31` operands. That is data, not code. Real ISA 3.0: none,
+including the VSX Cycles kernel, which is linked into `usr/bin/blender`.
+
+**Changed relative to 5.1.0-5:** `blender-softwaregl` is gone (removed
+upstream). OpenTimelineIO, new in 5.3, is off. Everything in the table
+above is unchanged, and the BMW27/Classroom parity and timing below were
+not repeated.
 
 ## `cycles-vsx.patch` -- the Cycles kernel on VSX
 
