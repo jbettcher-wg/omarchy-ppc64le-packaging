@@ -4,7 +4,7 @@
 
 pkgname=libarchive
 pkgver=3.8.8
-pkgrel=2
+pkgrel=2.1
 pkgdesc='Multi-format archive and compression library'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 url='https://libarchive.org/'
@@ -54,9 +54,15 @@ prepare() {
 build() {
   cd "${pkgname}"
 
+  # --without-libb2: Arch builds this in a clean chroot without libb2, so its
+  # libarchive uses the bundled BLAKE2 and depends on no libb2. bq's sysroot
+  # holds the whole pool, configure found libb2 there and linked it, and
+  # nothing in depends= brings it: pacman then fails to start on any system
+  # without libb2 (a fresh pacstrap of base, the ISO builder).
   ./configure \
       --prefix=/usr \
       --without-nettle \
+      --without-libb2 \
       --disable-static
   make
 }
