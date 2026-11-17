@@ -36,13 +36,14 @@ build() {
     -DUSE_FFMPEG=OFF \
     -DUSE_OPENVDB=OFF \
     -DUSE_PTEX=OFF \
-    -DUSE_OPENCV=OFF
-  # ppc64le: the four USE_*=OFF are the optional libraries named in the TODO
-  # on depends=() above.  Arch's clean chroot never has them, so its package
-  # links none of them; bq builds over the host's /usr, where they are
-  # installed, and OIIO links whatever it finds.  3.1.12.1-6 so linked
-  # libopenvdb.so.12.1, libPtex and libavcodec undeclared, and stopped
-  # loading when openvdb moved to 13.0 (README.md).
+    -DUSE_OPENCV=OFF \
+    -DUSE_TBB=OFF
+  # ppc64le: the USE_*=OFF are optional libraries that Arch's clean chroot
+  # never has: the four in the TODO on depends=() above, plus onetbb.  Arch's
+  # package links none of them.  bq builds over the host's /usr, where they
+  # are installed, and OIIO links whatever it finds.  3.1.12.1-6 so linked
+  # libopenvdb.so.12.1, libPtex, libavcodec and libtbb undeclared, and
+  # stopped loading when openvdb moved to 13.0 (README.md).
   ninja -C build
 }
 

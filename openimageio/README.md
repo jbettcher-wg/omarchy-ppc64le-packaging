@@ -4,20 +4,24 @@ Arch's recipe (3.2.1.2-3), imported with `tools/fetch.sh openimageio`, plus
 two ppc64le changes:
 
 - `powerpc64le` added to `arch=()`;
-- `-DUSE_FFMPEG=OFF -DUSE_OPENVDB=OFF -DUSE_PTEX=OFF -DUSE_OPENCV=OFF`.
+- `-DUSE_FFMPEG=OFF -DUSE_OPENVDB=OFF -DUSE_PTEX=OFF -DUSE_OPENCV=OFF
+  -DUSE_TBB=OFF`.
 
 No source changes. Arch's `-3` is its libjxl 0.13 rebuild; ours builds
 against whatever libjxl the pool ships (0.12 at the time of writing). The
 pkgrel is kept as Arch's so the next import is a plain re-fetch.
 
-## The four `USE_*=OFF`
+## The `USE_*=OFF`
 
-They are exactly the optional libraries in the `TODO: Consider adding these
-deps` comment on `depends=()`. Arch builds in a clean chroot that never has
-them, so Arch's package links none of them. bq builds over the host's
-`/usr`, and OIIO links any optional library it finds. So 3.1.12.1-6 linked
-`libopenvdb.so.12.1`, `libPtex.so.2.5` and `libavcodec.so.63` without
-declaring any of them `[MEASURED]`. When Arch POWER's `openvdb` moved to 13.0
+They are the optional libraries that Arch's clean chroot never has: the four
+in the `TODO: Consider adding these deps` comment on `depends=()`, plus
+onetbb. Arch's package links none of them. In Arch's x86_64
+`openimageio-3.2.1.2-2`, `libOpenImageIO_Util.so` NEEDs only libstdc++,
+libm, libgcc_s and libc `[MEASURED]`. bq builds over the host's `/usr`, and
+OIIO links any optional library it finds. So 3.1.12.1-6 linked
+`libopenvdb.so.12.1`, `libPtex.so.2.5`, `libavcodec.so.63` and `libtbb.so.12`
+without declaring any of them `[MEASURED]`. A first 3.2.1.2 build with only
+the TODO four off still linked `libtbb.so.12` into `libOpenImageIO_Util`. When Arch POWER's `openvdb` moved to 13.0
 (2026-11-16), `ldd /usr/lib/libOpenImageIO.so.3.1` on the build host
 reported `libopenvdb.so.12.1 => not found`. That broke blender 5.1.0-5, and
 anything else that loads OIIO, on any system with the new openvdb.
