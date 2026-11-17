@@ -1,8 +1,8 @@
 # Maintainer: Jordan Bettcher <thebettcher@gmail.com>
 # ppc64le: Omarchy ppc64le -- see README.md.  The baseline kernel: mainline
-# 7.2.6 plus eight patches this machine needs to boot, keep its USB alive,
-# run the chromium sandbox, hand the GPU correct DMA, and build Rust drivers
-# (nova-core) on powerpc.  Nothing here is
+# 7.3.5 plus eight patches this machine needs to keep its USB alive, keep
+# _TIF_RESTOREALL across interrupt exit work, hand the GPU correct DMA, and
+# build Rust drivers (nova-core) on powerpc with GCC.  Nothing here is
 # a fork: every patch is a separate file with a header saying what it fixes.
 #
 # This recipe replaces the old `make pacman-pkg` flow, which built out of a
@@ -20,7 +20,7 @@
 # the other with `_pagesize=64k makepkg` (README.md, "Building both").
 _pagesize=${_pagesize:-4k}
 
-_kernver=7.2.9
+_kernver=7.3.5
 
 case "$_pagesize" in
   4k)
@@ -34,7 +34,7 @@ case "$_pagesize" in
   64k)
     pkgbase=linux-omarchy-64k
     _config=config.64k
-    # CONFIG_LOCALVERSION="-64k" makes kernelrelease 7.2.2-64k; pacman has
+    # CONFIG_LOCALVERSION="-64k" makes kernelrelease 7.3.5-64k; pacman has
     # no '-' in pkgver, hence the underscore.  prepare() asserts the two
     # still agree, so a config edit cannot silently rename the package.
     pkgver=${_kernver}_64k
@@ -51,7 +51,7 @@ for _p in "${_extra[@]}"; do pkgname+=("$pkgbase-$_p"); done
 # the 4K package had already reached 7.2.2-21 under the old flow and
 # repo-publish.sh refuses a same-version rebuild with different contents.
 # Bump it for every change to this directory -- README.md, "Versioning".
-pkgrel=3
+pkgrel=1
 pkgdesc='Upstream Linux'
 url='https://www.kernel.org/'
 arch=(powerpc64le)
@@ -89,12 +89,19 @@ source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kern
         # 0006 (eeh pci_rescan_remove_lock self-deadlock) dropped at 7.2.9:
         # upstream eeh_rmv_device() no longer takes the lock around
         # pci_stop_and_remove_bus_device(), so the patch is obsolete.
+        # 0002 (syscall_exit_restart() returns the accumulated exit_result)
+        # dropped at 7.3.5: upstream already returns regs->exit_result there.
+        # Its context had not matched since at least 7.2.9; the hunk landed
+        # with fuzz 2 in syscall_exit_prepare() instead, a no-op on PPC64.
+        # 0004 (return value of a seccomp/ptrace-skipped syscall) dropped at
+        # 7.3.5: syscall_enter_from_user_mode_randomize_stack() now reports a
+        # skip as false and system_call_exception() returns syscall_get_error()
+        # from pt_regs, so SECCOMP_RET_ERRNO no longer becomes ENOSYS.  Its
+        # r0 == -1 test would now only see syscalls that were not skipped.
         # Applied in this order.  0003 depends on 0001 (it edits the block
-        # 0001 adds) and 0005 depends on 0002 being in place first.
+        # 0001 adds).
         0001-xhci-pci-no-64bit-dma-for-amd-promontory19-43fc.patch
-        0002-powerpc-syscall_exit_restart-return-accumulated-exit_result.patch
         0003-xhci-pci-trb-overfetch-for-amd-promontory19-43fc.patch
-        0004-powerpc-syscall-keep-seccomp-ptrace-return-value-when-syscall-skipped.patch
         0005-powerpc-interrupt-clear-exit_flags-before-irqentry_exit-exit-work.patch
         0007-powerpc-mm-do-not-grow-max_pfn-for-ZONE_DEVICE.patch
         0008-powerpc-rust-support.patch
@@ -115,19 +122,17 @@ source=("https://cdn.kernel.org/pub/linux/kernel/v${_kernver%%.*}.x/linux-$_kern
         # are one fixed list and the two builds share a source cache.
         config.4k
         config.64k)
-sha256sums=('b4c5dfbe51a364a6c7f03869200f88c8e1f77403539005f14b7fc6bc91b8d8ba'
+sha256sums=('8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990'
             '966e5fe6696603044769a3b7781e084aacb262faf7b32c57016504e865989f08'
-            '84cf2930d34a9523f952d5d3311f0a2df6ce26166fa9d850d3c1630b0d5bf63e'
             '598c846855ed395f496266a022cc8c3ae95143562f152344269932a5e1945356'
-            '6989363b6cf739e25d9283734bbec68d949f27629c8f44cf560565e5a54c84bf'
             '894d71341824ead1a454ea70d112b45d34cd4c4aa057d4495a133c8cccd44755'
             '4f24f8bdcbae70eee6098a5161989140c735e838c32a5aa64b17d60d8fbf27f5'
-            '982294b4a32b8b2cedcc0cbfcf929c9f3252dc9a71aa3f546770e04caa876b62'
+            '92b2e59585c0378fda5b8ae6fcdfa3233584332ce17efe90c0b3aa8b4908b3a8'
             '71e86c5b38cb2171c021765c2cf976a61e1787a21f18894f5dcf5b58ddd31b59'
             '01a8bb6f4a50d07e1d3263d50bc47a0d0aa1b1e7b77e2b542f6a2cdd216a41a0'
             '7a8f8d3de7e95af5bf8761a0a361b25883190c03e7694f561f01fc9d5de0bdf8'
-            'e2bd46a87388a096693cc7957f07682b623c9b9bb67dad9c3397cbcfead891fb'
-            '863204fe65ae62b643dcba376b640a15a6334d6a6a689a6c50972d947aca2f02')
+            '1a32b4fcac673fbd2434c7803fe48eeaa11821aaba82d77373b2b970f5278b0d'
+            'f1ccab5a0e3c0ba8659ed32bd99a00fd290e22346a6789c2b2357fcab8b5c327')
 
 # Reproducible-ish build stamps.  The old flow inherited whatever the shell
 # had; name them so two builds of the same pkgrel differ only by timestamp.
@@ -253,7 +258,7 @@ _package() {
   # display-class device, so with both built udev loads both for one GPU and
   # whichever probes first wins -- at random. Nova is why these kernels build
   # Rust; blacklist nouveau so nova-core binds, and leave nouveau one line away
-  # for anyone who needs a display (nova has no modesetting in 7.2). Named per
+  # for anyone who needs a display (nova has no modesetting in 7.3). Named per
   # pkgbase so the 4K and 64K kernels install side by side. mkinitcpio's
   # modconf hook copies modprobe.d into the initramfs, so it holds there too.
   echo "Installing modprobe.d nouveau blacklist..."
@@ -262,7 +267,7 @@ _package() {
 #
 # nova-core (Rust, GSP) and nouveau both claim NVIDIA GPUs; only one can bind.
 # nova-core is the default on this kernel. It boots the GPU's GSP firmware but
-# has no display output yet (drm-nova has no modesetting in 7.2).
+# has no display output yet (drm-nova has no modesetting in 7.3).
 #
 # For a working display on an NVIDIA card instead, override this file:
 #   cp /usr/lib/modprobe.d/<this file> /etc/modprobe.d/  and remove the line

@@ -7,8 +7,9 @@ The baseline ppc64le kernel, as a recipe.
 it carries no generation in its name. `ours/linux-power9` is the same recipe
 with `CONFIG_POWER9_CPU`, built for machines known to be POWER9.
 
-The two configs differ from that sibling in exactly two symbols,
-`CONFIG_POWER9_CPU`/`CONFIG_POWER8_CPU` and `CONFIG_TARGET_CPU`. Everything
+The two configs differ from that sibling in the CPU symbols,
+`CONFIG_POWER9_CPU`/`CONFIG_POWER8_CPU` and `CONFIG_TARGET_CPU`, and in the
+wider Wi-Fi driver set this recipe enables (63ab78c1). Everything
 else — the patch series, the page-size variants, the split packages — is
 identical, and a change to one recipe usually belongs in the other.
 
@@ -19,17 +20,23 @@ The CPU floor cannot be set from `makepkg.conf`: `arch/powerpc/Makefile` takes
 
 | `_pagesize` | pkgbase | pkgver | splits |
 |---|---|---|---|
-| `4k` (default) | `linux-omarchy` | `7.2.6` | `-headers`, `-api-headers` |
-| `64k` | `linux-omarchy-64k` | `7.2.6_64k` | `-headers` |
+| `4k` (default) | `linux-omarchy` | `7.3.5` | `-headers`, `-api-headers` |
+| `64k` | `linux-omarchy-64k` | `7.3.5_64k` | `-headers` |
 
 Everything it is made of is a tracked file in this directory: mainline
-`linux-7.2.6.tar.xz` from kernel.org (by sha256), eight patches, and the two
+`linux-7.3.5.tar.xz` from kernel.org (by sha256), eight patches, and the two
 configs. Nothing is taken from a working tree any more.
 
 7.2.6 (pkgrel 1) moved from 7.2.2 and turned on **Rust** for the first time on
 powerpc, for NVIDIA's `nova-core`/`drm-nova`; see patch `0008` and
 "Rust, Nova and Nouveau" below. The history section that follows describes
 the 7.2.2 move into this recipe and is kept as written.
+
+7.3.5 (pkgrel 1) moved from 7.2.9: 7.2 went EOL with 7.2.15 on 2026-11-01.
+7.3 enables Rust on ppc64le upstream, so `0008` shrank to the three things a
+GCC-built kernel still needs, and `0002` and `0004` are fixed upstream and
+dropped; see "The patches". The configs were refreshed with `olddefconfig`;
+see "The configs".
 
 ## What changed, and why
 
@@ -54,21 +61,26 @@ to `config.4k` / `config.64k` here.
 ## The patches
 
 Applied in the order they are listed in `source=()`; 0003 edits the block 0001
-adds, and 0005 edits the function 0002 changes, so the order is load-bearing.
+adds, so the order is load-bearing. `0002`, `0004` and `0006` are no longer in
+`source=()`; their files stay here for the record.
 
 | | what it fixes | disposition |
 |---|---|---|
 | `0001` | xHCI on the AMD Promontory-19 (`1022:43fc`, the B650 card in PHB 0030) sets AC64 in HCCPARAMS1 but drops the high bits of the 64-bit DMA addresses it is given. The powernv IOMMU bypass window is based at bit 59, so every DMA lands somewhere else and the PHB freezes the PE. `XHCI_NO_64BIT_SUPPORT` keeps it on the 32-bit TCE window. | hardware quirk, upstreamable |
-| `0002` | `syscall_exit_restart()` returned only what the restart added instead of the accumulated `regs->exit_result`. The asm uses that value to pick between a full GPR restore and the fast path that zeroes r4–r12, so dropping the `_TIF_RESTOREALL` that `start_thread()` set zeroes the ELFv2 entry point in r12. | powerpc bug, upstreamable |
+| `0002` | `syscall_exit_restart()` returned only what the restart added instead of the accumulated `regs->exit_result`. The asm uses that value to pick between a full GPR restore and the fast path that zeroes r4–r12, so dropping the `_TIF_RESTOREALL` that `start_thread()` set zeroes the ELFv2 entry point in r12. | **dropped at 7.3.5**: upstream `syscall_exit_restart()` already returns `regs->exit_result`. The context had not matched since at least 7.2.9, and the hunk was landing with fuzz 2 in `syscall_exit_prepare()`, where on PPC64 it changed nothing |
 | `0003` | The same xHCI also prefetches TRBs past the end of a ring segment. Harmless where the next page happens to be mapped; on powernv the TCE window ends exactly at the segment and the unattributable inbound read fences the PHB. `XHCI_TRB_OVERFETCH`. | hardware quirk, upstreamable |
-| `0004` | When a syscall is skipped (seccomp `RET_ERRNO`/`_TRAP`/`_TRACE`, `PTRACE_SYSEMU`, tracer rejection) powerpc took the return value from r3 but the generic code had already stored it in `pt_regs`, so every `SECCOMP_RET_ERRNO` came back as `ENOSYS`. **This is the chromium sandbox fix** — 7.2 broke it, 7.1 was fine. | powerpc bug, upstreamable |
-| `0005` | Clear `exit_flags` in `arch_interrupt_exit_prepare()` rather than in `interrupt_exit_user_prepare()`, so flags set by the exit work `irqentry_exit()` runs (`arch_do_signal_or_restart()` → `_TIF_RESTOREALL`) survive to be read. Mirrors `syscall_exit_prepare()`. Pairs with 0002. | powerpc bug, upstreamable |
-| `0006` | `eeh_rmv_device()` takes `pci_rescan_remove_lock`, but every caller already holds it since 1010b4c012b0. The first PE reset involving a device whose driver has no EEH error handlers (xhci_hcd, ahci, …) deadlocks `eehd` against itself, and because the global lock is never released all later PCI hotplug/rescan/remove blocks too. | mainline bug since 6.17, upstreamable |
+| `0004` | When a syscall is skipped (seccomp `RET_ERRNO`/`_TRAP`/`_TRACE`, `PTRACE_SYSEMU`, tracer rejection) powerpc took the return value from r3 but the generic code had already stored it in `pt_regs`, so every `SECCOMP_RET_ERRNO` came back as `ENOSYS`. **This is the chromium sandbox fix** — 7.2 broke it, 7.1 was fine. | **dropped at 7.3.5**: 7.3's `syscall_enter_from_user_mode_randomize_stack()` returns false for a skipped syscall, and `system_call_exception()` then returns `syscall_get_error()` from `pt_regs`. Its `r0 == -1` test would now only see syscalls that were not skipped, and make `syscall(-1, x)` return `x` |
+| `0005` | Clear `exit_flags` in `arch_interrupt_exit_prepare()` rather than in `interrupt_exit_user_prepare()`, so flags set by the exit work `irqentry_exit()` runs (`arch_do_signal_or_restart()` → `_TIF_RESTOREALL`) survive to be read. Mirrors `syscall_exit_prepare()`. Paired with 0002, whose half is now upstream; still needed in 7.3.5, which clears `exit_flags` in `interrupt_exit_user_prepare()` after the exit work has run. | powerpc bug, upstreamable |
+| `0006` | `eeh_rmv_device()` takes `pci_rescan_remove_lock`, but every caller already holds it since 1010b4c012b0. The first PE reset involving a device whose driver has no EEH error handlers (xhci_hcd, ahci, …) deadlocks `eehd` against itself, and because the global lock is never released all later PCI hotplug/rescan/remove blocks too. | **dropped at 7.2.9**: upstream `eeh_rmv_device()` no longer takes the lock |
 | `0007` | `add_pages()` grows `max_pfn` for ZONE_DEVICE ranges, which are not RAM. `dma_direct_get_required_mask()` reads `max_pfn`, so once amdgpu registers device-private memory for KFD SVM, `dma_go_direct()` starts refusing the powernv pseudo-bypass and mappings silently go through a software `iommu_table` the hardware is no longer consulting — DMA to unrelated RAM, no fault. Only reachable with 64K pages (with 4K the registration fails on the linear-map range), so this is what makes **ROCm safe on the 64K kernel**. | mm/powerpc bug, upstreamable |
-
-| `0008` | Enables Rust on 64-bit little-endian powerpc. Mainline 7.2 selects `HAVE_RUST` only on arm, arm64, loongarch, riscv, s390, um and x86, so `CONFIG_RUST` -- and with it `NOVA_CORE` and `DRM_NOVA` -- is not even offered. Like x86_64 it generates `scripts/target.json`: rustc's own `powerpc64le-unknown-linux-gnu` data layout and ELFv2 ABI (`abi` and `llvm-abiname` both `elfv2`) with `-altivec,-vsx`. hard-float stays on: rustc refuses to disable it on ELFv2 and has no PowerPC64 soft-float `rustc-abi`, so this is the arm64 `-neon` model, where kernel Rust code simply has no floats. It also extends `target.json` generation and the `core.o` dependency from x86 to `CONFIG_PPC64`, selects the clang `DS_FORM_CONSTRAINT` under `__BINDGEN__`, and defines `ARCH_STATIC_BRANCH_ASM` for Rust static branches; `-Ccode-model=large` for modules to match `-mcmodel=large`; `BINDGEN_TARGET_powerpc` and the GCC-only powerpc flags libclang rejects. Written for 7.2.6 by `~/Development/kernel-rust-ppc64le.py`. | enablement, upstreamable once proven |
+| `0008` | Builds mainline's ppc64le Rust support with GCC. 7.3 selects `HAVE_RUST` for `PPC64 && CPU_LITTLE_ENDIAN` itself, with rustc's builtin `powerpc64le-unknown-linux-gnu` target and `-mma,-vsx,-hard-float,-altivec`, `BINDGEN_TARGET_powerpc` and `ARCH_STATIC_BRANCH_ASM`; that replaces the 7.2 patch's generated `target.json`, Kconfig select and jump-label macro. What is left: `DS_FORM_CONSTRAINT` takes the clang spelling under `__BINDGEN__` (libclang rejects GCC's `"Y"` constraint, so no binding is generated at all); `rust/kernel/bug.rs` sends powerpc to the `WARN_ON()` helper, as loongarch and arm, because powerpc has no `ARCH_WARN_ASM` and 7.3's `srcu.rs` uses `warn_on!`; and `-Ccode-model=large` for Rust modules, as `-mcmodel=large` for C ones. The first two were both build failures on 7.3.5 as released. | build fix, upstreamable |
+| `0009` | amdkfd: map a GPU's NUMA node to the dense CPU proximity domain instead of the raw, possibly sparse, node id. See the patch header. | upstreamable |
+| `0010` | amdgpu: keep the intra-page offset, and never grow `num_entries`, when building system-page PTEs with `PAGE_SIZE` > 4K. 64K kernels only. | upstreamable |
+| `0011` | powernv: allow the TVE#0 64-bit DMA bypass on PHB4 and take the TCE size from the PHB. See the patch header. | upstreamable |
 
 All seven 7.2.2 patches apply unchanged to 7.2.6 (0003 needs 0001 first, as listed).
+On 7.3.5, 0001, 0003, 0005, 0007, 0009, 0010 and 0011 apply as they are, with
+line offsets and no fuzz; 0008 was rewritten against 7.3.5.
 
 `0006` was regenerated against pristine 7.2.2 while writing this recipe: the
 loose copy applied with `fuzz 1` because its hunk header undercounted the
@@ -89,6 +101,20 @@ The 7.2.6 configs were made from the 7.2.2 ones: `olddefconfig` against the
 7.2.6 tree with the patches applied, the additions below set with
 `scripts/config`, and `olddefconfig` again, then copied here verbatim.
 
+The 7.3.5 configs are the 7.2.9 ones put through `olddefconfig` against the
+7.3.5 tree with the patches applied, copied back verbatim. That also folded the
+lines once appended by hand at the end of the baseline configs (a second
+`POWER8_CPU`, the `MT76x*` set, and `ATH11K_AHB`/`ATH12K_PCI`, which have
+never survived `olddefconfig` here) into a normal kbuild file; what the build
+gets is unchanged. The 7.2.9 -> 7.3.5 change was the same in all four. `PROC_SYSCTL` is gone (`/proc/sys` now comes with
+`SYSCTL`, which is on). `HAVE_GENERIC_VDSO` and `ARCH_ENABLE_THP_MIGRATION`
+were folded into other symbols. The EFS, VxFS and `SATA_INIC162X` drivers,
+all of which were off, were removed. New defaults that came on:
+`SERIAL_8250_MOXA_PCIE=y`, `SECURITY_LANDLOCK_LOG=y`,
+`POSIX_CPU_TIMERS_TASK_WORK`, `SWIOTLB_DEFAULT_SIZE_MB=64` (the old
+built-in size), `RTW89_LEDS`, the split `CRYPTO_LIB_AES_*` modules, and
+`CRYPTO_LIB_GF128HASH` going from `m` to `y`. Newly offered drivers stayed off.
+
 Options in there that are not obvious and must survive any refresh:
 
 - **`CONFIG_HSA_AMD=y`** — `/dev/kfd`, which ROCm needs for GPU compute and
@@ -104,7 +130,7 @@ Options in there that are not obvious and must survive any refresh:
   `NETFILTER_XTABLES_LEGACY`, `IP_NF_IPTABLES_LEGACY` and 137 `XT_`/`NFT_`/
   `IP_NF_`/`IP6_NF_` modules. Without these **ufw and docker do not work**.
 - **`CONFIG_LOCALVERSION`** — `""` for 4K, `"-64k"` for 64K. This is what makes
-  the module directory `/usr/lib/modules/7.2.6-64k` and the pkgver `7.2.6_64k`.
+  the module directory `/usr/lib/modules/7.3.5-64k` and the pkgver `7.3.5_64k`.
   `prepare()` asserts `make -s kernelrelease` still matches `pkgver`, so an
   accidental edit fails the build instead of silently renaming the package.
 - **`CONFIG_RUST=y`, `NOVA_CORE=m`, `DRM_NOVA=m`** -- see below.
@@ -137,7 +163,11 @@ Asked for by a Talos II tester with an RTX 3070.
 
 - **Toolchain.** `makedepends` gains `rust`, `rust-src`, `rust-bindgen` (kernel
   minimum bindgen 0.71.1; ours is 0.72.1) and `clang` (bindgen needs libclang).
-  `make rustavailable` passes on .24 with rustc 1.98.1.
+  `make rustavailable` passes on .24 with rustc 1.99.1.
+- **Upstream since 7.3.** Mainline now enables Rust on ppc64le; patch `0008`
+  carries only the GCC build fixes. rustc 1.99 warns that turning off
+  `hard-float`, which upstream's flags do, "is being phased out"; it is a
+  warning, not an error, for now.
 - **The trap.** `olddefconfig` re-evaluates `RUST_IS_AVAILABLE`; if any of those
   is missing from the build environment, `CONFIG_RUST` -- and every Rust
   driver -- is dropped without an error. `prepare()` therefore fails the build
@@ -147,6 +177,9 @@ Asked for by a Talos II tester with an RTX 3070.
   `nvidia/<chip>/gsp/*-570.144.bin`, which `linux-firmware-nvidia` ships), but
   `drm-nova` only offers GETPARAM/GEM_CREATE/GEM_INFO: no modesetting, no
   display. **Nouveau is what drives a screen**; Nova is there to test.
+  In 7.3.5 `drm-nova` still has only those three ioctls, and nova-core now asks
+  for TLV-packaged firmware (`nvidia/<chip>/gsp/gsp_bootloader.tlv`,
+  `gsp.tlv`, `gsp.bin`), which `linux-firmware-nvidia` 20260810 does not ship.
 - Both are modules and claim the same NVIDIA GPUs, so udev would load both
   and whichever probed first would win at random. The package ships
   `/usr/lib/modprobe.d/<pkgbase>-nvidia.conf` with **`blacklist nouveau`**:
