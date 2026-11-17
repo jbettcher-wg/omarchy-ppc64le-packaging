@@ -597,6 +597,25 @@ prepare() {
   rm -f third_party/gperf/cipd/bin/gperf
   ln -s /usr/bin/gperf third_party/gperf/cipd/bin/
 
+  if [[ $CARCH == powerpc64le ]]; then
+    # The lite tarball ships x86-64 builds of tools that build scripts look up
+    # by path before falling back to PATH. On a builder with an x86-64
+    # binfmt_misc handler (FEX), such a binary runs under emulation instead of
+    # failing to exec: 157's V8 metagen (tools/metagen/compile_flags.py
+    # _find_gn) takes buildtools/linux64/gn first, and its `gn desc` died there
+    # at [17654/56429] with FEX refusing the 64K host page. Point gn and the
+    # other two tools a script could find this way at the system ones (gn is
+    # the same 157 DEPS pin). The other bundled x86-64 ELFs are tests,
+    # fixtures and tools our targets never run.
+    local _tool
+    for _tool in buildtools/linux64/gn:/usr/bin/gn \
+                 buildtools/linux64-format/clang-format:/usr/bin/clang-format \
+                 third_party/ninja/ninja:/usr/bin/ninja; do
+      rm -f "${_tool%%:*}"
+      ln -s "${_tool##*:}" "${_tool%%:*}"
+    done
+  fi
+
   # devtools' esbuild is an x86-64/arm64 npm binary package; use ours
   rm -rf third_party/devtools-frontend/src/node_modules/esbuild/
   ln -s /usr/lib/node_modules/esbuild/ third_party/devtools-frontend/src/node_modules/esbuild
