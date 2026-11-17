@@ -4,7 +4,7 @@
 pkgbase=libjxl
 pkgname=('libjxl' 'libjxl-doc')
 pkgver=0.12.0
-pkgrel=1
+pkgrel=1.1
 pkgdesc='JPEG XL image format reference implementation'
 #arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 arch=(powerpc64le)
