@@ -21,24 +21,23 @@ Seen in the GPU process on the software path (--disable-gpu, i.e.
 acceleration off): "Crashing due to FD ownership violation", SIGSEGV on
 corrupted IPC state on the IO thread, and finally
 "GPU process isn't usable. Goodbye." --disable-gpu-sandbox or --no-sandbox
-make it go away. The same encoding also mishandles the first-argument
-workaround below for scv callers.
+make it go away.
 
 The trap value in the saved registers records which instruction the caller
-used. Use it:
+used. Syscall::PutValueInUcontext() now stores the result as-is for scv
+callers (-errno on error) and leaves CR0.SO alone; sc callers keep the sc
+encoding.
 
- * Syscall::PutValueInUcontext(): for scv callers store the result as-is
-   (-errno on error) and leave CR0.SO untouched; keep the sc encoding for
-   sc callers.
- * Trap::SigSys(): apply the existing ppc64 first-argument negation
-   workaround only to sc callers. scv callers' arguments are already
-   correct, and negating them turns a valid directory fd into an invalid one.
- * SIGSYSFstatatHandler(): apply its fd fixup only to sc callers, via the new
-   Trap::IsEmulatingScvSyscall(), set for the duration of the handler.
-
-sc behaviour is unchanged. Tested with a standalone reproducer that runs this
-encoding against glibc, raw `sc` and raw `scv 0` callers, and with the
-Chromium GPU process on --disable-gpu with the sandbox enabled.
+Rebased for 157. Debian's 157 sandbox patch reads SECCOMP_PARM1 from
+orig_gpr3 ("newer kernels leave -ENOSYS in gpr[3]") and drops the trap.cc
+first-argument negation, which was a workaround for reading gpr[3]; this
+patch's gating of that negation went with it. The same workaround survived
+in SIGSYSFstatatHandler as `if (fd < 0) fd = -fd`. Its arguments come from
+the same arch_seccomp_data that Trap::SigSys now fills from orig_gpr3, so
+the fd there is the caller's for sc and scv alike, and the negation can only
+corrupt a genuinely negative one (AT_FDCWD -> 100, -1 -> stdout). It is
+removed rather than gated, and the Trap::IsEmulatingScvSyscall plumbing
+that the 153 version added for it is gone.
 
 Upstreamable: Debian chromium-team ppc64le series, and Chromium upstream if
 the ppc64 sandbox code is carried there.
@@ -51,15 +50,15 @@ the ppc64 sandbox code is carried there.
  #define SECCOMP_IP(_ctx) (_ctx)->uc_mcontext.regs->nip
 +// Which instruction the caller used to make the system call, from the trap
 +// value in the saved registers (low bits masked): 0xc00 for sc, 0x3000 for
-+// scv. The two have different argument and return-value conventions.
++// scv. The two return results in different conventions.
 +#define SECCOMP_PPC64_TRAP(_ctx) ((_ctx)->uc_mcontext.regs->trap & ~0x1fUL)
 +#define SECCOMP_PPC64_IS_SCV(_ctx) (SECCOMP_PPC64_TRAP(_ctx) == 0x3000)
- #define SECCOMP_PARM1(_ctx) SECCOMP_REG(_ctx, 3)
- #define SECCOMP_PARM2(_ctx) SECCOMP_REG(_ctx, 4)
- #define SECCOMP_PARM3(_ctx) SECCOMP_REG(_ctx, 5)
+ // Newer kernels leave -ENOSYS in gpr[3] of the SIGSYS context; the real
+ // first syscall argument is in orig_gpr3.
+ #define SECCOMP_PARM1(_ctx) ((_ctx)->uc_mcontext.regs->orig_gpr3)
 --- a/sandbox/linux/seccomp-bpf/syscall.cc
 +++ b/sandbox/linux/seccomp-bpf/syscall.cc
-@@ -493,12 +493,22 @@
+@@ -496,12 +496,22 @@
    }
  #endif
  #if defined(__powerpc64__)
@@ -88,95 +87,23 @@ the ppc64 sandbox code is carried there.
    }
  #endif
    SECCOMP_RESULT(ctx) = static_cast<greg_t>(ret_val);
---- a/sandbox/linux/seccomp-bpf/trap.cc
-+++ b/sandbox/linux/seccomp-bpf/trap.cc
-@@ -149,6 +149,18 @@
-   global_trap_->SigSys(nr, info, ctx);
- }
- 
-+#if defined(__powerpc64__)
-+namespace {
-+// See Trap::IsEmulatingScvSyscall().
-+thread_local bool g_emulating_scv_syscall = false;
-+}  // namespace
-+
-+// static
-+bool Trap::IsEmulatingScvSyscall() {
-+  return g_emulating_scv_syscall;
-+}
-+#endif  // defined(__powerpc64__)
-+
- void Trap::SigSys(int nr, LinuxSigInfo* info, ucontext_t* ctx) {
-   // Signal handlers should always preserve "errno". Otherwise, we could
-   // trigger really subtle bugs.
-@@ -241,9 +253,15 @@
-     // parameter which causes checks against it to fail. For now, manually
-     // negate them back.
-     // TODO(sanastasio@raptorengineering.com): investigate this issue further
-+    //
-+    // This applies only to callers that used the sc instruction. Callers that
-+    // used scv (glibc on POWER9 and later) arrive with their arguments intact,
-+    // and negating them would turn a valid directory fd into an invalid one.
-+    const bool emulating_scv = SECCOMP_PPC64_IS_SCV(ctx);
-     auto nr = SECCOMP_SYSCALL(ctx);
--    if (nr == __NR_openat || nr == __NR_mkdirat || nr == __NR_faccessat || nr == __NR_readlinkat ||
--        nr == __NR_renameat || nr == __NR_renameat2 || nr == __NR_newfstatat || nr == __NR_unlinkat) {
-+    if (!emulating_scv &&
-+        (nr == __NR_openat || nr == __NR_mkdirat || nr == __NR_faccessat || nr == __NR_readlinkat ||
-+         nr == __NR_renameat || nr == __NR_renameat2 || nr == __NR_newfstatat || nr == __NR_unlinkat)) {
-         if (static_cast<int>(SECCOMP_PARM1(ctx)) > 0) {
-             SECCOMP_PARM1(ctx) = -SECCOMP_PARM1(ctx);
-         }
-@@ -266,7 +284,14 @@
- 
-     // Now call the TrapFnc callback associated with this particular instance
-     // of SECCOMP_RET_TRAP.
-+#if defined(__powerpc64__)
-+    const bool was_emulating_scv = g_emulating_scv_syscall;
-+    g_emulating_scv_syscall = emulating_scv;
-+#endif
-     rc = trap.fnc(data, reinterpret_cast<void*>(trap.aux));
-+#if defined(__powerpc64__)
-+    g_emulating_scv_syscall = was_emulating_scv;
-+#endif
-   }
- 
-   // Update the CPU register that stores the return code of the system call
---- a/sandbox/linux/seccomp-bpf/trap.h
-+++ b/sandbox/linux/seccomp-bpf/trap.h
-@@ -43,6 +43,13 @@
-   // "CHROME_SANDBOX_DEBUGGING" environment variable is set.
-   static bool SandboxDebuggingAllowedByUser();
- 
-+#if defined(__powerpc64__)
-+  // True while a trap handler is emulating a system call that its caller made
-+  // with the scv instruction rather than sc. Handlers that adjust arguments
-+  // for the sc convention must not do so for scv callers.
-+  static bool IsEmulatingScvSyscall();
-+#endif
-+
-  private:
-   using HandlerToIdMap = std::map<TrapRegistry::Handler, uint16_t>;
- 
 --- a/sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.cc
 +++ b/sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.cc
-@@ -23,6 +23,7 @@
- #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
- #include "sandbox/linux/seccomp-bpf/sandbox_bpf.h"
- #include "sandbox/linux/seccomp-bpf/syscall.h"
-+#include "sandbox/linux/seccomp-bpf/trap.h"
- #include "sandbox/linux/services/syscall_wrappers.h"
- #include "sandbox/linux/system_headers/linux_seccomp.h"
- #include "sandbox/linux/system_headers/linux_stat.h"
-@@ -390,7 +391,10 @@
-       // parameter which causes checks against it to fail. For now, manually
-       // negate them back.
-       // TODO: Investigate the root cause and fix in glibc
+@@ -385,14 +385,9 @@
+     if (*reinterpret_cast<const char*>(args.args[1]) == '\0' &&
+         args.args[3] == static_cast<uint64_t>(AT_EMPTY_PATH)) {
+           int fd = static_cast<int>(args.args[0]);
+-#if defined(__powerpc64__)
+-      // On ppc64+glibc, some syscalls seem to accidentally negate the first
+-      // parameter which causes checks against it to fail. For now, manually
+-      // negate them back.
+-      // TODO: Investigate the root cause and fix in glibc
 -      if (fd < 0)
-+      //
-+      // Only for callers that used sc; see Trap::SigSys. An scv caller's fd
-+      // arrives unchanged and is passed through as-is.
-+      if (fd < 0 && !Trap::IsEmulatingScvSyscall())
-         fd = -fd;
- #endif
+-        fd = -fd;
+-#endif
++      // No ppc64 fd fixup here: SECCOMP_PARM1 reads orig_gpr3, so args[0] is
++      // the caller's own fd for sc and scv alike, and negating a negative one
++      // would turn AT_FDCWD into fd 100 and -1 into stdout.
        return syscall(__NR_fstat_default, fd,
+                      reinterpret_cast<default_stat_struct*>(args.args[2]));
+     }

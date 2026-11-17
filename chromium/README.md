@@ -47,7 +47,18 @@ production builds.
 
 ## Patch provenance: use the tag, not master
 
-`chromium-ppc64le-patches-r4.tar.gz` is `debian/patches/ppc64le` at salsa tag
+**157 (r5) is the exception.** `chromium-ppc64le-patches-r5.tar.gz` is
+`debian/patches/ppc64le` at salsa **commit
+`2da61670e210461810681997ab3f26e59c2d5193`** (master, 2026-11-05, Debian's
+UNRELEASED 157.0.8103.38-1), because Debian had not tagged a 157 and master was
+the only 157 set. Its 40 series entries are the same as r4's and all apply to
+157.0.8103.78 on both lanes with no rejects. Replace it with the tag's set once
+one exists. Reproduce it as below, with the commit in place of the tag, and
+`--mtime='2026-11-05 00:00:00Z'` (sha256 `5292d755…b492`).
+
+The rest of this section is about r4 (153), and it is still the rule.
+
+`chromium-ppc64le-patches-r4.tar.gz` was `debian/patches/ppc64le` at salsa tag
 **`debian/153.0.8010.52-1`** — the exact upload Debian built on ppc64el. Refresh
 from the tag matching `pkgver`, **never from master**: master tracks the next
 release and does not apply. Verified — three patches from master (154-era) fail

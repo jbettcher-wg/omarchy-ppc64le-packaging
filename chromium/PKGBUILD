@@ -18,11 +18,19 @@
 # Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
 
 pkgname=chromium
-pkgver=153.0.8010.52
-pkgrel=10
+pkgver=157.0.8103.78
+pkgrel=1
 _launcher_ver=8
 _manual_clone=0
 _system_clang=1
+# crubit's cc_bindings_from_rs generates the cpp_api_from_rust bindings 157
+# links into cbor, qr_code_generator, blink fonts, web_package and
+# private_verification_tokens. upstream's CRUBIT_REVISION (tools/rust/
+# update_rust.py) is 20dc640430bd60ff2f7f8dbf69c311c5f807adde, which does not
+# build on a stable toolchain; this is Arch's last known good commit. It links
+# rustc's own crates, so it must be built by the same rustc as chromium and
+# re-chosen with every rust bump.
+_crubit_rev=25d2c01bde904c3333bb2d48201e5cbb186a1c7f
 
 # ppc64le ISA level.
 #   0 = POWER9 (ISA 3.0). THE DEFAULT IN THIS TREE. Drops the POWER8 forcing
@@ -83,6 +91,9 @@ depends=(
 makedepends=(
   'clang'
   'compiler-rt'
+  # devtools bundles esbuild 0.28.2 and its JS shim refuses any other version;
+  # prepare() points it at ours.
+  'esbuild>=0.28.2'
   'git'
   'go'
   'gperf'
@@ -94,8 +105,13 @@ makedepends=(
   'pipewire'
   'python'
   'qt6-base'
-  'rust'
+  # Versioned: crubit's revision (_crubit_rev) is paired with this rustc.
+  'rust>=1:1.99.1'
   'rust-bindgen'
+  # crubit links rustc's own crates (rustc-dev) and reads std's source.
+  'rust-src'
+  'rustc-dev'
+  'vulkan-headers'
   # Versioned deliberately. 153's devtools needs TypeScript 6.x: with 5.8.3 the
   # build gets ~20 minutes in and then fails on TS2345 (AllowSharedBufferSource)
   # and TS4113 (Map override modifiers), both 5.x->6.x lib typing changes. Bare
@@ -103,10 +119,11 @@ makedepends=(
   # build failure into a plan-time one. Not a runtime dep -- chromium does not
   # need tsc to run, only to build.
   'typescript>=6.0.0'
-  # Likewise: the git-gn step this recipe used to carry was dropped because the
-  # pool's gn is new enough for 153's DEPS (which pins e8a8e093). Arch POWER's
-  # base gn 0.2324 is not, and would fail at `gn gen`.
-  'gn>=0.2484'
+  # Likewise: 157's DEPS pins gn 0035961837fb, and its BUILD files use
+  # check_includes_strict and allow_circular_includes_from_allowlist, which
+  # older gn rejects at `gn gen`. Our pool's gn is that revision, so Arch's
+  # 610-line chromium-157-revert-gn-check-includes patch is not needed.
+  'gn>=0.2595'
 )
 optdepends=('pipewire: WebRTC desktop sharing under Wayland'
             'kdialog: support for native dialogs in Plasma'
@@ -116,6 +133,7 @@ optdepends=('pipewire: WebRTC desktop sharing under Wayland'
             'upower: Battery Status API support')
 options=('!lto') # Chromium adds its own flags for ThinLTO
 source=(https://commondatastorage.googleapis.com/chromium-browser-official/chromium-$pkgver-lite.tar.xz
+        "git+https://chromium.googlesource.com/external/github.com/google/crubit.git#commit=$_crubit_rev"
         https://github.com/foutrelis/chromium-launcher/archive/v$_launcher_ver/chromium-launcher-$_launcher_ver.tar.gz
         chromium-138-nodejs-version-check.patch
         chromium-145-fix-SYS_SECCOMP.patch
@@ -123,21 +141,21 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         chromium-147-rust-1.95-bytemuck.patch
         chromium-149-drop-unknown-clang-flag.patch
         chromium-149-use-of-undeclared-identifier-ERROR.patch
-        chromium-149-build-with-wasm-rollup.patch
         chromium-150-revert-avx-flag-change.patch
-        chromium-152-fix-gn-no-public_inputs.patch
         chromium-152-unbundle-minizip-undo-unicode.patch
         chromium-152-unbundle-opus-devtools.patch
         chromium-153-hermetic-python.patch
         chromium-153-iamf-tools-unbundled-opus.patch
-        chromium-153-typescript.patch
-        chromium-153-crubit.patch
+        chromium-155-use-system-esbuild.patch
+        chromium-156-isolatedDeclarations.patch
+        chromium-157-typescript.patch
+        chromium-157-crubit.patch
         compiler-rt-adjust-paths.patch
         increase-fortify-level.patch
         enable-widevine-arm64.patch
         use-oauth2-client-switches-as-default.patch
         glibc-2.42-baud-rate-fix.patch
-        chromium-ppc64le-patches-r4.tar.gz
+        chromium-ppc64le-patches-r5.tar.gz
         swiftshader-ppc-xcoff-baseclasses.patch
         chromium-151-dawn-cipd-add-ppc64le.patch
         debian-disable-lint.patch
@@ -147,7 +165,6 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         ppc64le-v8-regexp-simd-scans.patch
         ppc64le-v8-select-roundtieseven-minmax.patch
         ppc64le-v8-single-bc-branches.patch
-        ppc64le-v8-mul32-overflow-synth.patch
         ppc64le-v8-ov64-overflow-synth.patch
         ppc64le-crashpad-minidump-system-info-arch.patch
         ppc64le-v8-compressed-load-zero-extend.patch
@@ -161,7 +178,8 @@ source=(https://commondatastorage.googleapis.com/chromium-browser-official/chrom
         ppc64le-v8-maglev-mul32-overflow-cmpd.patch
         ppc64le-v8-silence-nan-after-arithmetic.patch
         ppc64le-v8-changeint32-redundant-extsw.patch)
-sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
+sha256sums=('9fdce9d3c866f97f14f7a4250915e8e5b729dc952fcfb3a35507b126233f0660'
+            'SKIP'
             '213e50f48b67feb4441078d50b0fd431df34323be15be97c55302d3fdac4483a'
             '11a96ffa21448ec4c63dd5c8d6795a1998d8e5cd5a689d91aea4d2bdd13fb06e'
             '4fc040a0656a0a524dd8ad090cd129fc5b6cb21adcc66be82080165789e8c13e'
@@ -169,31 +187,30 @@ sha256sums=('ed6fcbf913f12f97c619616b35fa8b56f6e61c53bdbf00cbb0e7ef839a39844a'
             'b9e6339221efe03540ffb360c161d93604a1fc93a5a1c53e5e9849066f987d05'
             '1b5190fa030850cf30a97dc90e35b31f3097243c88743fbfaedbd64ea80f1327'
             '951514535be65f0e2f84e82305d96292be1da353c1427ba1048ea24be70003c4'
-            'c4df27d25d298ac95d85e6f06b558b73bb67de5110a19a0228cb7f8519291ea5'
             '5f6ccb7b945c8a13c690493723bad816b36f2f25792d47e677b56f8200907e60'
-            '50115642099ac131f40c419cbd12ed72e352538002d4bdc11ab657335891d03b'
             '890e5d98088ef1c7c075a551442f03385d1db266cad8a65576704a22720683f9'
             '3276453f2ce655b6286476f48d4df837be952d9447afa46583f79ec71f2288c3'
             'ebf74154266d0b6d6cc957c413f845052c5fcfce7745befb8821595cdf3f7d49'
             '2ab9fbe653829ce692f83ee780aad07e8c83a6686e51ab9459ad736cfa2850ee'
-            '44c86a7c26d726559d5bd06a64f81e6bcced7ab4dc949c899e4fd2c64ff37a16'
-            'a20e615fa03713e464fc3f2966c84e2130b6d942a4c8b5919ba0bf8320d39ed4'
+            'ded2abcb912ac4b6ad139e56384eea8f3b470cf57ecb0baa2c2d042df7575a23'
+            'f6aefbd3f70dbda9242cf815a1dca56af729632166bc57e5067755b119cc95de'
+            '655a43eaff824ba27f359790c31c43abd9fc4234026b0d039b8f2633dcb057cb'
+            'eda45eaa5ba6c2ee86389200d4b758f0a06ffb32f3d06c3d0b60f2714c5d237f'
             'ec8e49b7114e2fa2d359155c9ef722ff1ba5fe2c518fa48e30863d71d3b82863'
             'd634d2ce1fc63da7ac41f432b1e84c59b7cceabf19d510848a7cff40c8025342'
             '5ee4bb69379ac0cea7946c9f8f4ca9e20e0a9e4ee2ee9121eb0ebbb94dd7e928'
             '9343afa1a4308a7cfb3317229f5aff7778688debcc03c4a74a85908aa1d0cc3a'
             '1c1898f263eaacbc069a8e1a3e732852350350d1dad4cb1a6bba430e3b796cd0'
-            'dd2a0f9273761cd9cdf67cb690b29ea0cd421b2f2abd9e2a9167ef136623eac0'
+            '5292d75566ff9bc49f199c5c29bf43269f1f3bf7048d29c1b90fe8ce8531b492'
             '389faf07f2fc7f0180998c78417ca23b7c8fa37d3ddd2f5ab569334834c3a955'
-            'bb2dcfbdd0246b1a8be0c02db3915ad00a791eb835346eee8bee2f4774dd0aff'
+            'b255d76dc4a82070ae87c906fb62167eae4e111797edfb3f9aefce3402c8f071'
             '6bf93ab62f409b2c89996dfbd5b28b47986c0b09c828f44e84b024988dc2ec8b'
-            '81bef974e96a0b0395720f49c059a9b6d473d8d79e702d366d73d4c00e8f3d15'
+            '8ff9029c4b6f2a8ca684c4390111eb9c3f4d272b874aa181adece8ded4e1a434'
             '5bd6fb6e45c7e02de205ca59e9375dcba80166c3d4e9bd176e24eb526c43f7d5'
             'e007fb1ad3236f760ab162fbf71b5b7436dfb5bf2ddd19493f56d0a4636efece'
             '508a1776e46dfc95e108d358bc2c16004f1f1424e0da5010cb8274745a7bdea9'
             'ae27c0be4f29a6f786d7ee9059cee564c727a80db975f00b914d6a7af797ec81'
             'a2b07814d7c67b099e35b9389aec90169d9c6581f16df088fb41190a7ebda64f'
-            'b5ddebae3fdf6fed543a4e5e8496ae2556839098d409e01dd8d8d956783454a8'
             '22a11940c55d9957a562273f68ee9006120a8a57be2d1676ce66fab27fb275be'
             '8ef785ac4aba077519189a4913cf0bb0b86af36dc27f04dbea2a5b39b495f3e8'
             'fd4fc7d73bfc5eeb00e8991f66b3bab6954fd853626bf6b4e46ae41992b0542a'
@@ -219,6 +236,7 @@ fi
 declare -gA _system_libs=(
   [brotli]=brotli
   [dav1d]=dav1d
+  [double-conversion]=double-conversion
   #[ffmpeg]=ffmpeg    # YouTube playback stopped working in Chromium 120
   [flac]=flac
   [fontconfig]=fontconfig
@@ -239,6 +257,7 @@ declare -gA _system_libs=(
   [openh264]=openh264
   [opus]=opus
   #[re2]=re2          # needs libstdc++
+  #[simdutf]=simdutf  # Arch unbundles it from 157 (needs >= 8); kept bundled
   #[snappy]=snappy    # needs libstdc++
   #[woff2]=woff2      # needs libstdc++
   [zlib]=minizip
@@ -306,8 +325,6 @@ prepare() {
   # https://crbug.com/456218403
   patch -Np1 -i ../chromium-145-fix-SYS_SECCOMP.patch
 
-  patch -Np1 -i ../chromium-149-build-with-wasm-rollup.patch
-
   patch -Np1 -i ../chromium-147-rust-1.95-bytemuck.patch
 
   # enable widevine for arm64
@@ -321,9 +338,6 @@ prepare() {
   # Fix issue about missing AVX functions
   # Credit: https://github.com/ungoogled-software/ungoogled-chromium/pull/3837
   patch -Np1 -i ../chromium-150-revert-avx-flag-change.patch
-
-  # Just the reverted commit 8dab8b761385b7946588232e4e2a8c116f9293c3
-  patch -Np1 -i "$srcdir/chromium-152-fix-gn-no-public_inputs.patch" -d third_party/devtools-frontend/src
 
   # Chromium bundles a patched minizip with extra features.
   patch -Np1 -i ../chromium-152-unbundle-minizip-undo-unicode.patch
@@ -339,12 +353,19 @@ prepare() {
   # for the unbundled system Opus build
   patch -Np1 -i ../chromium-153-iamf-tools-unbundled-opus.patch
 
+  patch -Np1 -i ../chromium-155-use-system-esbuild.patch
+
+  patch -Np1 -i ../chromium-157-crubit.patch
+
+  patch -Np1 -i ../chromium-156-isolatedDeclarations.patch
+
   # Work around TypeScript becoming a build dependency: disable tsgo for the
   # WebUI and point devtools at the system tsc binary
-  # https://github.com/ungoogled-software/ungoogled-chromium/pull/3946
-  patch -Np1 -i ../chromium-153-typescript.patch
+  # https://github.com/ungoogled-software/ungoogled-chromium/pull/3966
+  patch -Np1 -i ../chromium-157-typescript.patch
 
-  patch -Np1 -i ../chromium-153-crubit.patch
+  # The unbundled brotli doesn't provide brotli:headers
+  sed -i '/brotli:headers/ d' third_party/pdfium/core/fxcodec/BUILD.gn
 
   if [[ $CARCH == powerpc64le ]]; then
     # swiftshader bundles a stripped LLVM 10.0 (src/Reactor/BUILD.gn pins
@@ -367,13 +388,15 @@ prepare() {
     patch -Np1 -i ../chromium-151-dawn-cipd-add-ppc64le.patch
   fi
 
-  # ppc64le patches (Debian chromium-team, series-ordered). r4 is
-  # debian/patches/ppc64le at tag debian/153.0.8010.52-1 of
-  # https://salsa.debian.org/chromium-team/chromium -- the exact upload Debian
-  # built for this release on ppc64el -- with debian-series being that tag's
-  # `ppc64le/` series entries. Refresh from the tag matching pkgver, not
-  # master: master tracks the next major, and its regenerated xnnpack and
-  # ffmpeg configs and rust-linking rebase did not apply to this one.
+  # ppc64le patches (Debian chromium-team, series-ordered). r5 is
+  # debian/patches/ppc64le of https://salsa.debian.org/chromium-team/chromium
+  # at commit 2da61670e210461810681997ab3f26e59c2d5193 (2026-11-05, master,
+  # their UNRELEASED 157.0.8103.38-1), with debian-series being that commit's
+  # `ppc64le/` series entries. The rule is to take the tag matching pkgver,
+  # never master; this is the exception, because Debian has not tagged a 157
+  # and master is the only 157 set that exists. All 40 entries apply to
+  # 157.0.8103.78 on both lanes with no rejects. Replace it with the tag's set
+  # once Debian publishes one.
   if [[ $CARCH == powerpc64le ]]; then
     # Series entries this recipe does not apply, with the reason. Each was
     # checked against this release's tree, not taken on faith.
@@ -556,18 +579,24 @@ prepare() {
   mkdir -p third_party/node/linux/node-linux-x64/bin \
            third_party/jdk/current/bin \
            third_party/rust-toolchain/bin \
-           "third_party/dawn/tools/golang/$_cipd_arch/bin"
+           "third_party/dawn/tools/golang/$_cipd_arch/bin" \
+           third_party/rust-toolchain/crubit/lib/third_party/
 
   ln -s /usr/bin/node third_party/node/linux/node-linux-x64/bin/
   ln -s /usr/bin/java third_party/jdk/current/bin/
   if (( !_manual_clone )); then
     ln -s /usr/bin/rustc third_party/rust-toolchain/bin/
     ln -s /usr/bin/go "third_party/dawn/tools/golang/$_cipd_arch/bin/"
+    ln -s "$srcdir/crubit" third_party/rust-toolchain/crubit/lib/third_party/crubit
   fi
 
   # remove x86_64 binary and use our own
   rm -f third_party/gperf/cipd/bin/gperf
   ln -s /usr/bin/gperf third_party/gperf/cipd/bin/
+
+  # devtools' esbuild is an x86-64/arm64 npm binary package; use ours
+  rm -rf third_party/devtools-frontend/src/node_modules/esbuild/
+  ln -s /usr/lib/node_modules/esbuild/ third_party/devtools-frontend/src/node_modules/esbuild
 
   if (( !_system_clang )); then
     # Use prebuilt rust as system rust cannot be used due to the error:
@@ -583,9 +612,16 @@ prepare() {
   # added benefit of not having to list all the remaining libraries
   local _lib
   for _lib in ${_unwanted_bundled_libs[@]}; do
-    find "third_party/$_lib" -type f \
-      \! -path "third_party/$_lib/chromium/*" \
-      \! -path "third_party/$_lib/google/*" \
+    # Most bundled libraries live under `third_party/<lib>`, but
+    # `double-conversion` is located under `base/third_party/double_conversion`
+    local _dir="third_party/$_lib"
+    if [[ ! -d "${_dir}" ]]; then
+      _dir="base/third_party/${_lib//-/_}"
+    fi
+
+    find "$_dir" -type f \
+      \! -path "$_dir/chromium/*" \
+      \! -path "$_dir/google/*" \
       \! -path "third_party/harfbuzz-ng/utils/hb_scoped.h" \
       \! -regex '.*\.\(gn\|gni\|isolate\)' \
       -delete
@@ -600,6 +636,9 @@ prepare() {
       -s third_party/dawn --revision gpu/webgpu/DAWN_VERSION \
       --header gpu/webgpu/dawn_commit_hash.h
   fi
+
+  cd ../crubit
+  cargo fetch --locked --target host-tuple
 }
 
 build() {
@@ -624,6 +663,9 @@ build() {
     export AR=$_clang_path/llvm-ar
     export NM=$_clang_path/llvm-nm
   fi
+
+  # /usr for pacman managed rust
+  local _rust_sysroot="/usr"
 
   local _flags=(
     # GN invokes the compiler directly unless told otherwise, so without
@@ -652,6 +694,7 @@ build() {
     'moc_qt6_path="/usr/lib/qt6"'
     "google_api_key=\"$_google_api_key\""
     'use_clang_modules=false'
+    'rust_crubit_root="//third_party/rust-toolchain/crubit/"'
   )
 
   if [[ -n ${_system_libs[icu]+set} ]]; then
@@ -661,12 +704,18 @@ build() {
   if (( _system_clang )); then
      local _clang_version=$(
        clang --version | grep -m1 version | sed 's/.* \([0-9]\+\).*/\1/')
+     local _site_packages=$(python -c "import site; print(site.getsitepackages()[0])")
 
     _flags+=(
       'clang_base_path="/usr"'
       'clang_use_chrome_plugins=false'
       "clang_version=\"$_clang_version\""
       'chrome_pgo_phase=0' # needs newer clang to read the bundled PGO profile
+      # V8's metagen step parses headers with libclang. Without these it looks
+      # for //third_party/llvm-libclang, which the tarball does not carry and V8
+      # has no prebuilt of for ppc64 anyway.
+      'v8_metagen_libclang_so="/usr/lib/libclang.so"'
+      "v8_metagen_libclang_bindings_dir=\"$_site_packages\""
     )
 
     # Allow the use of nightly features with stable Rust compiler
@@ -674,7 +723,7 @@ build() {
     export RUSTC_BOOTSTRAP=1
 
     _flags+=(
-      'rust_sysroot_absolute="/usr"'
+      "rust_sysroot_absolute=\"$_rust_sysroot\""
       'rust_bindgen_root="/usr"'
       "rustc_version=\"$(rustc --version | awk '{ print $2 ;}')\""
     )
@@ -735,9 +784,33 @@ build() {
     msg2 "ppc64le ISA level: _power8_compat=$_power8_compat"
   fi
 
+  (
+    cd ../crubit
+    _rustc_libs="$_rust_sysroot/lib/rustlib/$(rustc --print host-tuple)/lib"
+    export CARGO_TARGET_DIR=target
+    export RUSTC_BOOTSTRAP=1
+    export RUSTFLAGS+=" -Clink-args=-Wl,-z,origin -Clink-args=-Wl,-rpath,$_rustc_libs"
+    cargo build --frozen --release -p cc_bindings_from_rs --bin cc_bindings_from_rs
+    install -Dm755 -t ../chromium-$pkgver/third_party/rust-toolchain/crubit/bin/ target/release/cc_bindings_from_rs
+  )
+
   gn gen out/Release --args="${_flags[*]}"
   # NINJAFLAGS carries the -j bq was given; ninja otherwise takes every CPU.
   ninja ${NINJAFLAGS:-} -C out/Release chrome chrome_sandbox chromedriver.unstripped
+
+  # POWER8-legal build: V8 must not have emitted the ISA 3.0 instructions its
+  # POWER8 patches replace (addpcis/lnia in LoadPC, mcrxrx). Here and not in
+  # check(): bq builds with --nocheck, so check() never runs for a shipped
+  # package. This is the cheap static half; the full ISA scan and a POWER8
+  # run are still the release gate.
+  if [[ $CARCH == powerpc64le ]] && (( _power8_compat )); then
+    local _isa30
+    _isa30=$(objdump -d --no-show-raw-insn out/Release/chrome | grep -cE '\s(lnia|addpcis|mcrxrx)\s') || true
+    if (( _isa30 > 0 )); then
+      error "POWER8 build of chrome carries $_isa30 lnia/addpcis/mcrxrx instructions"
+      return 1
+    fi
+  fi
 }
 
 package() {
@@ -759,7 +832,9 @@ package() {
   sed -i \
     -e 's/@@MENUNAME/Chromium/g' \
     -e 's/@@PACKAGE/chromium/g' \
-    -e 's/@@usr_bin_symlink_name/chromium/g' \
+    -e 's/@@desktop_exec/chromium/g' \
+    -e 's/@@desktop_icon/chromium/g' \
+    -e 's/@@startup_wm_class/chromium/g' \
     -e 's|@@uri_scheme|x-scheme-handler/chromium;|g' \
     -e 's/@@extra_desktop_entries//g' \
     "$pkgdir/usr/share/applications/chromium.desktop" \
@@ -809,6 +884,20 @@ package() {
     install -Dvm644 "chrome/app/theme/default_100_percent/chromium/product_logo_$size.png" \
       "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/chromium.png"
   done
+
+  # chromium uses the icon name "chromium-browser" internally
+  for size in 16 24 32 48 64 128 256; do
+    ln -sv chromium.png \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/chromium-browser.png"
+  done
+
+  # 157's desktop template uses @@desktop_exec/@@desktop_icon/
+  # @@startup_wm_class; the 153 package shipped a literal @@startup_wm_class
+  # after the template changed under its sed. Fail on any placeholder left.
+  if grep -q '@@' "$pkgdir/usr/share/applications/chromium.desktop"; then
+    error "chromium.desktop still has template placeholders: $(grep -o '@@[A-Za-z_]*' "$pkgdir/usr/share/applications/chromium.desktop" | sort -u | tr '\n' ' ')"
+    return 1
+  fi
 
   install -Dvm644 LICENSE "$pkgdir/usr/share/licenses/chromium/LICENSE"
 
