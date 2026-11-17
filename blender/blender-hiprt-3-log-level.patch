@@ -1,0 +1,27 @@
+diff --git a/intern/cycles/device/hiprt/device_impl.cpp b/intern/cycles/device/hiprt/device_impl.cpp
+index 10761f1..7c08b7f 100644
+--- a/intern/cycles/device/hiprt/device_impl.cpp
++++ b/intern/cycles/device/hiprt/device_impl.cpp
+@@ -148,12 +148,22 @@ HIPRTDevice::HIPRTDevice(const DeviceInfo &info,
+     return;
+   }
+ 
++  /* HIPRT 3.0 sets the log level per context. */
++#  if HIPRT_API_VERSION >= 3000
++  if (LOG_IS_ON(LOG_LEVEL_TRACE)) {
++    hiprtSetLogLevel(hiprt_context, hiprtLogLevelInfo | hiprtLogLevelWarn | hiprtLogLevelError);
++  }
++  else {
++    hiprtSetLogLevel(hiprt_context, hiprtLogLevelNone);
++  }
++#  else
+   if (LOG_IS_ON(LOG_LEVEL_TRACE)) {
+     hiprtSetLogLevel(hiprtLogLevelInfo | hiprtLogLevelWarn | hiprtLogLevelError);
+   }
+   else {
+     hiprtSetLogLevel(hiprtLogLevelNone);
+   }
++#  endif
+ }
+ 
+ HIPRTDevice::~HIPRTDevice()

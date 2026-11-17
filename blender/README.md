@@ -1,8 +1,11 @@
 # `blender`
 
-Blender 5.1.0 for ppc64le with **Cycles on the CPU, Embree BVH traversal and
-the OpenImageDenoise denoiser**, all three of which Arch POWER's
-`blender 17:5.1.0-2` lacks. Its recipe (`~/Development/repo/archpower/blender`)
+Blender 5.3.0 for ppc64le with **Cycles on the CPU, Embree BVH traversal and
+the OpenImageDenoise denoiser**. Arch POWER lacks all three. Its current
+`blender 17:5.2.2-2` still has neither `embree` nor `openimagedenoise` in its
+`depends` `[MEASURED]`, 2026-11-17, `pacman -Si base/blender`. The rest of
+this paragraph is the original 5.1.0 finding: Arch POWER's
+`blender 17:5.1.0-2` recipe (`~/Development/repo/archpower/blender`)
 takes the `*)` branch of a `case "${CARCH}"` and passes
 `-D WITH_CYCLES=OFF -D WITH_CYCLES_EMBREE=OFF -D WITH_CYCLES_OSL=OFF`, because
 neither `embree` nor `openimagedenoise` existed for POWER. Verified on the
@@ -15,12 +18,24 @@ So "before" is not "Cycles without acceleration"; it is **no Cycles at all**
 while Arch POWER now ships ffmpeg 9 (`libavcodec.so.63`), so it does not
 start on a current Arch POWER system either.
 
-Recipe base: Arch POWER's PKGBUILD (which is Arch's plus the arch gate), then
-the deviations below. Patches: `ffmpeg-9.patch` (Arch's), `cycles-vsx.patch`,
-`oidn-ppc64le-supported.patch` and `cycles-power-cpu-name.patch` (ours;
-headers explain each hunk). The last one is cosmetic: Cycles read the CPU
-name from cpuinfo's `model name`, which POWER lacks, and listed "Unknown CPU";
-the Cycles device list now shows `IBM POWER9 (VSX)` `[MEASURED]`.
+Recipe base: Arch's 5.3.0-1 PKGBUILD, with the deviations below rebased
+onto it. Patches:
+
+- Arch's four, unchanged: `blender-usd-26.11.patch` (Hydra),
+  `blender-hiprt-3-sdk-headers.patch` and `blender-hiprt-3-log-level.patch`
+  (HIPRT 3), and `blender-onetbb-af82c3ca2d0f.patch` (an upstream commit,
+  fetched by URL). Hydra and HIPRT are off here, so the first three touch
+  code that is never compiled. They are carried so the recipe tracks Arch's.
+- Ours: `cycles-vsx.patch`, `oidn-ppc64le-supported.patch` and
+  `cycles-power-cpu-name.patch`. Each patch header explains its hunks. The
+  last one is cosmetic: Cycles read the CPU name from cpuinfo's `model name`,
+  which POWER lacks, and listed "Unknown CPU". The Cycles device list now
+  shows `IBM POWER9 (VSX)` `[MEASURED]`.
+- Dropped in 5.3.0: `ffmpeg-9.patch`. 5.3's audaspace has its own
+  `FFMPEG_SUPPORTED_CONFIG` branch for libavcodec >= 62, so the old patch
+  would only have rewritten the dead `#else` branch. Also dropped:
+  `blender-hip-update.patch`, a leftover never listed in `source=()`, which
+  Arch's `blender-hiprt-3-sdk-headers.patch` supersedes.
 
 ## What is and is not accelerated
 
@@ -36,22 +51,32 @@ the Cycles device list now shows `IBM POWER9 (VSX)` `[MEASURED]`.
 | GPU: HIP | **compiled in, dormant** -- see "GPU" below | `HIPEW initialization failed: Error opening HIP dynamic library` at startup; `_cycles.get_device_types()` reports HIP `[MEASURED]` |
 | GPU: CUDA / OptiX / oneAPI | off; no such stack exists for POWER | |
 
-## Deviations from Arch POWER's recipe
+## Deviations from Arch's recipe
 
-- `arch=(powerpc64le)`; `epoch=17 pkgver=5.1.0 pkgrel=3` so it outranks
-  Arch POWER's `-2`.
+- `arch=(powerpc64le)`, `epoch=17 pkgver=5.3.0 pkgrel=1`. That outranks
+  Arch POWER's `5.2.2-2`.
 - **Source is the release tarball** (`download.blender.org/source/`, md5
   matches upstream's `.md5sum`; sha512 in the PKGBUILD) instead of Arch's
-  `git+https://...#tag=v5.1.0` plus `git lfs fetch`. Same tree, no
-  `git`/`git-lfs`/`subversion` makedepends, no multi-GB clone. Consequences:
-  no `git revert` of the two oneAPI commits Arch reverts (oneAPI is off
-  here) and `build_hash` reports `unknown` (buildinfo.cmake handles a
-  tree without `.git`).
+  `git+https://...#tag=v5.3.0` plus `git lfs fetch`. Same tree, no
+  `git`/`git-lfs`/`subversion` makedepends, no multi-GB clone. One
+  consequence: `build_hash` reports `unknown`, which buildinfo.cmake handles
+  for a tree without `.git`.
+- From Arch's depends, dropped: `hiprt`, `intel-oneapi-*`,
+  `level-zero-loader`, `openpgl`, `usd`. From its makedepends, dropped:
+  `cuda`, `hip-runtime-amd`, `hiprt`, `intel-*`, `level-zero-headers`,
+  `mold`, `git`, `git-lfs`, `subversion`. Also dropped: the OptiX headers
+  source, the CUDA/HIP/oneAPI/OptiX cmake paths and the oneAPI AOT library
+  move in `package()`. Everything 5.3.0 newly added that exists for POWER is
+  kept: `fmt`, `python-cattrs` (an `any` package from Arch POWER),
+  `spirv-headers`, and `-Wno-error=format-security`.
+- `release/bin/blender-softwaregl` is no longer installed: 5.3.0 removed it
+  upstream, and Arch's recipe dropped it too.
 - `WITH_CYCLES=ON WITH_CYCLES_EMBREE=ON WITH_CYCLES_OSL=ON
-  WITH_OPENIMAGEDENOISE=ON`; `embree` and `openimagedenoise` added to
-  `depends` (Arch keeps them in `depends_x86_64`).
-- `WITH_CYCLES_PATH_GUIDING=OFF WITH_USD=OFF WITH_HYDRA=OFF`: `openpgl`,
-  `usd` not packaged for POWER. Arch keeps them in `depends_x86_64`.
+  WITH_OPENIMAGEDENOISE=ON`, set explicitly, with `embree` and
+  `openimagedenoise` in `depends`. Arch's recipe is x86_64-only and gets
+  them by default. Arch POWER builds them OFF.
+- `WITH_CYCLES_PATH_GUIDING=OFF WITH_USD=OFF WITH_HYDRA=OFF`: `openpgl`
+  and `usd` are not packaged for POWER.
 - `WITH_CYCLES_DEVICE_HIP=ON WITH_CYCLES_HIP_BINARIES=OFF
   WITH_CYCLES_DEVICE_HIPRT=OFF`, set explicitly; CUDA/OptiX/oneAPI off.
 - `WITH_LINKER_MOLD=OFF`, `mold` dropped from makedepends: mold 2.x on this
@@ -67,11 +92,6 @@ the Cycles device list now shows `IBM POWER9 (VSX)` `[MEASURED]`.
   'extern/glog/src/logging.cc')` `[MEASURED]`. One glog, the system's, fixes
   it. (Arch POWER's shipped binary carries no `extern/glog` strings at all,
   so their build resolved this differently; their recipe does not say how.)
-- `ffmpeg-9.patch`: Arch POWER ships ffmpeg 9 (libavcodec 63);
-  `AVCodec::sample_fmts` is gone and `extern/audaspace` fails to compile.
-  This is Arch's own patch from the blender 5.2.1 recipe; it applies to
-  5.1.0 unchanged.
-- `level-zero-headers` / `level-zero-loader` dropped (Intel oneAPI, x86).
 - The manpage `LD_LIBRARY_PATH` sed and the `!lto` option are kept as in
   Arch's recipe.
 
@@ -132,6 +152,30 @@ Kernel object (`kernel/device/cpu/kernel.cpp`): 296,749 / 336,909 / 303,769
 instructions scalar / sse / native; the full census is in the handbook,
 `docs/cycles-native-vsx-kernel.md`.
 
+**Rebased onto 5.3.0.** One new hunk: 5.3 added
+`select(mask, dual3, dual3)` to `util/math_dual.h`, whose SSE branch uses
+`_mm_blendv_ps` on `.m128`. That was a compile error in the native layer,
+exactly as designed, so it gets a `vec_sel` branch shaped like `float3`'s
+`select()`. The `transform.h` hunk needed only its context refreshed, after
+upstream fixed a comment typo. The patch was regenerated against the 5.3.0
+tarball and applies with no fuzz. All 174 Cycles objects compile at
+`-mcpu=power8` `[MEASURED]`.
+
+**At `-mcpu=power8`, the baseline pool's flags** `[MEASURED]`, 5.3.0
+`cycles_kernel_cpu` `kernel.cpp.o`:
+
+| | count |
+|---|---:|
+| ISA 3.0 instructions (`.long` under `-M power8` minus `-M power9`) | 0 |
+| fused vector multiply-adds (`xvm{add,sub}{a,m}sp`) | 2,660 |
+| `xxperm`+`vperm` | 5,259 |
+| ISA 2.06/2.07 VSX loads/stores (`lxvd2x`/`lxvw4x`/`stxvd2x`/`stxvw4x`) | 12,629 |
+
+The per-instruction notes above were taken at `-mcpu=power9`. On POWER8
+the same builtins lower to ISA 2.07 sequences. `vec_insert`, for one, becomes
+a `vperm` with a loaded control vector instead of `xxinsertw`, which is why
+the permute count is higher here.
+
 **Parity before timing.** Two levels `[MEASURED]`:
 
 1. Operation level: the handbook's `probes/cycles_vsx_probe.cpp` compiles the
@@ -149,7 +193,9 @@ The native kernel is what the package ships (`_cycles_vsx=native`).
 
 ## Parity, and the benchmark that is still outstanding
 
-Everything below was run from bq's sysroot overlay (`bwrap --overlay-src /usr
+All of this section was measured on **5.1.0** (`-3`/`-4`) and was not
+repeated for 5.3.0. The kernel layer is the same patch, plus one `select()`
+overload. Everything below was run from bq's sysroot overlay (`bwrap --overlay-src /usr
 --overlay-src <sysroot>/usr --ro-overlay /usr`) with the scenes from
 <https://download.blender.org/demo/test/> -- `BMW27_2.blend.zip` ->
 `bmw27/bmw27_cpu.blend` (1920x1080 at 50%, 1225 samples, no adaptive
@@ -257,7 +303,7 @@ metal=False, oneapi=False, hiprt=False)` `[MEASURED]`.
 `WITH_CYCLES_HIP_BINARIES=OFF`: no precompiled `gfx*` kernels (that needs
 `hipcc` at build time). Cycles then compiles its GPU kernel at runtime, from
 the kernel sources the package installs under
-`/usr/share/blender/5.1/scripts/addons_core/cycles/source/`.
+`/usr/share/blender/5.3/scripts/addons_core/cycles/source/`.
 
 **To activate the GPU later, with no Blender rebuild**, the system needs:
 

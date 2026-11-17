@@ -7,8 +7,8 @@
 # it OFF), against our embree and openimagedenoise; CPU only.
 
 pkgname=blender
-pkgver=5.1.0
-pkgrel=5
+pkgver=5.3.0
+pkgrel=1
 epoch=17
 pkgdesc="A fully integrated 3D graphics creation suite (Cycles CPU with Embree and OpenImageDenoise)"
 arch=(powerpc64le)
@@ -34,6 +34,7 @@ depends=(
   'expat'
   'ffmpeg'
   'fftw'
+  'fmt'
   'freetype2'
   'gflags'              # ppc64le: WITH_SYSTEM_GFLAGS (see README.md)
   'glew'
@@ -79,6 +80,7 @@ depends=(
   'pugixml'
   'pystring'
   'python'
+  'python-cattrs'
   'python-numpy'
   'python-requests'
   'sdl2'  # dlopen'ed
@@ -96,6 +98,7 @@ makedepends=(
   'llvm'
   'mesa'
   'ninja'
+  'spirv-headers'
   'vulkan-headers'
   'wayland-protocols'
 )
@@ -107,22 +110,34 @@ options=('!lto')
 # ppc64le: the release source tarball instead of Arch's git+LFS checkout
 # (see README.md).  md5 matches upstream's published .md5sum.
 source=("https://download.blender.org/source/$pkgname-$pkgver.tar.xz"
-        ffmpeg-9.patch
+        blender-usd-26.11.patch
+        blender-hiprt-3-sdk-headers.patch
+        blender-hiprt-3-log-level.patch
+        blender-onetbb-af82c3ca2d0f.patch::https://github.com/blender/blender/commit/af82c3ca2d0f94978bc8b4178c623fbed9767068.patch
         cycles-vsx.patch
         oidn-ppc64le-supported.patch
         cycles-power-cpu-name.patch)
-sha512sums=('0d9a90d0c3d030f21f7c7a524af50ea008ec3f86f0f9e9c905fc64a0ce19c96467d0c615a5d24c2384e813ca7fae6126a33de11e4474c9833c23cea9478834c4'
-            'ee67438e0c868eda0616ae444631ccbbce4484c37097875df037fb5db5341be13f1a9e886ba5a1cb514ef2764080542b90cf8d30942a4bf138a9b15e42b378a1'
-            'b3d99e5c2a47bcdeb3a58945f595a7f882bf87667d56b69ad816f8697a5f4e1bcc6e1e523cda20c52b6981811b38b3173430020694c38f9df8357cd0855ef512'
+sha512sums=('5e5246fc1d315ef94de3cd6929800e86ea77fe24754afc08f3f3d735b5cafbc38db6766ddaf0d5cc54b0f377322c6fef33156a4aa9c44fb2d13759645864f204'
+            'fed89343989c861dcbb28561f9e9c871907e121620ab45453b07e98a5a5799dde8f35e175ffe1801d0140b0aea7a0a4f12553aae444543552a970363ba095440'
+            '0e12cd7c234629c32fa516c99a76be1a64f2ed352d2f88e668b8af4b8c4cd651bff6940af10d7afd7e43943d7a27278d32d5be1970ce94802e1bbfd0736468ec'
+            '877fbb908035b0ee6f2b872265951ef0a7a3390f74d3deb4ca6ecc7a0aa3e653e437a5e2dc83ab65c1c4bd78e9c7f2a8eb7f47269d0afdfa8fc3aad05fea6910'
+            '5bf67423f1383f3ab70050c659d85dd697294e390c8f6d9366e501edf0a5efe770e0177c5130a880f0a800022335389c06c82035f0c49a06492ec65edfec30e2'
+            'bb5b7e1a8f258ce8f2668dac2ffc8b06119f4973026d36bc88e432c321fa1ffac401440508304e346ed721bc04cba5a5e998a13ce2e4786c23cd15d8cd876d97'
             'bc1dbd8d2b745036b8a6175333f88667676206f222d37c92dfd91e5e219401e06fd0499eee938ba5908220dd12e92578b560b088c892df3838179f293c339a51'
             'eb6d1cb8266eae99d13a775784b38a37a553c0eabfeb17c5b2371dc54b81a89f1c89f4305f17387d2daaec5a5c0f44e2d9003a360ea49bad52baffc299e1f344')
 
 prepare() {
   cd "$pkgname-$pkgver"
 
-  # Arch POWER ships ffmpeg 9 (libavcodec 62): AVCodec::sample_fmts is gone.
-  # Arch's own fix, from the blender 5.2.1 recipe.
-  patch -Np1 -i "$srcdir"/ffmpeg-9.patch
+  # Arch's patches for 5.3.0, unchanged.  The USD and HIPRT ones touch code
+  # this build turns off (Hydra, HIPRT); they are kept so the recipe tracks
+  # Arch's and the next import has nothing to re-derive.
+  patch -Np1 -i ../blender-usd-26.11.patch
+  # https://projects.blender.org/blender/blender/pulls/157753
+  patch -Np1 -i ../blender-hiprt-3-sdk-headers.patch
+  patch -Np1 -i ../blender-hiprt-3-log-level.patch
+  # Comparator arguments must be const for oneTBB parallel_sort
+  patch -Np1 -i ../blender-onetbb-af82c3ca2d0f.patch
 
   # Cycles' CPU kernel on VSX: native, or the SSE kernel through GCC's
   # x86-intrinsic compatibility headers.  See README.md and the patch header.
@@ -159,6 +174,7 @@ build() {
   # This should fix #13.
   export CXXFLAGS=${CXXFLAGS/-Wp,-D_GLIBCXX_ASSERTIONS/}
   CXXFLAGS+=' --param=max-vartrack-size=640000000'
+  CXXFLAGS+=' -Wno-error=format-security'
 
   local cmake_options=(
     -B build
@@ -217,7 +233,6 @@ package() {
   DESTDIR="${pkgdir}" cmake --install build
   cd "$pkgname-$pkgver"
 
-  install -Dm755 release/bin/blender-softwaregl "${pkgdir}/usr/bin/blender-softwaregl"
   python -m compileall "${pkgdir}/usr/share/blender"
   python -O -m compileall "${pkgdir}/usr/share/blender"
 

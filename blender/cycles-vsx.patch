@@ -66,9 +66,20 @@ the same as the SSE kernel does.
 Portability work, worth sending upstream (projects.blender.org, Cycles).
 No POWER kernel exists anywhere else.
 
+Rebased onto 5.3.0 (from 5.1.0).  One hunk is new: 5.3 added a
+select(mask, dual3, dual3) to util/math_dual.h whose SSE branch uses
+_mm_blendv_ps on .m128, so the native layer gets a vec_sel branch, the
+same shape as select() for float3.  transform.h needed only its context
+refreshed, because upstream fixed a comment typo.  The instruction notes
+above were taken at -mcpu=power9.  The baseline pool builds at
+-mcpu=power8, where the same builtins lower to ISA 2.07 sequences
+(vperm for xxinsertw/xxperm, lxvd2x/stxvd2x for lxv/stxv).  The 5.3.0
+kernel object at -mcpu=power8 has 0 ISA 3.0 instructions, 2,660 fused
+vector multiply-adds and 5,259 vperm.
+
 diff -ruN -x obj a/intern/cycles/CMakeLists.txt b/intern/cycles/CMakeLists.txt
---- a/intern/cycles/CMakeLists.txt	2026-02-09 09:34:40.000000000 -0700
-+++ b/intern/cycles/CMakeLists.txt	2026-09-11 00:06:28.144285492 -0600
+--- a/intern/cycles/CMakeLists.txt	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/CMakeLists.txt	2026-11-17 14:57:04.185976715 -0600
 @@ -30,6 +30,45 @@
  # TODO: this code could be refactored a bit to avoid duplication.
  # NOTE: CXX_HAS_SSE42 is needed in case passing SSE flags fails altogether (`gcc-arm`).
@@ -134,8 +145,8 @@ diff -ruN -x obj a/intern/cycles/CMakeLists.txt b/intern/cycles/CMakeLists.txt
    set(CXX_HAS_SSE42 TRUE)
    set(CXX_HAS_AVX2 TRUE)
 diff -ruN -x obj a/intern/cycles/device/cpu/device.cpp b/intern/cycles/device/cpu/device.cpp
---- a/intern/cycles/device/cpu/device.cpp	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/device/cpu/device.cpp	2026-09-11 00:06:28.145460533 -0600
+--- a/intern/cycles/device/cpu/device.cpp	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/device/cpu/device.cpp	2026-11-17 14:57:04.187797387 -0600
 @@ -48,7 +48,15 @@
  
  string device_cpu_capabilities()
@@ -152,9 +163,24 @@ diff -ruN -x obj a/intern/cycles/device/cpu/device.cpp b/intern/cycles/device/cp
  }
  
  CCL_NAMESPACE_END
+diff -ruN -x obj a/intern/cycles/util/math_dual.h b/intern/cycles/util/math_dual.h
+--- a/intern/cycles/util/math_dual.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_dual.h	2026-11-17 14:57:04.198976186 -0600
+@@ -162,6 +162,11 @@
+   return {metal::select(b.val, a.val, mask_),
+           metal::select(b.dx, a.dx, mask_),
+           metal::select(b.dy, a.dy, mask_)};
++#elif defined(__KERNEL_VSX__)
++  const vec4b mask_ = (vec4b)mask.v;
++  return {float3(vec_sel(b.val.v, a.val.v, mask_)),
++          float3(vec_sel(b.dx.v, a.dx.v, mask_)),
++          float3(vec_sel(b.dy.v, a.dy.v, mask_))};
+ #elif defined(__KERNEL_SSE__)
+ #  ifdef __KERNEL_SSE42__
+   const auto mask_ = _mm_castsi128_ps(mask.m128);
 diff -ruN -x obj a/intern/cycles/util/math_fast.h b/intern/cycles/util/math_fast.h
---- a/intern/cycles/util/math_fast.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/math_fast.h	2026-09-11 00:06:28.219190230 -0600
+--- a/intern/cycles/util/math_fast.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_fast.h	2026-11-17 14:57:04.188535783 -0600
 @@ -68,7 +68,7 @@
  ccl_device_inline int fast_rint(const float x)
  {
@@ -165,8 +191,8 @@ diff -ruN -x obj a/intern/cycles/util/math_fast.h b/intern/cycles/util/math_fast
     * float_to_int(rintf(x)); so we use the equivalent intrinsics. */
    __m128 vec = _mm_set_ss(x);
 diff -ruN -x obj a/intern/cycles/util/math_float3.h b/intern/cycles/util/math_float3.h
---- a/intern/cycles/util/math_float3.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/math_float3.h	2026-09-11 00:06:28.201181697 -0600
+--- a/intern/cycles/util/math_float3.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_float3.h	2026-11-17 14:57:04.189493119 -0600
 @@ -16,7 +16,9 @@
  
  ccl_device_inline float3 zero_float3()
@@ -500,7 +526,7 @@ diff -ruN -x obj a/intern/cycles/util/math_float3.h b/intern/cycles/util/math_fl
    return float3(_mm_ceil_ps(a));
  #  else
    return make_float3(ceilf(a.x), ceilf(a.y), ceilf(a.z));
-@@ -617,6 +686,8 @@
+@@ -608,6 +677,8 @@
  {
  #if defined(__KERNEL_METAL__)
    return metal::select(b, a, bool3(mask));
@@ -509,7 +535,7 @@ diff -ruN -x obj a/intern/cycles/util/math_float3.h b/intern/cycles/util/math_fl
  #elif defined(__KERNEL_SSE__)
  #  ifdef __KERNEL_SSE42__
    return float3(_mm_blendv_ps(b.m128, a.m128, _mm_castsi128_ps(mask.m128)));
-@@ -652,6 +723,8 @@
+@@ -658,6 +729,8 @@
    return a == b;
  #elif defined __KERNEL_NEON__
    return int3(vreinterpretq_m128i_u32(vceqq_f32(a.m128, b.m128)));
@@ -519,8 +545,8 @@ diff -ruN -x obj a/intern/cycles/util/math_float3.h b/intern/cycles/util/math_fl
    return int3(_mm_castps_si128(_mm_cmpeq_ps(a.m128, b.m128)));
  #else
 diff -ruN -x obj a/intern/cycles/util/math_float4.h b/intern/cycles/util/math_float4.h
---- a/intern/cycles/util/math_float4.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/math_float4.h	2026-09-11 00:06:28.174379893 -0600
+--- a/intern/cycles/util/math_float4.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_float4.h	2026-11-17 14:57:04.190674016 -0600
 @@ -12,7 +12,9 @@
  
  ccl_device_inline float4 zero_float4()
@@ -874,7 +900,7 @@ diff -ruN -x obj a/intern/cycles/util/math_float4.h b/intern/cycles/util/math_fl
    const float4 f = floor(x);
    *i = int4(_mm_cvttps_epi32(f.m128));
    return x - f;
-@@ -571,6 +665,8 @@
+@@ -561,6 +655,8 @@
  {
  #if defined(__KERNEL_METAL__)
    return metal::select(b, a, bool4(mask));
@@ -883,7 +909,7 @@ diff -ruN -x obj a/intern/cycles/util/math_float4.h b/intern/cycles/util/math_fl
  #elif defined(__KERNEL_SSE__)
  #  ifdef __KERNEL_SSE42__
    return float4(_mm_blendv_ps(b.m128, a.m128, _mm_castsi128_ps(mask.m128)));
-@@ -594,7 +690,9 @@
+@@ -584,7 +680,9 @@
  
  ccl_device_inline float4 load_float4(const ccl_private float *v)
  {
@@ -894,7 +920,7 @@ diff -ruN -x obj a/intern/cycles/util/math_float4.h b/intern/cycles/util/math_fl
    return float4(_mm_loadu_ps(v));
  #  else
    return make_float4(v[0], v[1], v[2], v[3]);
-@@ -654,7 +752,9 @@
+@@ -644,7 +742,9 @@
  /* Int/Float conversion */
  ccl_device_inline int4 __float4_as_int4(const float4 f)
  {
@@ -905,7 +931,7 @@ diff -ruN -x obj a/intern/cycles/util/math_float4.h b/intern/cycles/util/math_fl
    return int4(_mm_castps_si128(f.m128));
  #  else
    return make_int4(
-@@ -664,7 +764,9 @@
+@@ -654,7 +754,9 @@
  
  ccl_device_inline float4 __int4_as_float4(const int4 i)
  {
@@ -917,8 +943,8 @@ diff -ruN -x obj a/intern/cycles/util/math_float4.h b/intern/cycles/util/math_fl
  #  else
    return make_float4(
 diff -ruN -x obj a/intern/cycles/util/math_int3.h b/intern/cycles/util/math_int3.h
---- a/intern/cycles/util/math_int3.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/math_int3.h	2026-09-11 00:06:28.216916647 -0600
+--- a/intern/cycles/util/math_int3.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_int3.h	2026-11-17 14:57:04.191487671 -0600
 @@ -11,7 +11,9 @@
  #if !defined(__KERNEL_METAL__)
  ccl_device_inline int3 min(const int3 a, const int3 b)
@@ -975,8 +1001,8 @@ diff -ruN -x obj a/intern/cycles/util/math_int3.h b/intern/cycles/util/math_int3
  #  else
    return make_int3(a.x & b, a.y & b, a.z & b);
 diff -ruN -x obj a/intern/cycles/util/math_int4.h b/intern/cycles/util/math_int4.h
---- a/intern/cycles/util/math_int4.h	2026-02-09 09:34:40.000000000 -0700
-+++ b/intern/cycles/util/math_int4.h	2026-09-11 00:06:28.215829942 -0600
+--- a/intern/cycles/util/math_int4.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_int4.h	2026-11-17 14:57:04.192229363 -0600
 @@ -13,7 +13,9 @@
  #if !defined(__KERNEL_METAL__)
  ccl_device_inline int4 operator+(const int4 a, const int4 b)
@@ -1188,9 +1214,9 @@ diff -ruN -x obj a/intern/cycles/util/math_int4.h b/intern/cycles/util/math_int4
  {
    return int4(_mm_andnot_si128(a.m128, b.m128));
 diff -ruN -x obj a/intern/cycles/util/math_intersect.h b/intern/cycles/util/math_intersect.h
---- a/intern/cycles/util/math_intersect.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/math_intersect.h	2026-09-11 00:06:28.218250860 -0600
-@@ -123,6 +123,13 @@
+--- a/intern/cycles/util/math_intersect.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/math_intersect.h	2026-11-17 14:57:04.192977874 -0600
+@@ -122,6 +122,13 @@
    rt_rcp = vmulq_f32(vrecpsq_f32(a, rt_rcp), rt_rcp);
    rt_rcp = vmulq_f32(vrecpsq_f32(a, rt_rcp), rt_rcp);
    return vgetq_lane_f32(rt_rcp, 0);
@@ -1205,8 +1231,8 @@ diff -ruN -x obj a/intern/cycles/util/math_intersect.h b/intern/cycles/util/math
    const __m128 a = _mm_set_ss(x);
    const __m128 r = _mm_rcp_ss(a);
 diff -ruN -x obj a/intern/cycles/util/optimization.h b/intern/cycles/util/optimization.h
---- a/intern/cycles/util/optimization.h	2026-02-09 18:22:40.000000000 -0700
-+++ b/intern/cycles/util/optimization.h	2026-09-11 00:06:28.144720903 -0600
+--- a/intern/cycles/util/optimization.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/optimization.h	2026-11-17 14:57:04.193615396 -0600
 @@ -42,6 +42,32 @@
  #    define __KERNEL_SSE3__
  #    define __KERNEL_SSE42__
@@ -1241,9 +1267,9 @@ diff -ruN -x obj a/intern/cycles/util/optimization.h b/intern/cycles/util/optimi
  
  #endif
 diff -ruN -x obj a/intern/cycles/util/simd.h b/intern/cycles/util/simd.h
---- a/intern/cycles/util/simd.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/simd.h	2026-09-11 00:06:28.145070651 -0600
-@@ -25,6 +25,44 @@
+--- a/intern/cycles/util/simd.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/simd.h	2026-11-17 14:57:04.194389773 -0600
+@@ -26,6 +26,44 @@
  #elif defined(__KERNEL_NEON__)
  #  define SSE2NEON_PRECISE_MINMAX 1
  #  include <sse2neon.h>
@@ -1288,9 +1314,9 @@ diff -ruN -x obj a/intern/cycles/util/simd.h b/intern/cycles/util/simd.h
  #endif
  
  /* Floating Point Control, for Embree. */
-@@ -58,10 +96,91 @@
- 
- CCL_NAMESPACE_BEGIN
+@@ -85,10 +123,91 @@
+ #endif
+ };
  
 +#ifdef __KERNEL_VSX__
 +/* Native VSX vector layer.
@@ -1380,7 +1406,7 @@ diff -ruN -x obj a/intern/cycles/util/simd.h b/intern/cycles/util/simd.h
  
  static struct TrueTy {
    __forceinline operator bool() const
-@@ -392,6 +511,50 @@
+@@ -419,6 +538,50 @@
  }
  #  endif
  
@@ -1432,9 +1458,9 @@ diff -ruN -x obj a/intern/cycles/util/simd.h b/intern/cycles/util/simd.h
  /* Intrinsic functions fallback for arbitrary processor. */
  __forceinline uint32_t __bsf(const uint32_t x)
 diff -ruN -x obj a/intern/cycles/util/transform.h b/intern/cycles/util/transform.h
---- a/intern/cycles/util/transform.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/transform.h	2026-09-11 00:06:28.217247869 -0600
-@@ -55,7 +55,17 @@
+--- a/intern/cycles/util/transform.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/transform.h	2026-11-17 14:57:04.195183538 -0600
+@@ -85,7 +85,17 @@
  
  ccl_device_inline float3 transform_point(const ccl_private Transform *t, const float3 a)
  {
@@ -1453,7 +1479,7 @@ diff -ruN -x obj a/intern/cycles/util/transform.h b/intern/cycles/util/transform
    const float4 aa(a.m128);
    float4 x = t->x;
    float4 y = t->y;
-@@ -78,7 +88,32 @@
+@@ -105,7 +115,32 @@
  
  ccl_device_inline dual3 transform_point(const ccl_private Transform *t, const dual3 a)
  {
@@ -1484,10 +1510,10 @@ diff -ruN -x obj a/intern/cycles/util/transform.h b/intern/cycles/util/transform
 +  }
 +  return result;
 +#elif defined(__KERNEL_SSE__) && defined(__KERNEL_SSE2__)
-   /* NOTE: `dot()` has large lantency on Intel platforms, the following method of transpose + madd
+   /* NOTE: `dot()` has large latency on Intel platforms, the following method of transpose + madd
     * is faster. However, we did not measure on Neon platforms, it might be that `dot()` is fine
     * there, and we can use the simpler implementation at the end of the function. */
-@@ -126,7 +161,14 @@
+@@ -150,7 +185,14 @@
  
  ccl_device_inline float3 transform_direction(const ccl_private Transform *t, const float3 a)
  {
@@ -1503,7 +1529,7 @@ diff -ruN -x obj a/intern/cycles/util/transform.h b/intern/cycles/util/transform
    const float4 aa(a.m128);
    float4 x = t->x;
    float4 y = t->y;
-@@ -477,7 +519,7 @@
+@@ -508,7 +550,7 @@
  
  ccl_device_forceinline float transform_inverse_dot(const float3 a_, const float3 b_)
  {
@@ -1513,8 +1539,8 @@ diff -ruN -x obj a/intern/cycles/util/transform.h b/intern/cycles/util/transform
    const __m128 b = (const __m128 &)b_;
    return _mm_cvtss_f32(_mm_dp_ps(a, b, 0x7F));
 diff -ruN -x obj a/intern/cycles/util/types_float3.h b/intern/cycles/util/types_float3.h
---- a/intern/cycles/util/types_float3.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/types_float3.h	2026-09-11 00:06:28.150837037 -0600
+--- a/intern/cycles/util/types_float3.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/types_float3.h	2026-11-17 14:57:04.195963221 -0600
 @@ -24,7 +24,14 @@
    float x, y, z;
  #  else
@@ -1609,8 +1635,8 @@ diff -ruN -x obj a/intern/cycles/util/types_float3.h b/intern/cycles/util/types_
  #else
    return make_int3((int)f.x, (int)f.y, (int)f.z);
 diff -ruN -x obj a/intern/cycles/util/types_float4.h b/intern/cycles/util/types_float4.h
---- a/intern/cycles/util/types_float4.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/types_float4.h	2026-09-11 00:06:28.146438302 -0600
+--- a/intern/cycles/util/types_float4.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/types_float4.h	2026-11-17 14:57:04.196491112 -0600
 @@ -14,7 +14,33 @@
  struct int4;
  
@@ -1725,8 +1751,8 @@ diff -ruN -x obj a/intern/cycles/util/types_float4.h b/intern/cycles/util/types_
  #else
    return make_int4((int)f.x, (int)f.y, (int)f.z, (int)f.w);
 diff -ruN -x obj a/intern/cycles/util/types_int3.h b/intern/cycles/util/types_int3.h
---- a/intern/cycles/util/types_int3.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/types_int3.h	2026-09-11 00:06:28.151880760 -0600
+--- a/intern/cycles/util/types_int3.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/types_int3.h	2026-11-17 14:57:04.196954602 -0600
 @@ -21,7 +21,33 @@
    int x, y, z;
  #  else
@@ -1781,8 +1807,8 @@ diff -ruN -x obj a/intern/cycles/util/types_int3.h b/intern/cycles/util/types_in
    return int3(_mm_set1_epi32(i));
  #else
 diff -ruN -x obj a/intern/cycles/util/types_int4.h b/intern/cycles/util/types_int4.h
---- a/intern/cycles/util/types_int4.h	2026-02-08 22:15:57.000000000 -0700
-+++ b/intern/cycles/util/types_int4.h	2026-09-11 00:06:28.151380866 -0600
+--- a/intern/cycles/util/types_int4.h	2026-10-08 14:27:12.000000000 -0600
++++ b/intern/cycles/util/types_int4.h	2026-11-17 14:57:04.197489016 -0600
 @@ -11,7 +11,33 @@
  #ifndef __KERNEL_NATIVE_VECTOR_TYPES__
  
