@@ -2,20 +2,20 @@
 # Contributor: SpepS <dreamspepser at yahoo dot it>
 
 pkgname=openimageio
-pkgver=3.1.12.1
-pkgrel=6
+pkgver=3.2.1.2
+pkgrel=3
 pkgdesc="A library for reading and writing images, including classes, utilities, and applications"
 arch=('x86_64' 'powerpc64le')
 url="http://www.openimageio.org/"
 license=('Apache-2.0')
 depends=('openexr' 'openjph' 'giflib' 'openjpeg2' 'libtiff' 'libjpeg-turbo'
-         'opencolorio' 'libpng' 'libraw' 'libwebp' 'pugixml'
-         'libheif' 'libjxl' 'freetype2' 'libstdc++' 'glibc' 'zlib' 'libgcc') # TODO: Consider adding these deps: 'openvdb' 'ffmpeg' 'ptex' 'opencv'
-makedepends=('cmake' 'qt5-base' 'python' 'boost' 'mesa' 'fontconfig' 'libxrender' 'ninja' 'robin-map' 'fmt' 'pybind11')
-optdepends=('qt5-base: iv image viewer'
+         'opencolorio' 'libpng' 'libraw' 'libwebp' 'pugixml' 'libjxl'
+         'libheif' 'freetype2' 'libstdc++' 'glibc' 'zlib' 'libgcc') # TODO: Consider adding these deps: 'openvdb' 'ffmpeg' 'ptex' 'opencv'
+makedepends=('cmake' 'qt6-base' 'python' 'boost' 'mesa' 'fontconfig' 'libxrender' 'ninja' 'robin-map' 'fmt' 'nanobind')
+optdepends=('qt6-base: iv image viewer'
             'python: bindings support')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/OpenImageIO/oiio/archive/refs/tags/v$pkgver.tar.gz")
-sha512sums=('f5234850aa086217be74947d3138186ecc69cc2a6cc7cda1a4c560a8584c90016bff453f17c061653c2c380d952f6938ffae12cd5c797466438a1411e865449c')
+sha512sums=('49dfbc38350403cec072a6c976544d10e4402c2c416677acb1048537f67288f4cf5f458f2c3adeea26eb8c92f59e039a62f6c23ef75f61fc62534fdb439b40f6')
 
 build() {
   cd OpenImageIO-$pkgver
@@ -32,7 +32,17 @@ build() {
     -DOIIO_BUILD_TOOLS=ON \
     -DOIIO_INTERNALIZE_FMT=OFF \
     -DUSE_EXTERNAL_PUGIXML=ON \
-    -DSTOP_ON_WARNING=OFF
+    -DSTOP_ON_WARNING=OFF \
+    -DUSE_FFMPEG=OFF \
+    -DUSE_OPENVDB=OFF \
+    -DUSE_PTEX=OFF \
+    -DUSE_OPENCV=OFF
+  # ppc64le: the four USE_*=OFF are the optional libraries named in the TODO
+  # on depends=() above.  Arch's clean chroot never has them, so its package
+  # links none of them; bq builds over the host's /usr, where they are
+  # installed, and OIIO links whatever it finds.  3.1.12.1-6 so linked
+  # libopenvdb.so.12.1, libPtex and libavcodec undeclared, and stopped
+  # loading when openvdb moved to 13.0 (README.md).
   ninja -C build
 }
 
