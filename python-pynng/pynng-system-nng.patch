@@ -1,0 +1,38 @@
+Omarchy: build pynng against the system nng instead of cloning and
+statically building nng v1.11 + mbedtls 3.6.3.1 at build time.
+
+--- a/setup.py
++++ b/setup.py
+@@ -161,8 +161,8 @@
+         """
+         Running...
+         """
+-        self.run_command("build_mbedtls")
+-        self.run_command("build_nng")
++        # Omarchy: link the system nng (build_pynng.py) rather than cloning
++        # and statically building nng + mbedtls here.
+ 
+         build_ext.run(self)  # proceed with "normal" build steps
+ 
+--- a/build_pynng.py
++++ b/build_pynng.py
+@@ -28,14 +28,11 @@
+ #    libraries = ['pthread' 'mbedtls' 'nng']
+ #    objects = None
+ else:
+-    incdirs = ["nng/include"]
+-    objects = [
+-        "./nng/build/libnng.a",
+-        "./mbedtls/prefix/lib/libmbedtls.a",
+-        "./mbedtls/prefix/lib/libmbedx509.a",
+-        "./mbedtls/prefix/lib/libmbedcrypto.a",
+-    ]
+-    libraries = ["pthread"]
++    # Omarchy: the system libnng, linked dynamically; TLS is whatever engine
++    # the system nng was built with.
++    incdirs = []
++    objects = []
++    libraries = ["nng", "pthread"]
+     machine = os.uname().machine
+     # this is a pretty gross heuristic... but let's go with it anyway.
+     # it would be better to get linker information from cmake somehow.

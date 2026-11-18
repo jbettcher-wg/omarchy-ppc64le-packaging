@@ -1,0 +1,77 @@
+# Maintainer: Jens Schwander <thomas747a@gmail.com>
+# Contributor: Luis Martinez <luis dot martinez at disroot dot org>
+# Contributor: Aleksy Grabowski <hurufu+arch@gmail.com>
+# ppc64le: Omarchy -- imported from the AUR.  Links the system nng instead of
+# cloning and statically building nng v1.11 + mbedtls 3.6.3.1 at build time
+# (pynng-system-nng.patch).  All 292 nng functions pynng 0.9.0 declares are in
+# nng 1.12.4.
+
+pkgname=python-pynng
+pkgver=0.9.0
+pkgrel=1
+pkgdesc='Ergonomic bindings for nanomsg next generation (nng), in Python'
+arch=(x86_64 aarch64 powerpc64le)
+url='https://github.com/codypiersall/pynng'
+license=(MIT)
+depends=(
+  glibc
+  nng
+  python
+  python-cffi
+  python-sniffio
+)
+makedepends=(
+  python-build
+  python-installer
+  python-setuptools
+  python-setuptools-scm
+  python-wheel
+)
+source=("$pkgname-v$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        pynng-system-nng.patch)
+sha256sums=('66f0b87007a0d90bc0ee13e6cfeeefc1d5aa7deb0dc06a05b4689516acce757b'
+            '342edbfd4f29db15dcfe5234bda16314da4e5088f7f32a94754f892cd6d56c0a')
+_sourcedir="pynng-$pkgver"
+
+prepare() {
+  cd "$_sourcedir"
+  patch -Np1 -i ../pynng-system-nng.patch
+}
+
+build() {
+  cd "$_sourcedir"
+  export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYNNG="$pkgver"
+  python -m build --wheel --no-isolation
+
+  # ppc64le: bq builds --nocheck, so the assertions live here.  The extension
+  # must link the system libnng, and a pair of sockets must pass a message.
+  local t="$srcdir/smoke"
+  rm -rf "$t"
+  python -m installer --destdir="$t" dist/*.whl
+  local sp ext
+  sp=$(echo "$t"/usr/lib/python3*/site-packages)
+  ext=$(echo "$sp"/pynng/_nng*.so)
+  readelf -d "$ext" | grep -q 'NEEDED.*\[libnng\.so\.1\]' \
+    || { echo "pynng: $ext does not link the system libnng" >&2; return 1; }
+  PYTHONPATH="$sp" python - <<'EOF'
+import pynng
+with pynng.Pair0(listen="inproc://smoke") as a, pynng.Pair0(dial="inproc://smoke") as b:
+    b.send(b"ping")
+    assert a.recv() == b"ping"
+with pynng.Rep0(listen="tcp://127.0.0.1:0") as rep:
+    port = rep.listeners[0].port
+    with pynng.Req0(dial=f"tcp://127.0.0.1:{port}") as req:
+        req.send(b"q")
+        assert rep.recv() == b"q"
+        rep.send(b"a")
+        assert req.recv() == b"a"
+print("pynng smoke: inproc + tcp ok")
+EOF
+}
+
+package() {
+  cd "$_sourcedir"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE.txt -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 README.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}
