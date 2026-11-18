@@ -1,0 +1,43 @@
+Subject: [PATCH] drm/amdgpu: fix system-page PTE generation for PAGE_SIZE > 4K
+
+Two fixes for kernels with PAGE_SIZE larger than the 4K GPU page size:
+keep the intra-page offset in the contiguous fast path, and never let
+the contiguity scan grow num_entries past the requested range.
+
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c	2026-08-24 22:57:51.861000000 -0700
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c	2026-08-24 22:54:31.013540603 -0700
+@@ -1194,15 +1194,31 @@
+ 				}
+ 				if (!contiguous)
+ 					count--;
+-				num_entries = count *
+-					AMDGPU_GPU_PAGES_IN_CPU_PAGE;
++				/*
++				 * With 1 < num_entries < 2 *
++				 * AMDGPU_GPU_PAGES_IN_CPU_PAGE the scan loop
++				 * never runs and count keeps its initializer,
++				 * which would grow the mapping past the
++				 * requested range and clobber the neighboring
++				 * mapping's PTEs.  Never grow num_entries.
++				 */
++				num_entries = min(num_entries, count *
++					AMDGPU_GPU_PAGES_IN_CPU_PAGE);
+ 			}
+ 
+ 			if (!contiguous) {
+ 				addr = cursor.start;
+ 				params.pages_addr = pages_addr;
+ 			} else {
+-				addr = pages_addr[cursor.start >> PAGE_SHIFT];
++				/*
++				 * Keep the offset inside the CPU page: with
++				 * PAGE_SIZE > AMDGPU_GPU_PAGE_SIZE the mapping
++				 * may start at a 4K boundary inside a larger
++				 * page and dropping the low bits points the
++				 * PTEs at the wrong data.
++				 */
++				addr = pages_addr[cursor.start >> PAGE_SHIFT] +
++					(cursor.start & ~PAGE_MASK);
+ 				params.pages_addr = NULL;
+ 			}
+ 
