@@ -4,6 +4,19 @@
 
 # TODO add test, see about packaging jtreg and using it here
 
+# ppc64le: Omarchy -- Arch's recipe, ported with as little change as it takes.
+# Arch POWER carries JDKs 8, 11, 17, 21 and 26 but not this LTS, which Ghidra
+# targets and Gradle 9.9's own build needs.
+#   - Boot JDK: Arch builds 25 with 25. Arch POWER has no 24 or 25 to boot from,
+#     so 26 is accepted, as Arch POWER's java21-openjdk accepts 22 and 23.
+#     Once this is in the pool, a rebuild can boot from 25 like x86.
+#   - pandoc does not exist on POWER; without it the man pages are not
+#     generated, and package() already installs only those that exist.
+#   - !lto, as Arch POWER builds every JDK: link-time-opt HotSpot is untested
+#     on ppc64le.
+#   - OpenJDK's make runs its own job count; it follows makepkg's -j here so
+#     bq's budget holds.
+
 pkgbase=java25-openjdk
 pkgname=(
   jdk25-openjdk
@@ -19,14 +32,13 @@ _securityver=5.1
 _updatever=2
 pkgver=${_majorver}.${_minorver}.${_securityver}.u${_updatever}
 # pkgver=${_majorver}.u${_updatever}
-pkgrel=1
+pkgrel=1.1
 _git_tag=jdk-${_majorver}.${_minorver}.${_securityver}+${_updatever}
 # _git_tag=jdk-${_majorver}+${_updatever}
-arch=('x86_64')
+arch=('x86_64' 'powerpc64le')
 url='https://openjdk.java.net/'
 license=('LicenseRef-Java')
 makedepends=(
-  "java-environment=25"
   alsa-lib
   bash
   cpio
@@ -49,10 +61,17 @@ makedepends=(
   libxrender
   libxt
   libxtst
-  pandoc
   unzip
   zip
 )
+makedepends_x86_64=(
+  "java-environment=25"
+  pandoc
+)
+makedepends_powerpc64le=(
+  "java-environment=26"
+)
+options=(!lto)
 optdepends=(
   'gvfs: open links e.g. hyperlinks'
 )             
@@ -72,6 +91,7 @@ case "${CARCH}" in
   i686)   _JARCH='x86';;
   riscv64)_JARCH='riscv64';;
   aarch64) _JARCH='aarch64';;
+  powerpc64le) _JARCH='ppc64le';;
 esac
 
 _jvmdir=/usr/lib/jvm/java-${_majorver}-openjdk
@@ -102,6 +122,17 @@ _commondeps=(
   libstdc++
   nss
 )
+
+prepare() {
+  cd ${_jdkdir}
+
+  if [[ ${CARCH} = powerpc64le ]]; then
+    sed -i 's/^DEFAULT_ACCEPTABLE_BOOT_VERSIONS="24 25"$/DEFAULT_ACCEPTABLE_BOOT_VERSIONS="24 25 26"/' \
+      make/conf/version-numbers.conf
+    grep -q '^DEFAULT_ACCEPTABLE_BOOT_VERSIONS="24 25 26"$' make/conf/version-numbers.conf \
+      || { error "could not accept JDK 26 as the boot JDK"; return 1; }
+  fi
+}
 
 build() {
   cd ${_jdkdir}
@@ -140,6 +171,14 @@ build() {
     jvm_features="zgc,shenandoahgc"
   fi
 
+  # Name the boot JDK outright: bq's sysroot never runs the archlinux-java
+  # hook, and the host's other JDKs are visible under /usr/lib/jvm too.
+  local _ppc64le_opts=()
+  if [[ ${CARCH} = powerpc64le ]]; then
+    _ppc64le_opts=(--with-boot-jdk=/usr/lib/jvm/java-26-openjdk)
+    [[ -n ${MAKEFLAG_J} ]] && _ppc64le_opts+=(--with-jobs="${MAKEFLAG_J}")
+  fi
+
 
   bash configure \
     --with-version-string="${_majorver}.${_minorver}.${_securityver}" \
@@ -157,7 +196,8 @@ build() {
     --with-native-debug-symbols=internal \
     --enable-unlimited-crypto \
     --disable-warnings-as-errors \
-    --with-vendor-name="Arch Linux"
+    --with-vendor-name="Arch Linux" \
+    "${_ppc64le_opts[@]}"
 
   make images legacy-jre-image docs
 
