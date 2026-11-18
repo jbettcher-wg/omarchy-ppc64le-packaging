@@ -3,7 +3,7 @@
 
 pkgname=nng
 pkgver=1.12.4
-pkgrel=1
+pkgrel=1.1
 pkgdesc='A lightweight, broker-less messaging library'
 arch=(powerpc64le)
 url='https://nng.nanomsg.org/'
