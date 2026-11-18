@@ -156,6 +156,50 @@ upstream). OpenTimelineIO, new in 5.3, is off. Everything in the table
 above is unchanged, and the BMW27/Classroom parity and timing below were
 not repeated.
 
+## TLS relaxation: why 5.3.0-2 links with GNU ld, not LLD
+
+5.3.0-1 passed every `--background` check above and still segfaulted the
+moment the GUI started, on both lanes `[MEASURED]`. The trigger was a
+`std::thread` worker. The main thread was only the one that took the re-raised
+`SI_USER` SIGSEGV, while it parsed a studio-light `.sl` file.
+
+5.3 links with LLD when the compiler accepts `-fuse-ld=lld` (`WITH_LINKER_LLD`
+defaults ON). bq's sysroot has Arch POWER's `lld` 22.1.8, and the binary's
+`.comment` says `Linker: LLD 22.1.8`.
+
+The faulting code, POWER9 build, `blender+0x2c08b88`:
+
+    2c08a80:  nop                     <- was  addis r9,r2,sym@got@tlsld@ha
+    2c08a94:  addis   r3,r13,0        <- was  addi  r9,r9,sym@got@tlsld@l
+    2c08ab8:  std     r9,64(r31)      <- r9 is stale: an earlier byte count, 0x1de
+      ...
+    2c08b88:  ld      r3,64(r31)      <- GCC moves the argument into r3 here
+    2c08b8c:  nop                     <- was  bl __tls_get_addr
+    2c08b90:  addi    r3,r3,-28192    <- tprel@l of the thread-local
+    2c08b94:  lbz     r14,0(r3)       <- 0x1de - 28192: SIGSEGV
+
+- **The bug is in LLD** (`lld/ELF/Arch/PPC64.cpp`, llvmorg-22.1.8).
+  `relaxTlsGdToLe` and `relaxTlsLdToLe` rewrite the `@l` instruction as a
+  fixed `0x3c6d0000`, `addis r3,r13`. `relaxTlsGdToIe` likewise writes
+  `ld r3,…`. The register GCC chose is thrown away.
+- **GCC's code is legal.** GNU ld (binutils 046eeeef, `bfd/elf64-ppc.c`)
+  keeps the destination register (`insn1 &= 0x1f << 21`). Its comment says the
+  register "may be something other than the usual r3, and moved to r3 before
+  the call by intervening code", which is exactly what GCC 16 did here.
+- **Same site on the baseline lane** (`+0x2c5a078`): `addis r3,r13,0`
+  directly followed by `std r9,80(r31)`.
+- **Related:** [llvm#240311](https://github.com/llvm/llvm-project/issues/240311)
+  is a separate LLD PPC64 LD→LE bug, for the small-model `GOT_TLSLD16`.
+
+5.3.0-2 sets `WITH_LINKER_LLD=OFF`, so it links with GNU ld. `build()` fails
+if the binary was linked by LLD, or if the crash signature is still there: a
+relaxed call slot (`nop`, then `addi r3,r3,…`) after `ld r3,N(…)`. That
+signature check finds both 5.3.0-1 binaries and nothing in `oiiotool` or
+Hyprland.
+
+The LLD fix itself belongs in `lld/`: keep rT in those three relaxations, as
+GNU ld does.
+
 ## `cycles-vsx.patch` -- the Cycles kernel on VSX
 
 Cycles has one 4-wide CPU kernel, written against SSE intrinsics and selected

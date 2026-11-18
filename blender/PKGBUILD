@@ -8,7 +8,7 @@
 
 pkgname=blender
 pkgver=5.3.0
-pkgrel=1
+pkgrel=2
 epoch=17
 pkgdesc="A fully integrated 3D graphics creation suite (Cycles CPU with Embree and OpenImageDenoise)"
 arch=(powerpc64le)
@@ -175,7 +175,6 @@ build() {
   export CXXFLAGS=${CXXFLAGS/-Wp,-D_GLIBCXX_ASSERTIONS/}
   CXXFLAGS+=' --param=max-vartrack-size=640000000'
   CXXFLAGS+=' -Wno-error=format-security'
-
   local cmake_options=(
     -B build
     -C "$pkgname-$pkgver/build_files/cmake/config/blender_release.cmake"
@@ -185,6 +184,12 @@ build() {
     # script ("INPUT ( AS_NEEDED ( -latomic ) )" -> "library not found:
     # AS_NEEDED"); every link fails.  Use the default ld.
     -D WITH_LINKER_MOLD=OFF
+    # ppc64le: and not LLD either, which 5.3 picks by default (README.md,
+    # "TLS relaxation").  LLD 22's GD/LD->LE relaxation writes `addis r3,r13`
+    # whatever register GCC put the TLS address in; GCC used r9 and moved it
+    # to r3 later, so 5.3.0-1 built a thread-local's address from a stale r9
+    # and segfaulted at GUI startup on both lanes.  GNU ld keeps the register.
+    -D WITH_LINKER_LLD=OFF
     -D PYTHON_VERSION="$(_get_pyver)"
     -D WITH_INSTALL_PORTABLE=OFF
     -D WITH_PYTHON_INSTALL=OFF
@@ -233,6 +238,23 @@ build() {
 
   cmake "${cmake_options[@]}"
   cmake --build build
+
+  # ppc64le: the 5.3.0-1 crash signature must be gone -- a relaxed
+  # __tls_get_addr slot (nop, then addi r3,r3,tprel@l) whose r3 was reloaded
+  # from the stack -- and so must LLD.  In check() this would never run: bq
+  # builds --nocheck.
+  if readelf -p .comment build/bin/blender | grep -q 'Linker: LLD'; then
+    echo "ppc64le: build/bin/blender was linked by LLD (README.md)" >&2
+    return 1
+  fi
+  if objdump -d --no-show-raw-insn build/bin/blender | awk '
+      { sub(/^[ \t]*[0-9a-f]+:[ \t]*/, ""); m = $1; o = $2 }
+      p2 == "ld" && p2o ~ /^r3,/ && p1 == "nop" && m == "addi" && o ~ /^r3,r3,/ { bad = 1 }
+      { p2 = p1; p2o = p1o; p1 = m; p1o = o }
+      END { exit !bad }'; then
+    echo "ppc64le: relaxed TLS sequence reloads a stale base (README.md)" >&2
+    return 1
+  fi
 }
 
 package() {
