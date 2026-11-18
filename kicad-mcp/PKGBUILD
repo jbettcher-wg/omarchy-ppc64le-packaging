@@ -28,8 +28,16 @@ makedepends=(
   python-setuptools
   python-wheel
 )
-source=("$pkgname-$_commit.tar.gz::$url/archive/$_commit.tar.gz")
-sha256sums=('dfca376f0c3206fe90e4c93009b4f939aab86bba7ff2d8bfc3a10ade85ef675c')
+source=("$pkgname-$_commit.tar.gz::$url/archive/$_commit.tar.gz"
+        kicad-mcp-protobuf7.patch)
+sha256sums=('dfca376f0c3206fe90e4c93009b4f939aab86bba7ff2d8bfc3a10ade85ef675c'
+            'e6b3535a12f3328186b1687ce785e08885f2982502b1490ba88aa4930ae50878')
+
+prepare() {
+  cd $pkgname-$_commit
+  # protobuf 7 removed FieldDescriptor.label; every footprint move hit it.
+  patch -Np1 -i ../kicad-mcp-protobuf7.patch
+}
 
 build() {
   cd $pkgname-$_commit

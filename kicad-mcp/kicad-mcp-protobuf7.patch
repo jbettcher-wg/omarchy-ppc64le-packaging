@@ -1,0 +1,16 @@
+Omarchy: protobuf 7 removed FieldDescriptor.label (deprecated in favour of
+is_repeated / is_required).  _validate_footprint_coordinates used it, so every
+footprint move failed with AttributeError against python-protobuf 7.35.1
+(12 failures in tests/test_bridge.py).  is_repeated is its replacement.
+
+--- a/src/kicad_mcp/bridge.py
++++ b/src/kicad_mcp/bridge.py
+@@ -148,7 +148,7 @@
+             return
+         for descriptor, value in message.ListFields():
+             if descriptor.message_type is not None:
+-                if descriptor.label == descriptor.LABEL_REPEATED:
++                if descriptor.is_repeated:
+                     for child in value:
+                         validate(child)
+                 else:

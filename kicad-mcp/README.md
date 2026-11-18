@@ -33,6 +33,15 @@ in that venv. The system packages satisfy all three requirements:
 fetched from PyPI. `build()` checks this offline with `pip install --no-index
 --dry-run` in such a venv.
 
+## Patch
+
+`kicad-mcp-protobuf7.patch`: protobuf 7 removed `FieldDescriptor.label`, which
+was deprecated in favour of `is_repeated` / `is_required`.
+`_validate_footprint_coordinates` used it, so against the system
+`python-protobuf` 7.35.1 every footprint move failed with `AttributeError`.
+That caused 12 failures in upstream's `tests/test_bridge.py`. The fix is one
+line and is worth sending upstream.
+
 ## Dependencies added for this package
 
 | Package | Version | Arch | Notes |
