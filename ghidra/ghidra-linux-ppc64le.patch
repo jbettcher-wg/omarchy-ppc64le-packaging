@@ -1,0 +1,179 @@
+diff -ruN a/GPL/DemanglerGnu/build.gradle b/GPL/DemanglerGnu/build.gradle
+--- a/GPL/DemanglerGnu/build.gradle
++++ b/GPL/DemanglerGnu/build.gradle
+@@ -80,6 +80,7 @@
+ 			targetPlatform "win_arm_64"
+ 			targetPlatform "linux_x86_64"
+ 			targetPlatform "linux_arm_64"
++			targetPlatform "linux_ppc64le"
+ 			targetPlatform "mac_x86_64"
+ 			targetPlatform "mac_arm_64"
+ 			targetPlatform "freebsd_x86_64"
+@@ -106,6 +107,7 @@
+ 			targetPlatform "win_arm_64"
+ 			targetPlatform "linux_x86_64"
+ 			targetPlatform "linux_arm_64"
++			targetPlatform "linux_ppc64le"
+ 			targetPlatform "mac_x86_64"
+ 			targetPlatform "mac_arm_64"
+ 			targetPlatform "freebsd_x86_64"
+diff -ruN a/GPL/GnuDisassembler/buildGdis.gradle b/GPL/GnuDisassembler/buildGdis.gradle
+--- a/GPL/GnuDisassembler/buildGdis.gradle
++++ b/GPL/GnuDisassembler/buildGdis.gradle
+@@ -4,7 +4,7 @@
+ 
+ defaultTasks 'assemble'
+ 
+-ext.supportedPlatforms = ['mac_x86_64', 'mac_arm_64', 'linux_x86_64', 'linux_arm_64']
++ext.supportedPlatforms = ['mac_x86_64', 'mac_arm_64', 'linux_x86_64', 'linux_arm_64', 'linux_ppc64le']
+ 
+ ext.binutilsResource = new File("${binutilsLocation}/${binutils}.tar.bz2")
+ 
+@@ -57,6 +57,9 @@
+ 	tasks.compileGdisLinux_arm_64ExecutableGdisC {
+ 		dependsOn 'copyBinutilsArtifcats_linux_arm_64'
+ 	}
++	tasks.compileGdisLinux_ppc64leExecutableGdisC {
++		dependsOn 'copyBinutilsArtifcats_linux_ppc64le'
++	}
+ 	
+ }
+ 
+diff -ruN a/GPL/nativeBuildProperties.gradle b/GPL/nativeBuildProperties.gradle
+--- a/GPL/nativeBuildProperties.gradle
++++ b/GPL/nativeBuildProperties.gradle
+@@ -34,6 +34,18 @@
+ 		}
+ 	}	
+ 
++	// On linux_ppc64le, GCC accepts -m64, so Gradle's built-in Intel64 target configuration
++	// claims it can build linux_x86_64 as well, and assemble fills os/linux_x86_64 with
++	// ppc64le binaries. Build only the current platform there.
++	binaries {
++		withType(NativeBinarySpec) { b ->
++			if (getCurrentPlatformName() == "linux_ppc64le" &&
++					b.targetPlatform.name != "linux_ppc64le") {
++				b.buildable = false
++			}
++		}
++	}
++
+ 	// The toolChains block is needed because Gradle doesn't find the native toolchain in various
+ 	// scenarios. These checks, can be removed when Gradle fixes them, and we advertise a
+ 	// minimum Gradle version that includes the fix.
+diff -ruN a/GPL/nativePlatforms.gradle b/GPL/nativePlatforms.gradle
+--- a/GPL/nativePlatforms.gradle
++++ b/GPL/nativePlatforms.gradle
+@@ -24,6 +24,7 @@
+ 	[name: "win_arm_64", os: "windows", arch: "arm64"],
+ 	[name: "linux_x86_64", os: "linux", arch: "x86_64"],
+ 	[name: "linux_arm_64", os: "linux", arch: "arm64"],
++	[name: "linux_ppc64le", os: "linux", arch: "ppc64le"],
+ 	[name: "mac_x86_64", os: "osx", arch: "x86_64"],
+ 	[name: "mac_arm_64", os: "osx", arch: "arm64"],
+ 	[name: "freebsd_x86_64", os: "freebsd", arch: "x86_64"],
+@@ -82,6 +83,9 @@
+ 		case "arm64":
+ 			arch = "arm_64"
+ 			break
++		case "ppc64le":
++			arch = "ppc64le"
++			break
+ 		default:
+ 			throw new GradleException("Unrecognized platform architecture: $arch" )
+ 	}
+diff -ruN a/Ghidra/Features/Decompiler/buildNatives.gradle b/Ghidra/Features/Decompiler/buildNatives.gradle
+--- a/Ghidra/Features/Decompiler/buildNatives.gradle
++++ b/Ghidra/Features/Decompiler/buildNatives.gradle
+@@ -41,6 +41,7 @@
+ 			targetPlatform "win_arm_64"
+ 			targetPlatform "linux_x86_64"
+ 			targetPlatform "linux_arm_64"
++			targetPlatform "linux_ppc64le"
+ 			targetPlatform "mac_x86_64"
+ 			targetPlatform "mac_arm_64"
+ 			targetPlatform "freebsd_x86_64"
+@@ -155,6 +156,7 @@
+ 			targetPlatform "win_arm_64"
+ 			targetPlatform "linux_x86_64"
+ 			targetPlatform "linux_arm_64"
++			targetPlatform "linux_ppc64le"
+ 			targetPlatform "mac_x86_64"
+ 			targetPlatform "mac_arm_64"
+ 			targetPlatform "freebsd_x86_64"
+diff -ruN a/Ghidra/Features/FileFormats/buildNatives.gradle b/Ghidra/Features/FileFormats/buildNatives.gradle
+--- a/Ghidra/Features/FileFormats/buildNatives.gradle
++++ b/Ghidra/Features/FileFormats/buildNatives.gradle
+@@ -32,6 +32,7 @@
+ 			targetPlatform "win_arm_64"
+ 			targetPlatform "linux_x86_64"
+ 			targetPlatform "linux_arm_64"
++			targetPlatform "linux_ppc64le"
+ 			targetPlatform "mac_x86_64"
+ 			targetPlatform "mac_arm_64"
+ 			targetPlatform "freebsd_x86_64"
+diff -ruN a/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Architecture.java b/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Architecture.java
+--- a/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Architecture.java
++++ b/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Architecture.java
+@@ -20,6 +20,7 @@
+ 	X86_64("x86_64", "amd64"),
+ 	POWERPC("ppc"),
+ 	POWERPC_64("ppc64"),
++	POWERPC_64_LE("ppc64le"),
+ 	ARM_64("aarch64", "arm64"),
+ 	UNKNOWN("Unknown Architecture");
+ 
+diff -ruN a/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Platform.java b/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Platform.java
+--- a/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Platform.java
++++ b/Ghidra/Framework/Generic/src/main/java/ghidra/framework/Platform.java
+@@ -43,6 +43,9 @@
+ 	/// Identifies a Linux ARM 64-bit OS
+ 	LINUX_ARM_64(OperatingSystem.LINUX, Architecture.ARM_64, "linux_arm_64", ".so", ""),
+ 
++	/// Identifies a Linux PowerPC 64-bit little-endian OS
++	LINUX_PPC64LE(OperatingSystem.LINUX, Architecture.POWERPC_64_LE, "linux_ppc64le", ".so", ""),
++
+ 	/// Identifies a macOS x86 32-bit OS
+ 	MAC_X86_32(OperatingSystem.MAC_OS_X, Architecture.X86, "mac_x86_32", ".dylib", ""),
+ 
+@@ -129,6 +132,7 @@
+ 			paths.add("/lib64");
+ 			paths.add("/lib/x86_64-linux-gnu");
+ 			paths.add("/lib/aarch64-linux-gnu");
++			paths.add("/lib/powerpc64le-linux-gnu");
+ 			paths.add("/usr/bin");
+ 			paths.add("/usr/lib");
+ 			paths.add("/usr/X11R6/bin");
+diff -ruN a/gradle/hasProtobuf.gradle b/gradle/hasProtobuf.gradle
+--- a/gradle/hasProtobuf.gradle
++++ b/gradle/hasProtobuf.gradle
+@@ -31,6 +31,7 @@
+ 	allProtocArtifacts "com.google.protobuf:protoc:${version}:windows-x86_64@exe"
+ 	allProtocArtifacts "com.google.protobuf:protoc:${version}:linux-x86_64@exe"
+ 	allProtocArtifacts "com.google.protobuf:protoc:${version}:linux-aarch_64@exe"
++	allProtocArtifacts "com.google.protobuf:protoc:${version}:linux-ppcle_64@exe"
+ 	allProtocArtifacts "com.google.protobuf:protoc:${version}:osx-x86_64@exe"
+ 	allProtocArtifacts "com.google.protobuf:protoc:${version}:osx-aarch_64@exe"
+ 
+@@ -41,6 +42,9 @@
+ 		if (platform.endsWith("x86_64")) {
+ 			protocArtifact "com.google.protobuf:protoc:${version}:linux-x86_64@exe"
+ 		}
++		else if (platform.endsWith("ppc64le")) {
++			protocArtifact "com.google.protobuf:protoc:${version}:linux-ppcle_64@exe"
++		}
+ 		else {
+ 			protocArtifact "com.google.protobuf:protoc:${version}:linux-aarch_64@exe"
+ 		}
+diff -ruN a/gradle/root/usage.gradle b/gradle/root/usage.gradle
+--- a/gradle/root/usage.gradle
++++ b/gradle/root/usage.gradle
+@@ -41,7 +41,7 @@
+ Task rules:
+     buildNatives[_platform]         Builds the native executables and libraries for the     [GPL/nativeBuildProperties.gradle]  
+                                       current or specified platform (win_x86_64,
+-                                      linux_arm_64, mac_x86_64, etc.)
++                                      linux_arm_64, linux_ppc64le, mac_x86_64, etc.)
+ 
+ """
+ 	}

@@ -1,0 +1,284 @@
+# POWER Maintainer: jbettcher <jbettcher>
+# Maintainer: Robin Broda <robin at broda dot me>
+# Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
+#
+# ppc64le port of Arch extra ghidra. Build prerequisites on this box:
+#   - java-openjdk (JDK >= 25; Arch POWER carries 26 and no 25) and z3 +
+#     z3-java, which are ours (packaging/z3), so build and land them first
+#   - Gradle >= 9.4: Ghidra 12.2 needs Gradle >= 9.1, and only 9.4+ runs on
+#     JDK 26. Arch POWER's gradle is 8.14.2, which dies with "Unsupported
+#     class file major version 70", so the official 9.9.1 bin zip is pinned
+#     as a source below rather than using the system gradle.
+#   - ghidra-linux-ppc64le.patch teaches the build and the runtime about
+#     linux_ppc64le (README.md).
+# After install, point REA at it with: export GHIDRA_INSTALL_DIR=/opt/ghidra
+
+pkgname=ghidra
+pkgver=12.2
+pkgrel=1.1
+_jdkver=26
+_gradlever=9.9.1
+_yajsw=13.18
+_jsarif=2.1
+_protobuf=6.31.0
+_psutil=5.9.8
+_setuptools=80.9.0
+_wheel=0.45.1
+_jpype1=1.5.2
+_packaging=25.0
+_typing_extensions=4.16.0
+pkgdesc='Software reverse engineering framework'
+url='https://ghidra-sre.org/'
+arch=(x86_64 aarch64 powerpc64le)
+license=(
+  Apache-2.0
+)
+depends=(
+  bash
+  glibc
+  libgcc
+  libstdc++
+  python
+  python-packaging
+)
+makedepends=(
+  "java-environment=${_jdkver}"
+  git
+  grep
+  python-build
+  python-flit-core
+  python-installer
+  python-pip
+  python-setuptools
+  z3
+  z3-java
+)
+optdepends=(
+  'pam: GhidraServer support'
+)
+options=('!strip')
+source=(
+  https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_${pkgver}_build.tar.gz
+  "git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_${pkgver}"
+  https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar
+  https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-${_yajsw}/yajsw-stable-${_yajsw}.zip
+  https://files.pythonhosted.org/packages/source/p/protobuf/protobuf-${_protobuf}.tar.gz
+  https://files.pythonhosted.org/packages/source/p/psutil/psutil-${_psutil}.tar.gz
+  https://files.pythonhosted.org/packages/source/s/setuptools/setuptools-${_setuptools}.tar.gz
+  https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
+  https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-${_jpype1}.tar.gz
+  https://files.pythonhosted.org/packages/source/p/packaging/packaging-${_packaging}.tar.gz
+  https://files.pythonhosted.org/packages/source/t/typing_extensions/typing_extensions-${_typing_extensions}.tar.gz
+  ghidra.desktop
+  https://services.gradle.org/distributions/gradle-${_gradlever}-bin.zip
+  ghidra-linux-ppc64le.patch
+)
+noextract=(
+  AXMLPrinter2.jar
+  yajsw-stable-${_yajsw}.zip
+  psutil-${_psutil}.tar.gz
+)
+sha512sums=('e4576bd511628fd2d6a64a6803c6c07922b2c0820436480c7acee97fbd49258f00d9cae9cf2a6bea7d14c5aef561ec4eeac82d6d9dbbd79e515bb344e9ad582a'
+            'SKIP'
+            'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
+            'a128c724769f938658826789593616a8a2e68835f0624a15ea6f6551a84b8218e4ad6dcfc263a6a0c730c21ef911362d46d61e1ad02ec3857fe24bb4ea7130cd'
+            'ad1b61e7cd9dacbcc5dfa181ed7ed55325eb582e5c104102977e4051c02293c163e16deb6593c8b7cc65ff7b1ee3a636c324c1b05eb6eec9960391b0499a04e0'
+            '6ddeed937119a930bb7b9556ff329f054e9429b8457c9a15d99cb105271297117abba587a974d02760bb8b6b244734973a676bdff6b533a53ce587858e48f337'
+            '36eb1f219d29c6b9e135936bde2001ad70a971c8069cd0175d3a5325b450e6843a903d3f70043c9f534768ebeab8ab0c544b8f44456555d333f1ed72daa5c18b'
+            'df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8'
+            'b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b'
+            '0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c'
+            'a46564258597913027f8104ab84dc15cb09434f978e3cac423d2e7c916b400d24627351cd0cc7095e21b01246a6c7b0bcfc062e7c9c5e56e9b71fb4d659560bd'
+            'e611f0a84023aee72016a8bb73a627e4d3b3fc28201fe2b60ccc8d6628fc2e7005b9edc24e35e489311fd6fa9ed1a35d5e230e2657a77b331dbf7cd6773ae957'
+            '07fca29557378d0684457c16e71651bec88b1bc59c9f743df10ed689b93a86a59ea045b651b17516d5d80bf50911048ecfe0d7a1e8b07ec6184127d22690d6a5'
+            '47df78b7f5c5f53f6c6524149393f37aadb1eeec8198a01f0e016d269d832491eb10a09fc8e81edafa3ba6b988cb4c7df2aefaf9299cf98db34b7a442cfdb9cb')
+
+# Ghidra names its native output directories per host OS/CPU; map uname -m
+# to the buildNatives_<os> task and distribution zip suffix.
+case "$(uname -m)" in
+  x86_64)  _ghos=linux_x86_64 ;;
+  aarch64) _ghos=linux_arm_64 ;;
+  ppc64le) _ghos=linux_ppc64le ;;
+esac
+
+prepare() {
+  cd ghidra-Ghidra_${pkgver}_build
+
+  # linux_ppc64le platform: native build lists, protoc, and the runtime
+  # Platform/Architecture enums (README.md). Harmless on other arches.
+  patch -Np1 -i ../ghidra-linux-ppc64le.patch
+
+  # Check dependency expectations
+  _check_dep "yajsw-stable-${_yajsw}.zip"
+  _check_dep "java-sarif-${_jsarif}-modified.jar"
+  _check_dep "protobuf-${_protobuf}-"
+  _check_dep "psutil-${_psutil}.tar.gz"
+  _check_dep "setuptools-${_setuptools}-"
+  _check_dep "wheel-${_wheel}-"
+  _check_dep "jpype1-${_jpype1}-"
+  _check_dep "packaging-${_packaging}-"
+  _check_dep "typing_extensions-${_typing_extensions}-"
+
+  # Copy needed libraries into flat repo folder
+  install -Dm 644 \
+    ../AXMLPrinter2.jar ../ghidra-data/lib/java-sarif-${_jsarif}-modified.jar \
+    -t dependencies/flatRepo
+  install -Dm 644 ../psutil-${_psutil}.tar.gz -t dependencies/Debugger-rmi-trace
+  install -Dm 644 ../jpype1-${_jpype1}.tar.gz -t dependencies/PyGhidra/
+
+  # Debugger model
+  install -Dm 644 ../ghidra-data/Debugger/dbgmodel.tlb -t dependencies/Debugger-agent-dbgeng/
+
+  # YAJSW expects this symlink
+  ln -sf ghidra-Ghidra_${pkgver}_build ../ghidra.bin
+  install -Dm 644 ../yajsw-stable-${_yajsw}.zip -t dependencies/GhidraServer
+
+  # Add FID datasets
+  install -Dm 644 ../ghidra-data/FunctionID/*.fidb -t Ghidra/Features/FunctionID/src/main/fidb
+
+  # Ignore lack of licensing for YAJSW zip, packed FID datasets, and the native binaries
+  sed -i '/FileTree tree/a\\t\texclude "yajsw-stable-**.zip"\n\t\texclude "src/main/fidb/**.fidb"\n\t\texclude "os/linux64/**"' gradle/support/ip.gradle
+
+  # z3 dependencies
+  install -Dm 644 /usr/lib/libz3* -t dependencies/SymbolicSummaryZ3/os/${_ghos}
+  install -Dm 644 /usr/share/java/com.microsoft.z3.jar -t dependencies/flatRepo
+}
+
+_check_dep() {
+  local dep=$1
+  if ! grep -m1 "${dep}" --quiet gradle/support/fetchDependencies.gradle; then
+    error "Dependency expectation failed: ${dep}"
+    return 1
+  fi
+}
+
+build() {
+  cd ghidra-Ghidra_${pkgver}_build
+
+  # Name the JDK outright: bq's sysroot never runs the archlinux-java hook,
+  # so /usr/lib/jvm/default and /usr/bin/java cannot be trusted there.
+  export JAVA_HOME="/usr/lib/jvm/java-${_jdkver}-openjdk"
+  [[ -x $JAVA_HOME/bin/javac ]] || { error "no JDK ${_jdkver} at $JAVA_HOME"; return 1; }
+  export PATH="${JAVA_HOME}/bin:${PATH}"
+
+  # The pinned Gradle, never the system one. --no-daemon because a daemon
+  # outlives makepkg with this build's /usr mounted, and the next build in
+  # another sandbox (the other pool's) would reuse it and compile against
+  # the wrong toolchain. Workers follow makepkg's -j, not nproc.
+  local _gradle=("$srcdir/gradle-${_gradlever}/bin/gradle" --no-daemon --console=plain)
+  local _jobs
+  _jobs=$(grep -oP '(?<=-j)\s*[0-9]+' <<<"${MAKEFLAGS:-}" | tr -d ' ' | head -n1)
+  [[ -n $_jobs ]] && _gradle+=(--max-workers="$_jobs")
+  local _out
+  _out=$("${_gradle[@]}" --version)
+  grep -q "^Gradle ${_gradlever}\$" <<<"$_out" || {
+    error "pinned Gradle ${_gradlever} did not run"; return 1; }
+
+  # Gradle's native build ignores CFLAGS: decompile, sleigh, the demanglers
+  # and lzfse get the compiler's default -mcpu. On the POWER8 baseline that
+  # default must not be POWER9 (the pool gcc's is power8; assert, not assume).
+  if (( ${_power8_compat:-0} )); then
+    _out=$(gcc -dM -E -x c /dev/null; g++ -dM -E -x c++ /dev/null)
+    grep -q '_ARCH_PWR8' <<<"$_out" || { error "cannot read the compiler's ISA"; return 1; }
+    if grep -q '_ARCH_PWR9' <<<"$_out"; then
+      error "gcc/g++ default to POWER9; the baseline natives would be ISA 3.0"
+      return 1
+    fi
+  fi
+
+  # Build dependencies
+  _build_python_dependency protobuf-${_protobuf} Debugger-rmi-trace
+  _build_python_dependency setuptools-${_setuptools} Debugger-rmi-trace PyGhidra
+  _build_python_dependency wheel-${_wheel} Debugger-rmi-trace PyGhidra
+  _build_python_dependency packaging-${_packaging} PyGhidra
+  _build_python_dependency typing_extensions-${_typing_extensions} PyGhidra
+  _build_python_dependency jpype1-${_jpype1} PyGhidra
+
+  # Ghidra build
+  "${_gradle[@]}" yajswDevUnpack
+  "${_gradle[@]}" buildNatives_${_ghos}
+  "${_gradle[@]}" sleighCompile
+  "${_gradle[@]}" buildGhidra
+
+  _assert_dist
+}
+
+# Here and not in check(): bq builds with makepkg --nocheck. The distribution
+# must carry this platform's natives, built for this CPU and linked by GNU ld,
+# no ELF in any other platform's os/ directory, and the Z3 extension must
+# carry the Z3 libraries.
+_assert_dist() {
+  local _zip=(build/dist/ghidra_*_*.zip) _chk="$srcdir/dist-check" _n _f _hits
+  [[ ${#_zip[@]} -eq 1 && -f ${_zip[0]} ]] || { error "expected one dist zip: ${_zip[*]}"; return 1; }
+  rm -rf "$_chk"; mkdir -p "$_chk"
+  bsdtar -xf "${_zip[0]}" -C "$_chk" "*/os/*" "*SymbolicSummaryZ3.zip"
+  # GCC on ppc64le accepts -m64, so without the patch's buildable rule Gradle
+  # built ppc64le binaries into os/linux_x86_64 as well.
+  while IFS= read -r -d '' _f; do
+    [[ $_f == */os/${_ghos}/* ]] && continue
+    [[ $(od -An -tx1 -N4 "$_f") == " 7f 45 4c 46" ]] || continue
+    error "ELF outside os/${_ghos}: ${_f#"$_chk"/}"; return 1
+  done < <(find "$_chk" -path '*/os/*' -type f -print0)
+  for _n in decompile sleigh demangler_gnu_v2_41 demangler_gnu_v2_24 lzfse; do
+    _f=$(find "$_chk" -path "*/os/${_ghos}/${_n}" -type f)
+    [[ -n $_f && $(wc -l <<<"$_f") -eq 1 ]] || { error "dist lacks os/${_ghos}/${_n}"; return 1; }
+    _out=$(readelf -h "$_f")
+    grep -q 'Machine:.*PowerPC64' <<<"$_out" || { error "$_n is not a PowerPC64 ELF"; return 1; }
+    _out=$(readelf -p .comment "$_f")
+    if grep -q 'Linker: LLD' <<<"$_out"; then
+      error "$_n was linked by LLD"; return 1
+    fi
+  done
+  _f=$(find "$_chk" -name '*SymbolicSummaryZ3.zip' -type f)
+  [[ -n $_f ]] || { error "dist lacks the SymbolicSummaryZ3 extension"; return 1; }
+  _out=$(bsdtar -tf "$_f")
+  _hits=$(grep -cE "/os/${_ghos}/libz3(java)?\.so\$" <<<"$_out")
+  [[ $_hits -eq 2 ]] || { error "SymbolicSummaryZ3 lacks libz3.so/libz3java.so for ${_ghos}"; return 1; }
+  rm -rf "$_chk"
+}
+
+_build_python_dependency() {
+  local folder=$1; shift
+  local targets=("$@")
+  local target
+
+  msg "Building python dependency ${folder} for ${targets[*]}"
+  pushd "../${folder}"
+  [[ -f pyproject.toml ]] && sed 's/,<4//' -i pyproject.toml
+  python -m build --wheel --no-isolation
+  for target in "${targets[@]}"; do
+    install -Dm 644 dist/*.whl -t "../ghidra-Ghidra_${pkgver}_build/dependencies/${target}"
+  done
+  popd
+}
+
+package() {
+  depends+=(
+    "java-environment>=${_jdkver}"
+  )
+
+  cd ghidra-Ghidra_${pkgver}_build
+
+  # Extract built archive into destination folder
+  install -d "${pkgdir}"/{opt,usr/bin}
+  _appver=$(grep -oP '(?<=^application.version=).*$' Ghidra/application.properties)
+  _relname=$(grep -oP '(?<=^application.release.name=).*$' Ghidra/application.properties)
+  bsdtar xf "build/dist/ghidra_${_appver}_${_relname}"_*.zip -C "${pkgdir}"/opt
+
+  # Simplify some directory and binary names
+  mv "${pkgdir}"/opt/ghidra{_*,}
+  ln -s /opt/ghidra/ghidraRun "${pkgdir}"/usr/bin/ghidra
+  ln -s /opt/ghidra/support/pyghidraRun "${pkgdir}"/usr/bin/pyghidra
+  ln -s /opt/ghidra/support/analyzeHeadless "${pkgdir}"/usr/bin/ghidra-analyzeHeadless
+
+  # Install desktop file
+  install -Dm644 ../ghidra.desktop "${pkgdir}"/usr/share/applications/$pkgname.desktop
+
+  # Install icons
+  for _size in 16 24 32 48 128 256; do
+    install -vDm 644 Ghidra/Framework/Gui/src/main/resources/images/GhidraIcon$_size.png \
+      "$pkgdir/usr/share/icons/hicolor/${_size}x${_size}/apps/${pkgname}.png"
+  done
+}
+
+# vim: ts=2 sw=2 et:
