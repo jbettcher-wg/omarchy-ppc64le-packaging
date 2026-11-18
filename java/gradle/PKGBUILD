@@ -3,10 +3,20 @@
 # Contributor: Chris Molozian (novabyte) <chris DOT molozian AT gmail DOT com>
 # Contributor: Sanjuro Makabe (itti) <vuck AT gmx DOT de>
 
+# ppc64le: Omarchy -- Arch's recipe. The package is arch-independent; what
+# changes is only how build() runs inside bq's sandbox:
+#   - Gradle's own build runs its daemon on JDK 25 (toolchainVersion in
+#     gradle/gradle-daemon-jvm.properties), and its foojay download URLs cover
+#     x86_64 and aarch64 only, so the java25-openjdk makedepend is what it
+#     finds. The launcher JDK is named outright, because bq's sysroot never
+#     runs the archlinux-java hook.
+#   - --no-daemon: a daemon outlives makepkg with this build's /usr mounted.
+#   - Gradle's workers follow makepkg's -j rather than nproc.
+
 pkgbase=gradle
 pkgname=('gradle' 'gradle-doc' 'gradle-src')
 pkgver=9.9.0
-pkgrel=1
+pkgrel=1.1
 pkgdesc='Powerful build system for the JVM'
 url='https://gradle.org/'
 arch=('any')
@@ -56,13 +66,30 @@ prepare() {
 
 build() {
   cd ${pkgbase}-${pkgver}
+
+  export JAVA_HOME=/usr/lib/jvm/java-25-openjdk
+  [[ -x $JAVA_HOME/bin/javac ]] || { error "no JDK 25 at $JAVA_HOME"; return 1; }
+  local _workers=()
+  local _jobs
+  _jobs=$(grep -oP '(?<=-j)\s*[0-9]+' <<<"${MAKEFLAGS:-}" | tr -d ' ' | head -n1)
+  [[ -n $_jobs ]] && _workers=(--max-workers="$_jobs")
+
   ./gradlew installAll \
+    --no-daemon \
+    "${_workers[@]}" \
     --info \
     -Porg.gradle.java.installations.paths=/usr/lib/jvm/java-21-openjdk \
     -Porg.gradle.java.installations.auto-download=false \
     -PfinalRelease=true \
     -Pgradle_installPath="$(pwd)/dist" \
     --no-configuration-cache
+
+  # Here, not in check(): bq builds with makepkg --nocheck. The installed
+  # distribution must run and report this version.
+  local _out
+  _out=$(dist/bin/gradle --version --no-daemon)
+  grep -q "^Gradle ${pkgver}\$" <<<"$_out" \
+    || { error "dist/bin/gradle does not report ${pkgver}"; return 1; }
 }
 
 package_gradle() {
