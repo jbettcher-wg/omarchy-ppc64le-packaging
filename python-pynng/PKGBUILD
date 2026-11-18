@@ -53,7 +53,8 @@ build() {
   ext=$(echo "$sp"/pynng/_nng*.so)
   readelf -d "$ext" | grep -q 'NEEDED.*\[libnng\.so\.1\]' \
     || { echo "pynng: $ext does not link the system libnng" >&2; return 1; }
-  PYTHONPATH="$sp" python - <<'EOF'
+  # -P: test the installed wheel, not the source tree's pynng/ in the cwd.
+  PYTHONPATH="$sp" python -P - <<'EOF'
 import pynng
 with pynng.Pair0(listen="inproc://smoke") as a, pynng.Pair0(dial="inproc://smoke") as b:
     b.send(b"ping")

@@ -67,7 +67,8 @@ build() {
   local t="$srcdir/smoke"
   rm -rf "$t"
   python -m installer --destdir="$t" dist/*.whl
-  PYTHONPATH="$(echo "$t"/usr/lib/python3*/site-packages)" python -W error - <<'EOF'
+  # -P: test the installed wheel, not the source tree's kipy/ in the cwd.
+  PYTHONPATH="$(echo "$t"/usr/lib/python3*/site-packages)" python -P -W error - <<'EOF'
 import importlib, pkgutil
 import google.protobuf, kipy.proto
 from kipy import KiCad
