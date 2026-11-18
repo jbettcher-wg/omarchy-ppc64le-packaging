@@ -30,7 +30,7 @@ makedepends=(
 source=("$pkgname-v$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
         pynng-system-nng.patch)
 sha256sums=('66f0b87007a0d90bc0ee13e6cfeeefc1d5aa7deb0dc06a05b4689516acce757b'
-            '342edbfd4f29db15dcfe5234bda16314da4e5088f7f32a94754f892cd6d56c0a')
+            '1d736eda719cb1ed52e2a6cc8fd407b281bc0d5fe3dbe1a4977300df603b15d7')
 _sourcedir="pynng-$pkgver"
 
 prepare() {
