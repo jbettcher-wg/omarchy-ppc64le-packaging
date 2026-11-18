@@ -32,6 +32,10 @@ sha256sums=('f4af1171842489fc5ab45461377cf45d629a97eb338ad0ef8e6ee0cd11edea79'
 prepare() {
   cd kicad_python-$pkgver
   patch -Np1 -i ../kicad-python-system-build.patch
+  # The sdist's build.py (the hook the patch disconnects) and the setup.py
+  # poetry generated around it.  poetry-core is the backend; build.py in the
+  # cwd would also shadow the PyPA build module for "python -m build".
+  rm build.py setup.py
 
   # Regenerate the wrappers with the system protoc (README.md).  The sdist's are
   # protobuf 5.29 gencode, which the 7.x runtime refuses to load.
@@ -59,7 +63,7 @@ prepare() {
 
 build() {
   cd kicad_python-$pkgver
-  python -m build --wheel --no-isolation
+  python -P -m build --wheel --no-isolation
 
   # bq builds --nocheck, so the assertion lives here: every wrapper imports
   # under the system protobuf with warnings as errors, kipy's client imports,
