@@ -1,0 +1,22 @@
+Omarchy: EDA_BASE_FRAME::RecreateToolbars() dereferenced a null m_toolbarSettings
+for frames that have none (the KiPython scripting console).  Changing any
+preference broadcasts CommonSettingsChanged() to every open frame, so KiCad 10.0.6
+segfaulted in TOOLBAR_SETTINGS::GetToolbarConfig on the first Preferences OK with
+the console present.  Unchanged in 10.0.8; not reported upstream as of 2026-11-18.
+
+--- a/common/eda_base_frame.cpp
++++ b/common/eda_base_frame.cpp
+@@ -771,6 +771,13 @@
+ 
+     wxASSERT( m_toolbarSettings );
+ 
++    // A frame without toolbar settings -- the KiPython scripting console -- has
++    // no toolbars to rebuild.  CommonSettingsChanged() calls this on every open
++    // frame, and the wxASSERT above is compiled out of release builds, so
++    // changing any preference while the console existed dereferenced null.
++    if( !m_toolbarSettings )
++        return;
++
+     if( m_tbRight )
+         m_tbRight->ClearToolbar();
+ 
