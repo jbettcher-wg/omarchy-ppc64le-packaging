@@ -55,18 +55,28 @@ build() {
     || { echo "pynng: $ext does not link the system libnng" >&2; return 1; }
   # -P: test the installed wheel, not the source tree's pynng/ in the cwd.
   PYTHONPATH="$sp" python -P - <<'EOF'
+import os, socket, tempfile
 import pynng
-with pynng.Pair0(listen="inproc://smoke") as a, pynng.Pair0(dial="inproc://smoke") as b:
-    b.send(b"ping")
-    assert a.recv() == b"ping"
-with pynng.Rep0(listen="tcp://127.0.0.1:0") as rep:
-    port = rep.listeners[0].port
-    with pynng.Req0(dial=f"tcp://127.0.0.1:{port}") as req:
+
+def roundtrip(addr):
+    with pynng.Rep0(listen=addr, recv_timeout=5000) as rep, \
+         pynng.Req0(dial=addr, recv_timeout=5000) as req:
         req.send(b"q")
         assert rep.recv() == b"q"
         rep.send(b"a")
         assert req.recv() == b"a"
-print("pynng smoke: inproc + tcp ok")
+
+with pynng.Pair0(listen="inproc://smoke") as a, pynng.Pair0(dial="inproc://smoke") as b:
+    b.send(b"ping")
+    assert a.recv() == b"ping"
+with tempfile.TemporaryDirectory() as d:
+    roundtrip("ipc://" + os.path.join(d, "s"))
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+port = s.getsockname()[1]
+s.close()
+roundtrip(f"tcp://127.0.0.1:{port}")
+print("pynng smoke: inproc, ipc and tcp ok")
 EOF
 }
 
