@@ -15,7 +15,8 @@
 #   - !lto, as Arch POWER builds every JDK: link-time-opt HotSpot is untested
 #     on ppc64le.
 #   - OpenJDK's make runs its own job count; it follows makepkg's -j here so
-#     bq's budget holds.
+#     bq's budget holds. bq's ccache symlinks come off PATH for configure,
+#     which rejects them, and --enable-ccache replaces them.
 
 pkgbase=java25-openjdk
 pkgname=(
@@ -177,6 +178,14 @@ build() {
   if [[ ${CARCH} = powerpc64le ]]; then
     _ppc64le_opts=(--with-boot-jdk=/usr/lib/jvm/java-26-openjdk)
     [[ -n ${MAKEFLAG_J} ]] && _ppc64le_opts+=(--with-jobs="${MAKEFLAG_J}")
+    # configure refuses a compiler that is a ccache symlink, which is how bq
+    # provides ccache; take it off PATH and use OpenJDK's own ccache support,
+    # as Arch POWER's JDK recipes do.
+    if [[ :$PATH: == *:/usr/lib/ccache/bin:* ]]; then
+      PATH=$(tr ':' '\n' <<<"$PATH" | grep -vx /usr/lib/ccache/bin | paste -sd:)
+      export PATH
+      command -v ccache >/dev/null && _ppc64le_opts+=(--enable-ccache)
+    fi
   fi
 
 
