@@ -1,0 +1,57 @@
+--- a/lld/ELF/Arch/PPC64.cpp
++++ b/lld/ELF/Arch/PPC64.cpp
+@@ -740,10 +740,16 @@
+     writeFromHalf16(ctx, loc, NOP);
+     break;
+   case R_PPC64_GOT_TLSGD16:
+-  case R_PPC64_GOT_TLSGD16_LO:
+-    writeFromHalf16(ctx, loc, 0x3c6d0000); // addis r3, r13
++  case R_PPC64_GOT_TLSGD16_LO: {
++    // Keep the destination register, as GNU ld does.  The ABI sequence uses
++    // r3, but a compiler may build the __tls_get_addr argument in another
++    // register and copy it to r3 before the call (GCC 16 does, e.g. after a
++    // spill); forcing r3 here leaves that register stale.
++    uint32_t rt = readFromHalf16(ctx, loc) & (0x1f << 21);
++    writeFromHalf16(ctx, loc, 0x3c0d0000 | rt); // addis rT, r13
+     relocateNoSym(loc, R_PPC64_TPREL16_HA, val);
+     break;
++  }
+   case R_PPC64_GOT_TLSGD_PCREL34:
+     // Relax from paddi r3, 0, x@got@tlsgd@pcrel, 1 to
+     //            paddi r3, r13, x@tprel, 0
+@@ -802,9 +808,15 @@
+   case R_PPC64_GOT_TLSLD16_HA:
+     writeFromHalf16(ctx, loc, NOP);
+     break;
+-  case R_PPC64_GOT_TLSLD16_LO:
+-    writeFromHalf16(ctx, loc, 0x3c6d0000); // addis r3, r13, 0
++  case R_PPC64_GOT_TLSLD16:
++  case R_PPC64_GOT_TLSLD16_LO: {
++    // Keep the destination register (see relaxTlsGdToLe).  GOT_TLSLD16 is
++    // the small-model form, addi rT, r2, x@got@tlsld; without this case it
++    // fell through to llvm_unreachable (llvm#240311).
++    uint32_t rt = readFromHalf16(ctx, loc) & (0x1f << 21);
++    writeFromHalf16(ctx, loc, 0x3c0d0000 | rt); // addis rT, r13, 0
+     break;
++  }
+   case R_PPC64_GOT_TLSLD_PCREL34:
+     // Relax from paddi r3, 0, x1@got@tlsld@pcrel, 1 to
+     //            paddi r3, r13, 0x1000, 0
+@@ -1651,10 +1663,13 @@
+     return;
+   case R_PPC64_GOT_TLSGD16:
+   case R_PPC64_GOT_TLSGD16_LO: {
+-    // Relax from addi  r3, rA, sym@got@tlsgd@l to
+-    //            ld r3, sym@got@tprel@l(rA)
+-    uint32_t ra = (readFromHalf16(ctx, loc) & (0x1f << 16));
+-    writeFromHalf16(ctx, loc, 0xe8600000 | ra);
++    // Relax from addi  rT, rA, sym@got@tlsgd@l to
++    //            ld rT, sym@got@tprel@l(rA)
++    // keeping rT, as GNU ld does (see relaxTlsGdToLe).
++    uint32_t insn = readFromHalf16(ctx, loc);
++    uint32_t rt = insn & (0x1f << 21);
++    uint32_t ra = insn & (0x1f << 16);
++    writeFromHalf16(ctx, loc, 0xe8000000 | rt | ra);
+     relocateNoSym(loc, R_PPC64_GOT_TPREL16_LO_DS, val);
+     return;
+   }
