@@ -1,0 +1,90 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# KiCad's official IPC API bindings (kipy).  See README.md for why the protobuf
+# wrappers are regenerated here instead of shipped as the sdist has them.
+
+pkgname=python-kicad-python
+pkgver=0.7.1
+pkgrel=1
+_kicad_api_commit=2db9e5a72b7cf1e71bb8dff5257a88d4b41f812f  # tag 10.0.1, per kipy/kicad_api_version.py
+pkgdesc='KiCad API Python bindings (kipy)'
+arch=(any)
+url='https://gitlab.com/kicad/code/kicad-python'
+license=(MIT)
+depends=(
+  python
+  python-jsonschema
+  python-protobuf
+  python-pynng
+)
+makedepends=(
+  protobuf
+  python-build
+  python-installer
+  python-poetry-core
+)
+source=("https://files.pythonhosted.org/packages/a9/55/7b0190faf25e994d9157376f43af79dab08282e2323317e947049de8470e/kicad_python-$pkgver.tar.gz"
+        "kicad-api-proto-$_kicad_api_commit.tar.gz::https://gitlab.com/kicad/code/kicad/-/archive/$_kicad_api_commit/kicad-$_kicad_api_commit.tar.gz?path=api/proto"
+        kicad-python-system-build.patch)
+sha256sums=('f4af1171842489fc5ab45461377cf45d629a97eb338ad0ef8e6ee0cd11edea79'
+            'd57100e154bfc056c9686b34269f436fdb322eef4a949ff938793d06a9f25b1f'
+            'b59bded63f9db0da826a6e127d350da03cb23fc362ab1e12f9613e5a2620a7eb')
+
+prepare() {
+  cd kicad_python-$pkgver
+  patch -Np1 -i ../kicad-python-system-build.patch
+
+  # Regenerate the wrappers with the system protoc (README.md).  The sdist's are
+  # protobuf 5.29 gencode, which the 7.x runtime refuses to load.
+  local proto="$srcdir/kicad-$_kicad_api_commit-api-proto/api/proto"
+  find kipy/proto \( -name '*_pb2.py' -o -name '*_pb2.pyi' \) -delete
+  (cd "$proto" && find . -name '*.proto' -printf '%P\n') | sort > ../protos.txt
+  protoc -I "$proto" --python_out=kipy/proto --pyi_out=kipy/proto $(cat ../protos.txt)
+
+  # protoc writes absolute imports (from common.types import ...); kipy's are
+  # relative, one dot per directory level below kipy/proto plus one -- what
+  # upstream's protoletariat pass produces.
+  local f rel dir depth dots
+  while IFS= read -r f; do
+    rel=${f#kipy/proto/}
+    dir=$(dirname "$rel")
+    if [[ $dir == . ]]; then depth=0; else depth=$(awk -F/ '{print NF}' <<<"$dir"); fi
+    dots=$(printf '.%.0s' $(seq 0 "$depth"))
+    sed -i -E "s/^from (common|board|schematic)((\.[a-z_]+)*) import /from ${dots}\1\2 import /" "$f"
+  done < <(find kipy/proto -name '*_pb2.py*')
+
+  local n
+  n=$(find kipy/proto -name '*_pb2.py' | wc -l)
+  [[ $n == $(wc -l < ../protos.txt) ]] || { echo "kipy: $n wrappers for $(wc -l < ../protos.txt) protos" >&2; return 1; }
+}
+
+build() {
+  cd kicad_python-$pkgver
+  python -m build --wheel --no-isolation
+
+  # bq builds --nocheck, so the assertion lives here: every wrapper imports
+  # under the system protobuf with warnings as errors, kipy's client imports,
+  # and a message round-trips.
+  local t="$srcdir/smoke"
+  rm -rf "$t"
+  python -m installer --destdir="$t" dist/*.whl
+  PYTHONPATH="$(echo "$t"/usr/lib/python3*/site-packages)" python -W error - <<'EOF'
+import importlib, pkgutil
+import google.protobuf, kipy.proto
+from kipy import KiCad
+n = 0
+for m in pkgutil.walk_packages(kipy.proto.__path__, "kipy.proto."):
+    importlib.import_module(m.name)
+    n += 1
+from kipy.proto.board import board_types_pb2
+t = board_types_pb2.Track()
+t.width.value_nm = 250000
+assert board_types_pb2.Track.FromString(t.SerializeToString()).width.value_nm == 250000
+print("kipy smoke: protobuf", google.protobuf.__version__, "-", n, "modules, Track round-trip ok")
+EOF
+}
+
+package() {
+  cd kicad_python-$pkgver
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

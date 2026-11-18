@@ -1,0 +1,35 @@
+Omarchy: build kicad-python 0.7.1 from its sdist with the protobuf wrappers it
+already ships, and accept the system protobuf runtime.
+
+- Drop the build.py hook: it regenerates kipy/proto from the KiCad git
+  submodule (absent from the sdist) with protoletariat and mypy-protobuf.
+- Relax protobuf <6: the generated code is 5.29 gencode, which a newer
+  runtime loads.  build() in the PKGBUILD proves it against the system's.
+
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,7 +15,7 @@
+ ]
+ requires-python = ">=3.9"
+ dependencies = [
+-    "protobuf >=5.29, <6",
++    "protobuf >=5.29",
+     "pynng >=0.9.0, <0.10.0",
+     "jsonschema >=4.23.0, <5",
+     # 3.10: TypeAlias (mypy-protobuf generated code)
+@@ -63,15 +63,9 @@
+ [build-system]
+ requires = [
+     "poetry-core>=2.0.0,<3.0.0",
+-    "protoletariat == 3.3.*",
+-    "setuptools",
+-    "mypy-protobuf == 3.6.*"
+ ]
+ build-backend = "poetry.core.masonry.api"
+ 
+-[tool.poetry.build]
+-generate-setup-file = true
+-script = "build.py"
+ 
+ [tool.ruff]
+ exclude = [
