@@ -1,0 +1,71 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# HackInvent's KiCad IPC plugin + MCP server for the PCB editor.  Not on PyPI
+# and untagged upstream; pinned to the commit that pyproject.toml calls 0.3.1.
+# Packaged as a system KiCad plugin over system Python modules (README.md).
+
+pkgname=kicad-mcp
+pkgver=0.3.1
+pkgrel=1
+_commit=ad60d6dcf9c8a5ab11648e169a03249f3450aef5
+_id=org.hackinvent.kicad-mcp
+pkgdesc='KiCad IPC plugin and MCP server for the PCB editor'
+arch=(any)
+url='https://github.com/HackInvent/kicad-mcp'
+license=(MIT)
+depends=(
+  kicad
+  python
+  python-kicad-python
+  python-mcp
+  uvicorn
+)
+makedepends=(
+  python-build
+  python-httpx
+  python-installer
+  python-pip
+  python-pytest
+  python-setuptools
+  python-wheel
+)
+source=("$pkgname-$_commit.tar.gz::$url/archive/$_commit.tar.gz")
+sha256sums=('dfca376f0c3206fe90e4c93009b4f939aab86bba7ff2d8bfc3a10ade85ef675c')
+
+build() {
+  cd $pkgname-$_commit
+  python -m build --wheel --no-isolation
+
+  # bq builds --nocheck, so the assertions live here.
+  local t="$srcdir/smoke" sp
+  rm -rf "$t"
+  python -m installer --destdir="$t" dist/*.whl
+  sp=$(echo "$t"/usr/lib/python3*/site-packages)
+
+  # 1. Upstream's suite: simulated editors and CLI against real kipy objects.
+  PYTHONPATH="$sp" python -m pytest -q -p no:cacheprovider tests
+
+  # 2. The CLI entry point runs.
+  PYTHONPATH="$sp" "$t"/usr/bin/kicad-mcp --help >/dev/null
+
+  # 3. KiCad gives each IPC plugin a venv with --system-site-packages and runs
+  #    pip install -r requirements.txt in it.  The system packages must satisfy
+  #    that offline, or KiCad would fetch kicad-python, mcp and uvicorn from PyPI.
+  python -m venv --system-site-packages --without-pip "$t/venv"
+  "$t/venv/bin/python" -m pip install --no-index --no-cache-dir --dry-run \
+    -r plugin/requirements.txt
+}
+
+package() {
+  cd $pkgname-$_commit
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  # The plugin's start.py and stop.py import kicad_mcp from site-packages, so
+  # the system plugin directory needs only the manifest, entry points and
+  # requirements -- not upstream's PCM copy of the package.
+  local d="$pkgdir/usr/share/kicad/plugins/$_id"
+  install -Dm644 plugin/plugin.json plugin/requirements.txt -t "$d"
+  install -Dm644 plugin/start.py plugin/stop.py -t "$d"
+
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 README.md CHANGELOG.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}
