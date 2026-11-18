@@ -1,0 +1,46 @@
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+
+pkgname=python-httpx-sse
+pkgver=0.4.3
+pkgrel=1
+pkgdesc="Consume Server-Sent Event (SSE) messages with HTTPX"
+arch=(any)
+url="https://github.com/florimondmanca/httpx-sse"
+license=(MIT)
+depends=(
+  python
+  python-httpx
+)
+makedepends=(
+  git
+  python-build
+  python-installer
+  python-setuptools
+  python-setuptools-scm
+  python-wheel
+)
+checkdepends=(
+  python-pytest
+  python-pytest-asyncio
+  python-pytest-cov
+  python-sse-starlette
+  python-starlette
+)
+source=("git+https://github.com/florimondmanca/httpx-sse.git#tag=$pkgver")
+b2sums=('44723d347a50248d57aac3d8a14517fe5529d0b6fc714ed23e2fe42e32c2b83211f53fd2012f68900ca2feb792cf9155f8edc68cf9f6b460e84f338b340d28ba')
+
+build() {
+  cd httpx-sse
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd httpx-sse
+  PYTHONPATH=src python -m pytest
+}
+
+package() {
+  cd httpx-sse
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -vDm 644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+}
