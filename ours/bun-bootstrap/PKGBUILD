@@ -91,15 +91,18 @@ provides=("bun-bootstrap=$pkgver")
 # bun's own build.sh checks for.
 options=('!strip')   # a stripped bun cannot report --revision, which the build verifies
 
-source=("$_tarball")
+# Both archives are served from R2's bootstrap/ prefix, next to the Dart seed.
+# That prefix is write-once (uploaded with rclone --immutable): if a seed
+# changes, give it a new filename instead of replacing the file, so a
+# published checksum never goes stale.
+source=("https://omappc64le.download/bootstrap/$_tarball")
 sha256sums=("$_tarsum")
 
-# The archive holds the bun whose sha256 is
-#   165ea7488c9f68f6ae99cfb24742d1d745a8ce5af9fea58982b8f6c68c3aac2f
-# revision 1.4.3-canary.1+782858f41. source= is a bare filename, so makepkg
-# expects the archive beside this PKGBUILD; point it at the published URL
-# (R2 or a release asset) once it is uploaded -- the checksum above does not
-# change when it moves.
+# Each archive holds a single file, `bun`:
+#   POWER9:   sha256 165ea7488c9f68f6ae99cfb24742d1d745a8ce5af9fea58982b8f6c68c3aac2f
+#             revision 1.4.3-canary.1+782858f41
+#   baseline: sha256 df67927845db8320f7134d5116626bf67faa39c38e27c975d9ba781dad09874a
+#             revision 1.4.3-canary.1+471b5868b
 
 package() {
   install -Dm755 bun "$pkgdir/usr/lib/bun-bootstrap/bun"
