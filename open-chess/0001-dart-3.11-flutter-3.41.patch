@@ -1,0 +1,149 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] Build against Dart 3.11 / Flutter 3.41: the 3.12 bound is Android-only
+
+Class:   LOCAL WORKAROUND (this distribution ships Flutter 3.41.9 / Dart
+         3.11.5; drop this patch when it moves to Flutter >= 3.44).
+Applies: open-chess v1.3.0 (patch -p1 from the repository root).
+Why:     pubspec.yaml asks for sdk ^3.12.0, and rust_builder/pubspec.yaml for
+         sdk >=3.12.0 / flutter >=3.44.0 "for AGP 9's built-in Kotlin
+         integration" -- an Android build concern. Every tag back to v1.0.0
+         carries the same bounds.
+What:    both bounds lowered to 3.11 / 3.41, and pubspec.lock re-resolved by
+         `flutter pub get` from the upstream lock on Flutter 3.41.9. Pub kept
+         every upstream version except 8, none of which reaches the Linux
+         bundle: analyzer and _fe_analyzer_shared, test/test_api/test_core
+         (dev tooling), file_selector_android and url_launcher_android
+         (Android implementations), and meta 1.18.0 -> 1.17.0 (annotations
+         only; 1.17.0 is the version Flutter 3.41 itself pins).
+Checked: `flutter analyze lib` at language version 3.11: no issues, so the
+         app's Dart uses no 3.12-only language feature.
+---
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -19,7 +19,7 @@
+ version: 1.3.0+5
+ 
+ environment:
+-  sdk: ^3.12.0
++  sdk: ^3.11.0
+ 
+ # Dependencies specify other packages that your package needs in order to work.
+ # To automatically upgrade your package dependencies to the latest versions
+--- a/rust_builder/pubspec.yaml
++++ b/rust_builder/pubspec.yaml
+@@ -5,8 +5,8 @@
+ 
+ environment:
+   # This local FFI plugin uses AGP 9's built-in Kotlin integration.
+-  sdk: '>=3.12.0 <4.0.0'
+-  flutter: '>=3.44.0'
++  sdk: '>=3.11.0 <4.0.0'
++  flutter: '>=3.41.0'
+ 
+ dependencies:
+   flutter:
+--- a/pubspec.lock
++++ b/pubspec.lock
+@@ -5,18 +5,18 @@
+     dependency: transitive
+     description:
+       name: _fe_analyzer_shared
+-      sha256: a49d6cf99e8d8e7a8e93668d09ced0bbdb954d0b4fccc2f5f9241c6b87fad95c
++      sha256: "8d7ff3948166b8ec5da0fbb5962000926b8e02f2ed9b3e51d1738905fbd4c98d"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "99.0.0"
++    version: "93.0.0"
+   analyzer:
+     dependency: transitive
+     description:
+       name: analyzer
+-      sha256: "663efa951fb8a45e06f491223a604c93820598f20e6a99c25617a1576065e8b7"
++      sha256: de7148ed2fcec579b19f122c1800933dfa028f6d9fd38a152b04b1516cec120b
+       url: "https://pub.dev"
+     source: hosted
+-    version: "12.1.0"
++    version: "10.0.1"
+   archive:
+     dependency: transitive
+     description:
+@@ -204,10 +204,10 @@
+     dependency: transitive
+     description:
+       name: file_selector_android
+-      sha256: "6a26687fa65cbc28a5345c7ae6f227e89f0b47740978a4c475b1a625da7a331b"
++      sha256: "89243030ea4b3463fb402b44d5eeacc4ccb1c46a88870cb2a5080d693200c1ed"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "0.5.2+8"
++    version: "0.5.2+6"
+   file_selector_ios:
+     dependency: transitive
+     description:
+@@ -472,10 +472,10 @@
+     dependency: transitive
+     description:
+       name: meta
+-      sha256: "1741988757a65eb6b36abe716829688cf01910bbf91c34354ff7ec1c3de2b349"
++      sha256: "23f08335362185a5ea2ad3a4e597f1375e78bce8a040df5c600c8d3552ef2394"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "1.18.0"
++    version: "1.17.0"
+   mime:
+     dependency: transitive
+     description:
+@@ -765,26 +765,26 @@
+     dependency: transitive
+     description:
+       name: test
+-      sha256: "8d9ceddbab833f180fbefed08afa76d7c03513dfdba87ffcec2718b02bbcbf20"
++      sha256: "280d6d890011ca966ad08df7e8a4ddfab0fb3aa49f96ed6de56e3521347a9ae7"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "1.31.0"
++    version: "1.30.0"
+   test_api:
+     dependency: transitive
+     description:
+       name: test_api
+-      sha256: "949a932224383300f01be9221c39180316445ecb8e7547f70a41a35bf421fb9e"
++      sha256: "8161c84903fd860b26bfdefb7963b3f0b68fee7adea0f59ef805ecca346f0c7a"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "0.7.11"
++    version: "0.7.10"
+   test_core:
+     dependency: transitive
+     description:
+       name: test_core
+-      sha256: "1991d4cfe85d5043241acac92962c3977c8d2f2add1ee73130c7b286417d1d34"
++      sha256: "0381bd1585d1a924763c308100f2138205252fb90c9d4eeaf28489ee65ccde51"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "0.6.17"
++    version: "0.6.16"
+   typed_data:
+     dependency: transitive
+     description:
+@@ -805,10 +805,10 @@
+     dependency: transitive
+     description:
+       name: url_launcher_android
+-      sha256: b413d49b73867ac08dd2f9890efd3cc11f2a0e577618d50843440a1fb3776c32
++      sha256: "17bc677f0b301615530dd1d67e0a9828cafa2d0b6b6eae4cd3679b7eac4a273c"
+       url: "https://pub.dev"
+     source: hosted
+-    version: "6.3.32"
++    version: "6.3.30"
+   url_launcher_ios:
+     dependency: transitive
+     description:
+@@ -954,5 +954,5 @@
+     source: hosted
+     version: "3.1.3"
+ sdks:
+-  dart: ">=3.12.0 <4.0.0"
+-  flutter: ">=3.44.0"
++  dart: ">=3.11.0 <4.0.0"
++  flutter: ">=3.41.0"

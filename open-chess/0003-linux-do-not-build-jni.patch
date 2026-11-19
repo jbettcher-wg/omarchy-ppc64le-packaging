@@ -1,0 +1,25 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] linux: never build the jni FFI plugin into the desktop bundle
+
+Class:   LOCAL WORKAROUND (packaging hygiene; same as ours/localsend 0003).
+Applies: open-chess v1.3.0 (patch -p1 from the repository root).
+Fixes:   jni 1.0.5 (transitive, via path_provider_android 2.3.1) is a Linux
+         ffiPlugin, so generated_plugins.cmake always add_subdirectory()s it,
+         and with a JDK on the build host it builds libdartjni.so with NEEDED
+         libjvm.so and a RUNPATH into /usr/lib/jvm. Nothing on Linux loads it.
+---
+--- a/linux/CMakeLists.txt
++++ b/linux/CMakeLists.txt
+@@ -70,6 +70,12 @@
+ )
+ 
+ 
++# The `jni` FFI plugin (pulled in by path_provider_android) is Android-only in
++# practice, but on Linux it builds libdartjni.so linked against libjvm.so,
++# with a RUNPATH into /usr/lib/jvm, whenever the build host has a JDK. Keep
++# that out of the bundle.
++set(CMAKE_DISABLE_FIND_PACKAGE_JNI TRUE)
++
+ # Generated plugin build rules, which manage building the plugins and adding
+ # them to the application.
+ include(flutter/generated_plugins.cmake)

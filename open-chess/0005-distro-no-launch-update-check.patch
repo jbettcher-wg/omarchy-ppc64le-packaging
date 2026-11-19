@@ -1,0 +1,46 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] No update check at launch; never offer the x86_64 AppImage
+
+Class:   LOCAL WORKAROUND (distribution packaging: pacman owns updates).
+Applies: open-chess v1.3.0 (patch -p1 from the repository root).
+Why:     with checkUpdatesOnLaunch defaulting to true, every start asks
+         api.github.com for the latest release and, when it is newer, offers
+         to download "this OS's installer": on Linux the release's .AppImage,
+         which is x86_64. Here the launch-time check defaults to off (a
+         setting the user can still turn on), and on Linux the Download button
+         goes to the release page rather than to a binary for another
+         architecture. Settings > Check for updates still works.
+---
+--- a/lib/src/state/settings.dart
++++ b/lib/src/state/settings.dart
+@@ -52,7 +52,7 @@
+     this.textScale = 1.0,
+     this.localeCode,
+     this.playerProfile = const PlayerProfile(),
+-    this.checkUpdatesOnLaunch = true,
++    this.checkUpdatesOnLaunch = false,
+   });
+ 
+   BoardThemeOption get theme {
+@@ -140,7 +140,7 @@
+     // Older settings files simply omit profile data. Also accept the
+     // temporary flat shape so no local identity is lost during migration.
+     playerProfile: _profileFromJson(j),
+-    checkUpdatesOnLaunch: j['checkUpdatesOnLaunch'] as bool? ?? true,
++    checkUpdatesOnLaunch: j['checkUpdatesOnLaunch'] as bool? ?? false,
+   );
+ 
+   static PlayerProfile _profileFromJson(Map<String, dynamic> json) {
+--- a/lib/src/state/update_service.dart
++++ b/lib/src/state/update_service.dart
+@@ -34,7 +34,9 @@
+   final suffix = switch (os) {
+     'android' => '.apk',
+     'windows' => '.exe',
+-    'linux' => '.appimage',
++    // Distribution package: the upstream AppImage is x86_64, and pacman owns
++    // updates here, so Download goes to the release page instead.
++    'linux' => null,
+     _ => null,
+   };
+   if (suffix == null) return null;

@@ -1,0 +1,101 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] rust_builder/linux: build the Rust library with plain cargo, not cargokit
+
+Class:   LOCAL WORKAROUND (distro packaging; the same change as ours/localsend
+         0002, which is modelled on nixpkgs' localsend no-cargokit.patch).
+Applies: open-chess v1.3.0 (patch -p1 from the repository root).
+Fixes:   on a distro toolchain (no rustup) cargokit runs rustup, `dart pub
+         get`s its own build tool (network at build time) and has no ppc64le
+         entry in its FLUTTER_TARGET_PLATFORM -> triple table.
+
+After this patch rust_builder/linux/CMakeLists.txt either bundles
+OPEN_CHESS_RUST_LIB as is (what the PKGBUILD does: it builds libchess_api.so
+with `cargo build --frozen --release -p chess_api --target
+powerpc64le-unknown-linux-gnu`, so makepkg's RUSTFLAGS apply and the library
+is ISA-scanned before Flutter sees it), or runs `cargo build --locked
+--offline -p chess_api` itself for the triple FLUTTER_TARGET_PLATFORM names.
+Neither mode calls rustup or dart or touches the network. The cargokit/
+directory is left in place, unused on Linux.
+---
+--- a/rust_builder/linux/CMakeLists.txt
++++ b/rust_builder/linux/CMakeLists.txt
+@@ -7,13 +7,76 @@
+ set(PROJECT_NAME "chess_api")
+ project(${PROJECT_NAME} LANGUAGES CXX)
+ 
+-include("../cargokit/cmake/cargokit.cmake")
+-apply_cargokit(${PROJECT_NAME} ../../rust/chess_api chess_api "")
++# Cargokit is bypassed here: it drives `rustup run <channel> cargo`, `dart pub
++# get`s its own build tool and knows no ppc64le triple. Instead, either
++#   1. OPEN_CHESS_RUST_LIB (environment or -D) names a libchess_api.so that
++#      was already built with plain `cargo build` (what the PKGBUILD does),
++#      and it is bundled as is; or
++#   2. plain `cargo` from PATH (the system toolchain) is run here, offline and
++#      --locked, for the triple matching FLUTTER_TARGET_PLATFORM. RUSTFLAGS,
++#      CFLAGS, CARGO_HOME and CARGO_BUILD_JOBS come from the environment.
++if(NOT DEFINED OPEN_CHESS_RUST_LIB AND DEFINED ENV{OPEN_CHESS_RUST_LIB})
++  set(OPEN_CHESS_RUST_LIB "$ENV{OPEN_CHESS_RUST_LIB}")
++endif()
++
++if(OPEN_CHESS_RUST_LIB)
++  if(NOT EXISTS "${OPEN_CHESS_RUST_LIB}")
++    message(FATAL_ERROR "OPEN_CHESS_RUST_LIB=${OPEN_CHESS_RUST_LIB} does not exist")
++  endif()
++  set(OPEN_CHESS_RUST_LIB_PATH "${OPEN_CHESS_RUST_LIB}")
++else()
++  if(NOT FLUTTER_TARGET_PLATFORM)
++    message(FATAL_ERROR "FLUTTER_TARGET_PLATFORM is not set and OPEN_CHESS_RUST_LIB is not given")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-x64")
++    set(OPEN_CHESS_RUST_TRIPLE "x86_64-unknown-linux-gnu")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-arm64")
++    set(OPEN_CHESS_RUST_TRIPLE "aarch64-unknown-linux-gnu")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-riscv64")
++    set(OPEN_CHESS_RUST_TRIPLE "riscv64gc-unknown-linux-gnu")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-ppc64" OR FLUTTER_TARGET_PLATFORM STREQUAL "linux-ppc64le")
++    set(OPEN_CHESS_RUST_TRIPLE "powerpc64le-unknown-linux-gnu")
++  else()
++    message(FATAL_ERROR "No Rust triple known for FLUTTER_TARGET_PLATFORM=${FLUTTER_TARGET_PLATFORM}")
++  endif()
++
++  find_program(OPEN_CHESS_CARGO cargo)
++  if(NOT OPEN_CHESS_CARGO)
++    message(FATAL_ERROR "cargo not found in PATH")
++  endif()
++
++  # Flutter's Debug maps to cargo's dev profile; Profile and Release to release
++  # (the same mapping cargokit uses).
++  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
++    set(OPEN_CHESS_CARGO_PROFILE_FLAG "")
++    set(OPEN_CHESS_CARGO_PROFILE_DIR "debug")
++  else()
++    set(OPEN_CHESS_CARGO_PROFILE_FLAG "--release")
++    set(OPEN_CHESS_CARGO_PROFILE_DIR "release")
++  endif()
++
++  set(OPEN_CHESS_CARGO_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/cargo")
++  set(OPEN_CHESS_RUST_LIB_PATH
++    "${OPEN_CHESS_CARGO_TARGET_DIR}/${OPEN_CHESS_RUST_TRIPLE}/${OPEN_CHESS_CARGO_PROFILE_DIR}/libchess_api.so")
++
++  # The symbolic _phony_ output makes the command run on every build, as with
++  # cargokit; cargo itself decides whether anything is stale.
++  add_custom_command(
++    OUTPUT "${OPEN_CHESS_RUST_LIB_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/_phony_"
++    COMMAND "${OPEN_CHESS_CARGO}" build --locked --offline ${OPEN_CHESS_CARGO_PROFILE_FLAG}
++      --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/../../rust/Cargo.toml"
++      -p chess_api
++      --target "${OPEN_CHESS_RUST_TRIPLE}"
++      --target-dir "${OPEN_CHESS_CARGO_TARGET_DIR}"
++    VERBATIM
++  )
++  set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/_phony_" PROPERTIES SYMBOLIC TRUE)
++  add_custom_target("${PROJECT_NAME}_cargo" ALL DEPENDS "${OPEN_CHESS_RUST_LIB_PATH}")
++endif()
+ 
+ # List of absolute paths to libraries that should be bundled with the plugin.
+ # This list could contain prebuilt libraries, or libraries created by an
+ # external build triggered from this build file.
+ set(chess_api_bundled_libraries
+-  "${${PROJECT_NAME}_cargokit_lib}"
++  "${OPEN_CHESS_RUST_LIB_PATH}"
+   PARENT_SCOPE
+ )
