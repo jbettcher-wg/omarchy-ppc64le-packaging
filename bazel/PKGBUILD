@@ -1,37 +1,100 @@
+# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Sven-Hendrik Haase <svenstaro@archlinux.org>
 # Maintainer: Konstantin Gizdov <arch@kge.pw>
 # Contributor: Frederik Schwan <frederik dot schwan at linux dot com>
 # Contributor: Simon Legner <Simon.Legner@gmail.com>
 
+# Arch's recipe (extra/bazel), built from the dist zip, held at the release
+# fcitx5-mozc pins rather than at Arch's newest. Every ppc64le change is marked
+# "ppc64le:" and leaves the other architectures as Arch has them. README.md
+# has the reasons and the bump procedure.
+
 pkgname=bazel
-pkgver=9.3.2
-pkgrel=1
+# The release fcitx5-mozc builds with: USE_BAZEL_VERSION in mozc's
+# src/.bazeliskrc at fcitx5-mozc's _mozc_commit. fcitx5-mozc's prepare() fails
+# when the two disagree, so a mozc bump that moves it means a bazel bump first.
+pkgver=9.0.2
+pkgrel=1.1
 pkgdesc='Correct, reproducible, and fast builds for everyone'
-arch=('x86_64')
+arch=(x86_64 powerpc64le powerpc64 riscv64)
 license=('Apache-2.0')
 url='https://bazel.build/'
 depends=('java-environment=21' 'libarchive' 'zip' 'unzip' 'which')
+if [[ $CARCH == powerpc64le ]]; then
+  # ppc64le: bq's stage-deps drops version constraints, so 'java-environment=21'
+  # is met by whatever JDK the host has, and the bootstrap refuses one older
+  # than 21. Name the one it means. In depends rather than makedepends, so a
+  # build that makedepends on bazel (fcitx5-mozc) gets this JDK staged too.
+  depends+=('jdk21-openjdk')
+fi
 makedepends=('git' 'protobuf' 'python')
 options=('!debug' '!strip')
 source=(
   "https://github.com/bazelbuild/bazel/releases/download/${pkgver}/bazel-${pkgver}-dist.zip"{,.sig}
 )
-b2sums=('f42da5a6ea9c7ddbd7daf80c6e9ee3555e0ffc91b737095a25a8092f3ac71371d5c78f48beb59cb20c71ccd1f05f9550aa825ec4b8ccb0f16a6d9d95ddb9b790'
+b2sums=('00a5100405f3fa2ddf2c3ea45facaa1d379240875ec8f11d4fd6d3533d97454f5ef4bd965c089fdb4eb18a4f573a1be9f0a163eb1b74ec7d84db8861c78affe0'
         'SKIP')
 validpgpkeys=('71A1D0EFCFEB6281FD0437C93D5919B448457EE0')
 
+# ppc64le: what a bq build needs that Arch's clean chroot gives for free.
+# Sets _bazel_startup and _bazel_args for build(); a no-op elsewhere.
+_ppc64le_setup() {
+  _bazel_startup=() _bazel_args=()
+  [[ $CARCH == powerpc64le ]] || return 0
+  # compile.sh takes JAVA_HOME from `which javac`, i.e. the host's default
+  # JDK, not the 21 staged beside it.
+  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+  export PATH="$JAVA_HOME/bin:$PATH"
+  "$JAVA_HOME/bin/javac" -version 2>&1 | grep -q '^javac 21\.' || {
+    echo "ppc64le: no JDK 21 at $JAVA_HOME" >&2; return 1; }
+  # Bazel ignores MAKEFLAGS and takes every core; carry makepkg's -j over.
+  local _j
+  _j=$(grep -oE '(^| )-j *[0-9]+' <<<" ${MAKEFLAGS:-}" | grep -oE '[0-9]+' | tail -n1)
+  [[ -n $_j ]] && _bazel_args=(--jobs="$_j" --local_resources=cpu="$_j")
+  # Keep bazel's output and install base in the build tree, not ~/.cache/bazel.
+  # Beside $srcdir, not in it: $srcdir is bazel's own workspace, and bazel 9
+  # refuses a repo contents cache inside the main repo.
+  _bazel_startup=(--output_user_root="${srcdir%/*}/bazel-user-root")
+}
+
 build() {
-  EMBED_LABEL=$pkgver EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk" ./compile.sh
-  ./output/bazel build scripts:bazel-complete.bash scripts:bazel.fish
+  _ppc64le_setup
+  EMBED_LABEL=$pkgver EXTRA_BAZEL_ARGS="--tool_java_runtime_version=local_jdk${_bazel_args[*]:+ ${_bazel_args[*]}}" ./compile.sh
+  if [[ $CARCH == powerpc64le ]]; then
+    # ppc64le: both completion targets have //src:bazel as a tool, the variant
+    # with an embedded JDK, which the dist's .bazelrc fetches as remotejdk_25:
+    # a downloaded JDK run inside the build. Run the two genrules' own commands
+    # (scripts/BUILD) against the bazel just bootstrapped instead; the output
+    # lands where package() expects it.
+    [[ $(./output/bazel --version) == "bazel $pkgver" ]] || {
+      echo "ppc64le: output/bazel is '$(./output/bazel --version)', not bazel $pkgver" >&2; return 1; }
+    ./output/bazel "${_bazel_startup[@]}" --batch version | grep -qx "Build label: $pkgver" || {
+      echo "ppc64le: output/bazel's server does not report $pkgver" >&2; return 1; }
+    rm -rf bazel-bin
+    mkdir -p bazel-bin/scripts
+    ./output/bazel "${_bazel_startup[@]}" --batch help completion bash > bazel-bin/scripts/bazel-complete.bash
+    PYTHONPATH="$srcdir/third_party/py/abseil" python scripts/generate_fish_completion.py \
+      --bazel=output/bazel --output=bazel-bin/scripts/bazel.fish
+    grep -q '_bazel__complete' bazel-bin/scripts/bazel-complete.bash || {
+      echo "ppc64le: bash completion came out empty" >&2; return 1; }
+    grep -q 'complete -c bazel' bazel-bin/scripts/bazel.fish || {
+      echo "ppc64le: fish completion came out empty" >&2; return 1; }
+  else
+    ./output/bazel build scripts:bazel-complete.bash scripts:bazel.fish
+  fi
   cd output
-  ./bazel shutdown
+  ./bazel "${_bazel_startup[@]}" shutdown
 }
 
 package() {
   install -Dm755 "${srcdir}/scripts/packages/bazel.sh" "${pkgdir}/usr/bin/bazel"
   install -Dm755 "${srcdir}/output/bazel" "${pkgdir}/usr/bin/bazel-real"
   local _bazel_major=${pkgver%%.*}
-  ln -s bazel-real "${pkgdir}/usr/bin/bazel-$_bazel_major.x-linux-$CARCH"
+  # ppc64le: bazel.sh looks for bazel-<version>-linux-$(uname -m), and uname
+  # says ppc64le where CARCH says powerpc64le.
+  local _uname_m=$CARCH
+  [[ $CARCH == powerpc64le ]] && _uname_m=ppc64le
+  ln -s bazel-real "${pkgdir}/usr/bin/bazel-$_bazel_major.x-linux-$_uname_m"
   install -Dm644 "${srcdir}/bazel-bin/scripts/bazel-complete.bash" "${pkgdir}/usr/share/bash-completion/completions/bazel"
   install -Dm644 "${srcdir}/scripts/zsh_completion/_bazel" "${pkgdir}/usr/share/zsh/site-functions/_bazel"
   install -Dm644 "${srcdir}/bazel-bin/scripts/bazel.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/bazel.fish"
