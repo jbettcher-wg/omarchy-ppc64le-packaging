@@ -1,0 +1,38 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] linux: link plugin libraries with RUNPATH $ORIGIN, not the build tree
+
+Class:   UPSTREAMABLE FIX (to Flutter's Linux app template,
+         packages/flutter_tools/templates/app/linux.tmpl/CMakeLists.txt.tmpl,
+         which LocalSend's app/linux/CMakeLists.txt is generated from; every
+         Flutter Linux app with plugins has it).
+Applies: localsend v1.18.2 (patch -p1 from the repository root), after 0003.
+Fixes:   the bundle's plugin libraries are copied with install(FILES), so
+         they keep CMake's build RUNPATH: the absolute
+         <build tree>/app/linux/flutter/ephemeral directory. Measured on the
+         M8 bundle: all 12 plugin .so files carried
+         RUNPATH [/mnt/arch/.../app/linux/flutter/ephemeral]. In a package
+         that is a build path in every installed plugin and a library search
+         path into whatever directory later exists there. With this change
+         they carry RUNPATH [$ORIGIN] (libflutter_linux_gtk.so is beside them
+         in lib/); the runner keeps $ORIGIN/lib (install(TARGETS) rewrites
+         it), and FFI plugins' prebuilt libraries are not linked here.
+---
+--- a/app/linux/CMakeLists.txt
++++ b/app/linux/CMakeLists.txt
+@@ -97,6 +97,16 @@
+ # them to the application.
+ include(flutter/generated_plugins.cmake)
+ 
++# Plugin libraries reach the bundle through install(FILES), which keeps the
++# RUNPATH they were linked with: CMake's build RUNPATH, the absolute
++# flutter/ephemeral directory of the build tree. Link them with the install
++# RUNPATH instead; libflutter_linux_gtk.so sits next to them in lib/.
++foreach(plugin ${FLUTTER_PLUGIN_LIST})
++  set_target_properties(${plugin}_plugin PROPERTIES
++    BUILD_WITH_INSTALL_RPATH TRUE
++    INSTALL_RPATH "$ORIGIN")
++endforeach(plugin)
++
+ 
+ # === Installation ===
+ # By default, "installing" just makes a relocatable bundle in the build

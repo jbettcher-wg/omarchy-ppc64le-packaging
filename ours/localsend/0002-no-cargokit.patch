@@ -1,0 +1,127 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] rust_builder/linux: build the Rust library with plain cargo, not cargokit
+
+Class:   LOCAL WORKAROUND (distro packaging; modelled on nixpkgs'
+         pkgs/by-name/lo/localsend/no-cargokit.patch). Not for upstream:
+         LocalSend upstream wants cargokit for its own CI and for users with
+         rustup.
+Applies: localsend v1.18.2 (patch -p1 from the repository root).
+Fixes:   On a distro toolchain (Arch's `rust`, no rustup), `flutter build linux`
+         fails inside cargokit, which
+           - runs `rustup toolchain list` / `rustup run 1.97.1 cargo ...` and
+             would `rustup toolchain install` the rust-toolchain.toml pin
+             (1.97.1; the system has 1.99.1),
+           - runs `dart pub get` for its own build_tool (network at build time),
+           - maps FLUTTER_TARGET_PLATFORM to a triple through a table with no
+             ppc64le entry ("Unknown target platform: linux-ppc64").
+         The AUR recipe works around the first point with a fake `rustup`
+         script on PATH; this replaces cargokit outright.
+
+After this patch rust_builder/linux/CMakeLists.txt does one of two things:
+  1. LOCALSEND_RUST_LIB set (environment or -D): bundle that prebuilt
+     librust_lib_localsend_app.so as is. This is what the PKGBUILD uses: it
+     runs `cargo build --frozen --release -p rust_lib_localsend_app --target
+     powerpc64le-unknown-linux-gnu` itself, so makepkg's RUSTFLAGS/CFLAGS
+     (and the baseline pool's -C target-cpu=pwr8) apply, and it can ISA-scan
+     the library before Flutter ever sees it.
+  2. Otherwise run `cargo build --locked --offline [--release] -p
+     rust_lib_localsend_app --target <triple>` here, with cargo from PATH,
+     triple from FLUTTER_TARGET_PLATFORM (linux-x64, linux-arm64,
+     linux-riscv64, linux-ppc64/linux-ppc64le). --offline: `cargo fetch
+     --locked` must have run first. RUSTFLAGS/CFLAGS/CARGO_HOME/
+     CARGO_BUILD_JOBS flow in from the environment. flutter_tools passes
+     CC=clang CXX=clang++ only to the cmake *configure* step; the `ninja
+     install` step that runs cargo inherits the caller's environment, so
+     ring's C is compiled by `cc` (gcc) unless CC is exported.
+Neither mode calls rustup or dart, or touches the network. Verified for both
+modes inside `unshare -rn` (no network) on ppc64le; mode 2's library came out
+bit-identical (same GNU build-id) to a standalone `cargo build` with the same
+flags. See REPORT.md.
+
+The cargokit/ directory is left in place, unused on Linux.
+---
+diff --git a/packages/localsend_isolates/rust_builder/linux/CMakeLists.txt b/packages/localsend_isolates/rust_builder/linux/CMakeLists.txt
+index 83ae241..75cf916 100644
+--- a/packages/localsend_isolates/rust_builder/linux/CMakeLists.txt
++++ b/packages/localsend_isolates/rust_builder/linux/CMakeLists.txt
+@@ -7,13 +7,77 @@ cmake_minimum_required(VERSION 3.10)
+ set(PROJECT_NAME "rust_lib_localsend_app")
+ project(${PROJECT_NAME} LANGUAGES CXX)
+ 
+-include("../cargokit/cmake/cargokit.cmake")
+-apply_cargokit(${PROJECT_NAME} ../../rust rust_lib_localsend_app "")
++# Cargokit is bypassed here: it drives `rustup run <channel> cargo`, installs
++# toolchains/targets, `dart pub get`s its own build tool and knows no ppc64le
++# triple. Instead, either
++#   1. LOCALSEND_RUST_LIB (environment or -D) names a librust_lib_localsend_app.so
++#      that was already built with plain `cargo build` (what the PKGBUILD does),
++#      and it is bundled as is; or
++#   2. plain `cargo` from PATH (the system toolchain) is run here, offline and
++#      --locked, for the triple matching FLUTTER_TARGET_PLATFORM. RUSTFLAGS,
++#      CFLAGS, CARGO_HOME and CARGO_BUILD_JOBS come from the environment.
++if(NOT DEFINED LOCALSEND_RUST_LIB AND DEFINED ENV{LOCALSEND_RUST_LIB})
++  set(LOCALSEND_RUST_LIB "$ENV{LOCALSEND_RUST_LIB}")
++endif()
++
++if(LOCALSEND_RUST_LIB)
++  if(NOT EXISTS "${LOCALSEND_RUST_LIB}")
++    message(FATAL_ERROR "LOCALSEND_RUST_LIB=${LOCALSEND_RUST_LIB} does not exist")
++  endif()
++  set(LOCALSEND_RUST_LIB_PATH "${LOCALSEND_RUST_LIB}")
++else()
++  if(NOT FLUTTER_TARGET_PLATFORM)
++    message(FATAL_ERROR "FLUTTER_TARGET_PLATFORM is not set and LOCALSEND_RUST_LIB is not given")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-x64")
++    set(LOCALSEND_RUST_TRIPLE "x86_64-unknown-linux-gnu")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-arm64")
++    set(LOCALSEND_RUST_TRIPLE "aarch64-unknown-linux-gnu")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-riscv64")
++    set(LOCALSEND_RUST_TRIPLE "riscv64gc-unknown-linux-gnu")
++  elseif(FLUTTER_TARGET_PLATFORM STREQUAL "linux-ppc64" OR FLUTTER_TARGET_PLATFORM STREQUAL "linux-ppc64le")
++    set(LOCALSEND_RUST_TRIPLE "powerpc64le-unknown-linux-gnu")
++  else()
++    message(FATAL_ERROR "No Rust triple known for FLUTTER_TARGET_PLATFORM=${FLUTTER_TARGET_PLATFORM}")
++  endif()
++
++  find_program(LOCALSEND_CARGO cargo)
++  if(NOT LOCALSEND_CARGO)
++    message(FATAL_ERROR "cargo not found in PATH")
++  endif()
++
++  # Flutter's Debug maps to cargo's dev profile; Profile and Release to release
++  # (the same mapping cargokit uses).
++  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
++    set(LOCALSEND_CARGO_PROFILE_FLAG "")
++    set(LOCALSEND_CARGO_PROFILE_DIR "debug")
++  else()
++    set(LOCALSEND_CARGO_PROFILE_FLAG "--release")
++    set(LOCALSEND_CARGO_PROFILE_DIR "release")
++  endif()
++
++  set(LOCALSEND_CARGO_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/cargo")
++  set(LOCALSEND_RUST_LIB_PATH
++    "${LOCALSEND_CARGO_TARGET_DIR}/${LOCALSEND_RUST_TRIPLE}/${LOCALSEND_CARGO_PROFILE_DIR}/librust_lib_localsend_app.so")
++
++  # The symbolic _phony_ output makes the command run on every build, as with
++  # cargokit; cargo itself decides whether anything is stale.
++  add_custom_command(
++    OUTPUT "${LOCALSEND_RUST_LIB_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/_phony_"
++    COMMAND "${LOCALSEND_CARGO}" build --locked --offline ${LOCALSEND_CARGO_PROFILE_FLAG}
++      --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/../../rust/Cargo.toml"
++      -p rust_lib_localsend_app
++      --target "${LOCALSEND_RUST_TRIPLE}"
++      --target-dir "${LOCALSEND_CARGO_TARGET_DIR}"
++    VERBATIM
++  )
++  set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/_phony_" PROPERTIES SYMBOLIC TRUE)
++  add_custom_target("${PROJECT_NAME}_cargo" ALL DEPENDS "${LOCALSEND_RUST_LIB_PATH}")
++endif()
+ 
+ # List of absolute paths to libraries that should be bundled with the plugin.
+ # This list could contain prebuilt libraries, or libraries created by an
+ # external build triggered from this build file.
+ set(rust_lib_localsend_app_bundled_libraries
+-  "${${PROJECT_NAME}_cargokit_lib}"
++  "${LOCALSEND_RUST_LIB_PATH}"
+   PARENT_SCOPE
+ )

@@ -1,0 +1,35 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] linux: never build the jni FFI plugin into the desktop bundle
+
+Class:   LOCAL WORKAROUND (packaging hygiene; arguably upstreamable to
+         LocalSend, but it belongs in package:jni, which should not build on
+         desktop Linux unless asked to).
+Applies: localsend v1.18.2 (patch -p1 from the repository root).
+Fixes:   jni 1.0.3 (transitive, via path_provider_android 2.3.1) is declared
+         as a Linux ffiPlugin, so generated_plugins.cmake always
+         add_subdirectory()s it. Its src/CMakeLists.txt does a non-REQUIRED
+         find_package(JNI COMPONENTS JVM); when the build host has a JDK
+         (this one has jdk-openjdk 26 installed, and bq's bwrap binds / from
+         the host) it builds libdartjni.so with NEEDED libjvm.so and RUNPATH
+         /usr/lib/jvm/default/lib/server, and that lands in bundle/lib.
+         Nothing on Linux loads it. Measured with a CMake harness:
+         without this line libdartjni.so is built and linked to libjvm.so;
+         with it, jni_bundled_libraries is empty.
+---
+diff --git a/app/linux/CMakeLists.txt b/app/linux/CMakeLists.txt
+index 857775b..caca68b 100644
+--- a/app/linux/CMakeLists.txt
++++ b/app/linux/CMakeLists.txt
+@@ -87,6 +87,12 @@ set_target_properties(${BINARY_NAME}
+   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/intermediates_do_not_run"
+ )
+ 
++# The `jni` FFI plugin (pulled in by path_provider_android) is Android-only in
++# practice, but on Linux it builds libdartjni.so linked against libjvm.so,
++# with a RUNPATH into /usr/lib/jvm, whenever the build host has a JDK. Keep
++# that out of the bundle.
++set(CMAKE_DISABLE_FIND_PACKAGE_JNI TRUE)
++
+ # Generated plugin build rules, which manage building the plugins and adding
+ # them to the application.
+ include(flutter/generated_plugins.cmake)
