@@ -1,0 +1,31 @@
+tarball: dart-bootstrap-3.11.5-power8-powerpc64le.tar.zst
+sha256: 05c0be09a806bcd63670949e067271c57cc01fe94d51010b956b1b5ddbcb8507
+size: 154931730 bytes
+pool: baseline
+made: 2026-11-19T19:04:12Z on omarchy-power9 (ppc64le, kernel 7.3.5-64k)
+from: /var/tmp/dart-bl-verify/dart-root/usr/lib/dart
+version: Dart SDK version: 3.11.5 (stable) (Wed Apr 15 00:36:32 2026 -0700) on "linux_ppc64"
+revision: c70f78e7d682c158c15ca0c26c729b3ccb932284
+bin/dart sha256: d0cf19d66b3e3f7e8916756912c2d75e2a79ad2bcad70c04b1cef7c214c9c942
+bin/dartvm sha256: eb906b5a073f0adf804d61075c9d5ea2ab25911be95aba0a246743ddef0ee1c0
+bin/dartaotruntime sha256: 4dadcda533392a49dd8df38deea3ea50655c972c2d93b70a1c090b0e4613bb66
+bin/utils/gen_snapshot sha256: 8e21e5fb3cb0c2146357deeca465ad1970bd9c306897bf2895e5755546a2040e
+files: 1001
+provenance: baseline pool dart 3.11.5-1 (repo-ppc64le, package sha256 937278ddd5b69bcf3329bcc1c40306ded27e823913f0d6322aef4f52ce845469): built by bq via tools/build-ppc64le.sh (_power8_compat=1, ppc64_cpu=power8 on all 10,306 compiles, the baseline pool toolchain), series 34 (ppc64-backend dce83ce0), packaging commit bb7a6b72; the one-time cross-pool step, driven by the POWER9 dart-bootstrap 3.11.5-1 (tarball 81ac8200); native binaries carry only the 253 words of libgcc IFUNC float128 hardware routines, attributed per function; runs on a qemu -cpu power8 model
+# ISA 3.0 instructions per ELF (objdump -M power8 vs -M power9):
+isa30 253 bin/dart
+isa30 253 bin/dartaotruntime
+isa30 253 bin/dartvm
+isa30 0 bin/snapshots/analysis_server_aot.dart.snapshot
+isa30 0 bin/snapshots/dart2js_aot.dart.snapshot
+isa30 0 bin/snapshots/dart2wasm_product.snapshot
+isa30 0 bin/snapshots/dart_mcp_server_aot.dart.snapshot
+isa30 0 bin/snapshots/dart_tooling_daemon_aot.dart.snapshot
+isa30 0 bin/snapshots/dartdev_aot.dart.snapshot
+isa30 0 bin/snapshots/dartdevc_aot.dart.snapshot
+isa30 0 bin/snapshots/dds_aot.dart.snapshot
+isa30 0 bin/snapshots/frontend_server_aot.dart.snapshot
+isa30 0 bin/snapshots/gen_kernel_aot.dart.snapshot
+isa30 0 bin/snapshots/kernel_worker_aot.dart.snapshot
+isa30 253 bin/utils/gen_snapshot
+isa30 253 bin/utils/wasm-opt

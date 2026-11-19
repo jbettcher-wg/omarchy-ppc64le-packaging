@@ -65,7 +65,15 @@
 # host with this POWER9 bootstrap (dart's _cross_pool_bootstrap=1, recorded
 # in its .pkginfo), then
 #   make-bootstrap-tarball.sh <that package's /usr/lib/dart> baseline
-# and its sha256 goes below. For the baseline pool the script, and build()
+# and its sha256 goes below. Done 2026-11-19: dart 3.11.5-1 from
+# repo-ppc64le (package sha256 937278ddd5b69bcf3329bcc1c40306ded27e823913f0d6322aef4f52ce845469),
+# built by tools/build-ppc64le.sh with the baseline pool's toolchain,
+# -mcpu=power8 on all 10,306 compiles, series 34 (ppc64-backend dce83ce0),
+# driven by the POWER9 dart-bootstrap 3.11.5-1 (tarball 81ac8200). It runs
+# --version, JIT, compile exe and AOT on a qemu -cpu power8 model, where the
+# POWER9 pool's dart dies of SIGILL. The tarball (sha256 05c0be09...,
+# 154,931,730 bytes, reproducible) has its .provenance and .sha256 beside
+# this PKGBUILD. For the baseline pool the script, and build()
 # below, refuse any ISA 3.0 instruction in an AOT snapshot, and in a native
 # binary any beyond what dart's build() attributed, function by function, to
 # libgcc's IFUNC'd IEEE-128 hardware routines (253 per binary, recorded as
@@ -120,9 +128,9 @@ pkgrel=1
 _power8_compat=${_power8_compat:-0}
 if (( _power8_compat )); then
   _pool=baseline
-  _provenance='TODO(M9): the baseline pool dart 3.11.5-N (_power8_compat=1), repackaged by make-bootstrap-tarball.sh'
+  _provenance='the baseline pool dart 3.11.5-1 (_power8_compat=1, -mcpu=power8; package sha256 937278dd), the one-time cross-pool build driven by the POWER9 dart-bootstrap 3.11.5-1, repackaged by make-bootstrap-tarball.sh'
   _tarball="dart-bootstrap-$pkgver-power8-powerpc64le.tar.zst"
-  _tarsum='TODO'
+  _tarsum='05c0be09a806bcd63670949e067271c57cc01fe94d51010b956b1b5ddbcb8507'
 else
   _pool=power9
   _provenance='M5 SDK1-final: dart 3.11.5 + ppc64 port (m5-aot 93aab1e2), built natively on POWER9 driven by the upstream arm64 SDK under POWERarm 0.20.1-1; self-hosting fixpoint SDK2 == SDK3'
