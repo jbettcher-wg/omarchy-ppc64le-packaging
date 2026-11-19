@@ -65,8 +65,12 @@
 # host with this POWER9 bootstrap (dart's _cross_pool_bootstrap=1, recorded
 # in its .pkginfo), then
 #   make-bootstrap-tarball.sh <that package's /usr/lib/dart> baseline
-# and its sha256 goes below. The script refuses an SDK with any ISA 3.0
-# instruction for the baseline pool.
+# and its sha256 goes below. For the baseline pool the script, and build()
+# below, refuse any ISA 3.0 instruction in an AOT snapshot, and in a native
+# binary any beyond what dart's build() attributed, function by function, to
+# libgcc's IFUNC'd IEEE-128 hardware routines (253 per binary, recorded as
+# isa30-allowed-total in the SDK's .pkginfo; the pool's documented benign
+# class).
 #
 # ISA. Dart codegen is ISA 2.07 in both pools: every AOT snapshot in either
 # tarball scans 0 ISA 3.0 instructions, and build() refuses one that does
@@ -192,7 +196,12 @@ build() {
     if (( n )) && [[ $f == bin/snapshots/* ]]; then
       echo "ERROR: $n ISA 3.0 instructions in AOT snapshot $f" >&2; bad=1
     elif (( n && _power8_compat )); then
-      echo "ERROR: $n ISA 3.0 instructions in $f (baseline pool)" >&2; bad=1
+      # Only libgcc's IFUNC'd IEEE-128 hardware routines, as attributed per
+      # function by dart's build() on the unstripped binary and recorded in
+      # the SDK's .pkginfo (see dart's _gate_isa30).
+      local rec; rec=$(sed -n "s#^isa30-allowed-total $f \([0-9]*\) .*#\1#p" "$sdk/.pkginfo" 2>/dev/null)
+      [[ $rec == "$n" ]] \
+        || { echo "ERROR: $n ISA 3.0 instructions in $f (baseline pool; recorded attribution '$rec')" >&2; bad=1; }
     fi
   done < <(cd "$sdk" && find . -type f -print0 \
              | xargs -0 -n1 -P 16 bash -c '[[ $(od -An -tx1 -N4 "$1") == " 7f 45 4c 46" ]] || exit 0

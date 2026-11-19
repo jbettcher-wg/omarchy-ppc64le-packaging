@@ -11,10 +11,12 @@
 # Refuses an SDK that is not a native linux_ppc64 Dart of that version, and
 # normalises modes (u+rwX,go+rX,go-w: M5's SDK carried DevTools files 0600
 # straight from the CIPD zip), and applies the same ISA rule as dart's
-# build(): AOT snapshots are Dart codegen
-# and must carry 0 ISA 3.0 instructions in both pools; in the baseline pool
-# every ELF must. The tarball is reproducible (sorted, root-owned, fixed
-# mtime, zstd), so the same SDK always gives the same sha256.
+# build(): AOT snapshots are Dart codegen and must carry 0 ISA 3.0
+# instructions in both pools; in the baseline pool a native ELF may carry
+# only what dart's build() attributed to libgcc's IFUNC'd float128 routines
+# (its .pkginfo, isa30-allowed-total), and nothing else. The tarball is
+# reproducible (sorted, root-owned, fixed mtime, zstd), so the same SDK
+# always gives the same sha256.
 #
 # Run natively (ssh -n -i ~/.ssh/id_claude_omarchy -o BatchMode=yes localhost):
 # it executes the SDK and needs the host's ppc64le objdump.
@@ -51,12 +53,21 @@ export -f isa30
 counts=$(cd "$sdk" && find . -type f -print0 \
   | xargs -0 -n1 -P 16 bash -c '[[ $(od -An -tx1 -N4 "$1") == " 7f 45 4c 46" ]] || exit 0
                                 printf "%s %s\n" "$(isa30 "$1")" "${1#./}"' _ | sort -k2)
+# Baseline pool: a native binary may carry ISA 3.0 only as libgcc's IFUNC'd
+# IEEE-128 hardware routines, which dart's build() attributed per function
+# on the unstripped binary and recorded in the SDK's .pkginfo as
+# "isa30-allowed-total <path> <n>". The installed count must equal it.
+recorded() { sed -n "s#^isa30-allowed-total $1 \([0-9]*\) .*#\1#p" "$sdk/.pkginfo" 2>/dev/null; }
 bad=0
 while read -r n f; do
   if (( n )) && [[ $f == bin/snapshots/* ]]; then
     echo "REFUSED: $n ISA 3.0 instructions in AOT snapshot $f" >&2; bad=1
   elif (( n )) && [[ $pool == baseline ]]; then
-    echo "REFUSED: $n ISA 3.0 instructions in $f (baseline pool)" >&2; bad=1
+    if [[ $(recorded "$f") == "$n" ]]; then
+      echo "baseline: $f carries $n ISA 3.0 instructions, all attributed to libgcc's IFUNC'd float128 routines by dart's build()"
+    else
+      echo "REFUSED: $n ISA 3.0 instructions in $f (baseline pool; recorded attribution: '$(recorded "$f")')" >&2; bad=1
+    fi
   fi
 done <<< "$counts"
 (( ! bad )) || exit 1
