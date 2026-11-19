@@ -4,7 +4,7 @@
 # (nvidia/<chip>/gsp/*.tlv) that no linux-firmware release ships yet (20261019
 # has only the .bin firmware), so on 7.3 nova cannot start a Turing-or-newer
 # card's GSP. 7.2's nova-core loads the .bin files linux-firmware does ship.
-# This is the same 7.2.9 recipe linux-power9 last built (packaging 373f089d,
+# This is the same 7.2.9 recipe linux-power9 last built (packaging 3d5aa41f,
 # squashfs zstd/lz4 included) under its own pkgbase, so it installs beside the
 # 7.3 kernel with its own /boot/vmlinuz-linux-power9-7.2 and its own petitboot
 # entry. 7.2 is end-of-life (7.2.15 was its last release): this gets no

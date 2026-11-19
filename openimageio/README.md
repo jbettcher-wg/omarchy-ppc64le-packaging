@@ -49,7 +49,7 @@ links 3.1, so it is rebuilt here too (`openshadinglanguage/`).
 
 ## Verification
 
-All `[MEASURED]`, 2026-11-17: baseline lane, packaging `1e1d6e98`,
+All `[MEASURED]`, 2026-11-17: baseline lane, packaging `85cdba09`,
 `openimageio-3.2.1.2-3-powerpc64le.pkg.tar.zst`.
 
 - **Links.** Every NEEDED across the package's libraries, tools and python

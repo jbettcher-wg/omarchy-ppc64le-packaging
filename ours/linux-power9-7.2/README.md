@@ -10,7 +10,7 @@ linux-firmware release ships it yet: 20261019 has only the `.bin` firmware
 starts and on 7.3 it does not.
 
 This is the exact recipe `ours/linux-power9` built as 7.2.9-3 (packaging
-`373f089d`: squashfs zstd/lz4, the 11 POWER patches of that release), with
+`3d5aa41f`: squashfs zstd/lz4, the 11 POWER patches of that release), with
 three changes:
 
 - `pkgbase` is `linux-power9-7.2` / `linux-power9-7.2-64k`, so the kernel,

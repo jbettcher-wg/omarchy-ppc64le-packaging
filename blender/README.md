@@ -108,7 +108,7 @@ onto it. Patches:
 ## 5.3.0-1: build and verification
 
 Built in the baseline lane (`tools/build-ppc64le.sh`, POWER8 drop-in),
-packaging `edddd9c0`, against `openimageio 3.2.1.2-3` and
+packaging `cbf7a67a`, against `openimageio 3.2.1.2-3` and
 `openshadinglanguage 1.15.7.0-2.1` from the same pool. The link is LLD
 22.1.8, which blender 5.3 selects by default when mold is off.
 
