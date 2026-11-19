@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:28:50 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/assembler/assembler_ppc64.h
+  runtime/vm/constants_ppc64.h
+
+Sources:
+  asm 18b5dd9 (uncommitted there, not synced: assembler_ppc64.h assembler_ppc64.cc)
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 07dccc5
+---
+ runtime/vm/compiler/assembler/assembler_ppc64.h | 4 ++++
+ runtime/vm/constants_ppc64.h                    | 1 +
+ 2 files changed, 5 insertions(+)
+
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.h b/runtime/vm/compiler/assembler/assembler_ppc64.h
+index d5bb75b2..544aaf86 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.h
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.h
+@@ -856,6 +856,10 @@ class MicroAssembler : public AssemblerBase {
+   void fcfidu(FpuRegister frt, FpuRegister frb) {
+     EmitX(kPpcFcfidu, Fpr(frt), 0, Fpr(frb));
+   }
++  // int64 -> single, rounded once (ISA 2.06; ABI-SPEC Amendment A9 #2).
++  void fcfids(FpuRegister frt, FpuRegister frb) {
++    EmitX(kPpcFcfids, Fpr(frt), 0, Fpr(frb));
++  }
+   void frin(FpuRegister frt, FpuRegister frb) {
+     EmitX(kPpcFrin, Fpr(frt), 0, Fpr(frb));
+   }
+diff --git a/runtime/vm/constants_ppc64.h b/runtime/vm/constants_ppc64.h
+index 98a52534..2bf4a404 100644
+--- a/runtime/vm/constants_ppc64.h
++++ b/runtime/vm/constants_ppc64.h
+@@ -1079,6 +1079,7 @@ enum PPCOperands {
+   V(Fctidz, "fctidz", kOpFRT_FRB, PPCX(63, 815))                               \
+   V(Fcfid, "fcfid", kOpFRT_FRB, PPCX(63, 846))                                 \
+   V(Fcfidu, "fcfidu", kOpFRT_FRB, PPCX(63, 974))                               \
++  V(Fcfids, "fcfids", kOpFRT_FRB, PPCX(59, 846)) /* ISA 2.06; ABI A9 #2 */     \
+   V(Frin, "frin", kOpFRT_FRB, PPCX(63, 392))                                   \
+   V(Friz, "friz", kOpFRT_FRB, PPCX(63, 424))                                   \
+   V(Frip, "frip", kOpFRT_FRB, PPCX(63, 456))                                   \

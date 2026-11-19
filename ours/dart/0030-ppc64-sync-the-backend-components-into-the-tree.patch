@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 08:59:51 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/tests/vm/dart/exported_symbols_test.dart
+  runtime/tests/vm/dart/use_dwarf_stack_traces_flag_test.dart
+  runtime/tests/vm/dart/use_flag_test_helper.dart
+  runtime/tests/vm/dart/use_macho_reduce_padding_flag_test.dart
+  runtime/tests/vm/vm.status
+  runtime/vm/mach_o.h
+
+Sources:
+  asm a5360b6
+  stubs 6bec940
+  il c1c5ab0
+  aot 7264885
+---
+ runtime/tests/vm/dart/exported_symbols_test.dart            | 1 +
+ runtime/tests/vm/dart/use_dwarf_stack_traces_flag_test.dart | 4 +++-
+ runtime/tests/vm/dart/use_flag_test_helper.dart             | 1 +
+ .../tests/vm/dart/use_macho_reduce_padding_flag_test.dart   | 4 +++-
+ runtime/tests/vm/vm.status                                  | 3 +++
+ runtime/vm/mach_o.h                                         | 6 ++++++
+ 6 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/runtime/tests/vm/dart/exported_symbols_test.dart b/runtime/tests/vm/dart/exported_symbols_test.dart
+index 34ab7fee..97677670 100644
+--- a/runtime/tests/vm/dart/exported_symbols_test.dart
++++ b/runtime/tests/vm/dart/exported_symbols_test.dart
+@@ -17,6 +17,7 @@ main() {
+     if (Platform.isLinux) ...[
+       "buildtools/linux-arm64/clang/bin/llvm-nm",
+       "buildtools/linux-x64/clang/bin/llvm-nm",
++      "buildtools/linux-ppc64/clang/bin/llvm-nm",
+     ],
+     if (Platform.isMacOS) ...[
+       "buildtools/mac-arm64/clang/bin/llvm-nm",
+diff --git a/runtime/tests/vm/dart/use_dwarf_stack_traces_flag_test.dart b/runtime/tests/vm/dart/use_dwarf_stack_traces_flag_test.dart
+index 797dc37e..59a54a77 100644
+--- a/runtime/tests/vm/dart/use_dwarf_stack_traces_flag_test.dart
++++ b/runtime/tests/vm/dart/use_dwarf_stack_traces_flag_test.dart
+@@ -20,9 +20,11 @@ import 'use_dwarf_stack_traces_flag_helper.dart';
+ 
+ Future<void> main() async {
+   bool hasDsymutil = true;
+-  if (isSimulator) {
++  if (isSimulator || buildDir.endsWith('PPC64')) {
+     // Output of Mach-O relocatable objects isn't supported for most
+     // simulated architectures, so don't run that specific test.
++    // (Nor for PPC64: vm/mach_o.cc implements Mach-O relocations only for
++    // X64 and ARM64.)
+     hasDsymutil = false;
+   } else if (Platform.isWindows) {
+     // Currently dsymutil isn't available in this case, so don't run
+diff --git a/runtime/tests/vm/dart/use_flag_test_helper.dart b/runtime/tests/vm/dart/use_flag_test_helper.dart
+index aea773d5..260d5908 100644
+--- a/runtime/tests/vm/dart/use_flag_test_helper.dart
++++ b/runtime/tests/vm/dart/use_flag_test_helper.dart
+@@ -96,6 +96,7 @@ String? get clangBuildToolsDir {
+     'win-x64',
+     'linux-arm64',
+     'linux-x64',
++    'linux-ppc64',
+   ]) {
+     var clangDir = path.join(sdkDir, 'buildtools', archDir, 'clang', 'bin');
+     if (Directory(clangDir).existsSync()) return clangDir;
+diff --git a/runtime/tests/vm/dart/use_macho_reduce_padding_flag_test.dart b/runtime/tests/vm/dart/use_macho_reduce_padding_flag_test.dart
+index 0dde1fce..999fbe72 100644
+--- a/runtime/tests/vm/dart/use_macho_reduce_padding_flag_test.dart
++++ b/runtime/tests/vm/dart/use_macho_reduce_padding_flag_test.dart
+@@ -24,9 +24,11 @@ Future<void> main() async {
+     return; // SDK tree and dart_bootstrap not available on the test device.
+   }
+ 
+-  if (isSimulator) {
++  if (isSimulator || buildDir.endsWith('PPC64')) {
+     // Output of Mach-O relocatable objects isn't supported for most
+     // simulated architectures, so don't run the test.
++    // (Nor for PPC64: vm/mach_o.cc implements Mach-O relocations only for
++    // X64 and ARM64.)
+     return;
+   }
+ 
+diff --git a/runtime/tests/vm/vm.status b/runtime/tests/vm/vm.status
+index 03eb718e..d28ddf65 100644
+--- a/runtime/tests/vm/vm.status
++++ b/runtime/tests/vm/vm.status
+@@ -294,6 +294,9 @@ dart/*: Pass, Slow # The CFE is not run from AppJit snapshot, JIT warmup in debu
+ [ $arch == ia32 && $mode == debug && $system == windows ]
+ dart/transferable_test: Skip # This is performance test and somehow debug win ia32 bot's performance is unpredictable
+ 
++[ $arch == ppc64 && $compiler == dartkp ]
++dart/calling_conventions_il_test: SkipByDesign # ppc64 AOT keeps the stack-based Dart calling convention (Function::MaxNumberOfParametersInRegisters is 0); the test asserts register parameter locations.
++
+ [ $builder_tag == obfuscated && $compiler == dartkp ]
+ dart/extension_names_test: SkipByDesign # No demangling (obfuscated).
+ dart/extension_unnamed_names_test: SkipByDesign # No demangling (obfuscated).
+diff --git a/runtime/vm/mach_o.h b/runtime/vm/mach_o.h
+index dac57e5b..bf519d49 100644
+--- a/runtime/vm/mach_o.h
++++ b/runtime/vm/mach_o.h
+@@ -34,6 +34,12 @@ class MachOWriter : public SharedObjectWriter {
+ 
+ #if defined(TARGET_ARCH_ARM64)
+   static constexpr intptr_t kPageSize = 16 * KB;
++#elif defined(TARGET_ARCH_PPC64)
++  // No Apple platform runs ppc64 code, so only the runtime's own Mach-O
++  // loader (bin/macho_loader.cc) reads these files. It checks segment
++  // offsets against the host page size, which is 64 KiB on the ppc64 Linux
++  // kernels this port targets (as kElfPageSize in vm/elf.h).
++  static constexpr intptr_t kPageSize = 64 * KB;
+ #else
+   static constexpr intptr_t kPageSize = 4 * KB;
+ #endif

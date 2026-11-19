@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:33 -0600
+Subject: [PATCH] [ppc64] tools: accept a ppc64le host; take the host arch from
+ --host-arch
+
+tools/gn.py could not configure any build on a little-endian POWER host:
+utils.HostArchitectures() raised "Failed to determine host architectures"
+for platform.machine() == 'ppc64le', so even `tools/gn.py -a simarm64`
+stopped before running gn.
+
+- utils.HostArchitectures(): map 'ppc64le' to the GN/Dart name 'ppc64'
+  (plain 'ppc64' from uname is big-endian and stays unsupported), and
+  honour $DART_HOST_ARCH so the host arch can be stated instead of probed.
+  The probe is uname(2), which reports the guest architecture under user
+  mode emulation and binary translators: an aarch64 python running under a
+  translator on a ppc64le host says 'aarch64'.
+- gn.py / build.py: new --host-arch option (ppc64le and powerpc64le are
+  accepted spellings). It is applied before anything asks for the host
+  arch; the -a default is now resolved after it, and the module-level
+  HOST_ARCH probe (unused) is gone, so an unrecognised uname no longer
+  aborts at import time.
+- ppc64 is a C host/target cpu for the 64-bit simulators (simarm64,
+  simarm64c, simriscv64), and 'ppc64' is a known Dart arch (ARCH_FAMILY
+  'ppc') for the native backend that follows.
+
+With this, `tools/gn.py --host-arch ppc64 -m release -a simarm64` emits
+host_cpu = target_cpu = "ppc64", dart_target_arch = "arm64".
+
+Class: upstreamable in form (the --host-arch override is useful on any
+emulated build host); the ppc64 entries only matter together with the
+out-of-tree ppc64 backend.
+---
+ tools/gn.py    | 28 +++++++++++++++++++++++-----
+ tools/utils.py | 29 +++++++++++++++++++++++++++++
+ 2 files changed, 52 insertions(+), 5 deletions(-)
+
+diff --git a/tools/gn.py b/tools/gn.py
+index ae9deb86..0607da6c 100755
+--- a/tools/gn.py
++++ b/tools/gn.py
+@@ -13,7 +13,6 @@ import time
+ import utils
+ 
+ HOST_OS = utils.GuessOS()
+-HOST_ARCH = utils.GuessArchitecture()
+ SCRIPT_DIR = os.path.dirname(sys.argv[0])
+ DART_ROOT = os.path.realpath(os.path.join(SCRIPT_DIR, '..'))
+ AVAILABLE_ARCHS = utils.ARCH_FAMILY.keys()
+@@ -82,11 +81,13 @@ def HostCpuForArch(arch):
+     elif arch in ['arm', 'simarm']:
+         candidates = ['arm', 'x86', 'riscv32', 'arm64', 'x64', 'riscv64']
+     elif arch in ['arm64', 'arm64c', 'simarm64', 'simarm64c']:
+-        candidates = ['arm64', 'x64', 'riscv64']
++        candidates = ['arm64', 'x64', 'riscv64', 'ppc64']
+     elif arch in ['riscv32', 'simriscv32']:
+         candidates = ['riscv32', 'arm', 'x86', 'riscv64', 'arm64', 'x64']
+     elif arch in ['riscv64', 'simriscv64']:
+-        candidates = ['riscv64', 'arm64', 'x64']
++        candidates = ['riscv64', 'arm64', 'x64', 'ppc64']
++    elif arch in ['ppc64']:
++        candidates = ['ppc64']
+     else:
+         raise Exception("Unknown Dart architecture: %s" % arch)
+ 
+@@ -115,6 +116,8 @@ def TargetCpuForArch(arch):
+         return 'riscv32'
+     elif arch.startswith('riscv64'):
+         return 'riscv64'
++    elif arch.startswith('ppc64'):
++        return 'ppc64'
+ 
+     # Simulators
+     if arch.endswith('_x64'):
+@@ -126,7 +129,7 @@ def TargetCpuForArch(arch):
+     elif arch in ['simarm', 'simriscv32']:
+         candidates = ['arm', 'riscv32', 'x86']
+     elif arch in ['simx64', 'simx64c', 'simarm64', 'simarm64c', 'simriscv64']:
+-        candidates = ['arm64', 'riscv64', 'x64']
++        candidates = ['arm64', 'riscv64', 'x64', 'ppc64']
+     else:
+         raise Exception("Unknown Dart architecture: %s" % arch)
+ 
+@@ -333,6 +336,12 @@ def ProcessOsOption(os_name):
+ 
+ 
+ def ProcessOptions(args):
++    # Must come first: everything below that asks for the host architecture
++    # goes through utils.HostArchitectures(), which honours DART_HOST_ARCH.
++    if args.host_arch:
++        os.environ['DART_HOST_ARCH'] = utils.NormalizeHostArch(args.host_arch)
++    if args.arch is None:
++        args.arch = utils.GuessArchitecture()
+     if args.verify_sdk_hash == None:
+         args.verify_sdk_hash = not args.rbe
+     if args.git_version == None:
+@@ -476,6 +485,14 @@ def AddCommonGnOptionArgs(parser):
+                         action='store_false')
+     parser.set_defaults(git_version=None)
+ 
++    parser.add_argument(
++        '--host-arch',
++        type=str,
++        default=None,
++        help='Host CPU architecture (e.g. x64, arm64, riscv64, ppc64; '
++        'ppc64le/powerpc64le are accepted). Overrides the uname(2) probe, '
++        'which lies under binary translators. Also read from $DART_HOST_ARCH.'
++    )
+     parser.add_argument('--clang', help='Use Clang', action='store_true')
+     parser.add_argument('--no-clang',
+                         help='Disable Clang',
+@@ -561,7 +578,8 @@ def AddCommonConfigurationArgs(parser):
+                         type=str,
+                         help='Target architectures (comma-separated).',
+                         metavar='[all,' + ','.join(AVAILABLE_ARCHS) + ']',
+-                        default=utils.GuessArchitecture())
++                        # Resolved in ProcessOptions, after --host-arch.
++                        default=None)
+     parser.add_argument('--mode',
+                         '-m',
+                         type=str,
+diff --git a/tools/utils.py b/tools/utils.py
+index b7686afd..fe2cc488 100644
+--- a/tools/utils.py
++++ b/tools/utils.py
+@@ -86,6 +86,7 @@ ARCH_FAMILY = {
+     'simx64c': 'arm',
+     'riscv32': 'riscv',
+     'riscv64': 'riscv',
++    'ppc64': 'ppc',
+ }
+ 
+ BASE_DIR = os.path.abspath(os.path.join(os.curdir, '..'))
+@@ -260,8 +261,32 @@ def IsRosetta():
+     return False
+ 
+ 
++# Spellings accepted for an explicitly given host architecture
++# (--host-arch / DART_HOST_ARCH), mapped to the Dart/GN name.
++HOST_ARCH_ALIASES = {
++    'ppc64le': 'ppc64',
++    'powerpc64le': 'ppc64',
++    'aarch64': 'arm64',
++    'x86_64': 'x64',
++    'amd64': 'x64',
++}
++
++
++def NormalizeHostArch(arch):
++    arch = arch.strip().lower()
++    return HOST_ARCH_ALIASES.get(arch, arch)
++
++
+ # Returns the architectures that can run on the current machine.
++#
++# DART_HOST_ARCH (set by tools/gn.py --host-arch) overrides the probe. The
++# probe is platform.machine(), i.e. uname(2), which is wrong under user-mode
++# emulation and binary translators (e.g. an aarch64 python under a
++# translator on a ppc64le host reports 'aarch64').
+ def HostArchitectures():
++    override = os.environ.get('DART_HOST_ARCH')
++    if override:
++        return [NormalizeHostArch(a) for a in override.split(',') if a.strip()]
+     m = platform.machine()
+     if platform.system() == 'Darwin':
+         if m == 'arm64' or IsRosetta():
+@@ -287,6 +312,10 @@ def HostArchitectures():
+         return ['x64', 'x86', 'ia32']
+     if m in ['riscv64']:
+         return ['riscv64']
++    # Little-endian only: plain 'ppc64' from uname is big-endian, which Dart
++    # does not support.
++    if m in ['ppc64le']:
++        return ['ppc64']
+     raise Exception('Failed to determine host architectures for %s %s',
+                     platform.machine(), platform.system())
+ 

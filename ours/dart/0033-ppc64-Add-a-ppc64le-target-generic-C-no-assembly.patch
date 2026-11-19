@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:57 -0600
+Subject: [PATCH] [ppc64] Add a ppc64le target (generic C, no assembly)
+
+include/openssl/target.h ends in #error "Unknown target CPU" for anything
+not on its list, which since the removal of the ppc64le assembly no longer
+includes ppc64le. Every consumer of BoringSSL on ppc64le therefore fails
+to compile; for the Dart SDK that is dart:io's TLS (runtime/bin and the
+VM itself link BoringSSL).
+
+Recognise little-endian 64-bit POWER as OPENSSL_64_BIT + OPENSSL_PPC64LE.
+No assembly is built for it (the GAS sources are all wrapped in their own
+processor checks), so the generic C implementations are used. As the
+comment above the #error says, patching this list is the expected local
+change for an unsupported machine.
+
+Class: local workaround for BoringSSL (upstream dropped ppc64le); Debian
+chromium carries an equivalent, larger patch that also restores the
+assembly.
+---
+ include/openssl/target.h | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/third_party/boringssl/src/include/openssl/target.h b/third_party/boringssl/src/include/openssl/target.h
+index 8d4763d..3eccaf0 100644
+--- a/third_party/boringssl/src/include/openssl/target.h
++++ b/third_party/boringssl/src/include/openssl/target.h
+@@ -45,6 +45,10 @@
+ #define OPENSSL_RISCV64
+ #elif defined(__riscv) && __SIZEOF_POINTER__ == 4
+ #define OPENSSL_32_BIT
++#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
++// ppc64le (ELFv2). No assembly: the generic C implementations are used.
++#define OPENSSL_64_BIT
++#define OPENSSL_PPC64LE
+ #elif defined(__pnacl__)
+ #define OPENSSL_32_BIT
+ #define OPENSSL_PNACL

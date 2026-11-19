@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:05:31 -0600
+Subject: [PATCH] [ppc64] runtime: BareSwitchableCallPattern for the AOT
+ switchable call
+
+Decodes IL-A's EmitInstanceCallAOT shape (work/il d7325af): the data (r8,
+slot i+1) and the target entry point (r0, slot i) are loaded from two
+consecutive global-pool slots, data first, then mtctr r0 ; bctrl. Either
+load may take the far addis form.
+---
+ runtime/vm/instructions_ppc64.cc | 21 +++++++++++++++++----
+ runtime/vm/instructions_ppc64.h  |  8 ++++++--
+ 2 files changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/runtime/vm/instructions_ppc64.cc b/runtime/vm/instructions_ppc64.cc
+index c49f38c1..8bf7d2c7 100644
+--- a/runtime/vm/instructions_ppc64.cc
++++ b/runtime/vm/instructions_ppc64.cc
+@@ -237,13 +237,26 @@ void SwitchableCallPattern::SetTargetRelease(const Code& target) const {
+                                                       target);
+ }
+ 
++// The AOT switchable call (FlowGraphCompiler::EmitInstanceCallAOT):
++//   <pool load of r8 (slot i+1)> ; <pool load of r0 (slot i)> ; mtctr r0 ;
++//   bctrl
++// with the data (r8) loaded first and the target entry point (r0) second,
++// both from the global object pool.
+ BareSwitchableCallPattern::BareSwitchableCallPattern(uword pc)
+     : SwitchableCallPatternBase(ObjectPool::Handle(
+           IsolateGroup::Current()->object_store()->global_object_pool())) {
+-  // TODO(ppc64): decode the AOT switchable call once
+-  // FlowGraphCompiler::EmitInstanceCallAOT defines it (M3-BOOT-PLAN 4.3,
+-  // "AOT, later"). Until then nothing can construct this pattern.
+-  UNIMPLEMENTED();
++  RELEASE_ASSERT(InstructionPattern::IsCallThroughCtr(pc));
++  Register target_reg, data_reg;
++  intptr_t target_index, data_index;
++  const uword target_load_start = InstructionPattern::DecodeLoadWordFromPool(
++      pc - 2 * Instr::kInstrSize, &target_reg, &target_index);
++  ASSERT(target_reg == R0);
++  InstructionPattern::DecodeLoadWordFromPool(target_load_start, &data_reg,
++                                             &data_index);
++  ASSERT(data_reg == IC_DATA_REG);
++  RELEASE_ASSERT(target_index + 1 == data_index);
++  target_pool_index_ = target_index;
++  data_pool_index_ = data_index;
+ }
+ 
+ uword BareSwitchableCallPattern::target_entry() const {
+diff --git a/runtime/vm/instructions_ppc64.h b/runtime/vm/instructions_ppc64.h
+index db78cf74..419f9df8 100644
+--- a/runtime/vm/instructions_ppc64.h
++++ b/runtime/vm/instructions_ppc64.h
+@@ -38,6 +38,10 @@ class ObjectPool;
+ //       <pool load of r28 (slot i)> ; <pool load of r8 (slot i+1)> ;
+ //       li r0,entry-1 ; ldx r0,r28,r0 ; mtctr r0 ; bctrl
+ //   native call: <pool load of r8 (native function)> ; <JIT call>
++//   AOT switchable call (EmitInstanceCallAOT): two consecutive global-pool
++//       slots i (target entry) and i+1 (data), loaded data first:
++//       <pool load of r8 (slot i+1)> ; <pool load of r0 (slot i)> ;
++//       mtctr r0 ; bctrl
+ class InstructionPattern : public AllStatic {
+  public:
+   // Decodes a pool load ending at |end| (the load's last instruction is the
+@@ -153,8 +157,8 @@ class SwitchableCallPattern : public SwitchableCallPatternBase {
+ // The target slot is always a direct entrypoint address: Either the entry
+ // point of the monomorphic function or a stub entry point.
+ //
+-// AOT only. The AOT switchable call (FlowGraphCompiler::EmitInstanceCallAOT)
+-// is not written yet (M3 is JIT); this pattern follows it when it is.
++// AOT only: "ld r8,data(PP) ; ld r0,target(PP) ; mtctr r0 ; bctrl" over two
++// consecutive global-pool slots (target, then data).
+ class BareSwitchableCallPattern : public SwitchableCallPatternBase {
+  public:
+   explicit BareSwitchableCallPattern(uword pc);

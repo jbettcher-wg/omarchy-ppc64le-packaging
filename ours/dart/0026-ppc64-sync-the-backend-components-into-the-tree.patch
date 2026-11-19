@@ -1,0 +1,368 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 04:45:51 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/assembler/assembler_ppc64.cc
+  runtime/vm/compiler/assembler/assembler_ppc64.h
+  runtime/vm/compiler/assembler/disassembler_ppc64.cc
+  runtime/vm/compiler/stub_code_compiler_ppc64.cc
+  runtime/vm/constants_ppc64.h
+  runtime/vm/stub_code_ppc64_test.cc
+
+Sources:
+  asm 0335674
+  stubs 5e6c02b
+  il 8df2468
+---
+ .../vm/compiler/assembler/assembler_ppc64.cc  |  10 ++
+ .../vm/compiler/assembler/assembler_ppc64.h   |  21 +++
+ .../compiler/assembler/disassembler_ppc64.cc  |   3 +
+ .../vm/compiler/stub_code_compiler_ppc64.cc   |  23 ++-
+ runtime/vm/constants_ppc64.h                  |   4 +
+ runtime/vm/stub_code_ppc64_test.cc            | 148 ++++++++++++++++++
+ 6 files changed, 206 insertions(+), 3 deletions(-)
+
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.cc b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+index 7d22c8cc..0b1a8ef1 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.cc
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+@@ -879,6 +879,16 @@ void Assembler::PopNativeCalleeSavedRegisters() {
+   addi(SP, SP, kNativeCalleeSavedSize);
+ }
+ 
++void Assembler::SaveCalleeSavedCR() {
++  mfcr(R0);
++  stw(R0, SP, kElfV2CrSaveOffset);
++}
++
++void Assembler::RestoreCalleeSavedCR() {
++  lwz(R0, SP, kElfV2CrSaveOffset);
++  mtcrf_callee_saved(R0);
++}
++
+ void Assembler::CheckFpSpDist(intptr_t fp_sp_dist) {
+   ASSERT(fp_sp_dist <= 0);
+ #if defined(DEBUG)
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.h b/runtime/vm/compiler/assembler/assembler_ppc64.h
+index e98bfb1f..f57fc97f 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.h
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.h
+@@ -771,6 +771,20 @@ class MicroAssembler : public AssemblerBase {
+   void mfocrf(Register rt, CRField crf) {
+     Emit32(kPpcMfocrf | EncodeRT(Gpr(rt)) | EncodeFXM(CrfSrc(crf)));
+   }
++  // mtcrf 0x38,r0: cr2, cr3 and cr4 from bits 8..19 of r0. The ONLY way to
++  // write the callee-saved CR fields (ABI-SPEC A14): the two entries from C
++  // (InvokeDartCode, the FFI callback stub) restore their C caller's cr2-cr4
++  // with it, through RestoreCalleeSavedCR, because an exception caught in
++  // Dart skips the epilogues of the C++ frames that would have restored them.
++  // Fixed register and mask, so scan-isa.sh can allow exactly the idiom
++  // "lwz r0,8(r1); mtcrf 56,r0".
++  void mtcrf_callee_saved(Register rs) {
++    RELEASE_ASSERT(rs == R0);
++    Emit32(kPpcMtcrf | EncodeRT(Gpr(rs)) |
++           (static_cast<uint32_t>((0x80u >> CRF2) | (0x80u >> CRF3) |
++                                  (0x80u >> CRF4))
++            << 12));
++  }
+ 
+   // ----- LR / CTR -----
+   void mflr(Register rt) { EmitX(kPpcMflr, Gpr(rt), 0, 0); }
+@@ -1354,6 +1368,13 @@ class Assembler : public MicroAssembler {
+   // R14-R30 then F14-F31 (kAbiPreserved*), the layout of ABI-SPEC 3.2.
+   void PushNativeCalleeSavedRegisters();  // [core]
+   void PopNativeCalleeSavedRegisters();   // [core]
++  // ABI-SPEC A14: at an entry from C, before anything is pushed, save CR in
++  // the C caller's CR save word, 8(SP) (ELFv2: the callee owns it):
++  // mfcr r0 ; stw r0,8(r1).
++  void SaveCalleeSavedCR();  // [core]
++  // On every return to C, after the frame is gone (SP is the caller's again):
++  // lwz r0,8(r1) ; mtcrf 56,r0. Clobbers R0.
++  void RestoreCalleeSavedCR();  // [core]
+   // In DEBUG mode traps unless SP - FP == fp_sp_dist (<= 0), as on RISC-V.
+   // Clobbers TMP (DEBUG only).
+   void CheckFpSpDist(intptr_t fp_sp_dist);  // [core]
+diff --git a/runtime/vm/compiler/assembler/disassembler_ppc64.cc b/runtime/vm/compiler/assembler/disassembler_ppc64.cc
+index e0baf3c8..834c4785 100644
+--- a/runtime/vm/compiler/assembler/disassembler_ppc64.cc
++++ b/runtime/vm/compiler/assembler/disassembler_ppc64.cc
+@@ -348,6 +348,9 @@ bool PPC64Decoder::Decode(uint32_t w) {
+     case kOpRT_FXM:
+       Print("%s r%u, %u", m, f6, (w >> 12) & 0xff);
+       break;
++    case kOpFXM_RS:
++      Print("%s %u, r%u", m, (w >> 12) & 0xff, f6);
++      break;
+     case kOpRA_RB:
+       Print("%s ", m);
+       GprOrZero(f11);
+diff --git a/runtime/vm/compiler/stub_code_compiler_ppc64.cc b/runtime/vm/compiler/stub_code_compiler_ppc64.cc
+index 932c68e7..f971a749 100644
+--- a/runtime/vm/compiler/stub_code_compiler_ppc64.cc
++++ b/runtime/vm/compiler/stub_code_compiler_ppc64.cc
+@@ -446,7 +446,12 @@ void StubCodeCompiler::GenerateFfiCallbackTrampolineStub() {
+   // 24(R1) TOC slot and its parameter save area, which may not exist) is not
+   // written.
+   //   0(R1) THR    8(R1) LR
++  // Before that, CR into the foreign caller's CR save word (ELFv2: the callee
++  // owns it), for RestoreCalleeSavedCR on every return to C (ABI-SPEC A14): a
++  // callback can catch an exception, which skips the epilogues of the C++
++  // frames that would have restored CR2-CR4.
+   COMPILE_ASSERT(FfiCallbackMetadata::kNativeCallbackTrampolineStackDelta == 2);
++  __ SaveCalleeSavedCR();
+   __ PushLinkRegister();
+   __ PushRegister(THR);
+ 
+@@ -593,6 +598,7 @@ void StubCodeCompiler::GenerateFfiCallbackTrampolineStub() {
+     // Pop THR and LR from the C stack.
+     __ PopRegister(THR);
+     __ PopLinkRegister();
++    __ RestoreCalleeSavedCR();  // Clobbers R0 only; R12 is the callee.
+ 
+     // Tail-call DLRT_ExitTemporaryIsolate. It is not safe to return to this
+     // stub, since it might be deleted once DLRT_ExitTemporaryIsolate proceeds
+@@ -612,6 +618,7 @@ void StubCodeCompiler::GenerateFfiCallbackTrampolineStub() {
+   // Pop THR and LR from the C stack.
+   __ PopRegister(THR);
+   __ PopLinkRegister();
++  __ RestoreCalleeSavedCR();  // Clobbers R0 only: results are in R3/R4/F1-F8.
+ 
+   __ Ret();
+ 
+@@ -1452,12 +1459,18 @@ void StubCodeCompiler::GenerateAllocateMintSharedWithoutFPURegsStub() {
+ //   R1 : the C++ caller's stack pointer, 16-byte aligned.
+ //   (R12: address of this stub; not used.)
+ //
+-// S-1. The entry frame of ABI-SPEC 3.2. Not saved, on purpose: CR (CR2-CR4 are
+-// never written), R2 (never written; the C++ caller reloads it after an
+-// indirect call), R13, the vector registers.
++// S-1. The entry frame of ABI-SPEC 3.2. CR is saved in the C++ caller's CR
++// save word and CR2-CR4 restored on return (ABI-SPEC A14): generated code
++// never writes them, but C++ runtime code called from Dart may, and an
++// exception caught in Dart (JumpToFrame) skips the epilogues that would have
++// restored them. Not saved, on purpose: R2 (never written; the C++ caller
++// reloads it after an indirect call), R13, the vector registers.
+ void StubCodeCompiler::GenerateInvokeDartCodeStub() {
+   __ Comment("InvokeDartCodeStub");
+ 
++  // Before anything is pushed: 8(R1) is the C++ caller's CR save word.
++  __ SaveCalleeSavedCR();
++
+   __ EnterFrame(0);
+ 
+   // Push code object to PC marker slot.
+@@ -1587,7 +1600,11 @@ void StubCodeCompiler::GenerateInvokeDartCodeStub() {
+ 
+   // Restore the frame pointer and return (drops the PC marker). R2 is
+   // unspecified here, which ELFv2 allows after a call through a pointer.
++  // This is also the path of an unhandled exception or a propagated error:
++  // Exceptions jump to the entry frame at "InvokeDartCodeStub return".
+   __ LeaveFrame();
++  // R1 is the caller's again: CR2-CR4 back from its CR save word.
++  __ RestoreCalleeSavedCR();
+   __ Ret();
+ }
+ 
+diff --git a/runtime/vm/constants_ppc64.h b/runtime/vm/constants_ppc64.h
+index 2bf4a404..3ad0ec5b 100644
+--- a/runtime/vm/constants_ppc64.h
++++ b/runtime/vm/constants_ppc64.h
+@@ -882,6 +882,7 @@ enum PPCOperands {
+   kOpBF_BFA,            // mcrf BF,BFA
+   kOpRT,                // mflr RT / mtlr RS / mfcr RT
+   kOpRT_FXM,            // mfocrf RT,FXM
++  kOpFXM_RS,            // mtcrf FXM,RS
+   kOpRA_RB,             // dcbst RA,RB
+   kOpFRT_FRA_FRB,       // fadd FRT,FRA,FRB
+   kOpFRT_FRA_FRC,       // fmul FRT,FRA,FRC
+@@ -1048,6 +1049,8 @@ enum PPCOperands {
+   V(Mcrf, "mcrf", kOpBF_BFA, PPCX(19, 0))                                      \
+   V(Mfcr, "mfcr", kOpRT, PPCX(31, 19))                                         \
+   V(Mfocrf, "mfocrf", kOpRT_FXM, PPCX(31, 19) | (1u << 20))                    \
++  /* Only through Assembler::mtcrf_callee_saved (cr2-cr4, ABI-SPEC A14). */    \
++  V(Mtcrf, "mtcrf", kOpFXM_RS, PPCX(31, 144))                                  \
+   /* --- LR / CTR --- */                                                       \
+   V(Mflr, "mflr", kOpRT, PPCSpr(339, kSprLR))                                  \
+   V(Mtlr, "mtlr", kOpRT, PPCSpr(467, kSprLR))                                  \
+@@ -1170,6 +1173,7 @@ constexpr uint32_t PPCOperandFieldMask(PPCOperands kind) {
+     case kOpRT:
+       return 0x03e00000u;
+     case kOpRT_FXM:
++    case kOpFXM_RS:
+       return 0x03eff000u;
+     case kOpRA_RB:
+       return 0x001ff800u;
+diff --git a/runtime/vm/stub_code_ppc64_test.cc b/runtime/vm/stub_code_ppc64_test.cc
+index 47b31169..49864d2b 100644
+--- a/runtime/vm/stub_code_ppc64_test.cc
++++ b/runtime/vm/stub_code_ppc64_test.cc
+@@ -5,6 +5,9 @@
+ #include "vm/globals.h"
+ #if defined(TARGET_ARCH_PPC64)
+ 
++#include <setjmp.h>
++
++#include "include/dart_api.h"
+ #include "vm/dart_entry.h"
+ #include "vm/heap/safepoint.h"
+ #include "vm/isolate.h"
+@@ -31,6 +34,18 @@
+ //   ExceptionAcrossCFrame   a Dart function calls a runtime entry that
+ //       throws; the exception crosses the runtime's C frame back to the entry
+ //       frame (JumpToFrame, the InvokeDartCode exception return path).
++//   CalleeSavedCRAcrossCaughtException   ABI-SPEC A14: a native clobbers
++//       CR2-CR4 and throws (Dart_ThrowException), Dart catches, returns
++//       normally; the CR sentinels around Dart_Invoke must be intact. The
++//       native's epilogue (which would restore CR) never runs: only
++//       InvokeDartCode's RestoreCalleeSavedCR does. Control (manual): drop
++//       RestoreCalleeSavedCR from InvokeDartCode and see this test fail.
++//   CalleeSavedCRAcrossPropagatedError   the same with Dart_PropagateError
++//       of an API error through a Dart frame: the error reaches the entry
++//       frame (the unhandled-error return path of InvokeDartCode).
++//   CalleeSavedCRAcrossLongJump   the C++ setjmp/longjmp the VM's
++//       LongJumpScope uses (no Dart frames): glibc's ppc64 jmp_buf must
++//       carry CR2-CR4 when the longjmp skips a frame that clobbered them.
+ // The fresh-page CAS and the 32-in-64 canonicalisation tests are
+ // Assembler_PPC64_FreshPageCAS and Assembler_PPC64_Int32Canonical in
+ // compiler/assembler/assembler_ppc64_test.cc, which also defines
+@@ -246,6 +261,139 @@ ISOLATE_UNIT_TEST_CASE(ExceptionAcrossCFrame) {
+   }
+ }
+ 
++// ---------------------------------------------------------------------------
++// CR2-CR4 across exceptions and long jumps (ABI-SPEC A14).
++
++// Not the sentinel's value in any of the three fields (kPpc64CrSentinel is
++// 0x00a5c000: cr2 = 0xa, cr3 = 0x5, cr4 = 0xc).
++#define PPC64_CLOBBER_CR2_CR4()                                                \
++  asm volatile("lis 0,0x005a\n\tori 0,0,0x3000\n\tmtcrf 0x38,0" ::           \
++                   : "r0", "cr2", "cr3", "cr4")
++
++static void Ppc64ClobberCrAndThrow(Dart_NativeArguments args) {
++  PPC64_CLOBBER_CR2_CR4();
++  Dart_ThrowException(Dart_NewInteger(7));
++  UNREACHABLE();
++}
++
++static void Ppc64ClobberCrAndPropagate(Dart_NativeArguments args) {
++  PPC64_CLOBBER_CR2_CR4();
++  Dart_PropagateError(Dart_NewApiError("ppc64 propagated error"));
++  UNREACHABLE();
++}
++
++static Dart_NativeFunction Ppc64CrNativeLookup(Dart_Handle name,
++                                               int argument_count,
++                                               bool* auto_setup_scope) {
++  ASSERT(auto_setup_scope != nullptr);
++  *auto_setup_scope = true;
++  const char* cname = nullptr;
++  if (Dart_IsError(Dart_StringToCString(name, &cname))) return nullptr;
++  if (strcmp(cname, "Ppc64ClobberCrAndThrow") == 0) {
++    return Ppc64ClobberCrAndThrow;
++  }
++  if (strcmp(cname, "Ppc64ClobberCrAndPropagate") == 0) {
++    return Ppc64ClobberCrAndPropagate;
++  }
++  return nullptr;
++}
++
++static const char* kPpc64CrScript = R"(
++@pragma('vm:external-name', 'Ppc64ClobberCrAndThrow')
++external void clobberAndThrow();
++
++@pragma('vm:external-name', 'Ppc64ClobberCrAndPropagate')
++external void clobberAndPropagate();
++
++@pragma('vm:entry-point', 'call')
++int catches() {
++  try {
++    clobberAndThrow();
++  } catch (e) {
++    return 42 + (e as int);
++  }
++  return 0;
++}
++
++@pragma('vm:entry-point', 'call')
++int propagates() {
++  clobberAndPropagate();
++  return 0;
++}
++)";
++
++// Called by ppc64_sentinel_call: Dart_Invoke(lib, name). Returns the int
++// result, or 1000000 + 1 for an error handle (2 for anything else).
++static uint64_t Ppc64InvokeFromSentinel(uint64_t lib,
++                                        uint64_t name,
++                                        uint64_t,
++                                        uint64_t) {
++  Dart_Handle result =
++      Dart_Invoke(reinterpret_cast<Dart_Handle>(lib),
++                  NewString(reinterpret_cast<const char*>(name)), 0, nullptr);
++  if (Dart_IsError(result)) return 1000001;
++  int64_t value = 0;
++  if (!Dart_IsInteger(result) ||
++      Dart_IsError(Dart_IntegerToInt64(result, &value))) {
++    return 1000002;
++  }
++  return static_cast<uint64_t>(value);
++}
++
++static uint64_t Ppc64InvokeWithSentinels(Dart_Handle lib, const char* name) {
++  uint64_t out[40];
++  const uint64_t result = ppc64_sentinel_call(
++      reinterpret_cast<uint64_t>(&Ppc64InvokeFromSentinel),
++      reinterpret_cast<uint64_t>(lib), reinterpret_cast<uint64_t>(name), 0, 0,
++      out);
++  Ppc64ExpectCalleeSavedIntact(out);
++  return result;
++}
++
++TEST_CASE(CalleeSavedCRAcrossCaughtException) {
++  Dart_Handle lib = TestCase::LoadTestScript(kPpc64CrScript,
++                                             Ppc64CrNativeLookup);
++  EXPECT_VALID(lib);
++  // Twice: the first call also compiles (lazy compilation, unoptimized).
++  EXPECT_EQ(49u, Ppc64InvokeWithSentinels(lib, "catches"));
++  EXPECT_EQ(49u, Ppc64InvokeWithSentinels(lib, "catches"));
++}
++
++TEST_CASE(CalleeSavedCRAcrossPropagatedError) {
++  Dart_Handle lib = TestCase::LoadTestScript(kPpc64CrScript,
++                                             Ppc64CrNativeLookup);
++  EXPECT_VALID(lib);
++  EXPECT_EQ(1000001u, Ppc64InvokeWithSentinels(lib, "propagates"));
++  EXPECT_EQ(1000001u, Ppc64InvokeWithSentinels(lib, "propagates"));
++}
++
++static jmp_buf ppc64_cr_jmp;
++
++// Clobbers CR2-CR4 (so its prologue saves CR and its epilogue would restore
++// it) and leaves through longjmp, skipping the epilogue.
++DART_NOINLINE static void Ppc64ClobberCrAndLongJump() {
++  PPC64_CLOBBER_CR2_CR4();
++  longjmp(ppc64_cr_jmp, 1);
++}
++
++// Uses no CR2-CR4 itself: whatever CR2-CR4 hold when it returns is what the
++// longjmp restored.
++static uint64_t Ppc64LongJumpFromSentinel(uint64_t, uint64_t, uint64_t,
++                                          uint64_t) {
++  if (setjmp(ppc64_cr_jmp) == 0) {
++    Ppc64ClobberCrAndLongJump();
++  }
++  return 5;
++}
++
++VM_UNIT_TEST_CASE(CalleeSavedCRAcrossLongJump) {
++  uint64_t out[40];
++  EXPECT_EQ(5u, ppc64_sentinel_call(
++                    reinterpret_cast<uint64_t>(&Ppc64LongJumpFromSentinel), 0,
++                    0, 0, 0, out));
++  Ppc64ExpectCalleeSavedIntact(out);
++}
++
+ }  // namespace dart
+ 
+ #endif  // defined(TARGET_ARCH_PPC64)

@@ -1,0 +1,196 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:41:03 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/assembler/assembler_ppc64.cc
+  runtime/vm/compiler/assembler/assembler_ppc64.h
+  runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+  runtime/vm/compiler/backend/il_ppc64_b.cc
+
+Sources:
+  asm 2bdf3a4
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 9d2411d
+---
+ .../vm/compiler/assembler/assembler_ppc64.cc  | 18 ++++++----
+ .../vm/compiler/assembler/assembler_ppc64.h   |  4 ++-
+ .../assembler/assembler_ppc64_test.cc         | 31 +++++++++++------
+ runtime/vm/compiler/backend/il_ppc64_b.cc     | 33 +++++++++----------
+ 4 files changed, 52 insertions(+), 34 deletions(-)
+
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.cc b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+index 1ebe87a1..7d22c8cc 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.cc
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+@@ -188,13 +188,19 @@ void Assembler::AddShifted(Register dst,
+                            intptr_t shift) {
+   if (shift == 0) {
+     add(dst, base, index);
+-  } else if (dst != base) {
+-    sldi(dst, index, shift);
+-    add(dst, base, dst);
+-  } else {
+-    sldi(R0, index, shift);
+-    add(dst, base, R0);
++    return;
+   }
++  // The shifted index goes to dst, or to R0 when dst is base (still read).
++  const Register scaled = (dst != base) ? dst : R0;
++  if (shift > 0) {
++    sldi(scaled, index, shift);
++  } else {
++    // A negative shift is an arithmetic right shift, as ARM64 (ASR) and
++    // RISC-V (srai) take it: e.g. -1 for a Smi index of 1-byte elements
++    // (ABI-SPEC Amendment A9 #3).
++    sradi(scaled, index, -shift);
++  }
++  add(dst, base, scaled);
+ }
+ 
+ void Assembler::ComputeElementAddress(Register dst,
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.h b/runtime/vm/compiler/assembler/assembler_ppc64.h
+index 544aaf86..e98bfb1f 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.h
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.h
+@@ -1045,7 +1045,9 @@ class Assembler : public MicroAssembler {
+   }
+   void AddRegisters(Register dst, Register src);  // [core] dst += src
+   void SubRegisters(Register dst, Register src);  // [core] dst -= src
+-  // dst = base + (index << shift). Clobbers R0 when dst aliases base.
++  // dst = base + (index << shift); a negative shift is an arithmetic right
++  // shift, dst = base + (index >> -shift) (ABI-SPEC A9 #3). Clobbers R0 when
++  // dst aliases base.
+   void AddShifted(Register dst,
+                   Register base,
+                   Register index,
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64_test.cc b/runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+index c3af2eda..b755fdf9 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64_test.cc
++++ b/runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+@@ -1462,15 +1462,18 @@ ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_Atomics) {
+                                kUnsignedTwoBytes, kUnsignedByte};
+   for (OperandSize sz : sizes) {
+     const intptr_t n = Assembler::OperandSizeInBits(sz) / 8;
+-    // r3 = address, r4 = expected, r5 = desired -> r3 = old, r9 = mismatch.
++    // r3 = address, r4 = expected, r5 = desired, r6 = &old ->
++    // r3 = 1 iff the mismatch label was taken; old stored at [r6]. (The old
++    // value is canonical for the size, so for kFourBytes it is sign-extended
++    // and must not share a register with the flag.)
+     const uword cas = GenerateEntry("CompareAndSwap", [&](Assembler* a) {
+       Label miss;
+       a->LoadImmediate(R9, 1);
+       a->CompareAndSwap(R3, R4, R5, R7, &miss, Assembler::kRelaxedNonAtomic, sz);
+       a->LoadImmediate(R9, 0);
+       a->Bind(&miss);
+-      a->sldi(R9, R9, 62);
+-      a->or_(R3, R7, R9);  // the flag in bit 62, the old value below
++      a->Store(R7, Address(R6, 0));
++      a->MoveRegister(R3, R9);
+     });
+     const uword fetch_add = GenerateEntry("AtomicFetchAndOp", [&](Assembler* a) {
+       a->AtomicFetchAndOp(Assembler::kAtomicAdd, R3, R4, R7, Assembler::kRelease,
+@@ -1487,20 +1490,28 @@ ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_Atomics) {
+       if (n == 4) expected = SExt32(cur);
+       if (n == 2) expected = static_cast<int64_t>(static_cast<int16_t>(cur));
+       if (n == 1) expected = static_cast<int64_t>(static_cast<int8_t>(cur));
++      // The value read, canonical for the size (7.6).
++      const uint64_t old_want = Extend(cur & mask, sz);
++      uint64_t old = 0;
+       // Mismatch: memory unchanged, old returned, flag set.
+-      int64_t r = Call(cas, reinterpret_cast<int64_t>(&words[1]),
+-                       (cur ^ 1) & mask, 0x42);
+-      EXPECT_EQ(1, (r >> 62) & 1);
++      EXPECT_EQ(1, Call(cas, reinterpret_cast<int64_t>(&words[1]),
++                        (cur ^ 1) & mask, 0x42,
++                        reinterpret_cast<int64_t>(&old)));
++      EXPECT_EQ(old_want, old);
++      uint64_t unchanged = 0;
++      memcpy(&unchanged, &words[1], n);
++      EXPECT_EQ(cur & mask, unchanged);
+       // Match, with a sign-extended expected for the narrow sizes.
+-      r = Call(cas, reinterpret_cast<int64_t>(&words[1]), expected, 0x42);
+-      EXPECT_EQ(0, (r >> 62) & 1);
++      old = 0;
++      EXPECT_EQ(0, Call(cas, reinterpret_cast<int64_t>(&words[1]), expected,
++                        0x42, reinterpret_cast<int64_t>(&old)));
++      EXPECT_EQ(old_want, old);
+       uint64_t now = 0;
+       memcpy(&now, &words[1], n);
+       EXPECT_EQ(0x42u, now);
+       EXPECT_EQ(0x3c3c3c3c3c3c3c3cull, words[0]);
+       EXPECT_EQ(0x3c3c3c3c3c3c3c3cull, words[2]);
+-      const int64_t old = Call(fetch_add, reinterpret_cast<int64_t>(&words[1]), 5);
+-      EXPECT_EQ(0x42, old);
++      EXPECT_EQ(0x42, Call(fetch_add, reinterpret_cast<int64_t>(&words[1]), 5));
+       memcpy(&now, &words[1], n);
+       EXPECT_EQ(0x47u, now);
+     }
+diff --git a/runtime/vm/compiler/backend/il_ppc64_b.cc b/runtime/vm/compiler/backend/il_ppc64_b.cc
+index f4f195b9..b0271bf7 100644
+--- a/runtime/vm/compiler/backend/il_ppc64_b.cc
++++ b/runtime/vm/compiler/backend/il_ppc64_b.cc
+@@ -729,6 +729,17 @@ static void EmitInt64ShiftOutOfRange(compiler::Assembler* assembler,
+ 
+ // ----- Misc -------------------------------------------------------------------
+ 
++// Unbox<float> of a Smi: result = (float)untag(box), rounded once (fcfids,
++// ISA 2.06). fcfid + frsp would round twice for |x| > 2^53. FPRs hold the
++// single in double format (ABI-SPEC 7.7). Clobbers TMP.
++static void EmitSmiToFloat(compiler::Assembler* assembler,
++                           FpuRegister result,
++                           Register box) {
++  __ SmiUntag(TMP, box);
++  __ mtvsrd(result, TMP);
++  __ fcfids(result, result);
++}
++
+ // result = SmiTag(Multiply64Hash(value) & 0x3fffffff); keep in sync with
+ // lib/integers.cc Multiply64Hash. |value| is untagged and is clobbered;
+ // result != value.
+@@ -1186,16 +1197,11 @@ void MemoryCopyInstr::EmitComputeStartPointer(FlowGraphCompiler* compiler,
+     return;
+   }
+   const Register start_reg = start_loc.reg();
++  // A negative shift (byte elements, Smi start) is an arithmetic right
++  // shift (ABI-SPEC Amendment A9 #3).
+   const intptr_t shift = Utils::ShiftForPowerOfTwo(element_size_) -
+                          (unboxed_inputs() ? 0 : kSmiTagShift);
+-  if (shift < 0) {
+-    // Byte elements with a Smi start: AddShifted takes 0..63 only.
+-    // payload_reg is a temp, distinct from array_reg and start_reg.
+-    __ sradi(payload_reg, start_reg, -shift);
+-    __ add(payload_reg, array_reg, payload_reg);
+-  } else {
+-    __ AddShifted(payload_reg, array_reg, start_reg, shift);
+-  }
++  __ AddShifted(payload_reg, array_reg, start_reg, shift);
+   __ AddImmediate(payload_reg, offset);
+ }
+ 
+@@ -2303,12 +2309,7 @@ void UnboxInstr::EmitSmiConversion(FlowGraphCompiler* compiler) {
+     }
+     case kUnboxedFloat: {
+       const FpuRegister result = locs()->out(0).fpu_reg();
+-      __ SmiUntag(TMP, box);
+-      // TODO(ppc64): int64 -> double -> single rounds twice for |x| > 2^53;
+-      // fcfids (ISA 2.06) converts in one rounding but is not in the frozen
+-      // L1 emitter list.
+-      __ Int64ToDouble(result, TMP);
+-      __ frsp(result, result);
++      ilb::EmitSmiToFloat(compiler->assembler(), result, box);
+       break;
+     }
+     default:
+@@ -2320,10 +2321,8 @@ void UnboxInstr::EmitSmiConversion(FlowGraphCompiler* compiler) {
+ void UnboxInstr::EmitLoadInt32FromBoxOrSmi(FlowGraphCompiler* compiler) {
+   const Register value = locs()->in(0).reg();
+   const Register result = locs()->out(0).reg();
++  // A canonical (sign-extended) int32, as the header documents.
+   __ LoadInt32FromBoxOrSmi(result, value);
+-  // Whatever the [vm-B] body leaves above bit 31, the value is canonical
+-  // after this (ABI-SPEC 7.6).
+-  __ ExtendValue(result, result, compiler::kFourBytes);
+ }
+ 
+ void UnboxInstr::EmitLoadInt64FromBoxOrSmi(FlowGraphCompiler* compiler) {

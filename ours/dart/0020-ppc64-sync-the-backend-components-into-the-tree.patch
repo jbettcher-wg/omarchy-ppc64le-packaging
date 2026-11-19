@@ -1,0 +1,859 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:22:53 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/assembler/assembler_base.h
+  runtime/vm/compiler/assembler/assembler_ppc64.cc
+  runtime/vm/compiler/assembler/assembler_ppc64.h
+  runtime/vm/compiler/assembler/assembler_ppc64_vm_a.cc
+  runtime/vm/instructions_ppc64.cc
+  runtime/vm/instructions_ppc64.h
+
+Sources:
+  asm 13fd5b4 (uncommitted there, not synced: assembler_ppc64.h constants_ppc64.h)
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 07dccc5
+---
+ .../vm/compiler/assembler/assembler_base.h    |  44 ++
+ .../vm/compiler/assembler/assembler_ppc64.cc  |  43 +-
+ .../vm/compiler/assembler/assembler_ppc64.h   |  16 +-
+ .../assembler/assembler_ppc64_vm_a.cc         | 417 ++++++++++++++++--
+ runtime/vm/instructions_ppc64.cc              |  32 +-
+ runtime/vm/instructions_ppc64.h               |  11 +-
+ 6 files changed, 495 insertions(+), 68 deletions(-)
+
+diff --git a/runtime/vm/compiler/assembler/assembler_base.h b/runtime/vm/compiler/assembler/assembler_base.h
+index 59628402..2a37b74c 100644
+--- a/runtime/vm/compiler/assembler/assembler_base.h
++++ b/runtime/vm/compiler/assembler/assembler_base.h
+@@ -272,6 +272,50 @@ class Label : public ZoneAllocated {
+   friend class MicroAssembler;
+   DISALLOW_COPY_AND_ASSIGN(Label);
+ };
++#elif defined(TARGET_ARCH_PPC64)
++// ppc64 (local, mirrors the RISC-V Label above). The two branch forms that
++// can reach an unbound label differ in reach (b: +/-32 MiB, bc: +/-32 KiB),
++// so the unresolved forward uses are kept on two chains, one per form, each
++// threaded through the displacement fields of its branches: a branch holds
++// the delta to the previous use on its chain, 0 for the first. A label is
++// linked while EITHER chain is non-empty; a label reached only by a bc is
++// linked (shared code binds a label only if IsLinked(), e.g. il.cc's
++// UnboxInstr). Assembler::Bind resolves both chains, then BindTo.
++class Label : public ZoneAllocated {
++ public:
++  Label() {}
++  ~Label() {
++    // Assert if label is being destroyed with unresolved branches pending.
++    ASSERT(!IsLinked());
++  }
++
++  intptr_t Position() const {
++    ASSERT(IsBound());
++    return position_;
++  }
++
++  bool IsBound() const { return position_ != -1; }
++  bool IsUnused() const { return !IsBound() && !IsLinked(); }
++  bool IsLinked() const {
++    return unresolved_b_ != -1 || unresolved_bc_ != -1;
++  }
++
++ private:
++  intptr_t position_ = -1;
++  // Position of the most recent unresolved use of each form, -1 if none.
++  intptr_t unresolved_b_ = -1;   // b (I-form), incl. the b of a far bc
++  intptr_t unresolved_bc_ = -1;  // bc (B-form), level 0 and kNearJump
++
++  void BindTo(intptr_t position) {
++    ASSERT(!IsBound());
++    ASSERT(!IsLinked());
++    position_ = position;
++    ASSERT(IsBound());
++  }
++
++  friend class Assembler;
++  DISALLOW_COPY_AND_ASSIGN(Label);
++};
+ #else
+ class Label : public ZoneAllocated {
+  public:
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.cc b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+index 304f15c4..1ebe87a1 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.cc
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+@@ -294,9 +294,13 @@ void Assembler::PushImmediate(int64_t immediate) {
+ // There are two chains, so that a link never has to span more than its own
+ // field can hold:
+ //   * 24-bit b (Jump, and the b of the 8-byte far conditional form) through
+-//     Label::position_ (the generic Label's link);
+-//   * 4-byte bc through Label::unresolved_near_positions_[0] (the generic
+-//     Label's near slot, which x64 uses the same way).
++//     Label::unresolved_b_;
++//   * 4-byte bc through Label::unresolved_bc_.
++// Both are fields of ppc64's own Label (assembler_base.h as patched by
++// patches/0001-assembler_base-ppc64-Label.patch, mirroring RISC-V's),
++// whose IsLinked() is true while either chain is non-empty. The generic Label
++// cannot be used: its IsLinked() looks only at the b link, so a label reached
++// only by a bc would read as unlinked and shared code would skip its Bind.
+ // A near link that does not fit 14 bits means the earlier near use cannot
+ // reach any target after this one either: that is the far-branch bailout.
+ // ---------------------------------------------------------------------------
+@@ -347,14 +351,16 @@ void Assembler::PatchBranch(intptr_t position, intptr_t target_position) {
+ void Assembler::Bind(Label* label) {
+   ASSERT(!label->IsBound());
+   const intptr_t bound_pc = CodeSize();
+-  while (label->IsLinked()) {
+-    const intptr_t position = label->LinkPosition();
++  // The b chain (ppc64 Label, assembler_base.h).
++  while (label->unresolved_b_ != -1) {
++    const intptr_t position = label->unresolved_b_;
+     const int32_t link = DecodeLI(Read32(position));
+     PatchBranch(position, bound_pc);  // FATAL beyond +/-32 MiB
+-    label->position_ = (link == 0) ? 0 : position + link + Label::kBias;
++    label->unresolved_b_ = (link == 0) ? -1 : position + link;
+   }
+-  while (label->HasNear()) {
+-    const intptr_t position = label->unresolved_near_positions_[0];
++  // The bc chain.
++  while (label->unresolved_bc_ != -1) {
++    const intptr_t position = label->unresolved_bc_;
+     const int32_t link = DecodeBD(Read32(position));
+     if (!IsBranch14Offset(bound_pc - position)) {
+       if (far_branch_level() == 0) {
+@@ -363,11 +369,7 @@ void Assembler::Bind(Label* label) {
+       FATAL("ppc64: near conditional branch out of range");  // kNearJump
+     }
+     PatchBranch(position, bound_pc);
+-    if (link == 0) {
+-      label->unresolved_ = 0;
+-    } else {
+-      label->unresolved_near_positions_[0] = position + link;
+-    }
++    label->unresolved_bc_ = (link == 0) ? -1 : position + link;
+   }
+   label->BindTo(bound_pc);
+ }
+@@ -379,8 +381,8 @@ void Assembler::Jump(Label* label, JumpDistance distance) {
+     return;
+   }
+   const intptr_t position = CodeSize();
+-  b(label->IsLinked() ? label->LinkPosition() - position : 0);
+-  label->LinkTo(position);
++  b(label->unresolved_b_ != -1 ? label->unresolved_b_ - position : 0);
++  label->unresolved_b_ = position;
+ }
+ 
+ void Assembler::Jump(const Address& address) {
+@@ -412,8 +414,8 @@ void Assembler::BranchIfCR(bool if_set,
+   const intptr_t position = CodeSize();
+   if (distance == kNearJump || far_branch_level() == 0) {
+     int64_t link = 0;
+-    if (label->HasNear()) {
+-      link = label->unresolved_near_positions_[0] - position;
++    if (label->unresolved_bc_ != -1) {
++      link = label->unresolved_bc_ - position;
+       if (!IsBranch14Offset(link)) {
+         // The previous near use is already out of reach of any target.
+         if (far_branch_level() == 0) {
+@@ -423,15 +425,14 @@ void Assembler::BranchIfCR(bool if_set,
+       }
+     }
+     bc(bo, bi, link);
+-    label->unresolved_near_positions_[0] = position;
+-    label->unresolved_ = 1;
++    label->unresolved_bc_ = position;
+     return;
+   }
+   // Far form: bc <inverted>,$+8 ; b target. The b carries the link.
+   bc(InvertBranchOption(bo), bi, 2 * Instr::kInstrSize);
+   const intptr_t b_position = CodeSize();
+-  b(label->IsLinked() ? label->LinkPosition() - b_position : 0);
+-  label->LinkTo(b_position);
++  b(label->unresolved_b_ != -1 ? label->unresolved_b_ - b_position : 0);
++  label->unresolved_b_ = b_position;
+ }
+ 
+ // ----- Deferred compare (section 7.4) ---------------------------------------
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.h b/runtime/vm/compiler/assembler/assembler_ppc64.h
+index 53c018e3..d5bb75b2 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.h
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.h
+@@ -1146,11 +1146,13 @@ class Assembler : public MicroAssembler {
+   bool constant_pool_allowed() const { return constant_pool_allowed_; }
+   void set_constant_pool_allowed(bool b) { constant_pool_allowed_ = b; }
+   bool CanLoadFromObjectPool(const Object& object) const;  // [vm-A]
+-  // Never clobbers TMP or TMP2.
++  // null, true, false (NULL_REG-relative), Thread-cached objects and Smis
++  // need no pool. Never clobbers TMP or TMP2, except dst == R0 with a pool
++  // slot beyond 32 KiB, whose addis needs TMP as the base (ABI-SPEC 6.2).
+   void LoadObject(Register dst, const Object& obj) {
+     LoadObjectHelper(dst, obj, false);
+   }
+-  // Never clobbers TMP or TMP2.
++  // Always a (patchable) pool slot; clobbers as LoadObject.
+   void LoadUniqueObject(
+       Register dst,
+       const Object& obj,
+@@ -1172,7 +1174,9 @@ class Assembler : public MicroAssembler {
+   //
+   // Unresolved uses of a label are chained through the displacement field of
+   // the branch itself: the field holds (previous use - this use), 0 for the
+-  // first use. Bind() walks the chain with PatchBranch.
++  // first use. There is one chain per branch form (b, bc), kept in ppc64's
++  // own Label (assembler_base.h, patches/0001); IsLinked() is true while
++  // either is non-empty. Bind() walks both chains with PatchBranch.
+   //
+   // Conditional branch to an unbound label:
+   //   distance == kNearJump or far_branch_level() == 0 :  bc         (4 bytes)
+@@ -1250,6 +1254,10 @@ class Assembler : public MicroAssembler {
+   void JumpRegister(Register target);  // [core] mtctr target ; bctr
+   void Ret() { blr(); }
+   // ld CODE_REG,pool ; li r0,entry-1 ; ldx r0,CODE_REG,r0 ; mtctr r0 ; bctrl
++  // (ABI-SPEC 4.1; 6 words with a far pool slot). Clobbers CODE_REG, R0,
++  // CTR, LR. In AOT TMP takes CODE_REG's place (CODE_REG is allocatable and
++  // may be live across a register-preserving shared stub; ARM64 uses LR,
++  // RISC-V TMP): clobbers TMP, R0, CTR, LR.
+   void BranchLink(const Code& code,
+                   ObjectPoolBuilderEntry::Patchability patchable =
+                       ObjectPoolBuilderEntry::kNotPatchable,
+@@ -1618,7 +1626,7 @@ class Assembler : public MicroAssembler {
+                   RangeCheckCondition condition,
+                   Label* target) override;  // [vm-B]
+ 
+-  // Truncates upper bits.
++  // The low 32 bits, sign-extended: a canonical int32 (ABI-SPEC 7.6).
+   void LoadInt32FromBoxOrSmi(Register result,
+                              Register value) override;  // [vm-B]
+   void LoadInt64FromBoxOrSmi(Register result,
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64_vm_a.cc b/runtime/vm/compiler/assembler/assembler_ppc64_vm_a.cc
+index 2aaa83c5..1345b04f 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64_vm_a.cc
++++ b/runtime/vm/compiler/assembler/assembler_ppc64_vm_a.cc
+@@ -10,61 +10,190 @@
+ #include "vm/compiler/assembler/assembler.h"
+ 
+ // assembler_ppc64_vm_a.cc: the methods of assembler_ppc64.h that need the VM
+-// (target:: offsets, objects, the object pool, Thread). Compile-only until M3.
++// (target:: offsets, objects, the object pool, Thread). Tier 2 through
++// test/core/vm-pending.sh (real ppc64 offsets); executed from M3.
+ //   Section A: [vm-A] methods, Agent A, phase 2.
+ //   Section N: [none] methods, unsupported on ppc64 for good.
+ // The [vm-B] methods and LeafRuntimeScope are in assembler_ppc64_vm_b.cc.
+ 
+ namespace dart {
++
++DECLARE_FLAG(bool, check_code_pointer);
++DECLARE_FLAG(bool, precompiled_mode);
++
+ namespace compiler {
+ 
+ // ===== Section A: Agent A, phase 2 ==========================================
++//
++// Contracts (ABI-SPEC and STUBS-SPEC section 15), each checked where the body
++// is written:
++//   - Pool loads have exactly the two shapes of ABI-SPEC 6.2, which
++//     InstructionPattern::DecodeLoadWordFromPool accepts:
++//       ld dst,off(pp)                         offset < 32 KiB
++//       addis X,pp,ha(off) ; ld dst,lo(off)(X) X = dst, or TMP if dst is R0
++//   - LoadObject never clobbers TMP or TMP2, except LoadObject(R0, obj) with
++//     a far pool slot, which needs TMP as the base (r0 is never a base).
++//     null, true and false come from NULL_REG without the pool (STUBS-SPEC
++//     15 #11); Thread-cached objects from THR; Smis are immediates.
++//   - Dart calls through a Code object (ABI-SPEC 4.1):
++//       JIT: ld r28,idx(PP) ; li r0,entry-1 ; ldx r0,r28,r0 ; mtctr r0 ; bctrl
++//       AOT: the same with TMP in place of r28. CODE_REG is allocatable and
++//            may hold a live value across a call to a register-preserving
++//            shared stub in AOT, and r0 cannot be the base of the entry
++//            load; ARM64 uses LR here, RISC-V TMP. So an AOT BranchLink
++//            clobbers TMP (and r0, CTR, LR).
++//   - Frames (ABI-SPEC 3.1): EnterDartFrame (JIT) =
++//       mflr r0 ; stdu r31,-16(r1) ; std r0,8(r1) ; mr r31,r1 ;
++//       stdu r28,-8(r1) ; addi r0,r30,1 ; stdu r0,-8(r1) ;
++//       li r0,pool_off-1 ; ldx r30,r28,r0 ; addi r30,r30,-1 ; addi r1,r1,-n
++//     and sets constant_pool_allowed(true); LeaveDartFrame =
++//       ld r30,-16(r31) ; addi r30,r30,-1 ; mr r1,r31 ; ld r0,8(r1) ;
++//       ld r31,0(r1) ; addi r1,r1,16 ; mtlr r0
++//     and disallows the pool. AOT frames have neither the code nor the PP
++//     slot, as on ARM64.
++//   - WRITE_BARRIER_STATE (r27) holds Thread::write_barrier_mask unmodified
++//     (ABI-SPEC Amendment A5; no RISC-V xori).
++//   - MonomorphicCheckedEntryJIT/AOT emit exactly STUBS-SPEC section 8 and
++//     assert its sizes (entry offsets JIT 12/76, AOT 12/32).
+ 
+ void Assembler::LoadConstant(Register dst, int64_t imm) {
+-  UNIMPLEMENTED();
++  if (constant_pool_allowed() && LoadImmediateLength(imm) > 2) {
++    const intptr_t index =
++        object_pool_builder().FindImmediate(static_cast<uword>(imm));
++    LoadWordFromPoolIndex(dst, index);
++  } else {
++    LoadImmediate(dst, imm);
++  }
++}
++
++// The base register of a far pool access: dst itself, or TMP when dst is R0
++// (r0 as a D-form base reads as zero).
++static Register FarPoolBase(Register dst) {
++  return dst == R0 ? TMP : dst;
+ }
+ 
+ void Assembler::LoadWordFromPoolIndex(Register dst,
+                                       intptr_t index,
+                                       Register pp) {
+-  UNIMPLEMENTED();
++  ASSERT((pp != PP) || constant_pool_allowed());
++  ASSERT(dst != pp);
++  ASSERT(pp != R0);
++  // PP is untagged: slot offsets are multiples of 8, so ld is DS-legal.
++  const int64_t offset = target::ObjectPool::element_offset(index);
++  ASSERT(Utils::IsAligned(offset, target::kWordSize));
++  if (Utils::IsInt(16, offset)) {
++    ld(dst, pp, offset);
++  } else {
++    const int32_t hi = HighAdjusted16(offset);
++    const int32_t lo = Low16(offset);
++    RELEASE_ASSERT(static_cast<int64_t>(hi) * 65536 + lo == offset);
++    const Register base = FarPoolBase(dst);
++    addis(base, pp, hi);
++    ld(dst, base, lo);
++  }
+ }
+ 
+ void Assembler::StoreWordToPoolIndex(Register src,
+                                      intptr_t index,
+                                      Register pp) {
+-  UNIMPLEMENTED();
++  ASSERT((pp != PP) || constant_pool_allowed());
++  ASSERT(src != pp);
++  ASSERT(pp != R0);
++  const int64_t offset = target::ObjectPool::element_offset(index);
++  ASSERT(Utils::IsAligned(offset, target::kWordSize));
++  if (Utils::IsInt(16, offset)) {
++    std(src, pp, offset);
++  } else {
++    const int32_t hi = HighAdjusted16(offset);
++    const int32_t lo = Low16(offset);
++    RELEASE_ASSERT(static_cast<int64_t>(hi) * 65536 + lo == offset);
++    ASSERT(src != TMP);
++    addis(TMP, pp, hi);
++    std(src, TMP, lo);
++  }
+ }
+ 
+ bool Assembler::CanLoadFromObjectPool(const Object& object) const {
+-  UNIMPLEMENTED();
++  ASSERT(IsOriginalObject(object));
++  if (!constant_pool_allowed()) {
++    return false;
++  }
++
++  DEBUG_ASSERT(IsNotTemporaryScopedHandle(object));
++  ASSERT(IsInOldSpace(object));
++  return true;
+ }
+ 
+ void Assembler::LoadNativeEntry(
+     Register dst,
+     const ExternalLabel* label,
+     ObjectPoolBuilderEntry::Patchability patchable) {
+-  UNIMPLEMENTED();
++  const intptr_t index =
++      object_pool_builder().FindNativeFunction(label, patchable);
++  LoadWordFromPoolIndex(dst, index);
+ }
+ 
+ void Assembler::LoadIsolate(Register dst) {
+-  UNIMPLEMENTED();
++  Load(dst, Address(THR, target::Thread::isolate_offset()));
+ }
+ 
+ void Assembler::LoadIsolateGroup(Register dst) {
+-  UNIMPLEMENTED();
++  Load(dst, Address(THR, target::Thread::isolate_group_offset()));
+ }
+ 
+ void Assembler::PushObject(const Object& object) {
+-  UNIMPLEMENTED();
++  if (IsSameObject(compiler::NullObject(), object)) {
++    PushRegister(NULL_REG);
++  } else {
++    LoadObject(TMP, object);
++    PushRegister(TMP);
++  }
+ }
+ 
+ void Assembler::LoadPoolPointer(Register pp) {
+-  UNIMPLEMENTED();
++  ASSERT(pp != R0);
++  CheckCodePointer();
++  // li r0,pool_off-1 ; ldx pp,r28,r0 (a tagged field: DS rule, ABI-SPEC 5.2).
++  Load(pp, FieldAddress(CODE_REG, target::Code::object_pool_offset()));
++
++  // When in the PP register, the pool pointer is untagged, so that every slot
++  // offset is a multiple of 8 (DS-form). EnterDartFrame stores it re-tagged;
++  // LeaveDartFrame untags it again.
++  addi(pp, pp, -kHeapObjectTag);
++  set_constant_pool_allowed(pp == PP);
+ }
+ 
+ void Assembler::CompareObject(Register reg, const Object& object) {
+-  UNIMPLEMENTED();
++  ASSERT(IsOriginalObject(object));
++  ASSERT(reg != R0);
++  if (IsSameObject(compiler::NullObject(), object)) {
++    CompareObjectRegisters(reg, NULL_REG);
++  } else if (target::IsSmi(object)) {
++    CompareImmediate(reg, target::ToRawSmi(object), kObjectBytes);
++  } else {
++    ASSERT(reg != TMP);
++    LoadObject(TMP, object);
++    CompareObjectRegisters(reg, TMP);
++  }
++}
++
++// The call through the Code object in pool slot |index| (ABI-SPEC 4.1):
++//   ld code_reg,idx(PP) ; li r0,entry-1 ; ldx r0,code_reg,r0 ; mtctr r0 ;
++//   bctrl
++// with the far pool form (6 words) when the slot is beyond 32 KiB.
++static void CallCodeFromPool(Assembler* assembler,
++                             intptr_t index,
++                             CodeEntryKind entry_kind) {
++  // Avoid clobbering CODE_REG when invoking code in precompiled mode.
++  // We don't actually use CODE_REG in the callee and caller might
++  // be using CODE_REG for a live value (e.g. a value that is alive
++  // across invocation of a shared stub like the one we use for
++  // allocating Mint boxes). r0 cannot be the base of the entry load, so
++  // AOT uses TMP (as RISC-V does; ARM64 uses LR).
++  const Register code_reg = FLAG_precompiled_mode ? TMP : CODE_REG;
++  assembler->LoadWordFromPoolIndex(code_reg, index);
++  assembler->Call(
++      FieldAddress(code_reg, target::Code::entry_point_offset(entry_kind)));
+ }
+ 
+ void Assembler::BranchLink(
+@@ -72,78 +201,308 @@ void Assembler::BranchLink(
+     ObjectPoolBuilderEntry::Patchability patchable,
+     CodeEntryKind entry_kind,
+     ObjectPoolBuilderEntry::SnapshotBehavior snapshot_behavior) {
+-  UNIMPLEMENTED();
++  const intptr_t index = object_pool_builder().FindObject(
++      ToObject(code), patchable, snapshot_behavior);
++  CallCodeFromPool(this, index, entry_kind);
+ }
+ 
+ void Assembler::BranchLinkWithEquivalence(const Code& code,
+                                           const Object& equivalence,
+                                           CodeEntryKind entry_kind) {
+-  UNIMPLEMENTED();
++  const intptr_t index =
++      object_pool_builder().FindObject(ToObject(code), equivalence);
++  CallCodeFromPool(this, index, entry_kind);
+ }
+ 
++// "bl" / "b" with the distance in the LI field, as PcRelativeCallPattern and
++// PcRelativeTailCallPattern (instructions_ppc64.h) read and patch it. A
++// target beyond +/-32 MiB gets the CodeRelocator's trampoline (ABI-SPEC 4.4,
++// PcRelativeTrampolineJumpPattern), not a longer sequence here.
+ void Assembler::GenerateUnRelocatedPcRelativeCall(intptr_t offset_into_target) {
+-  UNIMPLEMENTED();
++  bl(offset_into_target);
+ }
+ 
+ void Assembler::GenerateUnRelocatedPcRelativeTailCall(
+     intptr_t offset_into_target) {
+-  UNIMPLEMENTED();
++  b(offset_into_target);
+ }
+ 
+ void Assembler::EnterDartFrame(intptr_t frame_size, Register new_pp) {
+-  UNIMPLEMENTED();
++  ASSERT(!constant_pool_allowed());
++  ASSERT(frame_size >= 0);
++  // Setup the frame. stdu stores and moves SP in one instruction, so nothing
++  // is ever written below SP (ABI-SPEC 3.6).
++  EnterFrame(0);
++
++  if (!FLAG_precompiled_mode) {
++    PushRegister(CODE_REG);  // PC marker: FP - 8
++    // Caller's PP, re-tagged for the GC: FP - 16.
++    addi(R0, PP, kHeapObjectTag);
++    PushRegister(R0);
++
++    // Load the pool pointer.
++    if (new_pp == kNoRegister) {
++      LoadPoolPointer();
++    } else {
++      MoveRegister(PP, new_pp);
++    }
++  }
++  set_constant_pool_allowed(true);
++
++  // Reserve space.
++  if (frame_size > 0) {
++    AddImmediate(SP, SP, -frame_size);
++  }
+ }
+ 
++// On entry to a function compiled for OSR, the caller's frame pointer, the
++// stack locals, and any copied parameters are already in place. The frame
++// pointer is already set up. The PC marker is not correct for the
++// optimized function and there may be extra space for spill slots to
++// allocate. We must also set up the pool pointer for the function.
+ void Assembler::EnterOsrFrame(intptr_t extra_size, Register new_pp) {
+-  UNIMPLEMENTED();
++  ASSERT(!constant_pool_allowed());
++  Comment("EnterOsrFrame");
++  RestoreCodePointer();
++  LoadPoolPointer();
++
++  if (extra_size > 0) {
++    AddImmediate(SP, SP, -extra_size);
++  }
+ }
+ 
+ void Assembler::LeaveDartFrame() {
+-  UNIMPLEMENTED();
++  if (!FLAG_precompiled_mode) {
++    // Restore and untag PP: ld r30,-16(r31) ; addi r30,r30,-1.
++    ld(PP, FP, target::frame_layout.saved_caller_pp_from_fp * target::kWordSize);
++    addi(PP, PP, -kHeapObjectTag);
++  }
++  set_constant_pool_allowed(false);
++  LeaveFrame();  // restores SP, FP and LR
+ }
+ 
+ void Assembler::EmitEntryFrameVerification() {
+-  UNIMPLEMENTED();
++#if defined(DEBUG)
++  Label done;
++  ASSERT(!constant_pool_allowed());
++  AddImmediate(TMP, FP,
++               target::frame_layout.exit_link_slot_from_entry_fp *
++                   target::kWordSize);
++  CompareRegisters(TMP, SPREG);
++  BranchIf(EQUAL, &done, kNearJump);
++
++  Breakpoint();
++
++  Bind(&done);
++#endif
+ }
+ 
+ void Assembler::RestorePinnedRegisters() {
+-  UNIMPLEMENTED();
++  // Thread::write_barrier_mask, unmodified (ABI-SPEC Amendment A5): the
++  // barrier filter ands the combined header bits with it (ARM64's scheme).
++  // Not RISC-V's xori, which serves RISC-V's ble filter.
++  Load(WRITE_BARRIER_STATE,
++       Address(THR, target::Thread::write_barrier_mask_offset()));
++  Load(NULL_REG, Address(THR, target::Thread::object_null_offset()));
+ }
+ 
+ void Assembler::SetupGlobalPoolAndDispatchTable() {
+-  UNIMPLEMENTED();
++  ASSERT(FLAG_precompiled_mode);
++  Load(PP, Address(THR, target::Thread::global_object_pool_offset()));
++  addi(PP, PP, -kHeapObjectTag);  // Pool in PP is untagged!
++  Load(DISPATCH_TABLE_REG,
++       Address(THR, target::Thread::dispatch_table_array_offset()));
+ }
+ 
+ void Assembler::CheckCodePointer() {
+-  UNIMPLEMENTED();
++#ifdef DEBUG
++  if (!FLAG_check_code_pointer) {
++    return;
++  }
++  Comment("CheckCodePointer");
++  Label cid_ok, instructions_ok;
++  CompareClassId(CODE_REG, kCodeCid, TMP);
++  BranchIf(EQUAL, &cid_ok, kNearJump);
++  trap();
++  Bind(&cid_ok);
++
++  // The Instructions object this code is in, from the PC (ABI-SPEC 6.5: the
++  // only PC read is bcl 20,31,$+4 ; mflr). LR may be live (this runs in
++  // frameless code too), so it is kept in TMP2 around the read.
++  mflr(TMP2);
++  const intptr_t pc_offset = CodeSize() + Instr::kInstrSize;  // the mflr
++  LoadPC(TMP);  // TMP = start of the payload + pc_offset
++  mtlr(TMP2);
++  AddImmediate(TMP, TMP,
++               -(pc_offset + target::Instructions::HeaderSize() -
++                 kHeapObjectTag));
++  Load(TMP2, FieldAddress(CODE_REG, target::Code::instructions_offset()));
++  CompareRegisters(TMP, TMP2);
++  BranchIf(EQUAL, &instructions_ok, kNearJump);
++  trap();
++  Bind(&instructions_ok);
++#endif
+ }
+ 
+ void Assembler::RestoreCodePointer() {
+-  UNIMPLEMENTED();
++  Load(CODE_REG,
++       Address(FP, target::frame_layout.code_from_fp * target::kWordSize));
++  CheckCodePointer();
+ }
+ 
+ void Assembler::RestorePoolPointer() {
+-  UNIMPLEMENTED();
++  if (FLAG_precompiled_mode) {
++    Load(PP, Address(THR, target::Thread::global_object_pool_offset()));
++  } else {
++    Load(PP,
++         Address(FP, target::frame_layout.code_from_fp * target::kWordSize));
++    Load(PP, FieldAddress(PP, target::Code::object_pool_offset()));
++  }
++  addi(PP, PP, -kHeapObjectTag);  // Pool in PP is untagged!
++}
++
++// The switchable-call miss stub tail, at the start of every function with a
++// monomorphic entry (STUBS-SPEC section 8): ld r0,miss(THR) ; mtctr r0 ;
++// bctr. 12 bytes in both modes.
++static void EmitSwitchableCallMiss(Assembler* assembler) {
++  // A one-word ld, so that the entry offset is fixed: the L1 emitter
++  // RELEASE_ASSERTs the DS displacement.
++  assembler->ld(R0, THR, target::Thread::switchable_call_miss_entry_offset());
++  assembler->mtctr(R0);
++  assembler->bctr();
++}
++
++// The class id of the heap object in |obj| into TMP, open-coded so that the
++// entry's length does not depend on LoadClassId (STUBS-SPEC section 8):
++// lwz TMP,tags-1(obj) ; srwi TMP,TMP,12. On little-endian the low word of the
++// header holds the class id in bits 12-31.
++static void EmitClassIdToTmp(Assembler* assembler, Register obj) {
++  ASSERT(target::UntaggedObject::kClassIdTagPos +
++             target::UntaggedObject::kClassIdTagSize ==
++         32);
++  assembler->lwz(TMP, obj, target::Object::tags_offset() - kHeapObjectTag);
++  assembler->srwi(TMP, TMP, target::UntaggedObject::kClassIdTagPos);
+ }
+ 
+ void Assembler::MonomorphicCheckedEntryJIT() {
+-  UNIMPLEMENTED();
++  has_monomorphic_entry_ = true;
++  const intptr_t start = CodeSize();
++
++  Label miss;
++  Bind(&miss);
++  EmitSwitchableCallMiss(this);
++
++  Comment("MonomorphicCheckedEntry");
++  ASSERT_EQUAL(CodeSize() - start,
++               target::Instructions::kMonomorphicEntryOffsetJIT);
++
++  const intptr_t cid_offset = target::Array::element_offset(0);
++  const intptr_t count_offset = target::Array::element_offset(1);
++  // The three field accesses are "li r0,off-1 ; ldx/stdx" (ABI-SPEC 5.2):
++  // the entry offset depends on their length.
++  const intptr_t access_length =
++      MemoryAccessLength(cid_offset - kHeapObjectTag, kEightBytes);
++  ASSERT(MemoryAccessLength(count_offset - kHeapObjectTag, kEightBytes) ==
++         access_length);
++  ASSERT(MemoryAccessLength(count_offset - kHeapObjectTag, kEightBytes,
++                            /*is_store=*/true) == access_length);
++  ASSERT(target::Instructions::kPolymorphicEntryOffsetJIT ==
++         target::Instructions::kMonomorphicEntryOffsetJIT +
++             Instr::kInstrSize * (3 * access_length + 10));
++
++  // r3 receiver, r8 (IC_DATA_REG) the ICData's entries array: cid at 0,
++  // count at 1 (ARM64's R0 and R5 through the bijection).
++  Load(R4, FieldAddress(R8, cid_offset));
++  Load(R5, FieldAddress(R8, count_offset));
++  li(TMP, kSmiCid);
++  andi_(R0, R3, kSmiTagMask);
++  bc(kBOTrue, CRBitIndex(CRF0, kCRBitEQ), 3 * Instr::kInstrSize);  // Smi
++  EmitClassIdToTmp(this, R3);
++  addi(R5, R5, target::ToRawSmi(1));
++  sldi(TMP, TMP, kSmiTagShift);
++  cmpd(CRF0, R4, TMP);
++  BranchIfCR(false, CRF0, kCRBitEQ, &miss, kNearJump);
++  Store(R5, FieldAddress(R8, count_offset));
++  li(R7, 0);  // GC-safe for OptimizeInvokedFunction (ARGS_DESC_REG)
++
++  // Fall through to unchecked entry.
++  ASSERT_EQUAL(CodeSize() - start,
++               target::Instructions::kPolymorphicEntryOffsetJIT);
+ }
+ 
+ void Assembler::MonomorphicCheckedEntryAOT() {
+-  UNIMPLEMENTED();
++  has_monomorphic_entry_ = true;
++  const intptr_t start = CodeSize();
++
++  Label miss;
++  Bind(&miss);
++  EmitSwitchableCallMiss(this);
++
++  Comment("MonomorphicCheckedEntry");
++  ASSERT_EQUAL(CodeSize() - start,
++               target::Instructions::kMonomorphicEntryOffsetAOT);
++  // r3 receiver (never a Smi here), r8 the expected class id as a Smi.
++  EmitClassIdToTmp(this, R3);
++  sldi(TMP, TMP, kSmiTagShift);
++  cmpd(CRF0, R8, TMP);
++  BranchIfCR(false, CRF0, kCRBitEQ, &miss, kNearJump);
++
++  // Fall through to unchecked entry.
++  ASSERT_EQUAL(CodeSize() - start,
++               target::Instructions::kPolymorphicEntryOffsetAOT);
+ }
+ 
+ void Assembler::BranchOnMonomorphicCheckedEntryJIT(Label* label) {
+-  UNIMPLEMENTED();
++  has_monomorphic_entry_ = true;
++  while (CodeSize() < target::Instructions::kMonomorphicEntryOffsetJIT) {
++    trap();
++  }
++  Jump(label);  // b: one word, bound or not
++  while (CodeSize() < target::Instructions::kPolymorphicEntryOffsetJIT) {
++    trap();
++  }
+ }
+ 
+ void Assembler::LoadObjectHelper(
+     Register dst,
+-    const Object& obj,
++    const Object& object,
+     bool is_unique,
+     ObjectPoolBuilderEntry::SnapshotBehavior snapshot_behavior) {
+-  UNIMPLEMENTED();
++  ASSERT(IsOriginalObject(object));
++  // `is_unique == true` effectively means object has to be patchable.
++  // (even if the object is null)
++  if (!is_unique) {
++    if (IsSameObject(compiler::NullObject(), object)) {
++      MoveRegister(dst, NULL_REG);
++      return;
++    }
++    if (IsSameObject(CastHandle<Object>(compiler::TrueObject()), object)) {
++      addi(dst, NULL_REG, kTrueOffsetFromNull);
++      return;
++    }
++    if (IsSameObject(CastHandle<Object>(compiler::FalseObject()), object)) {
++      addi(dst, NULL_REG, kFalseOffsetFromNull);
++      return;
++    }
++    word offset = 0;
++    if (target::CanLoadFromThread(object, &offset)) {
++      Load(dst, Address(THR, offset));
++      return;
++    }
++    if (target::IsSmi(object)) {
++      LoadImmediate(dst, target::ToRawSmi(object));
++      return;
++    }
++  }
++  RELEASE_ASSERT(CanLoadFromObjectPool(object));
++  const intptr_t index =
++      is_unique
++          ? object_pool_builder().AddObject(
++                object, ObjectPoolBuilderEntry::kPatchable, snapshot_behavior)
++          : object_pool_builder().FindObject(
++                object, ObjectPoolBuilderEntry::kNotPatchable,
++                snapshot_behavior);
++  LoadWordFromPoolIndex(dst, index);
+ }
+ 
+ // ===== Section N: unsupported on ppc64 (no thread sanitizer) ================
+diff --git a/runtime/vm/instructions_ppc64.cc b/runtime/vm/instructions_ppc64.cc
+index 8bf7d2c7..aad192c0 100644
+--- a/runtime/vm/instructions_ppc64.cc
++++ b/runtime/vm/instructions_ppc64.cc
+@@ -17,9 +17,19 @@
+ namespace dart {
+ 
+ // The instructions of the call shapes (instructions_ppc64.h).
+-static constexpr uint32_t kMtctrR0 = kPpcMtctr | (0u << 21);       // mtctr r0
+-static constexpr uint32_t kLdxR0CodeR0 =                            // ldx r0,r28,r0
+-    kPpcLdx | (0u << 21) | (static_cast<uint32_t>(CODE_REG) << 16) | (0u << 11);
++static constexpr uint32_t kMtctrR0 = kPpcMtctr | (0u << 21);  // mtctr r0
++
++// "ldx r0,X,r0" with X = CODE_REG (JIT) or TMP (AOT: Assembler::BranchLink
++// loads the Code into TMP so that CODE_REG survives, ABI-SPEC A11). Returns
++// X, or kNoRegister for any other word.
++static Register EntryLoadBase(const Instr* instr) {
++  if (!instr->IsX(kPpcLdx) || instr->RTField() != R0 ||
++      instr->RBField() != R0) {
++    return kNoRegister;
++  }
++  const Register base = instr->RAField();
++  return (base == CODE_REG || base == TMP) ? base : kNoRegister;
++}
+ 
+ static bool IsLi(const Instr* instr, Register rt) {  // addi rt,0,si
+   return instr->IsD(kPpcAddi) && instr->RTField() == rt &&
+@@ -62,15 +72,17 @@ uword InstructionPattern::DecodeCallThroughPool(uword pc,
+                                                 intptr_t* index) {
+   RELEASE_ASSERT(IsCallThroughCtr(pc));
+   uword end = pc - 2 * Instr::kInstrSize;  // the mtctr
+-  if (Instr::At(end - Instr::kInstrSize)->InstructionBits() == kLdxR0CodeR0) {
+-    // JIT: <pool load of CODE_REG> ; li r0,entry-1 ; ldx r0,r28,r0
++  const Register code_reg = EntryLoadBase(Instr::At(end - Instr::kInstrSize));
++  if (code_reg != kNoRegister) {
++    // Through a Code object: <pool load of X> ; li r0,entry-1 ;
++    // ldx r0,X,r0 with X = CODE_REG (JIT) or TMP (AOT).
+     RELEASE_ASSERT(IsLi(Instr::At(end - 2 * Instr::kInstrSize), R0));
+     end -= 2 * Instr::kInstrSize;
+     const uword start = DecodeLoadWordFromPool(end, reg, index);
+-    ASSERT(*reg == CODE_REG);
++    RELEASE_ASSERT(*reg == code_reg);
+     return start;
+   }
+-  // AOT: <pool load of r0>
++  // Through an entry point: <pool load of r0>
+   const uword start = DecodeLoadWordFromPool(end, reg, index);
+   ASSERT(*reg == R0);
+   return start;
+@@ -90,8 +102,8 @@ CallPattern::CallPattern(uword pc, const Code& code)
+ static intptr_t DecodeTwoSlotCall(uword pc, uword* start) {
+   RELEASE_ASSERT(InstructionPattern::IsCallThroughCtr(pc));
+   uword end = pc - 2 * Instr::kInstrSize;
+-  RELEASE_ASSERT(Instr::At(end - Instr::kInstrSize)->InstructionBits() ==
+-                 kLdxR0CodeR0);
++  RELEASE_ASSERT(EntryLoadBase(Instr::At(end - Instr::kInstrSize)) ==
++                 CODE_REG);
+   RELEASE_ASSERT(IsLi(Instr::At(end - 2 * Instr::kInstrSize), R0));
+   end -= 2 * Instr::kInstrSize;
+   Register data_reg, code_reg;
+@@ -124,7 +136,7 @@ NativeCallPattern::NativeCallPattern(uword pc, const Code& code)
+   Register reg;
+   const uword native_function_load_end = InstructionPattern::DecodeCallThroughPool(
+       end_, &reg, &target_code_pool_index_);
+-  ASSERT(reg == CODE_REG);
++  ASSERT(reg == CODE_REG || reg == TMP);
+   InstructionPattern::DecodeLoadWordFromPool(native_function_load_end, &reg,
+                                              &native_function_pool_index_);
+   // The native-call stubs take the native function in R8 (STUBS-SPEC 2.3).
+diff --git a/runtime/vm/instructions_ppc64.h b/runtime/vm/instructions_ppc64.h
+index 419f9df8..3f358975 100644
+--- a/runtime/vm/instructions_ppc64.h
++++ b/runtime/vm/instructions_ppc64.h
+@@ -32,7 +32,10 @@ class ObjectPool;
+ //       addis X,r30,ha(off) ; ld dst,lo(off)(X)    X = dst, or TMP if dst = r0
+ //   JIT call through a Code object (BranchLink, Call(FieldAddress(r28, ..))):
+ //       <pool load of r28> ; li r0,entry-1 ; ldx r0,r28,r0 ; mtctr r0 ; bctrl
+-//   AOT call through an entry point in the pool:
++//   AOT call through a Code object (BranchLink; CODE_REG is left alone,
++//   the Code goes to TMP, ABI-SPEC A11):
++//       <pool load of r11> ; li r0,entry-1 ; ldx r0,r11,r0 ; mtctr r0 ; bctrl
++//   call through an entry point in the pool (ABI-SPEC 4.1 AOT row):
+ //       <pool load of r0> ; mtctr r0 ; bctrl
+ //   IC / megamorphic / switchable call (JIT): two consecutive pool slots,
+ //       <pool load of r28 (slot i)> ; <pool load of r8 (slot i+1)> ;
+@@ -52,9 +55,9 @@ class InstructionPattern : public AllStatic {
+                                       intptr_t* index);
+ 
+   // Decodes a call through the object pool whose return address is |pc|:
+-  // either shape above (JIT through Code, AOT through an entry point).
+-  // Returns the address of its first instruction; |reg| is the register the
+-  // pool slot was loaded into (CODE_REG, or R0 for the AOT shape).
++  // any of the three shapes above. Returns the address of its first
++  // instruction; |reg| is the register the pool slot was loaded into
++  // (CODE_REG or TMP through a Code object, R0 through an entry point).
+   static uword DecodeCallThroughPool(uword pc, Register* reg, intptr_t* index);
+ 
+   // The branch-through-CTR tail of every call: "mtctr r0 ; bctrl" ending at

@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 03:19:44 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/cpu_ppc64.cc
+
+Sources:
+  asm 55a7f45
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 9d2411d
+---
+ runtime/vm/cpu_ppc64.cc | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/runtime/vm/cpu_ppc64.cc b/runtime/vm/cpu_ppc64.cc
+index 68428f06..0126b699 100644
+--- a/runtime/vm/cpu_ppc64.cc
++++ b/runtime/vm/cpu_ppc64.cc
+@@ -7,6 +7,7 @@
+ 
+ #include "vm/cpu.h"
+ #include "vm/cpu_ppc64.h"
++#include "vm/cpuinfo.h"
+ 
+ #include "platform/atomic.h"
+ #include "platform/utils.h"
+@@ -93,6 +94,9 @@ bool HostCPUFeatures::initialized_ = false;
+ #endif
+ 
+ void HostCPUFeatures::Init() {
++  // CpuInfo (the /proc/cpuinfo fields for the host) is initialised here on
++  // every architecture; GetCpuModel and the Dart_ API use it.
++  CpuInfo::Init();
+ #if defined(HOST_ARCH_PPC64)
+   hwcap_ = getauxval(AT_HWCAP);
+   hwcap2_ = getauxval(AT_HWCAP2);
+@@ -129,6 +133,7 @@ void HostCPUFeatures::Cleanup() {
+   ASSERT(hardware_ != nullptr);
+   free(const_cast<char*>(hardware_));
+   hardware_ = nullptr;
++  CpuInfo::Cleanup();
+ }
+ 
+ }  // namespace dart

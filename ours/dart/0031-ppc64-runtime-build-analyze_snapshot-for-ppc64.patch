@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 09:10:46 -0600
+Subject: [PATCH] [ppc64] runtime: build analyze_snapshot for ppc64
+
+build_analyze_snapshot (runtime/runtime_args.gni) listed only x64, arm64
+and riscv64, so runtime/bin:analyze_snapshot did not exist for ppc64 and
+Flutter's //flutter:flutter could not depend on it. The tool needs a
+64-bit AOT runtime, which ppc64 has; it builds unchanged and analyses an
+app-aot-elf snapshot from the ppc64 gen_snapshot.
+---
+ runtime/runtime_args.gni | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/runtime/runtime_args.gni b/runtime/runtime_args.gni
+index a246292a..7e68235d 100644
+--- a/runtime/runtime_args.gni
++++ b/runtime/runtime_args.gni
+@@ -101,7 +101,7 @@ declare_args() {
+   # The analyze_snapshot tool is only supported on 64 bit AOT builds.
+   build_analyze_snapshot =
+       dart_target_arch == "x64" || dart_target_arch == "arm64" ||
+-      dart_target_arch == "riscv64"
++      dart_target_arch == "riscv64" || dart_target_arch == "ppc64"
+ }
+ 
+ if (is_fuchsia) {

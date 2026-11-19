@@ -1,0 +1,620 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:02:49 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/assembler/assembler_ppc64.cc
+  runtime/vm/compiler/assembler/assembler_ppc64.h
+  runtime/vm/compiler/backend/flow_graph_compiler.cc
+  runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
+  runtime/vm/compiler/backend/il_ppc64_c.cc
+
+Sources:
+  asm 2599c53 (uncommitted there, not synced: assembler_ppc64.h assembler_ppc64.cc)
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 4fcf45d (uncommitted there, not synced: flow_graph_compiler_ppc64.cc)
+---
+ .../vm/compiler/assembler/assembler_ppc64.cc  |  42 +--
+ .../vm/compiler/assembler/assembler_ppc64.h   |   4 +-
+ .../compiler/backend/flow_graph_compiler.cc   |  49 ++-
+ .../backend/flow_graph_compiler_ppc64.cc      |  21 +-
+ runtime/vm/compiler/backend/il_ppc64_c.cc     | 325 +++++++++++++++++-
+ 5 files changed, 391 insertions(+), 50 deletions(-)
+
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.cc b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+index e2013737..304f15c4 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.cc
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.cc
+@@ -294,12 +294,9 @@ void Assembler::PushImmediate(int64_t immediate) {
+ // There are two chains, so that a link never has to span more than its own
+ // field can hold:
+ //   * 24-bit b (Jump, and the b of the 8-byte far conditional form) through
+-//     Label::unresolved_b_;
+-//   * 4-byte bc through Label::unresolved_bc_.
+-// Both are fields of ppc64's own Label (assembler_base.h, mirroring RISC-V's),
+-// whose IsLinked() is true while either chain is non-empty. The generic Label
+-// cannot be used: its IsLinked() looks only at the b link, so a label reached
+-// only by a bc would read as unlinked and shared code would skip its Bind.
++//     Label::position_ (the generic Label's link);
++//   * 4-byte bc through Label::unresolved_near_positions_[0] (the generic
++//     Label's near slot, which x64 uses the same way).
+ // A near link that does not fit 14 bits means the earlier near use cannot
+ // reach any target after this one either: that is the far-branch bailout.
+ // ---------------------------------------------------------------------------
+@@ -350,16 +347,14 @@ void Assembler::PatchBranch(intptr_t position, intptr_t target_position) {
+ void Assembler::Bind(Label* label) {
+   ASSERT(!label->IsBound());
+   const intptr_t bound_pc = CodeSize();
+-  // The b chain (ppc64 Label, assembler_base.h).
+-  while (label->unresolved_b_ != -1) {
+-    const intptr_t position = label->unresolved_b_;
++  while (label->IsLinked()) {
++    const intptr_t position = label->LinkPosition();
+     const int32_t link = DecodeLI(Read32(position));
+     PatchBranch(position, bound_pc);  // FATAL beyond +/-32 MiB
+-    label->unresolved_b_ = (link == 0) ? -1 : position + link;
++    label->position_ = (link == 0) ? 0 : position + link + Label::kBias;
+   }
+-  // The bc chain.
+-  while (label->unresolved_bc_ != -1) {
+-    const intptr_t position = label->unresolved_bc_;
++  while (label->HasNear()) {
++    const intptr_t position = label->unresolved_near_positions_[0];
+     const int32_t link = DecodeBD(Read32(position));
+     if (!IsBranch14Offset(bound_pc - position)) {
+       if (far_branch_level() == 0) {
+@@ -368,7 +363,11 @@ void Assembler::Bind(Label* label) {
+       FATAL("ppc64: near conditional branch out of range");  // kNearJump
+     }
+     PatchBranch(position, bound_pc);
+-    label->unresolved_bc_ = (link == 0) ? -1 : position + link;
++    if (link == 0) {
++      label->unresolved_ = 0;
++    } else {
++      label->unresolved_near_positions_[0] = position + link;
++    }
+   }
+   label->BindTo(bound_pc);
+ }
+@@ -380,8 +379,8 @@ void Assembler::Jump(Label* label, JumpDistance distance) {
+     return;
+   }
+   const intptr_t position = CodeSize();
+-  b(label->unresolved_b_ != -1 ? label->unresolved_b_ - position : 0);
+-  label->unresolved_b_ = position;
++  b(label->IsLinked() ? label->LinkPosition() - position : 0);
++  label->LinkTo(position);
+ }
+ 
+ void Assembler::Jump(const Address& address) {
+@@ -413,8 +412,8 @@ void Assembler::BranchIfCR(bool if_set,
+   const intptr_t position = CodeSize();
+   if (distance == kNearJump || far_branch_level() == 0) {
+     int64_t link = 0;
+-    if (label->unresolved_bc_ != -1) {
+-      link = label->unresolved_bc_ - position;
++    if (label->HasNear()) {
++      link = label->unresolved_near_positions_[0] - position;
+       if (!IsBranch14Offset(link)) {
+         // The previous near use is already out of reach of any target.
+         if (far_branch_level() == 0) {
+@@ -424,14 +423,15 @@ void Assembler::BranchIfCR(bool if_set,
+       }
+     }
+     bc(bo, bi, link);
+-    label->unresolved_bc_ = position;
++    label->unresolved_near_positions_[0] = position;
++    label->unresolved_ = 1;
+     return;
+   }
+   // Far form: bc <inverted>,$+8 ; b target. The b carries the link.
+   bc(InvertBranchOption(bo), bi, 2 * Instr::kInstrSize);
+   const intptr_t b_position = CodeSize();
+-  b(label->unresolved_b_ != -1 ? label->unresolved_b_ - b_position : 0);
+-  label->unresolved_b_ = b_position;
++  b(label->IsLinked() ? label->LinkPosition() - b_position : 0);
++  label->LinkTo(b_position);
+ }
+ 
+ // ----- Deferred compare (section 7.4) ---------------------------------------
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64.h b/runtime/vm/compiler/assembler/assembler_ppc64.h
+index 4bba42f5..53c018e3 100644
+--- a/runtime/vm/compiler/assembler/assembler_ppc64.h
++++ b/runtime/vm/compiler/assembler/assembler_ppc64.h
+@@ -1172,9 +1172,7 @@ class Assembler : public MicroAssembler {
+   //
+   // Unresolved uses of a label are chained through the displacement field of
+   // the branch itself: the field holds (previous use - this use), 0 for the
+-  // first use. There is one chain per branch form (b, bc), kept in ppc64's
+-  // own Label (assembler_base.h); IsLinked() is true while either is
+-  // non-empty. Bind() walks both chains with PatchBranch.
++  // first use. Bind() walks the chain with PatchBranch.
+   //
+   // Conditional branch to an unbound label:
+   //   distance == kNearJump or far_branch_level() == 0 :  bc         (4 bytes)
+diff --git a/runtime/vm/compiler/backend/flow_graph_compiler.cc b/runtime/vm/compiler/backend/flow_graph_compiler.cc
+index cdfc01ba..a888ab75 100644
+--- a/runtime/vm/compiler/backend/flow_graph_compiler.cc
++++ b/runtime/vm/compiler/backend/flow_graph_compiler.cc
+@@ -3431,6 +3431,18 @@ void FlowGraphCompiler::EmitNativeMove(
+   EmitNativeMoveArchitecture(destination, source);
+ }
+ 
++#if defined(TARGET_ARCH_PPC64)
++// ppc64 (ABI-SPEC amendment A7): an FPU value in a Dart stack slot is held in
++// double format, kUnboxedFloat included (stfd/lfd), while ELFv2 memory holds
++// a float as its single-precision word (frsp; stfs / lfs). The arch hook only
++// sees NativeLocations and cannot tell a Dart slot from native memory, so a
++// float that lives in a Dart stack slot goes through FpuTMP here: lfd into
++// FpuTMP, then the ordinary FPU-to-native move (and the reverse).
++static bool IsDartFloatStackSlot(Location loc, Representation rep) {
++  return rep == kUnboxedFloat && (loc.IsStackSlot() || loc.IsDoubleStackSlot());
++}
++#endif
++
+ void FlowGraphCompiler::EmitMoveToNative(
+     const compiler::ffi::NativeLocation& dst,
+     Location src_loc,
+@@ -3443,6 +3455,19 @@ void FlowGraphCompiler::EmitMoveToNative(
+       EmitNativeMove(dst.Split(zone_, 2, i), src_split, temp);
+     }
+   } else {
++#if defined(TARGET_ARCH_PPC64)
++    if (IsDartFloatStackSlot(src_loc, src_type)) {
++      assembler()->LoadDFromOffset(FpuTMP, src_loc.base_reg(),
++                                   src_loc.ToStackSlotOffset());
++      const auto& float_type =
++          *new (zone_) compiler::ffi::NativePrimitiveType(compiler::ffi::kFloat);
++      EmitNativeMove(dst,
++                     *new (zone_) compiler::ffi::NativeFpuRegistersLocation(
++                         float_type, float_type, FpuTMP),
++                     temp);
++      return;
++    }
++#endif
+     const auto& src =
+         compiler::ffi::NativeLocation::FromLocation(zone_, src_loc, src_type);
+     // Deal with sign mismatch caused by lack of kUnboxedUint64 representation.
+@@ -3471,6 +3496,18 @@ void FlowGraphCompiler::EmitMoveFromNative(
+       EmitNativeMove(dest_split, src.Split(zone_, 2, i), temp);
+     }
+   } else {
++#if defined(TARGET_ARCH_PPC64)
++    if (IsDartFloatStackSlot(dst_loc, dst_type)) {
++      const auto& float_type =
++          *new (zone_) compiler::ffi::NativePrimitiveType(compiler::ffi::kFloat);
++      EmitNativeMove(*new (zone_) compiler::ffi::NativeFpuRegistersLocation(
++                         float_type, float_type, FpuTMP),
++                     src, temp);
++      assembler()->StoreDToOffset(FpuTMP, dst_loc.base_reg(),
++                                  dst_loc.ToStackSlotOffset());
++      return;
++    }
++#endif
+     const auto& dst =
+         compiler::ffi::NativeLocation::FromLocation(zone_, dst_loc, dst_type);
+     // Deal with sign mismatch caused by lack of kUnboxedUint64 representation.
+@@ -3493,9 +3530,19 @@ void FlowGraphCompiler::EmitMoveConst(const compiler::ffi::NativeLocation& dst,
+   ASSERT(src.IsConstant() || src.IsPairLocation());
+   const auto& dst_type = dst.payload_type();
+   Register scratch = kNoRegister;
++  // ppc64: a float in native memory is a single-precision word, but a float
++  // written to a stack slot as a Location is double format (ABI-SPEC A7):
++  // go through FpuTMP and the native move instead.
++  const bool is_ppc64_native_float_slot =
++#if defined(TARGET_ARCH_PPC64)
++      dst.IsStack() && dst_type.IsFloat() && dst_type.SizeInBytes() == 4;
++#else
++      false;
++#endif
+   if (dst.IsExpressibleAsLocation() &&
+       dst_type.IsExpressibleAsRepresentation() &&
+-      dst_type.AsRepresentationOverApprox(zone_) == src_type) {
++      dst_type.AsRepresentationOverApprox(zone_) == src_type &&
++      !is_ppc64_native_float_slot) {
+     // We can directly emit the const in the right place and representation.
+     const Location dst_loc = dst.AsLocation();
+     assembler()->Comment("dst.IsExpressibleAsLocation() %s",
+diff --git a/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc b/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
+index 1bb52d76..a8849ced 100644
+--- a/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
++++ b/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
+@@ -841,24 +841,9 @@ void FlowGraphCompiler::EmitMove(Location destination,
+   }
+ }
+ 
+-// FFI argument/result moves (IL-C's FfiCall/NativeEntry/NativeParameter use
+-// them; FFI is G6 or later). Not written yet: they decide the narrow-value
+-// re-canonicalisation of ABI-SPEC 7.6 ("FFI call return, FFI callback
+-// argument: extsw/extsh/extsb, clrldi 32/48/56") and belong with IL-C's FFI
+-// design (STUBS-SPEC 0: narrow callback arguments are re-canonicalised in
+-// the IL). TODO(ppc64): IL-C supplies the bodies.
+-void FlowGraphCompiler::EmitNativeMoveArchitecture(
+-    const compiler::ffi::NativeLocation& destination,
+-    const compiler::ffi::NativeLocation& source) {
+-  UNIMPLEMENTED();
+-}
+-
+-void FlowGraphCompiler::EmitNativeLoad(Register dst,
+-                                       Register base,
+-                                       intptr_t offset,
+-                                       compiler::ffi::PrimitiveType type) {
+-  UNIMPLEMENTED();
+-}
++// FlowGraphCompiler::EmitNativeMoveArchitecture and ::EmitNativeLoad (the
++// FFI native-move hooks) are defined in il_ppc64_c.cc: they are IL-C's
++// (M3-BOOT-PLAN section 7; tools/gen-shells.py FGC_METHOD_OWNER).
+ 
+ // AOT only (BSS-relative loads read the PC, ABI-SPEC 6.5).
+ // TODO(ppc64): with the AOT work.
+diff --git a/runtime/vm/compiler/backend/il_ppc64_c.cc b/runtime/vm/compiler/backend/il_ppc64_c.cc
+index 7d786a88..5e90a78f 100644
+--- a/runtime/vm/compiler/backend/il_ppc64_c.cc
++++ b/runtime/vm/compiler/backend/il_ppc64_c.cc
+@@ -4,9 +4,9 @@
+ 
+ // ppc64 IL backend, part C of 3 (IL-C: objects, fields, doubles, FFI).
+ //
+-// Started from the generated shell (work/il/tools/gen-shells.py). il_ppc64_a.cc,
+-// _b.cc and _c.cc are disjoint and are concatenated into il_ppc64.cc when the
+-// patch series is cut. Templates: il_arm64.cc for structure and raw register
++// Started from the generated shell (work/il/tools/gen-shells.py).
++// il_ppc64_a.cc, _b.cc and _c.cc are disjoint and are concatenated into
++// il_ppc64.cc when the patch series is cut. Templates: il_arm64.cc for structure and raw register
+ // names through the bijection of ABI-SPEC 2.3 (ARM64 R0-R7 -> r3-r10, R8-R14
+ // -> r14-r20, R19/R20 -> r21/r22, V0-V7 -> f1-f8), il_riscv.cc for the
+ // deferred compare and by role names.
+@@ -488,7 +488,8 @@ void NativeEntryInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
+   // The prologue of FunctionEntryInstr saves it.
+   __ LoadFromOffset(TMP, THR,
+                     compiler::target::Thread::invoke_dart_code_stub_offset());
+-  __ LoadFieldFromOffset(TMP, TMP, compiler::target::Code::entry_point_offset());
++  __ LoadFieldFromOffset(TMP, TMP,
++                         compiler::target::Code::entry_point_offset());
+   __ SetReturnAddress(TMP);
+ 
+   FunctionEntryInstr::EmitNativeCode(compiler);
+@@ -772,7 +773,8 @@ void GuardFieldLengthInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
+     // A signed byte: Load extends it (lbz; extsb).
+     __ Load(offset_reg,
+             compiler::FieldAddress(
+-                field_reg, Field::guarded_list_length_in_object_offset_offset()),
++                field_reg,
++                Field::guarded_list_length_in_object_offset_offset()),
+             compiler::kByte);
+     __ LoadCompressed(
+         length_reg,
+@@ -807,7 +809,8 @@ void GuardFieldLengthInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
+            Field::kUnknownLengthOffset);
+ 
+     __ Load(TMP, compiler::FieldAddress(
+-                     value_reg, field().guarded_list_length_in_object_offset()));
++                     value_reg,
++                     field().guarded_list_length_in_object_offset()));
+     __ CompareImmediate(TMP, Smi::RawValue(field().guarded_list_length()));
+     __ BranchIf(NE, deopt);
+   }
+@@ -1440,7 +1443,8 @@ Condition DoubleTestOpInstr::EmitConditionCode(FlowGraphCompiler* compiler,
+       const Register temp = locs()->temp(0).reg();
+       // NaN is not negative; -0.0 is.
+       __ DoubleCompare(value, value);
+-      __ BranchIfDouble(NE, is_negated ? labels.true_label : labels.false_label);
++      __ BranchIfDouble(NE,
++                        is_negated ? labels.true_label : labels.false_label);
+       __ mfvsrd(temp, value);
+       __ CompareImmediate(temp, 0);
+       return is_negated ? GE : LT;
+@@ -2157,6 +2161,313 @@ void BitCastInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
+   }
+ }
+ 
++// ---------------------------------------------------------------------------
++// FlowGraphCompiler FFI native-move hooks. Moved here from
++// flow_graph_compiler_ppc64.cc by IL-A (they are in IL-C's row of
++// M3-BOOT-PLAN section 7).
++// See ABI-SPEC 7.6 (re-canonicalise FFI results and callback arguments on
++// arrival) and Amendment A7 (FPU values in Dart stack slots are double
++// format).
++// ---------------------------------------------------------------------------
++
++// The architecture half of FlowGraphCompiler::EmitNativeMove: the shared
++// code (flow_graph_compiler.cc) has already split stack-to-stack moves,
++// moved sign/zero extension into registers and reconciled payload and
++// container sizes, so what arrives here is a single register/FPU/stack
++// move, possibly extending.
++//
++// ppc64 specifics:
++// - Narrow integers are extended to 64 bits by their signedness (ABI-SPEC
++//   7.6 and ELFv2's caller-extends rule): ExtendValue for 1/2/4 bytes, a
++//   shift pair for the 3/5/6/7-byte payloads of aggregate chunks.
++// - An FPR holds a double-format value (ABI-SPEC 7.7): a float goes to and
++//   from a GPR as its single-precision bits (FloatBitsToRegister,
++//   RegisterToFloatBits) and to memory through StoreSToOffset (frsp; stfs).
++// - GPR -> FPR float with an 8-byte source is the ELFv2 HFA split
++//   B(GPR doubleword, FPR member) (shared EmitNativeMove, ppc64 arm): the
++//   member is the low-addressed word of the doubleword, i.e. its low 32 bits
++//   on little-endian, which is what RegisterToFloatBits reads.
++// - Loads from the stack read the payload only and extend it
++//   (EmitNativeLoad). This is where the narrow arguments of an FFI callback
++//   are re-canonicalised on arrival (STUBS-SPEC 4): NativeParameterInstr
++//   reloads them from where NativeEntryInstr::SaveArguments pushed them.
++// - A 4-byte stack location here is always native (ELFv2) memory: floats in
++//   Dart stack slots are double format (ABI-SPEC A7) and are routed through
++//   FpuTMP by the shared EmitMoveToNative/EmitMoveFromNative/EmitMoveConst
++//   (work/il/ffi/0005) before they reach this hook.
++
++// FlowGraphCompiler members: "__" is the compiler's own assembler here.
++#undef __
++#define __ assembler()->
++
++void FlowGraphCompiler::EmitNativeMoveArchitecture(
++    const compiler::ffi::NativeLocation& destination,
++    const compiler::ffi::NativeLocation& source) {
++  const auto& src_type = source.payload_type();
++  const auto& dst_type = destination.payload_type();
++
++  ASSERT(src_type.IsPrimitive());
++  ASSERT(dst_type.IsPrimitive());
++  const intptr_t src_size = src_type.SizeInBytes();
++  const intptr_t dst_size = dst_type.SizeInBytes();
++  const bool sign_or_zero_extend = dst_size > src_size;
++
++  if (source.IsRegisters()) {
++    const auto& src = source.AsRegisters();
++    ASSERT(src.num_regs() == 1);
++    const Register src_reg = src.reg_at(0);
++
++    if (destination.IsRegisters()) {
++      const auto& dst = destination.AsRegisters();
++      ASSERT(dst.num_regs() == 1);
++      const Register dst_reg = dst.reg_at(0);
++      ASSERT(destination.container_type().SizeInBytes() <=
++             compiler::target::kWordSize);
++      if (!sign_or_zero_extend) {
++        __ MoveRegister(dst_reg, src_reg);
++        return;
++      }
++      ASSERT(src_type.IsInt());
++      switch (src_type.AsPrimitive().representation()) {
++        case compiler::ffi::kInt8:
++          __ ExtendValue(dst_reg, src_reg, compiler::kByte);
++          return;
++        case compiler::ffi::kUint8:
++          __ ExtendValue(dst_reg, src_reg, compiler::kUnsignedByte);
++          return;
++        case compiler::ffi::kInt16:
++          __ ExtendValue(dst_reg, src_reg, compiler::kTwoBytes);
++          return;
++        case compiler::ffi::kUint16:
++          __ ExtendValue(dst_reg, src_reg, compiler::kUnsignedTwoBytes);
++          return;
++        case compiler::ffi::kInt32:
++          __ ExtendValue(dst_reg, src_reg, compiler::kFourBytes);
++          return;
++        case compiler::ffi::kUint32:
++          __ ExtendValue(dst_reg, src_reg, compiler::kUnsignedFourBytes);
++          return;
++        case compiler::ffi::kInt24:
++        case compiler::ffi::kInt40:
++        case compiler::ffi::kInt48:
++        case compiler::ffi::kInt56: {
++          const int shift = 64 - src_size * kBitsPerByte;
++          __ sldi(dst_reg, src_reg, shift);
++          __ sradi(dst_reg, dst_reg, shift);
++          return;
++        }
++        case compiler::ffi::kUint24:
++        case compiler::ffi::kUint40:
++        case compiler::ffi::kUint48:
++        case compiler::ffi::kUint56:
++          __ clrldi(dst_reg, src_reg, 64 - src_size * kBitsPerByte);
++          return;
++        default:
++          UNREACHABLE();
++      }
++    }
++
++    if (destination.IsFpuRegisters()) {
++      const FpuRegister dst_reg = destination.AsFpuRegisters().fpu_reg();
++      ASSERT(dst_type.IsFloat());
++      if (dst_size == 4) {
++        // A 4-byte source, or the 8-byte doubleword of an HFA split whose
++        // low word is the member.
++        ASSERT(src_size == 4 || src_size == 8);
++        __ RegisterToFloatBits(dst_reg, src_reg);
++      } else {
++        ASSERT(dst_size == 8 && src_size == 8);
++        __ mtvsrd(dst_reg, src_reg);
++      }
++      return;
++    }
++
++    ASSERT(destination.IsStack());
++    const auto& dst = destination.AsStack();
++    ASSERT(!sign_or_zero_extend);
++    const intptr_t container_size = destination.container_type().SizeInBytes();
++    compiler::OperandSize op_size;
++    switch (container_size) {
++      case 8:
++        op_size = compiler::kEightBytes;
++        break;
++      case 4:
++        op_size = compiler::kFourBytes;
++        break;
++      case 2:
++        op_size = compiler::kTwoBytes;
++        break;
++      case 1:
++        op_size = compiler::kByte;
++        break;
++      default:
++        UNREACHABLE();
++    }
++    __ StoreToOffset(src_reg, dst.base_register(), dst.offset_in_bytes(),
++                     op_size);
++    return;
++  }
++
++  if (source.IsFpuRegisters()) {
++    const FpuRegister src_reg = source.AsFpuRegisters().fpu_reg();
++    ASSERT(src_type.IsFloat());
++
++    if (destination.IsRegisters()) {
++      const auto& dst = destination.AsRegisters();
++      ASSERT(dst.num_regs() == 1);
++      const Register dst_reg = dst.reg_at(0);
++      ASSERT(src_size == dst_size);
++      if (src_size == 4) {
++        // Zero-extended single bits: a float in a GPR doubleword (ELFv2
++        // variadic, or after f13 is used up) is its low word.
++        __ FloatBitsToRegister(dst_reg, src_reg);
++      } else {
++        ASSERT(src_size == 8);
++        __ mfvsrd(dst_reg, src_reg);
++      }
++      return;
++    }
++
++    if (destination.IsFpuRegisters()) {
++      // We have not implemented conversions here, use IL convert
++      // instructions. A float is a double-format value: fmr moves either.
++      ASSERT(src_type.Equals(dst_type));
++      __ MoveUnboxedDouble(destination.AsFpuRegisters().fpu_reg(), src_reg);
++      return;
++    }
++
++    ASSERT(destination.IsStack());
++    const auto& dst = destination.AsStack();
++    switch (dst_size) {
++      case 8:
++        __ StoreDToOffset(src_reg, dst.base_register(), dst.offset_in_bytes());
++        return;
++      case 4:
++        // frsp; stfs: the low-addressed word of a stack doubleword.
++        __ StoreSToOffset(src_reg, dst.base_register(), dst.offset_in_bytes());
++        return;
++      default:
++        UNREACHABLE();
++    }
++  }
++
++  ASSERT(source.IsStack());
++  const auto& src = source.AsStack();
++  if (destination.IsRegisters()) {
++    const auto& dst = destination.AsRegisters();
++    ASSERT(dst.num_regs() == 1);
++    EmitNativeLoad(dst.reg_at(0), src.base_register(), src.offset_in_bytes(),
++                   src_type.AsPrimitive().representation());
++    return;
++  }
++  if (destination.IsFpuRegisters()) {
++    ASSERT(src_type.Equals(dst_type));
++    ASSERT(src_type.IsFloat());
++    const FpuRegister dst_reg = destination.AsFpuRegisters().fpu_reg();
++    switch (src_size) {
++      case 8:
++        __ LoadDFromOffset(dst_reg, src.base_register(), src.offset_in_bytes());
++        return;
++      case 4:
++        __ LoadSFromOffset(dst_reg, src.base_register(), src.offset_in_bytes());
++        return;
++      default:
++        UNREACHABLE();
++    }
++  }
++  ASSERT(destination.IsStack());
++  UNREACHABLE();  // Split by the shared EmitNativeMove.
++}
++
++// Loads exactly the payload and extends it to 64 bits by its signedness. The
++// odd sizes (3, 5, 6, 7 bytes: the tail chunk of an aggregate) are composed
++// in TMP and R0, which are never the destination or the base here (TMP is
++// not allocatable; R0 is never a base). The high part is loaded first, so
++// that |dst| may equal |base|.
++void FlowGraphCompiler::EmitNativeLoad(Register dst,
++                                       Register base,
++                                       intptr_t offset,
++                                       compiler::ffi::PrimitiveType type) {
++  ASSERT(dst != TMP && base != TMP);
++  switch (type) {
++    case compiler::ffi::kInt8:
++      __ LoadFromOffset(dst, base, offset, compiler::kByte);  // lbz ; extsb
++      return;
++    case compiler::ffi::kUint8:
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedByte);
++      return;
++    case compiler::ffi::kInt16:
++      __ LoadFromOffset(dst, base, offset, compiler::kTwoBytes);  // lha
++      return;
++    case compiler::ffi::kUint16:
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedTwoBytes);
++      return;
++    case compiler::ffi::kInt32:
++      __ LoadFromOffset(dst, base, offset, compiler::kFourBytes);  // lwa
++      return;
++    case compiler::ffi::kUint32:
++    case compiler::ffi::kFloat:
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedFourBytes);
++      return;
++    case compiler::ffi::kInt64:
++    case compiler::ffi::kUint64:
++    case compiler::ffi::kDouble:
++      __ LoadFromOffset(dst, base, offset, compiler::kEightBytes);
++      return;
++    default:
++      break;
++  }
++
++  // 3-byte payloads: 2 + 1. 5/6-byte: 4 + 1/2. 7-byte: 4 + 2 + 1.
++  const bool is_signed = type == compiler::ffi::kInt24 ||
++                         type == compiler::ffi::kInt40 ||
++                         type == compiler::ffi::kInt48 ||
++                         type == compiler::ffi::kInt56;
++  switch (type) {
++    case compiler::ffi::kInt24:
++    case compiler::ffi::kUint24:
++      __ LoadFromOffset(TMP, base, offset + 2,
++                        is_signed ? compiler::kByte : compiler::kUnsignedByte);
++      __ sldi(TMP, TMP, 16);
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedTwoBytes);
++      __ or_(dst, dst, TMP);
++      return;
++    case compiler::ffi::kInt40:
++    case compiler::ffi::kUint40:
++      __ LoadFromOffset(TMP, base, offset + 4,
++                        is_signed ? compiler::kByte : compiler::kUnsignedByte);
++      __ sldi(TMP, TMP, 32);
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedFourBytes);
++      __ or_(dst, dst, TMP);
++      return;
++    case compiler::ffi::kInt48:
++    case compiler::ffi::kUint48:
++      __ LoadFromOffset(
++          TMP, base, offset + 4,
++          is_signed ? compiler::kTwoBytes : compiler::kUnsignedTwoBytes);
++      __ sldi(TMP, TMP, 32);
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedFourBytes);
++      __ or_(dst, dst, TMP);
++      return;
++    case compiler::ffi::kInt56:
++    case compiler::ffi::kUint56:
++      __ LoadFromOffset(TMP, base, offset + 6,
++                        is_signed ? compiler::kByte : compiler::kUnsignedByte);
++      __ sldi(TMP, TMP, 16);
++      __ LoadFromOffset(R0, base, offset + 4, compiler::kUnsignedTwoBytes);
++      __ or_(TMP, TMP, R0);
++      __ sldi(TMP, TMP, 32);
++      __ LoadFromOffset(dst, base, offset, compiler::kUnsignedFourBytes);
++      __ or_(dst, dst, TMP);
++      return;
++    default:
++      UNREACHABLE();
++  }
++}
++
++#undef __
++#define __ (compiler->assembler())->
++
+ }  // namespace dart
+ 
+ #endif  // defined(TARGET_ARCH_PPC64)

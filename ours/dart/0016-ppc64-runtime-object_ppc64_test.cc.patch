@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:06:58 -0600
+Subject: [PATCH] [ppc64] runtime: object_ppc64_test.cc
+
+The three code generators object_test.cc calls (GenerateIncrement,
+GenerateEmbedStringInCode, GenerateEmbedSmiInCode): object_arm64_test.cc's
+through the register bijection, written with the shared Assembler API.
+---
+ runtime/vm/object_ppc64_test.cc | 59 +++++++++++++++++++++++++++++++++
+ runtime/vm/vm_sources.gni       |  1 +
+ 2 files changed, 60 insertions(+)
+ create mode 100644 runtime/vm/object_ppc64_test.cc
+
+diff --git a/runtime/vm/object_ppc64_test.cc b/runtime/vm/object_ppc64_test.cc
+new file mode 100644
+index 00000000..f83786a1
+--- /dev/null
++++ b/runtime/vm/object_ppc64_test.cc
+@@ -0,0 +1,59 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "platform/assert.h"
++#include "vm/globals.h"
++#if defined(TARGET_ARCH_PPC64)
++
++#include "vm/compiler/assembler/assembler.h"
++#include "vm/object.h"
++#include "vm/unit_test.h"
++
++namespace dart {
++
++#define __ assembler->
++
++// The code generators object_test.cc runs (object_arm64_test.cc's, through
++// the register bijection of ABI-SPEC 2.3: ARM64 R0, R1 -> r3, r4).
++
++// Generate a simple dart code sequence.
++// This is used to test Code and Instruction object creation.
++void GenerateIncrement(compiler::Assembler* assembler) {
++  __ EnterFrame(1 * kWordSize);
++  __ LoadImmediate(R3, 0);
++  __ PushRegister(R3);
++  __ AddImmediate(R3, R3, 1);
++  __ StoreToOffset(R3, SP, 0);
++  __ LoadFromOffset(R4, SP, 0);
++  __ AddImmediate(R4, R4, 1);
++  __ PopRegister(R3);
++  __ MoveRegister(R3, R4);
++  __ LeaveFrame();
++  __ Ret();
++}
++
++// Generate a dart code sequence that embeds a string object in it.
++// This is used to test Embedded String objects in the instructions.
++void GenerateEmbedStringInCode(compiler::Assembler* assembler,
++                               const char* str) {
++  const String& string_object =
++      String::ZoneHandle(String::New(str, Heap::kOld));
++  __ EnterStubFrame();
++  __ LoadObject(R3, string_object);
++  __ LeaveStubFrame();
++  __ Ret();
++}
++
++// Generate a dart code sequence that embeds a smi object in it.
++// This is used to test Embedded Smi objects in the instructions.
++void GenerateEmbedSmiInCode(compiler::Assembler* assembler, intptr_t value) {
++  const Smi& smi_object = Smi::ZoneHandle(Smi::New(value));
++  const int64_t val = static_cast<int64_t>(smi_object.ptr());
++  __ LoadImmediate(R3, val);
++  __ Ret();
++}
++
++}  // namespace dart
++
++#endif  // defined TARGET_ARCH_PPC64
+diff --git a/runtime/vm/vm_sources.gni b/runtime/vm/vm_sources.gni
+index 4d644667..92d10c30 100644
+--- a/runtime/vm/vm_sources.gni
++++ b/runtime/vm/vm_sources.gni
+@@ -443,6 +443,7 @@ vm_sources_tests = [
+   "object_graph_test.cc",
+   "object_ia32_test.cc",
+   "object_id_ring_test.cc",
++  "object_ppc64_test.cc",
+   "object_riscv_test.cc",
+   "object_store_test.cc",
+   "object_test.cc",

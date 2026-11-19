@@ -1,0 +1,324 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 06:24:13 -0600
+Subject: [PATCH] [ppc64] sync the backend components into
+ third_party/pkg/native
+
+  pkgs/code_assets/doc/schema/shared/shared_definitions.schema.json
+  pkgs/code_assets/lib/src/code_assets/architecture.dart
+  pkgs/code_assets/lib/src/code_assets/syntax.g.dart
+  pkgs/code_assets/test/code_assets/architecture_test.dart
+  pkgs/hooks_runner/lib/src/model/target.dart
+  pkgs/hooks_runner/test/model/target_test.dart
+
+Sources:
+  asm 6221f21
+  stubs 6bec940
+  il 8df2468
+  aot 035ea5e
+---
+ .../shared/shared_definitions.schema.json     |  1 +
+ .../lib/src/code_assets/architecture.dart     | 36 ++++++++++++-
+ .../lib/src/code_assets/syntax.g.dart         |  3 ++
+ .../test/code_assets/architecture_test.dart   | 53 +++++++++++++++++++
+ pkgs/hooks_runner/lib/src/model/target.dart   | 45 ++++++++++++++--
+ pkgs/hooks_runner/test/model/target_test.dart | 43 +++++++++++++++
+ 6 files changed, 176 insertions(+), 5 deletions(-)
+ create mode 100644 pkgs/code_assets/test/code_assets/architecture_test.dart
+
+diff --git a/third_party/pkg/native/pkgs/code_assets/doc/schema/shared/shared_definitions.schema.json b/third_party/pkg/native/pkgs/code_assets/doc/schema/shared/shared_definitions.schema.json
+index 0e4987e..f5f29eb 100644
+--- a/third_party/pkg/native/pkgs/code_assets/doc/schema/shared/shared_definitions.schema.json
++++ b/third_party/pkg/native/pkgs/code_assets/doc/schema/shared/shared_definitions.schema.json
+@@ -21,6 +21,7 @@
+             "arm",
+             "arm64",
+             "ia32",
++            "ppc64",
+             "riscv32",
+             "riscv64",
+             "x64"
+diff --git a/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/architecture.dart b/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/architecture.dart
+index 6fa35f0..cec107f 100644
+--- a/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/architecture.dart
++++ b/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/architecture.dart
+@@ -14,7 +14,13 @@ final class Architecture {
+   const Architecture._(this.name);
+ 
+   /// The [Architecture] corresponding to the given [abi].
+-  factory Architecture.fromAbi(Abi abi) => _abiToArch[abi]!;
++  ///
++  /// An [Abi] that has no entry in [_abiToArch] is resolved by its name; see
++  /// [architectureFromAbiName].
++  factory Architecture.fromAbi(Abi abi) =>
++      _abiToArch[abi] ??
++      architectureFromAbiName(abi.toString()) ??
++      (throw ArgumentError.value(abi, 'abi', 'Unknown architecture'));
+ 
+   /// The [arm](https://en.wikipedia.org/wiki/ARM_architecture_family)
+   /// architecture.
+@@ -26,6 +32,10 @@ final class Architecture {
+   /// The [IA-32](https://en.wikipedia.org/wiki/IA-32) architecture.
+   static const Architecture ia32 = Architecture._('ia32');
+ 
++  /// The 64-bit little-endian [Power ISA](https://en.wikipedia.org/wiki/Ppc64)
++  /// architecture, with the ELFv2 ABI.
++  static const Architecture ppc64 = Architecture._('ppc64');
++
+   /// The [RISC-V](https://en.wikipedia.org/wiki/RISC-V) 32 bit architecture.
+   static const Architecture riscv32 = Architecture._('riscv32');
+ 
+@@ -40,6 +50,7 @@ final class Architecture {
+     arm,
+     arm64,
+     ia32,
++    ppc64,
+     riscv32,
+     riscv64,
+     x64,
+@@ -85,7 +96,28 @@ final class Architecture {
+       ArchitectureSyntaxExtension.fromSyntax(ArchitectureSyntax.fromJson(name));
+ 
+   /// The current [Architecture].
+-  static final Architecture current = _abiToArch[Abi.current()]!;
++  static final Architecture current = Architecture.fromAbi(Abi.current());
++}
++
++/// The [Architecture] named by the architecture part of an [Abi] name, or
++/// `null` if there is none.
++///
++/// [Abi.toString] returns `'<os>_<architecture>'`, for example
++/// `'linux_ppc64'`. A Dart SDK can have an [Abi] that this package cannot name
++/// as a constant: `Abi.linuxPpc64` exists only in the ppc64 port of the SDK.
++/// Matching on the name keeps this package compiling against every SDK.
++Architecture? architectureFromAbiName(String abiName) {
++  final separator = abiName.indexOf('_');
++  if (separator == -1) {
++    return null;
++  }
++  final name = abiName.substring(separator + 1);
++  for (final architecture in Architecture.values) {
++    if (architecture.name == name) {
++      return architecture;
++    }
++  }
++  return null;
+ }
+ 
+ /// Extension methods for [Architecture] to convert to and from the syntax.
+diff --git a/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/syntax.g.dart b/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/syntax.g.dart
+index 0feadbd..8ea32c8 100644
+--- a/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/syntax.g.dart
++++ b/third_party/pkg/native/pkgs/code_assets/lib/src/code_assets/syntax.g.dart
+@@ -47,6 +47,8 @@ class ArchitectureSyntax {
+ 
+   static const ia32 = ArchitectureSyntax._('ia32');
+ 
++  static const ppc64 = ArchitectureSyntax._('ppc64');
++
+   static const riscv32 = ArchitectureSyntax._('riscv32');
+ 
+   static const riscv64 = ArchitectureSyntax._('riscv64');
+@@ -57,6 +59,7 @@ class ArchitectureSyntax {
+     arm,
+     arm64,
+     ia32,
++    ppc64,
+     riscv32,
+     riscv64,
+     x64,
+diff --git a/third_party/pkg/native/pkgs/code_assets/test/code_assets/architecture_test.dart b/third_party/pkg/native/pkgs/code_assets/test/code_assets/architecture_test.dart
+new file mode 100644
+index 0000000..ef8ae76
+--- /dev/null
++++ b/third_party/pkg/native/pkgs/code_assets/test/code_assets/architecture_test.dart
+@@ -0,0 +1,53 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++import 'dart:ffi';
++
++import 'package:code_assets/code_assets.dart';
++import 'package:code_assets/src/code_assets/architecture.dart'
++    show ArchitectureSyntaxExtension, architectureFromAbiName;
++import 'package:code_assets/src/code_assets/syntax.g.dart'
++    show ArchitectureSyntax;
++import 'package:test/test.dart';
++
++void main() {
++  test('ppc64 round-trips through its name', () {
++    expect(Architecture.ppc64.name, 'ppc64');
++    expect(Architecture.ppc64.toString(), 'ppc64');
++    expect(Architecture.fromString('ppc64'), Architecture.ppc64);
++    expect(Architecture.values, contains(Architecture.ppc64));
++    expect(ArchitectureSyntax.fromJson('ppc64').isKnown, isTrue);
++    expect(Architecture.ppc64.toSyntax(), ArchitectureSyntax.ppc64);
++  });
++
++  test('architectureFromAbiName', () {
++    expect(architectureFromAbiName('linux_ppc64'), Architecture.ppc64);
++    expect(architectureFromAbiName('linux_riscv64'), Architecture.riscv64);
++    expect(architectureFromAbiName('windows_ia32'), Architecture.ia32);
++    expect(architectureFromAbiName('linux_sparc64'), isNull);
++    expect(architectureFromAbiName('bogus'), isNull);
++  });
++
++  test('the ABI name agrees with the ABI table for every Abi of this SDK', () {
++    // This checks the assumption architectureFromAbiName rests on: that
++    // Abi.toString() is '<os>_<architecture>' with an Architecture.name.
++    for (final abi in Abi.values) {
++      expect(
++        architectureFromAbiName(abi.toString()),
++        Architecture.fromAbi(abi),
++        reason: '$abi',
++      );
++    }
++    expect(Architecture.current, Architecture.fromAbi(Abi.current()));
++  });
++
++  test('Architecture.fromAbi knows linux_ppc64 when the SDK does', () {
++    final linuxPpc64 = Abi.values
++        .where((abi) => abi.toString() == 'linux_ppc64')
++        .firstOrNull;
++    if (linuxPpc64 != null) {
++      expect(Architecture.fromAbi(linuxPpc64), Architecture.ppc64);
++    }
++  });
++}
+diff --git a/third_party/pkg/native/pkgs/hooks_runner/lib/src/model/target.dart b/third_party/pkg/native/pkgs/hooks_runner/lib/src/model/target.dart
+index 6c9bb76..01e8e99 100644
+--- a/third_party/pkg/native/pkgs/hooks_runner/lib/src/model/target.dart
++++ b/third_party/pkg/native/pkgs/hooks_runner/lib/src/model/target.dart
+@@ -6,6 +6,7 @@ import 'dart:ffi' show Abi;
+ import 'dart:io';
+ 
+ import 'package:code_assets/code_assets.dart';
++import 'package:meta/meta.dart';
+ 
+ final class Target implements Comparable<Target> {
+   final Abi abi;
+@@ -71,7 +72,27 @@ final class Target implements Comparable<Target> {
+   static const windowsIA32 = Target._(Abi.windowsIA32);
+   static const windowsX64 = Target._(Abi.windowsX64);
+ 
+-  static const Set<Target> values = {
++  /// Linux on 64-bit little-endian Power with the ELFv2 ABI.
++  ///
++  /// `null` on a Dart SDK that has no `linux_ppc64` [Abi]. Only the ppc64
++  /// port of the SDK has `Abi.linuxPpc64`, so this target is looked up by
++  /// name instead of being written as a constant. That keeps this package
++  /// compiling against every SDK.
++  static final Target? linuxPpc64 = fromAbiName('linux_ppc64');
++
++  /// The [Target] for the [Abi] whose [Abi.toString] is [abiName], or `null`
++  /// if the running Dart SDK has no such [Abi].
++  @visibleForTesting
++  static Target? fromAbiName(String abiName) {
++    for (final abi in Abi.values) {
++      if (abi.toString() == abiName) {
++        return Target._(abi);
++      }
++    }
++    return null;
++  }
++
++  static final Set<Target> values = {
+     androidArm,
+     androidArm64,
+     androidIA32,
+@@ -93,6 +114,7 @@ final class Target implements Comparable<Target> {
+     windowsArm64,
+     windowsIA32,
+     windowsX64,
++    ?linuxPpc64,
+   };
+ 
+   /// Mapping from strings as used in [Target.toString] to [Target]s.
+@@ -113,7 +135,9 @@ final class Target implements Comparable<Target> {
+ 
+   Architecture get architecture => Architecture.fromAbi(abi);
+ 
+-  OS get os => {
++  OS get os => _knownOS ?? osFromAbiName(abi.toString());
++
++  OS? get _knownOS => {
+     Abi.androidArm: OS.android,
+     Abi.androidArm64: OS.android,
+     Abi.androidIA32: OS.android,
+@@ -135,7 +159,22 @@ final class Target implements Comparable<Target> {
+     Abi.windowsArm64: OS.windows,
+     Abi.windowsIA32: OS.windows,
+     Abi.windowsX64: OS.windows,
+-  }[abi]!;
++  }[abi];
++
++  /// The [OS] named by the OS part of an [Abi] name, such as `linux` in
++  /// `linux_ppc64`.
++  ///
++  /// [Abi.toString] returns `'<os>_<architecture>'`, and the OS part is an
++  /// [OS.name]. This resolves an [Abi] that [os] cannot name as a constant;
++  /// see [linuxPpc64].
++  @visibleForTesting
++  static OS osFromAbiName(String abiName) {
++    final osName = abiName.split('_').first;
++    return OS.values.firstWhere(
++      (os) => os.name == osName,
++      orElse: () => throw ArgumentError.value(abiName, 'abiName', 'Unknown OS'),
++    );
++  }
+ 
+   @override
+   String toString() => dartVMToString();
+diff --git a/third_party/pkg/native/pkgs/hooks_runner/test/model/target_test.dart b/third_party/pkg/native/pkgs/hooks_runner/test/model/target_test.dart
+index 6e4fcf0..1f3eeff 100644
+--- a/third_party/pkg/native/pkgs/hooks_runner/test/model/target_test.dart
++++ b/third_party/pkg/native/pkgs/hooks_runner/test/model/target_test.dart
+@@ -88,4 +88,47 @@ void main() {
+       ),
+     );
+   });
++
++  test('Target fromAbiName', () async {
++    expect(Target.fromAbiName('linux_riscv64')!.abi, Abi.linuxRiscv64);
++    expect(Target.fromAbiName('linux_bogus'), isNull);
++    for (final target in Target.values) {
++      final byName = Target.fromAbiName(target.abi.toString())!;
++      expect(byName.abi, target.abi);
++      expect(byName.toString(), target.toString());
++    }
++  });
++
++  test('Target osFromAbiName agrees with os for every Target', () async {
++    for (final target in Target.values) {
++      expect(
++        Target.osFromAbiName(target.abi.toString()),
++        target.os,
++        reason: '$target',
++      );
++    }
++    expect(Target.osFromAbiName('linux_ppc64'), OS.linux);
++  });
++
++  test('Target linuxPpc64 exists only on SDKs with linux_ppc64', () async {
++    final sdkHasAbi = Abi.values.any((abi) => abi.toString() == 'linux_ppc64');
++    expect(Target.linuxPpc64 != null, sdkHasAbi);
++    if (sdkHasAbi) {
++      final target = Target.linuxPpc64!;
++      expect(target.toString(), 'linux_ppc64');
++      expect(target.os, OS.linux);
++      expect(target.architecture, Architecture.ppc64);
++      expect(Target.values, contains(target));
++      expect(
++        Target.fromArchitectureAndOS(Architecture.ppc64, OS.linux),
++        same(target),
++      );
++      expect(Target.fromString('linux_ppc64'), same(target));
++    } else {
++      expect(
++        () => Target.fromArchitectureAndOS(Architecture.ppc64, OS.linux),
++        throwsArgumentError,
++      );
++    }
++  });
+ }

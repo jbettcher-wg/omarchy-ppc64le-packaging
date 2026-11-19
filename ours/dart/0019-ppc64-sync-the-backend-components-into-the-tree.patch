@@ -1,0 +1,2160 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:12:11 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+  runtime/vm/compiler/compiler_sources.gni
+  runtime/vm/stub_code_ppc64_test.cc
+
+Sources:
+  asm 2a94b7e (uncommitted there, not synced: assembler_ppc64.h assembler_ppc64.cc assembler_ppc64_vm_a.cc)
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 07dccc5
+---
+ .../assembler/assembler_ppc64_test.cc         | 1864 +++++++++++++++++
+ runtime/vm/compiler/compiler_sources.gni      |    1 +
+ runtime/vm/stub_code_ppc64_test.cc            |  251 +++
+ 3 files changed, 2116 insertions(+)
+ create mode 100644 runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+ create mode 100644 runtime/vm/stub_code_ppc64_test.cc
+
+diff --git a/runtime/vm/compiler/assembler/assembler_ppc64_test.cc b/runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+new file mode 100644
+index 00000000..c3af2eda
+--- /dev/null
++++ b/runtime/vm/compiler/assembler/assembler_ppc64_test.cc
+@@ -0,0 +1,1864 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "vm/globals.h"
++#if defined(TARGET_ARCH_PPC64)
++
++#include <sys/mman.h>
++#include <unistd.h>
++
++#include <cmath>
++#include <functional>
++#include <limits>
++#include <vector>
++
++#include "vm/compiler/assembler/assembler.h"
++#include "vm/compiler/assembler/assembler_test.h"
++#include "vm/compiler/backend/locations.h"
++#include "vm/cpu.h"
++#include "vm/hash.h"
++#include "vm/object.h"
++#include "vm/os.h"
++#include "vm/unit_test.h"
++#include "vm/virtual_memory.h"
++
++// ASSEMBLER_TESTs for the ppc64 (ELFv2, little-endian, POWER8 floor)
++// assembler: gate G2 of work/stubs/M3-BOOT-PLAN.md. Generated code is
++// entered as a plain ELFv2 C function (ppc64 is never simulated): arguments
++// in r3..r10 and f1..f13, result in r3 or f1. Bodies use the volatile
++// registers only (r0, r3-r12, f0-f13, cr0/cr1/cr5-cr7) unless they save the
++// others themselves.
++//
++// The standalone tiers (work/asm/test/tier2, tier3) already prove each
++// macro's encoding and semantics outside the VM. These tests run the same
++// macros inside the VM: installed in a Code object and flushed by
++// CPU::FlushICache, the VM-dependent ones against a real Thread, object
++// pool and heap. The order follows M3-BOOT-PLAN G2: constants first, then
++// arithmetic, memory and branches, then the Thread and heap users.
++//
++// Section numbers in comments refer to work/abi/ABI-SPEC.md.
++
++// ----------------------------------------------------------------------------
++// Assembly helpers linked into run_vm_tests (ELFv2 functions).
++//
++// ppc64_sentinel_call(fn, a0, a1, a2, a3, out): calls fn(a0..a3) with
++// r12 = fn, r14-r31 = 0x5e710000 + n * 0x101, f14-f31 = the bits
++// 0x40f00000_000000nn and CR2/CR3/CR4 = 0xa/0x5/0xc. Then it stores what the
++// callee left in r14-r31 (out[0..17]), f14-f31 (out[18..35]) and the CR
++// (out[36]), and r2 after and before the call (out[37], out[38]); restores
++// everything and returns fn's r3. The ELFv2 callee-saved contract, checked
++// from outside the code under test (stub_code_ppc64_test.cc uses it too).
++//
++// ppc64_dirty_int32_result(): returns 0xdeadbeef_80000001 in r3, an "int32"
++// result with a dirty upper word, as a foreign callee may (ABI-SPEC 7.6).
++//
++// ppc64_return_r12(): returns the r12 it was entered with.
++// ----------------------------------------------------------------------------
++asm(R"(
++    .text
++    .p2align 4
++    .globl ppc64_sentinel_call
++    .type ppc64_sentinel_call,@function
++ppc64_sentinel_call:
++    addis 2,12,.TOC.-ppc64_sentinel_call@ha
++    addi 2,2,.TOC.-ppc64_sentinel_call@l
++    .localentry ppc64_sentinel_call,.-ppc64_sentinel_call
++    mflr 0
++    std 0,16(1)
++    mfcr 0
++    stw 0,8(1)
++    stdu 1,-336(1)
++    std 14,32(1)
++    std 15,40(1)
++    std 16,48(1)
++    std 17,56(1)
++    std 18,64(1)
++    std 19,72(1)
++    std 20,80(1)
++    std 21,88(1)
++    std 22,96(1)
++    std 23,104(1)
++    std 24,112(1)
++    std 25,120(1)
++    std 26,128(1)
++    std 27,136(1)
++    std 28,144(1)
++    std 29,152(1)
++    std 30,160(1)
++    std 31,168(1)
++    stfd 14,176(1)
++    stfd 15,184(1)
++    stfd 16,192(1)
++    stfd 17,200(1)
++    stfd 18,208(1)
++    stfd 19,216(1)
++    stfd 20,224(1)
++    stfd 21,232(1)
++    stfd 22,240(1)
++    stfd 23,248(1)
++    stfd 24,256(1)
++    stfd 25,264(1)
++    stfd 26,272(1)
++    stfd 27,280(1)
++    stfd 28,288(1)
++    stfd 29,296(1)
++    stfd 30,304(1)
++    stfd 31,312(1)
++    std 8,320(1)
++    std 2,328(1)
++    mr 12,3
++    mtctr 12
++    mr 3,4
++    mr 4,5
++    mr 5,6
++    mr 6,7
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,14
++    mtvsrd 14,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,15
++    mtvsrd 15,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,16
++    mtvsrd 16,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,17
++    mtvsrd 17,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,18
++    mtvsrd 18,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,19
++    mtvsrd 19,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,20
++    mtvsrd 20,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,21
++    mtvsrd 21,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,22
++    mtvsrd 22,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,23
++    mtvsrd 23,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,24
++    mtvsrd 24,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,25
++    mtvsrd 25,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,26
++    mtvsrd 26,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,27
++    mtvsrd 27,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,28
++    mtvsrd 28,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,29
++    mtvsrd 29,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,30
++    mtvsrd 30,11
++    lis 11,0x40f0
++    sldi 11,11,32
++    ori 11,11,31
++    mtvsrd 31,11
++    lis 14,0x5e71
++    ori 14,14,3598
++    lis 15,0x5e71
++    ori 15,15,3855
++    lis 16,0x5e71
++    ori 16,16,4112
++    lis 17,0x5e71
++    ori 17,17,4369
++    lis 18,0x5e71
++    ori 18,18,4626
++    lis 19,0x5e71
++    ori 19,19,4883
++    lis 20,0x5e71
++    ori 20,20,5140
++    lis 21,0x5e71
++    ori 21,21,5397
++    lis 22,0x5e71
++    ori 22,22,5654
++    lis 23,0x5e71
++    ori 23,23,5911
++    lis 24,0x5e71
++    ori 24,24,6168
++    lis 25,0x5e71
++    ori 25,25,6425
++    lis 26,0x5e71
++    ori 26,26,6682
++    lis 27,0x5e71
++    ori 27,27,6939
++    lis 28,0x5e71
++    ori 28,28,7196
++    lis 29,0x5e71
++    ori 29,29,7453
++    lis 30,0x5e71
++    ori 30,30,7710
++    lis 31,0x5e71
++    ori 31,31,7967
++    lis 0,0x00a5
++    ori 0,0,0xc000
++    mtcrf 0x38,0
++    bctrl
++    ld 11,320(1)
++    std 14,0(11)
++    std 15,8(11)
++    std 16,16(11)
++    std 17,24(11)
++    std 18,32(11)
++    std 19,40(11)
++    std 20,48(11)
++    std 21,56(11)
++    std 22,64(11)
++    std 23,72(11)
++    std 24,80(11)
++    std 25,88(11)
++    std 26,96(11)
++    std 27,104(11)
++    std 28,112(11)
++    std 29,120(11)
++    std 30,128(11)
++    std 31,136(11)
++    stfd 14,144(11)
++    stfd 15,152(11)
++    stfd 16,160(11)
++    stfd 17,168(11)
++    stfd 18,176(11)
++    stfd 19,184(11)
++    stfd 20,192(11)
++    stfd 21,200(11)
++    stfd 22,208(11)
++    stfd 23,216(11)
++    stfd 24,224(11)
++    stfd 25,232(11)
++    stfd 26,240(11)
++    stfd 27,248(11)
++    stfd 28,256(11)
++    stfd 29,264(11)
++    stfd 30,272(11)
++    stfd 31,280(11)
++    mfcr 0
++    std 0,288(11)
++    std 2,296(11)
++    ld 0,328(1)
++    std 0,304(11)
++    ld 14,32(1)
++    ld 15,40(1)
++    ld 16,48(1)
++    ld 17,56(1)
++    ld 18,64(1)
++    ld 19,72(1)
++    ld 20,80(1)
++    ld 21,88(1)
++    ld 22,96(1)
++    ld 23,104(1)
++    ld 24,112(1)
++    ld 25,120(1)
++    ld 26,128(1)
++    ld 27,136(1)
++    ld 28,144(1)
++    ld 29,152(1)
++    ld 30,160(1)
++    ld 31,168(1)
++    lfd 14,176(1)
++    lfd 15,184(1)
++    lfd 16,192(1)
++    lfd 17,200(1)
++    lfd 18,208(1)
++    lfd 19,216(1)
++    lfd 20,224(1)
++    lfd 21,232(1)
++    lfd 22,240(1)
++    lfd 23,248(1)
++    lfd 24,256(1)
++    lfd 25,264(1)
++    lfd 26,272(1)
++    lfd 27,280(1)
++    lfd 28,288(1)
++    lfd 29,296(1)
++    lfd 30,304(1)
++    lfd 31,312(1)
++    addi 1,1,336
++    ld 0,16(1)
++    mtlr 0
++    lwz 0,8(1)
++    mtcrf 0x38,0
++    blr
++    .size ppc64_sentinel_call,.-ppc64_sentinel_call
++
++    .p2align 4
++    .globl ppc64_dirty_int32_result
++    .type ppc64_dirty_int32_result,@function
++ppc64_dirty_int32_result:
++    lis 3,0xdead
++    ori 3,3,0xbeef
++    sldi 3,3,32
++    oris 3,3,0x8000
++    ori 3,3,0x0001
++    blr
++    .size ppc64_dirty_int32_result,.-ppc64_dirty_int32_result
++
++    .p2align 4
++    .globl ppc64_return_r12
++    .type ppc64_return_r12,@function
++ppc64_return_r12:
++    mr 3,12
++    blr
++    .size ppc64_return_r12,.-ppc64_return_r12
++)");
++
++extern "C" uint64_t ppc64_sentinel_call(uint64_t fn,
++                                        uint64_t a0,
++                                        uint64_t a1,
++                                        uint64_t a2,
++                                        uint64_t a3,
++                                        uint64_t* out);
++extern "C" int32_t ppc64_dirty_int32_result();
++extern "C" uint64_t ppc64_return_r12();
++
++namespace dart {
++
++uint64_t Ppc64GprSentinel(intptr_t reg) {
++  return 0x5e710000ull + reg * 0x101;
++}
++uint64_t Ppc64FprSentinel(intptr_t reg) {
++  return (0x40f00000ull << 32) | reg;
++}
++// CR2 = 0xa, CR3 = 0x5, CR4 = 0xc (bits 23..12 of the mfcr image).
++constexpr uint64_t kPpc64CrSentinel = 0x00a5c000;
++constexpr uint64_t kPpc64CalleeSavedCrMask = 0x00fff000;
++
++// Checks an out[] filled by ppc64_sentinel_call: every callee-saved GPR, FPR
++// and CR field came back, and r2 is unchanged.
++void Ppc64ExpectCalleeSavedIntact(const uint64_t* out) {
++  for (intptr_t r = 14; r <= 31; r++) {
++    EXPECT_EQ(Ppc64GprSentinel(r), out[r - 14]);
++  }
++  for (intptr_t f = 14; f <= 31; f++) {
++    EXPECT_EQ(Ppc64FprSentinel(f), out[18 + f - 14]);
++  }
++  EXPECT_EQ(kPpc64CrSentinel, out[36] & kPpc64CalleeSavedCrMask);
++  EXPECT_EQ(out[38], out[37]);
++}
++
++namespace compiler {
++#define __ assembler->
++
++// ----------------------------------------------------------------------------
++// Harness.
++// ----------------------------------------------------------------------------
++
++// Generated code as an ELFv2 C function.
++static int64_t Call(uword entry,
++                    int64_t a0 = 0,
++                    int64_t a1 = 0,
++                    int64_t a2 = 0,
++                    int64_t a3 = 0) {
++  typedef int64_t (*F)(int64_t, int64_t, int64_t, int64_t);
++  return reinterpret_cast<F>(entry)(a0, a1, a2, a3);
++}
++static double CallD(uword entry, double a0 = 0, double a1 = 0) {
++  typedef double (*F)(double, double);
++  return reinterpret_cast<F>(entry)(a0, a1);
++}
++static int64_t CallID(uword entry, double a0, double a1 = 0) {
++  typedef int64_t (*F)(double, double);
++  return reinterpret_cast<F>(entry)(a0, a1);
++}
++static double CallDI(uword entry, int64_t a0) {
++  typedef double (*F)(int64_t);
++  return reinterpret_cast<F>(entry)(a0);
++}
++// (pointer r3, double f1): the double consumes a GPR slot (ELFv2).
++static void CallVPD(uword entry, void* p, double d) {
++  typedef void (*F)(void*, double);
++  reinterpret_cast<F>(entry)(p, d);
++}
++static double CallDP(uword entry, void* p) {
++  typedef double (*F)(void*);
++  return reinterpret_cast<F>(entry)(p);
++}
++
++// Assembles |gen| plus a final blr into an installed Code object. (Not
++// AssemblerTest::Generate: in 3.11.5 it ignores its generator.)
++static const Code& Generate(const char* name,
++                            const std::function<void(Assembler*)>& gen) {
++  ObjectPoolBuilder object_pool_builder;
++  Assembler assembler(&object_pool_builder, /*far_branch_level=*/0);
++  AssemblerTest test(name, &assembler, Thread::Current()->zone());
++  gen(&assembler);
++  assembler.Ret();
++  test.Assemble();
++  return test.code();
++}
++static uword GenerateEntry(const char* name,
++                           const std::function<void(Assembler*)>& gen) {
++  return Generate(name, gen).EntryPoint();
++}
++
++static uint64_t Bits(double d) {
++  return bit_cast<uint64_t>(d);
++}
++static uint32_t FBits(float f) {
++  return bit_cast<uint32_t>(f);
++}
++static uint64_t SExt32(uint64_t x) {
++  return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(x)));
++}
++
++// Interesting 64-bit values, with garbage upper words over interesting low
++// words for the 32-in-64 checks (ABI-SPEC 7.6).
++static const uint64_t kValues[] = {
++    0,
++    1,
++    2,
++    0x7f,
++    0x80,
++    0xff,
++    0x7fff,
++    0x8000,
++    0xffff,
++    0x7fffffff,
++    0x80000000,
++    0xffffffff,
++    0x100000000ull,
++    0x3fffffffffffffffull,
++    0x4000000000000000ull,
++    0xc000000000000000ull,
++    0xbfffffffffffffffull,
++    0x7fffffffffffffffull,
++    0x8000000000000000ull,
++    0xffffffffffffffffull,
++    0xffffffff80000000ull,
++    0xdeadbeef80000000ull,
++    0xdeadbeef7fffffffull,
++    0x123456789abcdef0ull,
++    0xfedcba9876543210ull,
++    0xa5a5a5a5000000ffull,
++};
++
++// The registers the [vm] tests need, saved and set as on ARM64 / RISC-V:
++// entered as f(CodePtr code, Thread* thread) by InvokeWithCodeAndThread.
++// THR, CODE_REG, PP, NULL_REG and WRITE_BARRIER_STATE are ELFv2 non-volatile
++// (r29, r28, r30, r26, r27), so they are saved; EnterFrame saves LR.
++void EnterTestFrame(Assembler* assembler) {
++  __ EnterFrame(0);
++  __ PushRegister(CODE_REG);
++  __ PushRegister(THR);
++  __ PushRegister(WRITE_BARRIER_STATE);
++  __ PushRegister(NULL_REG);
++  __ PushRegister(PP);
++  __ MoveRegister(CODE_REG, R3);
++  __ MoveRegister(THR, R4);
++  __ RestorePinnedRegisters();  // NULL_REG, WRITE_BARRIER_STATE
++  __ LoadPoolPointer(PP);
++}
++
++void LeaveTestFrame(Assembler* assembler) {
++  __ PopRegister(PP);
++  __ PopRegister(NULL_REG);
++  __ PopRegister(WRITE_BARRIER_STATE);
++  __ PopRegister(THR);
++  __ PopRegister(CODE_REG);
++  __ LeaveFrame();
++}
++
++// Called from assembler_test.cc as f(value, growable_array, thread).
++ASSEMBLER_TEST_GENERATE(StoreIntoObject, assembler) {
++  __ PushLinkRegister();
++  __ PushNativeCalleeSavedRegisters();
++  __ MoveRegister(THR, R5);
++  __ RestorePinnedRegisters();  // WRITE_BARRIER_STATE
++  __ StoreIntoObject(R4, FieldAddress(R4, GrowableObjectArray::data_offset()),
++                     R3);
++  __ PopNativeCalleeSavedRegisters();
++  __ PopLinkRegister();
++  __ Ret();
++}
++
++// ----------------------------------------------------------------------------
++// 1. Constants: the code is installed, executable and flushed.
++// ----------------------------------------------------------------------------
++
++ASSEMBLER_TEST_GENERATE(Simple, assembler) {
++  __ LoadImmediate(R3, 42);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(Simple, test) {
++  EXPECT_EQ(42, Call(test->entry()));
++}
++
++ASSEMBLER_TEST_GENERATE(SimpleArgument, assembler) {
++  __ AddImmediate(R3, R3, 1);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(SimpleArgument, test) {
++  EXPECT_EQ(42, Call(test->entry(), 41));
++  EXPECT_EQ(0, Call(test->entry(), -1));
++}
++
++// LoadImmediate (6.1), including every value in [0x7fff8000, 0x7fffffff]
++// in steps of 0x1000 (the lis sign-extension edge); LoadImmediateLength must
++// agree with what is emitted.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_LoadImmediate) {
++  std::vector<int64_t> values = {0,
++                                 1,
++                                 -1,
++                                 0x7fff,
++                                 0x8000,
++                                 -0x8000,
++                                 -0x8001,
++                                 0xffff,
++                                 0x10000,
++                                 0x7fffffff,
++                                 0x80000000,
++                                 0xffffffff,
++                                 0x100000000,
++                                 -0x80000000ll,
++                                 -0x80000001ll,
++                                 0x0123456789abcdef,
++                                 kMaxInt64,
++                                 kMinInt64,
++                                 static_cast<int64_t>(0x9287436598237465)};
++  for (int64_t v = 0x7fff8000; v <= 0x7fffffff; v += 0x1000) {
++    values.push_back(v);
++  }
++  for (int64_t v : values) {
++    intptr_t size = 0;
++    const uword entry = GenerateEntry("LoadImmediate", [&](Assembler* a) {
++      a->LoadImmediate(R3, v);
++      size = a->CodeSize();
++    });
++    EXPECT_EQ(v, Call(entry));
++    EXPECT_EQ(Assembler::LoadImmediateLength(v) * Instr::kInstrSize, size);
++  }
++}
++
++// ----------------------------------------------------------------------------
++// 2. Arithmetic, memory, branches.
++// ----------------------------------------------------------------------------
++
++// Load/Store for every size at every displacement class (5.2): D-form,
++// DS-form, X-form through r0; MemoryAccessLength must match. The loaded value
++// is canonical for its size (7.6).
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_LoadStore) {
++  const OperandSize sizes[] = {kEightBytes,       kFourBytes, kUnsignedFourBytes,
++                               kTwoBytes,         kUnsignedTwoBytes, kByte,
++                               kUnsignedByte};
++  const int32_t offsets[] = {0,      7,      8,      15,     -1,
++                             -8,     32764,  32767,  32768,  -32768,
++                             -32769, 0x12345, -0x12345};
++  alignas(16) static uint8_t buffer[3 * 0x10000];
++  uint8_t* base = buffer + 0x18000;
++  for (OperandSize sz : sizes) {
++    const intptr_t n = Assembler::OperandSizeInBits(sz) / 8;
++    for (int32_t off : offsets) {
++      intptr_t load_size = 0, store_size = 0;
++      const uword load = GenerateEntry("Load", [&](Assembler* a) {
++        a->Load(R3, Address(R4, off), sz);
++        load_size = a->CodeSize();
++      });
++      const uword store = GenerateEntry("Store", [&](Assembler* a) {
++        a->Store(R3, Address(R4, off), sz);
++        store_size = a->CodeSize();
++      });
++      EXPECT_EQ(Assembler::MemoryAccessLength(off, sz, /*is_store=*/false) *
++                    Instr::kInstrSize,
++                load_size);
++      EXPECT_EQ(Assembler::MemoryAccessLength(off, sz, /*is_store=*/true) *
++                    Instr::kInstrSize,
++                store_size);
++      for (uint64_t v : kValues) {
++        memset(base + off - 8, 0x5a, n + 16);
++        Call(store, v, reinterpret_cast<int64_t>(base));
++        uint64_t raw = 0;
++        memcpy(&raw, base + off, n);
++        const uint64_t mask = n == 8 ? ~uint64_t{0} : (uint64_t{1} << (8 * n)) - 1;
++        EXPECT_EQ(v & mask, raw);
++        EXPECT_EQ(0x5a, base[off - 1]);
++        EXPECT_EQ(0x5a, base[off + n]);
++        uint64_t want = raw;
++        if (sz == kFourBytes) want = SExt32(raw);
++        if (sz == kTwoBytes) want = static_cast<int64_t>(static_cast<int16_t>(raw));
++        if (sz == kByte) want = static_cast<int64_t>(static_cast<int8_t>(raw));
++        EXPECT_EQ(static_cast<int64_t>(want),
++                  Call(load, 0, reinterpret_cast<int64_t>(base)));
++      }
++    }
++  }
++  // StoreZero, and an indexed Address (base + index register).
++  const uword zero = GenerateEntry("StoreZero", [](Assembler* a) {
++    a->StoreZero(Address(R3, 16));
++    a->StoreZero(Address(R3, 0x12340));
++  });
++  const uword indexed = GenerateEntry("Indexed", [](Assembler* a) {
++    a->Load(R3, Address(R3, R4));
++  });
++  memset(base, 0xff, 32);
++  memset(base + 0x12340, 0xff, 8);
++  Call(zero, reinterpret_cast<int64_t>(base));
++  uint64_t w0, w1;
++  memcpy(&w0, base + 16, 8);
++  memcpy(&w1, base + 0x12340, 8);
++  EXPECT_EQ(0u, w0);
++  EXPECT_EQ(0u, w1);
++  const uint64_t marker = 0x1122334455667788ull;
++  memcpy(base + 24, &marker, 8);
++  EXPECT_EQ(static_cast<int64_t>(marker),
++            Call(indexed, reinterpret_cast<int64_t>(base), 24));
++}
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_AddAndAddress) {
++  const int64_t imms[] = {0, 1, -1, 0x7fff, -0x8000, 0x8000, 0x12345678,
++                          kMaxInt64, kMinInt64};
++  for (int64_t imm : imms) {
++    const uword add = GenerateEntry("AddImmediate", [&](Assembler* a) {
++      a->AddImmediate(R3, R4, imm);
++    });
++    for (uint64_t v : kValues) {
++      EXPECT_EQ(static_cast<int64_t>(v + imm), Call(add, 0, v));
++    }
++  }
++  const uword add_regs = GenerateEntry("AddRegisters", [](Assembler* a) {
++    a->AddRegisters(R3, R4);
++  });
++  const uword sub_regs = GenerateEntry("SubRegisters", [](Assembler* a) {
++    a->SubRegisters(R3, R4);
++  });
++  for (uint64_t x : kValues) {
++    for (uint64_t y : kValues) {
++      EXPECT_EQ(static_cast<int64_t>(x + y), Call(add_regs, x, y));
++      EXPECT_EQ(static_cast<int64_t>(x - y), Call(sub_regs, x, y));
++    }
++  }
++  for (intptr_t shift = 0; shift < 4; shift++) {
++    const uword shifted = GenerateEntry("AddShifted", [&](Assembler* a) {
++      a->AddShifted(R3, R4, R5, shift);
++    });
++    const uword aliased = GenerateEntry("AddShifted alias", [&](Assembler* a) {
++      a->AddShifted(R4, R4, R5, shift);
++      a->MoveRegister(R3, R4);
++    });
++    const uword element = GenerateEntry("ComputeElementAddress",
++                                        [&](Assembler* a) {
++      a->ComputeElementAddress(R3, R4, R5, static_cast<ScaleFactor>(shift),
++                               0x12345);
++    });
++    EXPECT_EQ(1000 + (7 << shift), Call(shifted, 0, 1000, 7));
++    EXPECT_EQ(1000 + (7 << shift), Call(aliased, 0, 1000, 7));
++    EXPECT_EQ(1000 + (7 << shift) + 0x12345, Call(element, 0, 1000, 7));
++  }
++}
++
++static bool Holds(Condition c, int64_t a, int64_t b, OperandSize width) {
++  if (width != kEightBytes) {
++    a = static_cast<int32_t>(a);
++    b = static_cast<int32_t>(b);
++  }
++  const uint64_t ua = width == kEightBytes ? static_cast<uint64_t>(a)
++                                           : static_cast<uint32_t>(a);
++  const uint64_t ub = width == kEightBytes ? static_cast<uint64_t>(b)
++                                           : static_cast<uint32_t>(b);
++  switch (c) {
++    case EQ: return a == b;
++    case NE: return a != b;
++    case LT: return a < b;
++    case GE: return a >= b;
++    case GT: return a > b;
++    case LE: return a <= b;
++    case CC: return ua < ub;
++    case CS: return ua >= ub;
++    case HI: return ua > ub;
++    case LS: return ua <= ub;
++    default: UNREACHABLE();
++  }
++}
++
++// The deferred compare (7.4): every condition, register and immediate forms
++// (int16, uint16-only, 32-bit, 64-bit), 64- and 32-bit widths; BranchIf,
++// SetIf and ZeroIf all consume it.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_CompareAndBranch) {
++  const Condition conds[] = {EQ, NE, LT, GE, GT, LE, CC, CS, HI, LS};
++  const int64_t imms[] = {0, 5, -5, 0xfff0, 0x12345678, -0x12345678,
++                          0x123456789ll};
++  const int64_t values[] = {0,          5,          -5,          0xfff0,
++                            0x12345678, -0x12345678, 0x123456789ll,
++                            kMinInt64,  kMaxInt64,  0x80000000,  -1};
++  for (Condition c : conds) {
++    for (OperandSize width : {kEightBytes, kFourBytes}) {
++      if (width == kEightBytes) {
++        const uword branch = GenerateEntry("BranchIf reg", [&](Assembler* a) {
++          Label taken;
++          a->LoadImmediate(R5, 1);
++          a->CompareRegisters(R3, R4);
++          a->BranchIf(c, &taken);
++          a->LoadImmediate(R5, 0);
++          a->Bind(&taken);
++          a->MoveRegister(R3, R5);
++        });
++        const uword set = GenerateEntry("SetIf", [&](Assembler* a) {
++          a->CompareRegisters(R3, R4);
++          a->SetIf(c, R3);
++        });
++        const uword zero_if = GenerateEntry("ZeroIf", [&](Assembler* a) {
++          a->CompareRegisters(R3, R4);
++          a->ZeroIf(c, R3, R5);
++        });
++        for (int64_t x : values) {
++          for (int64_t y : values) {
++            const bool want = Holds(c, x, y, kEightBytes);
++            EXPECT_EQ(want ? 1 : 0, Call(branch, x, y));
++            EXPECT_EQ(want ? 1 : 0, Call(set, x, y));
++            EXPECT_EQ(want ? 0 : 77, Call(zero_if, x, y, 77));
++          }
++        }
++      }
++      for (int64_t imm : imms) {
++        if (width == kFourBytes && !Utils::IsInt(32, imm)) continue;
++        const uword branch_imm = GenerateEntry("BranchIf imm", [&](Assembler* a) {
++          Label taken;
++          a->LoadImmediate(R5, 1);
++          a->CompareImmediate(R3, imm, width);
++          a->BranchIf(c, &taken);
++          a->LoadImmediate(R5, 0);
++          a->Bind(&taken);
++          a->MoveRegister(R3, R5);
++        });
++        for (int64_t x : values) {
++          EXPECT_EQ(Holds(c, x, imm, width) ? 1 : 0, Call(branch_imm, x));
++        }
++      }
++    }
++  }
++  // 32-bit memory compare: the upper half of the register is ignored.
++  const uword mem = GenerateEntry("CompareWithMemoryValue", [](Assembler* a) {
++    Label equal;
++    a->LoadImmediate(R5, 1);
++    a->CompareWithMemoryValue(R3, Address(R4, 0), kFourBytes);
++    a->BranchIf(EQ, &equal);
++    a->LoadImmediate(R5, 0);
++    a->Bind(&equal);
++    a->MoveRegister(R3, R5);
++  });
++  int32_t word = -7;
++  EXPECT_EQ(1, Call(mem, 0xdeadbeeffffffff9ll, reinterpret_cast<int64_t>(&word)));
++  EXPECT_EQ(0, Call(mem, 0xdeadbeeffffffff8ll, reinterpret_cast<int64_t>(&word)));
++}
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_TestAndBit) {
++  const uword test_imm = GenerateEntry("TestImmediate", [](Assembler* a) {
++    Label zero;
++    a->LoadImmediate(R5, 1);
++    a->TestImmediate(R3, 0x10000);
++    a->BranchIf(ZERO, &zero);
++    a->LoadImmediate(R5, 0);
++    a->Bind(&zero);
++    a->MoveRegister(R3, R5);
++  });
++  const uword test_regs = GenerateEntry("TestRegisters", [](Assembler* a) {
++    Label not_zero;
++    a->LoadImmediate(R5, 1);
++    a->TestRegisters(R3, R4);
++    a->BranchIf(NOT_ZERO, &not_zero);
++    a->LoadImmediate(R5, 0);
++    a->Bind(&not_zero);
++    a->MoveRegister(R3, R5);
++  });
++  const uword is_zero = GenerateEntry("BranchIfZero", [](Assembler* a) {
++    Label zero;
++    a->LoadImmediate(R5, 1);
++    a->BranchIfZero(R3, &zero);
++    a->LoadImmediate(R5, 0);
++    a->Bind(&zero);
++    a->MoveRegister(R3, R5);
++  });
++  const uword smi = GenerateEntry("BranchIfSmi", [](Assembler* a) {
++    Label is_smi;
++    a->LoadImmediate(R5, 1);
++    a->BranchIfSmi(R3, &is_smi);
++    a->LoadImmediate(R5, 0);
++    a->Bind(&is_smi);
++    a->MoveRegister(R3, R5);
++  });
++  const uword not_smi = GenerateEntry("BranchIfNotSmi", [](Assembler* a) {
++    Label not_smi_label;
++    a->LoadImmediate(R5, 1);
++    a->BranchIfNotSmi(R3, &not_smi_label);
++    a->LoadImmediate(R5, 0);
++    a->Bind(&not_smi_label);
++    a->MoveRegister(R3, R5);
++  });
++  for (uint64_t v : kValues) {
++    EXPECT_EQ((v & 0x10000) == 0 ? 1 : 0, Call(test_imm, v));
++    EXPECT_EQ((v & 0x8000000000000081ull) != 0 ? 1 : 0,
++              Call(test_regs, v, 0x8000000000000081ll));
++    EXPECT_EQ(v == 0 ? 1 : 0, Call(is_zero, v));
++    EXPECT_EQ((v & kSmiTagMask) == 0 ? 1 : 0, Call(smi, v));
++    EXPECT_EQ((v & kSmiTagMask) != 0 ? 1 : 0, Call(not_smi, v));
++  }
++  for (intptr_t bit : {0, 1, 15, 16, 31, 32, 47, 62, 63}) {
++    for (Condition c : {ZERO, NOT_ZERO}) {
++      const uword code = GenerateEntry("BranchIfBit", [&](Assembler* a) {
++        Label taken;
++        a->LoadImmediate(R5, 1);
++        a->BranchIfBit(R3, bit, c, &taken);
++        a->LoadImmediate(R5, 0);
++        a->Bind(&taken);
++        a->MoveRegister(R3, R5);
++      });
++      for (uint64_t v : kValues) {
++        const bool set = ((v >> bit) & 1) != 0;
++        EXPECT_EQ((c == NOT_ZERO) == set ? 1 : 0, Call(code, v));
++      }
++    }
++  }
++}
++
++// A conditional branch over more than 32 KiB: the first attempt bails out
++// (ASSEMBLER_TEST_RUN retries with far_branch_level 1, 7.2) and the far form
++// bc <inverted>,+8 ; b target is used.
++ASSEMBLER_TEST_GENERATE(FarBranchForward, assembler) {
++  Label target;
++  __ CompareImmediate(R3, 0);
++  __ BranchIf(EQ, &target);
++  for (intptr_t i = 0; i < 9000; i++) {
++    __ nop();
++  }
++  __ LoadImmediate(R3, 7);
++  __ Ret();
++  __ Bind(&target);
++  __ LoadImmediate(R3, 42);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(FarBranchForward, test) {
++  EXPECT_EQ(42, Call(test->entry(), 0));
++  EXPECT_EQ(7, Call(test->entry(), 1));
++}
++
++// A conditional branch back over more than 32 KiB to a bound label: sized by
++// the real distance at any level.
++ASSEMBLER_TEST_GENERATE(FarBranchBackward, assembler) {
++  Label start, done;
++  __ LoadImmediate(R4, 0);
++  __ Bind(&start);
++  __ AddImmediate(R4, R4, 1);
++  __ CompareImmediate(R4, 3);
++  __ BranchIf(EQ, &done);
++  for (intptr_t i = 0; i < 9000; i++) {
++    __ nop();
++  }
++  __ CompareImmediate(R4, 3);
++  __ BranchIf(LT, &start);
++  __ Bind(&done);
++  __ MoveRegister(R3, R4);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(FarBranchBackward, test) {
++  EXPECT_EQ(3, Call(test->entry()));
++}
++
++// Calls and jumps through CTR (4.1): Call(Address), CallRegister,
++// JumpRegister, Jump(Address), Jump(Label). The caller's frame saves LR.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_CallsAndJumps) {
++  const uword add_one =
++      GenerateEntry("AddOne", [](Assembler* a) { a->AddImmediate(R3, R3, 1); });
++  uword table[2] = {add_one, 0};
++  const uword call_reg = GenerateEntry("CallRegister", [](Assembler* a) {
++    a->EnterFrame(0);
++    a->CallRegister(R4);
++    a->CallRegister(R4);
++    a->LeaveFrame();
++  });
++  const uword call_addr = GenerateEntry("Call(Address)", [](Assembler* a) {
++    a->EnterFrame(0);
++    a->Call(Address(R4, 0));
++    a->Call(Address(R4, 0));
++    a->Call(Address(R4, 0));
++    a->LeaveFrame();
++  });
++  const uword jump_reg = GenerateEntry("JumpRegister", [](Assembler* a) {
++    a->JumpRegister(R4);  // tail call: add_one returns to our caller
++  });
++  const uword jump_addr = GenerateEntry("Jump(Address)", [](Assembler* a) {
++    a->Jump(Address(R4, 0));
++  });
++  const uword jump_label = GenerateEntry("Jump(Label)", [](Assembler* a) {
++    Label skip;
++    a->Jump(&skip);
++    a->LoadImmediate(R3, -1);
++    a->Ret();
++    a->Bind(&skip);
++    a->AddImmediate(R3, R3, 2);
++  });
++  EXPECT_EQ(12, Call(call_reg, 10, add_one));
++  EXPECT_EQ(13, Call(call_addr, 10, reinterpret_cast<int64_t>(table)));
++  EXPECT_EQ(11, Call(jump_reg, 10, add_one));
++  EXPECT_EQ(11, Call(jump_addr, 10, reinterpret_cast<int64_t>(table)));
++  EXPECT_EQ(12, Call(jump_label, 10));
++}
++
++static int64_t Ppc64WeightedSum(int64_t a,
++                                double b,
++                                int64_t c,
++                                double d,
++                                int64_t e) {
++  return a + static_cast<int64_t>(b * 10) + c * 100 +
++         static_cast<int64_t>(d * 1000) + e * 10000;
++}
++
++// CallCFunction (4.2): r12 = target (the callee derives its TOC from it),
++// 96-byte header, 16-byte aligned r1 even when the caller misaligned it;
++// mixed int/double arguments follow the ELFv2 argument cursor.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_CallCFunction) {
++  const uword r12 = GenerateEntry("CallCFunction r12", [](Assembler* a) {
++    a->EnterCFrame(0);
++    a->CallCFunction(R4);
++    a->LeaveCFrame();
++  });
++  EXPECT_EQ(reinterpret_cast<int64_t>(&ppc64_return_r12),
++            Call(r12, 0, reinterpret_cast<int64_t>(&ppc64_return_r12)));
++  const uword sum = GenerateEntry("CallCFunction sum", [](Assembler* a) {
++    a->EnterFrame(0);
++    a->AddImmediate(SP, SP, -8);  // misalign r1 on purpose
++    a->ReserveAlignedFrameSpace(0);
++    a->MoveRegister(TMP, R3);  // the target, out of the argument registers
++    a->LoadImmediate(R3, 1);
++    a->LoadImmediate(R5, 3);
++    a->LoadImmediate(R7, 5);
++    a->LoadDImmediate(F1, 2.0);
++    a->LoadDImmediate(F2, 4.0);
++    a->CallCFunction(TMP);
++    a->LeaveFrame();
++  });
++  EXPECT_EQ(Ppc64WeightedSum(1, 2.0, 3, 4.0, 5),
++            Call(sum, reinterpret_cast<int64_t>(&Ppc64WeightedSum)));
++  // The callee-saved contract around a C call, from outside.
++  uint64_t out[40];
++  ppc64_sentinel_call(sum, reinterpret_cast<uint64_t>(&Ppc64WeightedSum), 0,
++                      0, 0, out);
++  Ppc64ExpectCalleeSavedIntact(out);
++}
++
++// Push/Pop, pairs, register sets, LR, frames, stack slots (3, 4.1).
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_StackAndFrames) {
++  const uword pair = GenerateEntry("PushRegisterPair", [](Assembler* a) {
++    a->PushRegisterPair(R3, R4);  // R3 at 0(SP), R4 at 8(SP)
++    a->LoadFromStack(R5, 0);
++    a->LoadFromStack(R6, 1);
++    a->PopRegisterPair(R7, R8);
++    a->sldi(R6, R6, 8);
++    a->or_(R3, R5, R6);
++    a->add(R3, R3, R7);
++    a->subf(R3, R8, R3);
++  });
++  EXPECT_EQ(1 + (2 << 8) + 1 - 2, Call(pair, 1, 2));
++  const uword regs = GenerateEntry("PushRegisters", [](Assembler* a) {
++    RegisterSet set;
++    set.AddRegister(R3);
++    set.AddRegister(R4);
++    set.AddRegister(R10);
++    set.Add(Location::FpuRegisterLocation(F1));
++    set.Add(Location::FpuRegisterLocation(F13));
++    a->PushRegisters(set);
++    a->LoadImmediate(R3, 0);
++    a->LoadImmediate(R4, 0);
++    a->LoadImmediate(R10, 0);
++    a->LoadDImmediate(F1, 0.0);
++    a->LoadDImmediate(F13, 0.0);
++    a->PopRegisters(set);
++    a->add(R3, R3, R4);
++    a->add(R3, R3, R10);
++    a->DoubleToInt64(R4, F1);
++    a->add(R3, R3, R4);
++    a->DoubleToInt64(R4, F13);
++    a->add(R3, R3, R4);
++  });
++  typedef int64_t (*Regs)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
++                          int64_t, int64_t, double, double, double, double,
++                          double, double, double, double, double, double, double,
++                          double, double);
++  EXPECT_EQ(1 + 2 + 8 + 100 + 1300,
++            reinterpret_cast<Regs>(regs)(1, 2, 0, 0, 0, 0, 0, 8, 100, 0, 0, 0,
++                                         0, 0, 0, 0, 0, 0, 0, 0, 1300));
++  const uword in_order = GenerateEntry("PushRegistersInOrder", [](Assembler* a) {
++    a->PushRegistersInOrder({R3, R4, R5});  // R5 ends up at 0(SP)
++    a->LoadFromStack(R6, 0);
++    a->LoadFromStack(R7, 2);
++    a->CompareToStack(R4, 1);
++    a->SetIf(EQ, R8);
++    a->StoreToStack(R8, 0);
++    a->PopRegister(R9);
++    a->Drop(2);
++    a->sldi(R6, R6, 8);
++    a->sldi(R7, R7, 16);
++    a->sldi(R9, R9, 24);
++    a->or_(R3, R6, R7);
++    a->or_(R3, R3, R9);
++  });
++  // 0(SP) = 3, 8(SP) = 2, 16(SP) = 1; 2 == 8(SP) stored into 0(SP).
++  EXPECT_EQ((3 << 8) | (1 << 16) | (1 << 24),
++            Call(in_order, 1, 2, 3));
++  // LR survives a call made inside EnterFrame/LeaveFrame and
++  // PushLinkRegister/PopLinkRegister; LoadPC reads the address of the next
++  // instruction.
++  const uword callee = GenerateEntry("callee", [](Assembler* a) {});
++  const uword link = GenerateEntry("PushLinkRegister", [](Assembler* a) {
++    a->PushLinkRegister();
++    a->CallRegister(R4);
++    a->PopLinkRegister();
++    a->LoadImmediate(R3, 5);
++  });
++  EXPECT_EQ(5, Call(link, 0, callee));
++  intptr_t pc_offset = 0;
++  const uword pc_entry = GenerateEntry("LoadPC", [&](Assembler* a) {
++    a->PushLinkRegister();
++    pc_offset = a->CodeSize() + Instr::kInstrSize;  // after bcl
++    a->LoadPC(R3);
++    a->PopLinkRegister();
++  });
++  EXPECT_EQ(static_cast<int64_t>(pc_entry + pc_offset), Call(pc_entry));
++  // EnterFrame: FP points at the saved FP, the return address above it.
++  const uword frame = GenerateEntry("EnterFrame", [](Assembler* a) {
++    a->EnterFrame(32);
++    a->Load(R3, Address(FP, 8));  // saved LR = our return address
++    a->LeaveFrame();
++  });
++  EXPECT_NE(0, Call(frame));
++}
++
++// Push/PopNativeCalleeSavedRegisters (3.2) around code that clobbers every
++// non-volatile GPR and FPR: the caller (ppc64_sentinel_call) sees them all
++// back, CR2-CR4 and r2 untouched.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_NativeCalleeSaved) {
++  const uword code = GenerateEntry("PushNativeCalleeSaved", [](Assembler* a) {
++    a->PushLinkRegister();
++    a->PushNativeCalleeSavedRegisters();
++    for (intptr_t r = 14; r <= 31; r++) {
++      if (r == FP) continue;
++      a->LoadImmediate(static_cast<Register>(r), -r);
++    }
++    for (intptr_t f = 14; f <= 31; f++) {
++      a->LoadDImmediate(static_cast<FpuRegister>(f), -1.0 * f);
++    }
++    a->PopNativeCalleeSavedRegisters();
++    a->PopLinkRegister();
++    a->LoadImmediate(R3, 99);
++  });
++  uint64_t out[40];
++  EXPECT_EQ(99u, ppc64_sentinel_call(code, 0, 0, 0, 0, out));
++  Ppc64ExpectCalleeSavedIntact(out);
++}
++
++// ----------------------------------------------------------------------------
++// 3. Integer semantics (7.5, 7.6).
++// ----------------------------------------------------------------------------
++
++static uint64_t Extend(uint64_t x, OperandSize sz) {
++  switch (sz) {
++    case kEightBytes: return x;
++    case kFourBytes: return SExt32(x);
++    case kUnsignedFourBytes: return static_cast<uint32_t>(x);
++    case kTwoBytes: return static_cast<int64_t>(static_cast<int16_t>(x));
++    case kUnsignedTwoBytes: return static_cast<uint16_t>(x);
++    case kByte: return static_cast<int64_t>(static_cast<int8_t>(x));
++    case kUnsignedByte: return static_cast<uint8_t>(x);
++    default: UNREACHABLE();
++  }
++}
++
++// Every 32-in-64 producer gives canonical upper bits from garbage input.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_ExtendAndTag) {
++  const OperandSize sizes[] = {kEightBytes, kFourBytes, kUnsignedFourBytes,
++                               kTwoBytes,   kUnsignedTwoBytes, kByte,
++                               kUnsignedByte};
++  for (OperandSize sz : sizes) {
++    const uword ext = GenerateEntry("ExtendValue", [&](Assembler* a) {
++      a->ExtendValue(R3, R4, sz);
++    });
++    const uword tag = GenerateEntry("ExtendAndSmiTagValue", [&](Assembler* a) {
++      a->ExtendAndSmiTagValue(R3, R4, sz);
++    });
++    for (uint64_t v : kValues) {
++      EXPECT_EQ(static_cast<int64_t>(Extend(v, sz)), Call(ext, 0, v));
++      EXPECT_EQ(static_cast<int64_t>(Extend(v, sz) << 1), Call(tag, 0, v));
++    }
++  }
++  const uword tag = GenerateEntry("SmiTag", [](Assembler* a) { a->SmiTag(R3); });
++  const uword untag =
++      GenerateEntry("SmiUntag", [](Assembler* a) { a->SmiUntag(R3, R4); });
++  for (uint64_t v : kValues) {
++    EXPECT_EQ(static_cast<int64_t>(v << 1), Call(tag, v));
++    EXPECT_EQ(static_cast<int64_t>(v) >> 1, Call(untag, 0, v));
++  }
++}
++
++// Overflow from sign bits into CR0 (7.5, Amendment A3): both outcomes, every
++// aliasing of rd/rs1/rs2. r9 = 1 iff the branch was taken.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_Overflow) {
++  struct Alias {
++    Register rd, rs1, rs2;
++  };
++  const Alias aliases[] = {{R6, R3, R4}, {R3, R3, R4}, {R4, R3, R4},
++                           {R6, R3, R3}, {R3, R3, R3}};
++  intptr_t overflowed = 0, clean = 0;
++  for (int op = 0; op < 3; op++) {
++    for (const Alias& al : aliases) {
++      const uword code = GenerateEntry("BranchOverflow", [&](Assembler* a) {
++        Label ov;
++        a->LoadImmediate(R9, 1);
++        if (op == 0) a->AddBranchOverflow(al.rd, al.rs1, al.rs2, &ov);
++        if (op == 1) a->SubtractBranchOverflow(al.rd, al.rs1, al.rs2, &ov);
++        if (op == 2) a->MultiplyBranchOverflow(al.rd, al.rs1, al.rs2, &ov);
++        a->LoadImmediate(R9, 0);
++        a->Bind(&ov);
++        a->MoveRegister(R3, R9);
++      });
++      const uword value = GenerateEntry("BranchOverflow value", [&](Assembler* a) {
++        Label ov;
++        if (op == 0) a->AddBranchOverflow(al.rd, al.rs1, al.rs2, &ov);
++        if (op == 1) a->SubtractBranchOverflow(al.rd, al.rs1, al.rs2, &ov);
++        if (op == 2) a->MultiplyBranchOverflow(al.rd, al.rs1, al.rs2, &ov);
++        a->Bind(&ov);
++        a->MoveRegister(R3, al.rd);
++      });
++      for (uint64_t x : kValues) {
++        for (uint64_t y : kValues) {
++          const int64_t b = (al.rs1 == al.rs2) ? x : y;
++          int64_t want = 0;
++          bool ov = false;
++          if (op == 0) ov = __builtin_add_overflow(static_cast<int64_t>(x), b, &want);
++          if (op == 1) ov = __builtin_sub_overflow(static_cast<int64_t>(x), b, &want);
++          if (op == 2) ov = __builtin_mul_overflow(static_cast<int64_t>(x), b, &want);
++          EXPECT_EQ(ov ? 1 : 0, Call(code, x, y));
++          EXPECT_EQ(want, Call(value, x, y));
++          (ov ? overflowed : clean)++;
++        }
++      }
++    }
++  }
++  EXPECT(overflowed > 100);
++  EXPECT(clean > 100);
++  const int64_t imms[] = {1, -1, 0x7fff, -0x8000, 0x8000, kMaxInt64,
++                          kMinInt64, 0x100000000};
++  for (int op = 0; op < 3; op++) {
++    for (int64_t imm : imms) {
++      const uword code = GenerateEntry("ImmediateBranchOverflow",
++                                       [&](Assembler* a) {
++        Label ov;
++        a->LoadImmediate(R9, 1);
++        if (op == 0) a->AddImmediateBranchOverflow(R6, R3, imm, &ov);
++        if (op == 1) a->SubtractImmediateBranchOverflow(R6, R3, imm, &ov);
++        if (op == 2) a->MultiplyImmediateBranchOverflow(R6, R3, imm, &ov);
++        a->LoadImmediate(R9, 0);
++        a->Bind(&ov);
++        a->MoveRegister(R3, R9);
++      });
++      for (uint64_t x : kValues) {
++        int64_t want = 0;
++        bool ov = false;
++        if (op == 0) ov = __builtin_add_overflow(static_cast<int64_t>(x), imm, &want);
++        if (op == 1) ov = __builtin_sub_overflow(static_cast<int64_t>(x), imm, &want);
++        if (op == 2) ov = __builtin_mul_overflow(static_cast<int64_t>(x), imm, &want);
++        EXPECT_EQ(ov ? 1 : 0, Call(code, x));
++      }
++    }
++  }
++  const uword smi_ov = GenerateEntry("SmiTagAndBranchIfOverflow", [](Assembler* a) {
++    Label ov;
++    a->LoadImmediate(R9, 1);
++    a->SmiTagAndBranchIfOverflow(R3, &ov);
++    a->LoadImmediate(R9, 0);
++    a->Bind(&ov);
++    a->MoveRegister(R3, R9);
++  });
++  for (uint64_t x : kValues) {
++    const bool ov = (static_cast<int64_t>(x << 1) >> 1) != static_cast<int64_t>(x);
++    EXPECT_EQ(ov ? 1 : 0, Call(smi_ov, x));
++  }
++}
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_LogicalImmediates) {
++  const int64_t imms[] = {0,          -1,        0xff,       0xffff0000,
++                          0x80000000, 0x00ffff00, 0x00ff00ff, 0x12345678,
++                          -256,       0x00ffffffffffffff,
++                          static_cast<int64_t>(0xffffffffffff0000ull),
++                          0x0123456789abcdef};
++  for (OperandSize sz : {kEightBytes, kFourBytes, kUnsignedFourBytes}) {
++    for (int64_t imm : imms) {
++      if (sz != kEightBytes && !Utils::IsInt(32, imm) && !Utils::IsUint(32, imm)) {
++        continue;
++      }
++      const uword and_imm = GenerateEntry("AndImmediate", [&](Assembler* a) {
++        a->AndImmediate(R3, R4, imm, sz);
++      });
++      const uword or_imm = GenerateEntry("OrImmediate", [&](Assembler* a) {
++        a->OrImmediate(R3, R4, imm, sz);
++      });
++      const uword xor_imm = GenerateEntry("XorImmediate", [&](Assembler* a) {
++        a->XorImmediate(R3, R4, imm, sz);
++      });
++      for (uint64_t x : kValues) {
++        const uint64_t m = imm;
++        if (sz == kEightBytes) {
++          EXPECT_EQ(static_cast<int64_t>(x & m), Call(and_imm, 0, x));
++          EXPECT_EQ(static_cast<int64_t>(x | m), Call(or_imm, 0, x));
++          EXPECT_EQ(static_cast<int64_t>(x ^ m), Call(xor_imm, 0, x));
++        } else {
++          const uint32_t x32 = x, m32 = imm;
++          // And: zero-extended for both 32-bit sizes (Dart's shared contract,
++          // RegRegImmTests::And); Or/Xor: canonical for the size (7.6).
++          EXPECT_EQ(static_cast<int64_t>(x32 & m32), Call(and_imm, 0, x));
++          EXPECT_EQ(static_cast<int64_t>(Extend(x32 | m32, sz)),
++                    Call(or_imm, 0, x));
++          EXPECT_EQ(static_cast<int64_t>(Extend(x32 ^ m32, sz)),
++                    Call(xor_imm, 0, x));
++        }
++      }
++    }
++  }
++  const uword and_regs =
++      GenerateEntry("AndRegisters", [](Assembler* a) { a->AndRegisters(R3, R4, R5); });
++  for (uint64_t x : kValues) {
++    EXPECT_EQ(static_cast<int64_t>(x & 0xf0f0f0f0f0f0f0f0ull),
++              Call(and_regs, 0, x, 0xf0f0f0f0f0f0f0f0ll));
++  }
++}
++
++// Shifts (7.6): immediates at every count; LslRegister gives 0 for any
++// count >= 64 (Dart semantics, Amendment A3), where sld alone wraps at 128.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_Shifts) {
++  for (OperandSize sz : {kEightBytes, kFourBytes, kUnsignedFourBytes}) {
++    const int bits = sz == kEightBytes ? 64 : 32;
++    for (int shift : {0, 1, 7, 15, 16, 31, 32, 52, 63}) {
++      if (shift >= bits) continue;
++      const uword lsl = GenerateEntry("LslImmediate", [&](Assembler* a) {
++        a->LslImmediate(R3, R4, shift, sz);
++      });
++      for (uint64_t v : kValues) {
++        const uint64_t want =
++            sz == kEightBytes ? (v << shift)
++                              : Extend(static_cast<uint32_t>(v) << shift, sz);
++        EXPECT_EQ(static_cast<int64_t>(want), Call(lsl, 0, v));
++      }
++    }
++  }
++  for (int shift : {0, 1, 31, 32, 63}) {
++    const uword lsr =
++        GenerateEntry("LsrImmediate", [&](Assembler* a) { a->LsrImmediate(R3, shift); });
++    const uword asr = GenerateEntry("ASR", [&](Assembler* a) {
++      a->ArithmeticShiftRightImmediate(R3, R4, shift);
++    });
++    for (uint64_t v : kValues) {
++      EXPECT_EQ(static_cast<int64_t>(v >> shift), Call(lsr, v));
++      EXPECT_EQ(static_cast<int64_t>(v) >> shift, Call(asr, 0, v));
++    }
++  }
++  const uword lsl_reg =
++      GenerateEntry("LslRegister", [](Assembler* a) { a->LslRegister(R3, R4); });
++  for (uint64_t v : kValues) {
++    for (uint64_t n : {0ull, 1ull, 31ull, 32ull, 63ull, 64ull, 65ull, 127ull,
++                       128ull, 129ull, 0xffffffffffffffffull}) {
++      EXPECT_EQ(static_cast<int64_t>(n < 64 ? (v << n) : 0), Call(lsl_reg, v, n));
++    }
++  }
++}
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_MulCountHash) {
++  const int64_t imms[] = {0, 1, 2, 8, 3, -1, 10, 0x7fff, 0x8000, 100000,
++                          kMinInt64, kMaxInt64};
++  for (OperandSize sz : {kEightBytes, kFourBytes}) {
++    for (int64_t imm : imms) {
++      const uword mul = GenerateEntry("MulImmediate", [&](Assembler* a) {
++        a->MulImmediate(R3, R4, imm, sz);
++      });
++      for (uint64_t v : kValues) {
++        const uint64_t want =
++            sz == kEightBytes
++                ? v * static_cast<uint64_t>(imm)
++                : SExt32(static_cast<uint32_t>(v) * static_cast<uint32_t>(imm));
++        EXPECT_EQ(static_cast<int64_t>(want), Call(mul, 0, v));
++      }
++    }
++  }
++  const uword clz = GenerateEntry("CountLeadingZeroes",
++                                  [](Assembler* a) { a->CountLeadingZeroes(R3, R4); });
++  const uword ctz = GenerateEntry("CountTrailingZeroes",
++                                  [](Assembler* a) { a->CountTrailingZeroes(R3, R4); });
++  for (intptr_t b = 0; b < 64; b++) {
++    const uint64_t v = (uint64_t{1} << b) | (uint64_t{1} << 63);
++    EXPECT_EQ(b, Call(ctz, 0, v));
++    EXPECT_EQ(63 - b, Call(clz, 0, uint64_t{1} << b));
++  }
++  EXPECT_EQ(64, Call(ctz, 0, 0));
++  EXPECT_EQ(64, Call(clz, 0, 0));
++  const uword hash = GenerateEntry("CombineHashes+FinalizeHash", [](Assembler* a) {
++    a->CombineHashes(R3, R4);
++    a->FinalizeHash(R3, R4);
++  });
++  for (uint64_t x : kValues) {
++    for (uint64_t y : kValues) {
++      EXPECT_EQ(static_cast<int64_t>(FinalizeHash(CombineHashes(x, y))),
++                Call(hash, x, y));
++    }
++  }
++}
++
++// ----------------------------------------------------------------------------
++// 4. Floating point (7.7).
++// ----------------------------------------------------------------------------
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_FloatingPoint) {
++  alignas(16) static uint8_t buffer[0x30000];
++  uint8_t* base = buffer + 0x18000;
++  const double doubles[] = {0.0,  -0.0, 1.0,   0.1, 1e300, -1e300, 1e-50,
++                            1.401298464324817e-45, 3.4028235677973366e38,
++                            std::numeric_limits<double>::infinity(),
++                            std::numeric_limits<double>::quiet_NaN(),
++                            std::numeric_limits<double>::denorm_min()};
++  for (int32_t off : {0, 8, -8, 32760, 32768, -32776, 0x12340}) {
++    const uword load_d = GenerateEntry("LoadDFromOffset", [&](Assembler* a) {
++      a->LoadDFromOffset(F1, R3, off);
++    });
++    const uword store_d = GenerateEntry("StoreDToOffset", [&](Assembler* a) {
++      a->StoreDToOffset(F1, R3, off);
++    });
++    const uword store_s = GenerateEntry("StoreSToOffset", [&](Assembler* a) {
++      a->StoreSToOffset(F1, R3, off);
++    });
++    const uword load_s = GenerateEntry("LoadSFromOffset", [&](Assembler* a) {
++      a->LoadSFromOffset(F1, R3, off);
++    });
++    for (double d : doubles) {
++      CallVPD(store_d, base, d);
++      EXPECT_EQ(Bits(d), Bits(CallDP(load_d, base)));
++      // stfs alone would truncate (0.1 -> 0x3dcccccc, 1e300 finite): frsp.
++      CallVPD(store_s, base, d);
++      uint32_t f32;
++      memcpy(&f32, base + off, 4);
++      volatile double vd = d;
++      const float want = static_cast<float>(vd);
++      EXPECT_EQ(FBits(want), f32);
++      const double loaded = CallDP(load_s, base);
++      if (std::isnan(d)) {
++        EXPECT(std::isnan(loaded));
++      } else {
++        EXPECT_EQ(Bits(static_cast<double>(want)), Bits(loaded));
++      }
++    }
++  }
++  for (double d : doubles) {
++    const uword imm = GenerateEntry("LoadDImmediate", [&](Assembler* a) {
++      a->LoadDImmediate(F5, d);
++      a->MoveUnboxedDouble(F1, F5);
++    });
++    EXPECT_EQ(Bits(d), Bits(CallD(imm)));
++  }
++  for (float f : {0.0f, -0.0f, 1.0f, 0.1f, 3.4028235e38f,
++                  std::numeric_limits<float>::denorm_min()}) {
++    const uword imm = GenerateEntry("LoadSImmediate", [&](Assembler* a) {
++      a->LoadSImmediate(F1, f);
++    });
++    EXPECT_EQ(Bits(static_cast<double>(f)), Bits(CallD(imm)));
++  }
++  // Compare and branch with NaN on either side: only NE is true on NaN.
++  const double nan = std::numeric_limits<double>::quiet_NaN();
++  const double operands[] = {nan, -1.0, -0.0, 0.0, 1.0,
++                             std::numeric_limits<double>::infinity()};
++  for (Condition c : {EQ, NE, LT, GT, LE, GE, VS, VC}) {
++    const uword branch = GenerateEntry("BranchIfDouble", [&](Assembler* a) {
++      Label taken;
++      a->LoadImmediate(R3, 1);
++      a->DoubleCompare(F1, F2);
++      a->BranchIfDouble(c, &taken);
++      a->LoadImmediate(R3, 0);
++      a->Bind(&taken);
++    });
++    const uword set = GenerateEntry("SetIfDouble", [&](Assembler* a) {
++      a->DoubleCompare(F1, F2);
++      a->SetIfDouble(c, R3);
++    });
++    for (double x : operands) {
++      for (double y : operands) {
++        bool want = false;
++        switch (c) {
++          case EQ: want = x == y; break;
++          case NE: want = x != y; break;
++          case LT: want = x < y; break;
++          case GT: want = x > y; break;
++          case LE: want = x <= y; break;
++          case GE: want = x >= y; break;
++          case VS: want = std::isunordered(x, y); break;
++          case VC: want = !std::isunordered(x, y); break;
++          default: UNREACHABLE();
++        }
++        EXPECT_EQ(want ? 1 : 0, CallID(branch, x, y));
++        EXPECT_EQ(want ? 1 : 0, CallID(set, x, y));
++      }
++    }
++  }
++  // Conversions: saturation, NaN -> INT64_MIN; rounding to nearest.
++  const uword d2i =
++      GenerateEntry("DoubleToInt64", [](Assembler* a) { a->DoubleToInt64(R3, F1); });
++  EXPECT_EQ(kMinInt64, CallID(d2i, nan));
++  EXPECT_EQ(kMaxInt64, CallID(d2i, 1e19));
++  EXPECT_EQ(kMinInt64, CallID(d2i, -1e19));
++  EXPECT_EQ(-1, CallID(d2i, -1.9));
++  EXPECT_EQ(0, CallID(d2i, -0.0));
++  const uword i2d =
++      GenerateEntry("Int64ToDouble", [](Assembler* a) { a->Int64ToDouble(F1, R3); });
++  for (uint64_t v : kValues) {
++    EXPECT_EQ(Bits(static_cast<double>(static_cast<int64_t>(v))),
++              Bits(CallDI(i2d, v)));
++  }
++  // Float bits both ways; the upper word of the GPR is ignored.
++  const uword f2r = GenerateEntry("FloatBitsToRegister",
++                                  [](Assembler* a) { a->FloatBitsToRegister(R3, F1); });
++  const uword r2f = GenerateEntry("RegisterToFloatBits",
++                                  [](Assembler* a) { a->RegisterToFloatBits(F1, R3); });
++  for (float f : {0.0f, -0.0f, 1.5f, 0.1f, 3.4028235e38f,
++                  std::numeric_limits<float>::infinity()}) {
++    EXPECT_EQ(static_cast<int64_t>(FBits(f)), CallID(f2r, static_cast<double>(f)));
++    EXPECT_EQ(Bits(static_cast<double>(f)),
++              Bits(CallDI(r2f, 0xdeadbeef00000000ll | FBits(f))));
++  }
++}
++
++// ----------------------------------------------------------------------------
++// 5. Memory ordering and atomics (8).
++// ----------------------------------------------------------------------------
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_Atomics) {
++  alignas(16) uint64_t words[4];
++  const OperandSize sizes[] = {kEightBytes, kFourBytes, kUnsignedFourBytes,
++                               kUnsignedTwoBytes, kUnsignedByte};
++  for (OperandSize sz : sizes) {
++    const intptr_t n = Assembler::OperandSizeInBits(sz) / 8;
++    // r3 = address, r4 = expected, r5 = desired -> r3 = old, r9 = mismatch.
++    const uword cas = GenerateEntry("CompareAndSwap", [&](Assembler* a) {
++      Label miss;
++      a->LoadImmediate(R9, 1);
++      a->CompareAndSwap(R3, R4, R5, R7, &miss, Assembler::kRelaxedNonAtomic, sz);
++      a->LoadImmediate(R9, 0);
++      a->Bind(&miss);
++      a->sldi(R9, R9, 62);
++      a->or_(R3, R7, R9);  // the flag in bit 62, the old value below
++    });
++    const uword fetch_add = GenerateEntry("AtomicFetchAndOp", [&](Assembler* a) {
++      a->AtomicFetchAndOp(Assembler::kAtomicAdd, R3, R4, R7, Assembler::kRelease,
++                          sz);
++      a->MoveRegister(R3, R7);
++    });
++    for (uint64_t cur : {uint64_t{0x11}, uint64_t{0x8081}, uint64_t{0x80000001}}) {
++      words[0] = words[1] = words[2] = 0x3c3c3c3c3c3c3c3cull;
++      memcpy(&words[1], &cur, n);
++      const uint64_t mask = n == 8 ? ~uint64_t{0} : (uint64_t{1} << (8 * n)) - 1;
++      // A matching expected, sign-extended from the access width: the
++      // macro compares the access width only (sub-word: zero-extended in R0).
++      uint64_t expected = cur;
++      if (n == 4) expected = SExt32(cur);
++      if (n == 2) expected = static_cast<int64_t>(static_cast<int16_t>(cur));
++      if (n == 1) expected = static_cast<int64_t>(static_cast<int8_t>(cur));
++      // Mismatch: memory unchanged, old returned, flag set.
++      int64_t r = Call(cas, reinterpret_cast<int64_t>(&words[1]),
++                       (cur ^ 1) & mask, 0x42);
++      EXPECT_EQ(1, (r >> 62) & 1);
++      // Match, with a sign-extended expected for the narrow sizes.
++      r = Call(cas, reinterpret_cast<int64_t>(&words[1]), expected, 0x42);
++      EXPECT_EQ(0, (r >> 62) & 1);
++      uint64_t now = 0;
++      memcpy(&now, &words[1], n);
++      EXPECT_EQ(0x42u, now);
++      EXPECT_EQ(0x3c3c3c3c3c3c3c3cull, words[0]);
++      EXPECT_EQ(0x3c3c3c3c3c3c3c3cull, words[2]);
++      const int64_t old = Call(fetch_add, reinterpret_cast<int64_t>(&words[1]), 5);
++      EXPECT_EQ(0x42, old);
++      memcpy(&now, &words[1], n);
++      EXPECT_EQ(0x47u, now);
++    }
++  }
++  const uword acquire = GenerateEntry("LoadAcquire", [](Assembler* a) {
++    a->LoadAcquire(R3, Address(R3, 8), kFourBytes);
++  });
++  const uword release = GenerateEntry("StoreRelease", [](Assembler* a) {
++    a->StoreRelease(R4, Address(R3, 8));
++    a->StoreStoreFence();
++    a->FullFence();
++  });
++  Call(release, reinterpret_cast<int64_t>(words), 0x00000000fffffff0ll);
++  EXPECT_EQ(0x00000000fffffff0ull, words[1]);
++  EXPECT_EQ(-16, Call(acquire, reinterpret_cast<int64_t>(words)));
++}
++
++// A fresh anonymous page that has only been read maps the shared zero page;
++// the first stcx. takes a copy-on-write fault and loses the reservation, so
++// a single larx/stcx. attempt fails there deterministically [MEASURED M1:
++// 0/1000]. CompareAndSwap and AtomicFetchAndOp retry and must succeed. The
++// single-shot control must fail, or the test proves nothing.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_FreshPageCAS) {
++  const uword single_shot = GenerateEntry("single-shot", [](Assembler* a) {
++    a->ldarx(R7, kNoRegister, R3);
++    a->stdcx_(R4, kNoRegister, R3);
++    a->mfocrf(R3, CRF0);
++    a->rlwinm(R3, R3, 3, 31, 31);  // CR0[EQ]: 1 = stored
++  });
++  const uword strong = GenerateEntry("CompareAndSwap", [](Assembler* a) {
++    a->LoadImmediate(R5, 0);
++    a->CompareAndSwap(R3, R5, R4, R7, nullptr);
++    a->mfocrf(R3, CRF0);
++    a->rlwinm(R3, R3, 3, 31, 31);
++  });
++  const uword fetch_or = GenerateEntry("AtomicFetchAndOp", [](Assembler* a) {
++    a->AtomicFetchAndOp(Assembler::kAtomicOr, R3, R4, R7);
++    a->MoveRegister(R3, R7);
++  });
++  const intptr_t page = VirtualMemory::PageSize();
++  intptr_t single_ok = 0, strong_ok = 0, fetch_ok = 0;
++  const intptr_t kTrials = 100;
++  for (intptr_t i = 0; i < kTrials; i++) {
++    for (int which = 0; which < 3; which++) {
++      void* p = mmap(nullptr, page, PROT_READ | PROT_WRITE,
++                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++      RELEASE_ASSERT(p != MAP_FAILED);
++      (void)*static_cast<volatile uint64_t*>(p);  // read-only touch
++      const int64_t addr = reinterpret_cast<int64_t>(p);
++      if (which == 0) single_ok += Call(single_shot, addr, 42);
++      if (which == 1) {
++        strong_ok += Call(strong, addr, 42) == 1 &&
++                     *static_cast<uint64_t*>(p) == 42;
++      }
++      if (which == 2) {
++        fetch_ok += Call(fetch_or, addr, 5) == 0 && *static_cast<uint64_t*>(p) == 5;
++      }
++      munmap(p, page);
++    }
++  }
++  EXPECT_EQ(0, single_ok);  // the control
++  EXPECT_EQ(kTrials, strong_ok);
++  EXPECT_EQ(kTrials, fetch_ok);
++}
++
++// The 32-in-64 invariant at a C boundary (7.6): a foreign callee may return
++// an int32 with a dirty upper word; the result is re-canonicalised on
++// arrival. Loads produce canonical values on their own.
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_Int32Canonical) {
++  const uword dirty = GenerateEntry("C result", [](Assembler* a) {
++    a->EnterCFrame(0);
++    a->CallCFunction(R3);
++    a->LeaveCFrame();
++  });
++  EXPECT_EQ(static_cast<int64_t>(0xdeadbeef80000001ull),
++            Call(dirty, reinterpret_cast<int64_t>(&ppc64_dirty_int32_result)));
++  const uword canonical = GenerateEntry("C result, canonical", [](Assembler* a) {
++    a->EnterCFrame(0);
++    a->CallCFunction(R3);
++    a->LeaveCFrame();
++    a->ExtendValue(R3, R3, kFourBytes);
++  });
++  EXPECT_EQ(static_cast<int64_t>(0xffffffff80000001ull),
++            Call(canonical, reinterpret_cast<int64_t>(&ppc64_dirty_int32_result)));
++  const uword unsigned_canonical = GenerateEntry("C result, uint32", [](Assembler* a) {
++    a->EnterCFrame(0);
++    a->CallCFunction(R3);
++    a->LeaveCFrame();
++    a->ExtendValue(R3, R3, kUnsignedFourBytes);
++  });
++  EXPECT_EQ(0x80000001,
++            Call(unsigned_canonical,
++                 reinterpret_cast<int64_t>(&ppc64_dirty_int32_result)));
++  int32_t m = -2;
++  const uword lwa = GenerateEntry("Load int32", [](Assembler* a) {
++    a->Load(R3, Address(R3, 0), kFourBytes);
++  });
++  const uword lwz = GenerateEntry("Load uint32", [](Assembler* a) {
++    a->Load(R3, Address(R3, 0), kUnsignedFourBytes);
++  });
++  EXPECT_EQ(-2, Call(lwa, reinterpret_cast<int64_t>(&m)));
++  EXPECT_EQ(0xfffffffe, Call(lwz, reinterpret_cast<int64_t>(&m)));
++}
++
++// ----------------------------------------------------------------------------
++// 6. With a Thread, the object pool and the heap.
++// ----------------------------------------------------------------------------
++
++ASSEMBLER_TEST_GENERATE(LoadObjects, assembler) {
++  EnterTestFrame(assembler);
++  Label fail, done;
++  __ LoadObject(R5, Object::null_object());
++  __ CompareRegisters(R5, NULL_REG);
++  __ BranchIf(NE, &fail);
++  __ LoadObject(R6, Bool::True());
++  __ CompareObject(R6, Bool::True());
++  __ BranchIf(NE, &fail);
++  __ LoadObject(R7, Smi::ZoneHandle(Smi::New(-12345)));
++  __ CompareImmediate(R7, target::ToRawSmi(-12345));
++  __ BranchIf(NE, &fail);
++  __ PushObject(Bool::False());
++  __ PopRegister(R8);
++  __ CompareObject(R8, Bool::False());
++  __ BranchIf(NE, &fail);
++  __ LoadImmediate(R3, 42);
++  __ Jump(&done);
++  __ Bind(&fail);
++  __ LoadImmediate(R3, 0);
++  __ Bind(&done);
++  LeaveTestFrame(assembler);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(LoadObjects, test) {
++  EXPECT_EQ(42, test->InvokeWithCodeAndThread<int64_t>());
++}
++
++ASSEMBLER_TEST_GENERATE(LoadIsolateAndGroup, assembler) {
++  EnterTestFrame(assembler);
++  __ LoadIsolate(R5);
++  __ LoadIsolateGroup(R6);
++  __ MoveRegister(R3, R5);
++  __ xor_(R3, R3, R6);  // isolate ^ group, checked by the runner
++  LeaveTestFrame(assembler);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(LoadIsolateAndGroup, test) {
++  Thread* thread = Thread::Current();
++  EXPECT_EQ(reinterpret_cast<int64_t>(thread->isolate()) ^
++                reinterpret_cast<int64_t>(thread->isolate_group()),
++            test->InvokeWithCodeAndThread<int64_t>());
++}
++
++// Class ids from real objects: LoadClassId, LoadClassIdMayBeSmi,
++// LoadTaggedClassIdMayBeSmi, CompareClassId, LoadClassById.
++ASSEMBLER_TEST_GENERATE(ClassIds, assembler) {
++  EnterTestFrame(assembler);
++  Label fail, done;
++  // A String in the pool.
++  __ LoadObject(R5, String::ZoneHandle(String::New("ppc64", Heap::kOld)));
++  __ LoadClassId(R6, R5);
++  __ CompareImmediate(R6, kOneByteStringCid);
++  __ BranchIf(NE, &fail);
++  __ CompareClassId(R5, kOneByteStringCid, R7);
++  __ BranchIf(NE, &fail);
++  __ LoadClassIdMayBeSmi(R7, R5);
++  __ CompareImmediate(R7, kOneByteStringCid);
++  __ BranchIf(NE, &fail);
++  __ LoadImmediate(R8, target::ToRawSmi(7));
++  __ LoadClassIdMayBeSmi(R7, R8);
++  __ CompareImmediate(R7, kSmiCid);
++  __ BranchIf(NE, &fail);
++  __ LoadTaggedClassIdMayBeSmi(R8, R8);
++  __ CompareImmediate(R8, target::ToRawSmi(kSmiCid));
++  __ BranchIf(NE, &fail);
++  __ LoadImmediate(R6, kOneByteStringCid);
++  __ LoadClassById(R9, R6);
++  __ LoadObject(R10, Class::ZoneHandle(
++                         IsolateGroup::Current()->class_table()->At(
++                             kOneByteStringCid)));
++  __ CompareRegisters(R9, R10);
++  __ BranchIf(NE, &fail);
++  __ LoadImmediate(R3, 42);
++  __ Jump(&done);
++  __ Bind(&fail);
++  __ LoadImmediate(R3, 0);
++  __ Bind(&done);
++  LeaveTestFrame(assembler);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(ClassIds, test) {
++  EXPECT_EQ(42, test->InvokeWithCodeAndThread<int64_t>());
++}
++
++// Inline bump allocation of a Mint (6, ABI-SPEC 8: the header store ends with
++// lwsync), then its value; the runner checks it is a well-formed Mint.
++ASSEMBLER_TEST_GENERATE(TryAllocateMint, assembler) {
++  EnterTestFrame(assembler);
++  Label fail, done;
++  __ TryAllocateObject(kMintCid, target::Mint::InstanceSize(), &fail,
++                       Assembler::kFarJump, R3, R6);
++  __ LoadImmediate(R7, 0x123456789abcdefll);
++  __ Store(R7, FieldAddress(R3, target::Mint::value_offset()));
++  __ Jump(&done);
++  __ Bind(&fail);
++  __ LoadObject(R3, Object::null_object());
++  __ Bind(&done);
++  LeaveTestFrame(assembler);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(TryAllocateMint, test) {
++  const Object& result =
++      Object::Handle(static_cast<ObjectPtr>(test->InvokeWithCodeAndThread<uword>()));
++  if (!result.IsNull()) {  // null: allocation tracing or no room; both legal
++    EXPECT(result.IsMint());
++    EXPECT_EQ(0x123456789abcdefll, Mint::Cast(result).Value());
++  }
++}
++
++// Element addressing on a real Array and TypedData (5.3).
++ASSEMBLER_TEST_GENERATE(ElementAddress, assembler) {
++  EnterTestFrame(assembler);
++  // Called as f(code, thread, array, smi_index).
++  __ LoadIndexedPayload(R7, R5, target::Array::data_offset(), R6,
++                        TIMES_HALF_WORD_SIZE);
++  const Address element = __ ElementAddressForRegIndex(
++      /*is_external=*/false, kArrayCid, target::kWordSize,
++      /*index_unboxed=*/false, R5, R6, R8);
++  __ Load(R9, element);
++  __ CompareRegisters(R7, R9);
++  Label fail, done;
++  __ BranchIf(NE, &fail);
++  __ ComputeElementAddressForRegIndex(R10, false, kArrayCid, target::kWordSize,
++                                      false, R5, R6);
++  __ Load(R9, Address(R10, 0));
++  __ CompareRegisters(R7, R9);
++  __ BranchIf(NE, &fail);
++  __ MoveRegister(R3, R7);
++  __ Jump(&done);
++  __ Bind(&fail);
++  __ LoadImmediate(R3, 0);
++  __ Bind(&done);
++  LeaveTestFrame(assembler);
++  __ Ret();
++}
++
++ASSEMBLER_TEST_RUN(ElementAddress, test) {
++  const Array& array = Array::Handle(Array::New(8, Heap::kOld));
++  for (intptr_t i = 0; i < 8; i++) {
++    array.SetAt(i, Smi::Handle(Smi::New(100 + i)));
++  }
++  typedef uword (*F)(CodePtr, Thread*, ArrayPtr, uword);
++  for (intptr_t i = 0; i < 8; i++) {
++    const uword got = reinterpret_cast<F>(test->entry())(
++        test->code().ptr(), Thread::Current(), array.ptr(),
++        static_cast<uword>(Smi::New(i)));
++    EXPECT_EQ(static_cast<uword>(Smi::New(100 + i)), got);
++  }
++}
++
++ISOLATE_UNIT_TEST_CASE(Assembler_PPC64_RangeCopyCompare) {
++  for (auto cond : {Assembler::kIfInRange, Assembler::kIfNotInRange}) {
++    const uword range = GenerateEntry("RangeCheck", [&](Assembler* a) {
++      Label t;
++      a->LoadImmediate(R9, 1);
++      a->RangeCheck(R3, R4, 10, 20, cond, &t);
++      a->LoadImmediate(R9, 0);
++      a->Bind(&t);
++      a->MoveRegister(R3, R9);
++    });
++    for (int64_t v : {int64_t{9}, int64_t{10}, int64_t{15}, int64_t{20},
++                      int64_t{21}, int64_t{-1}, kMinInt64}) {
++      const bool in = v >= 10 && v <= 20;
++      EXPECT_EQ((cond == Assembler::kIfInRange) == in ? 1 : 0, Call(range, v));
++    }
++  }
++  const uword copy = GenerateEntry("CopyMemoryWords", [](Assembler* a) {
++    a->CopyMemoryWords(R3, R4, R5, R6);
++  });
++  uint64_t src[6] = {1, 2, 3, 4, 5, 6}, dst[6] = {0, 0, 0, 0, 0, 0};
++  Call(copy, reinterpret_cast<int64_t>(src), reinterpret_cast<int64_t>(dst),
++       4 * 8);
++  EXPECT_EQ(4u, dst[3]);
++  EXPECT_EQ(0u, dst[4]);
++  const uword compare = GenerateEntry("CompareWords", [](Assembler* a) {
++    Label equal;
++    a->LoadImmediate(R9, 0);
++    a->CompareWords(R3, R4, 16, R5, R6, &equal);
++    a->MoveRegister(R3, R9);
++    a->Ret();
++    a->Bind(&equal);
++    a->LoadImmediate(R3, 1);
++  });
++  uint64_t x[6] = {0, 0, 7, 8, 9, 10}, y[6] = {0, 0, 7, 8, 9, 11};
++  EXPECT_EQ(1, Call(compare, reinterpret_cast<int64_t>(x) + kHeapObjectTag,
++                    reinterpret_cast<int64_t>(y) + kHeapObjectTag, 3));
++  EXPECT_EQ(0, Call(compare, reinterpret_cast<int64_t>(x) + kHeapObjectTag,
++                    reinterpret_cast<int64_t>(y) + kHeapObjectTag, 4));
++}
++
++// ----------------------------------------------------------------------------
++// 7. The identity forms of the RegRegImm families of assembler_test.cc, and
++// the per-architecture parts of RegRegImmTests.
++// ----------------------------------------------------------------------------
++
++static void CheckIsIdentity(Expect& expect, AssemblerTest* test) {
++  for (size_t i = 0; i < ARRAY_SIZE(kRegRegImmInputs); ++i) {
++    const intptr_t input = kRegRegImmInputs[i];
++    const intptr_t result = test->Invoke<intptr_t, intptr_t>(input);
++    expect.Equals(input, result);
++  }
++}
++
++#define GENERATE_ASSEMBLER_IDENTITY_TEST(inst, rhs)                            \
++  ASSEMBLER_TEST_GENERATE(inst##_##rhs##_Identity_Direct, assembler) {         \
++    RELEASE_ASSERT(RegRegImmTests::kInputReg == RegRegImmTests::kReturnReg);   \
++    __ inst(RegRegImmTests::kReturnReg, RegRegImmTests::kInputReg, rhs,        \
++            kWordBytes);                                                       \
++    __ Ret();                                                                  \
++  }                                                                            \
++  ASSEMBLER_TEST_RUN(inst##_##rhs##_Identity_Direct, test) {                   \
++    Expect expect(__FILE__, __LINE__);                                         \
++    CheckIsIdentity(expect, test);                                             \
++    /* The identity emits nothing but the return. */                          \
++    EXPECT_EQ(static_cast<intptr_t>(Instr::kInstrSize),                        \
++              static_cast<intptr_t>(test->payload_size()));                    \
++  }                                                                            \
++  ASSEMBLER_TEST_GENERATE(inst##_##rhs##_Identity_Indirect, assembler) {       \
++    RELEASE_ASSERT(RegRegImmTests::kInputReg != TMP);                          \
++    __ inst(TMP, RegRegImmTests::kInputReg, rhs, kWordBytes);                  \
++    __ MoveRegister(RegRegImmTests::kReturnReg, TMP);                          \
++    __ Ret();                                                                  \
++  }                                                                            \
++  ASSEMBLER_TEST_RUN(inst##_##rhs##_Identity_Indirect, test) {                 \
++    Expect expect(__FILE__, __LINE__);                                         \
++    CheckIsIdentity(expect, test);                                             \
++  }
++
++GENERATE_ASSEMBLER_IDENTITY_TEST(AndImmediate, kMaxUint64)
++GENERATE_ASSEMBLER_IDENTITY_TEST(LslImmediate, 0)
++GENERATE_ASSEMBLER_IDENTITY_TEST(ArithmeticShiftRightImmediate, 0)
++
++#undef GENERATE_ASSEMBLER_IDENTITY_TEST
++
++// LslImmediate keeps the size's canonical form (7.6): kFourBytes results are
++// sign-extended, kUnsignedFourBytes zero-extended.
++intptr_t RegRegImmTests::Lsl(intptr_t value, intptr_t shift, OperandSize sz) {
++  return ExtendValue(static_cast<uintptr_t>(value) << shift, sz);
++}
++
++intptr_t RegRegImmTests::Asr(intptr_t value, intptr_t shift, OperandSize sz) {
++  return ExtendValue(SignExtendValue(value, sz) >> shift, sz);
++}
++
++}  // namespace compiler
++}  // namespace dart
++
++#endif  // defined(TARGET_ARCH_PPC64)
+diff --git a/runtime/vm/compiler/compiler_sources.gni b/runtime/vm/compiler/compiler_sources.gni
+index d4fab9d7..944876e7 100644
+--- a/runtime/vm/compiler/compiler_sources.gni
++++ b/runtime/vm/compiler/compiler_sources.gni
+@@ -177,6 +177,7 @@ compiler_sources_tests = [
+   "assembler/assembler_arm_test.cc",
+   "assembler/assembler_ia32_test.cc",
+   # ppc64-sync: begin assembler_test (generated by work/dart-ppc64-sync.sh)
++  "assembler/assembler_ppc64_test.cc",
+   # ppc64-sync: end assembler_test
+   "assembler/assembler_riscv_test.cc",
+   "assembler/assembler_test.cc",
+diff --git a/runtime/vm/stub_code_ppc64_test.cc b/runtime/vm/stub_code_ppc64_test.cc
+new file mode 100644
+index 00000000..47b31169
+--- /dev/null
++++ b/runtime/vm/stub_code_ppc64_test.cc
+@@ -0,0 +1,251 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "vm/globals.h"
++#if defined(TARGET_ARCH_PPC64)
++
++#include "vm/dart_entry.h"
++#include "vm/heap/safepoint.h"
++#include "vm/isolate.h"
++#include "vm/native_entry.h"
++#include "vm/native_entry_test.h"
++#include "vm/object.h"
++#include "vm/runtime_entry.h"
++#include "vm/stub_code.h"
++#include "vm/symbols.h"
++#include "vm/unit_test.h"
++
++// Gate G3 of work/stubs/M3-BOOT-PLAN.md: the first stubs that run.
++//
++//   CallRuntimeStubCode, CallLeafRuntimeStubCode   ports of
++//       stub_code_arm64_test.cc (argument registers through the ABI-SPEC 2.3
++//       bijection): InvokeDartCode, EnterDartFrame, CallToRuntime with
++//       NativeArguments by value in r3-r6 (Amendment A1), LeafRuntimeScope.
++//   InvokeDartCodeKeepsCalleeSaved   the ELFv2 contract of InvokeDartCode,
++//       from outside: r14-r31, f14-f31 and CR2-CR4 hold sentinels when C
++//       enters the stub, the Dart function clobbers every register it may,
++//       and all of them are back when the stub returns. Control (manual, at
++//       G3): drop one register from PushNativeCalleeSavedRegisters and see
++//       this test fail.
++//   ExceptionAcrossCFrame   a Dart function calls a runtime entry that
++//       throws; the exception crosses the runtime's C frame back to the entry
++//       frame (JumpToFrame, the InvokeDartCode exception return path).
++// The fresh-page CAS and the 32-in-64 canonicalisation tests are
++// Assembler_PPC64_FreshPageCAS and Assembler_PPC64_Int32Canonical in
++// compiler/assembler/assembler_ppc64_test.cc, which also defines
++// ppc64_sentinel_call.
++
++extern "C" uint64_t ppc64_sentinel_call(uint64_t fn,
++                                        uint64_t a0,
++                                        uint64_t a1,
++                                        uint64_t a2,
++                                        uint64_t a3,
++                                        uint64_t* out);
++
++#define __ assembler->
++
++namespace dart {
++
++void Ppc64ExpectCalleeSavedIntact(const uint64_t* out);  // assembler test
++
++static Function* CreateFunction(const char* name) {
++  const String& class_name =
++      String::Handle(Symbols::New(Thread::Current(), "ownerClass"));
++  const Script& script = Script::Handle();
++  const Library& lib = Library::Handle(Library::New(class_name));
++  const Class& owner_class = Class::Handle(
++      Class::New(lib, class_name, script, TokenPosition::kNoSource));
++  const String& function_name =
++      String::ZoneHandle(Symbols::New(Thread::Current(), name));
++  const FunctionType& signature = FunctionType::ZoneHandle(FunctionType::New());
++  Function& function = Function::ZoneHandle(Function::New(
++      signature, function_name, UntaggedFunction::kRegularFunction, true, false,
++      false, false, false, owner_class, TokenPosition::kNoSource));
++  return &function;
++}
++
++// Test calls to stub code which calls into the runtime.
++static void GenerateCallToCallRuntimeStub(compiler::Assembler* assembler,
++                                          int length) {
++  const int argc = 2;
++  const Smi& smi_length = Smi::ZoneHandle(Smi::New(length));
++  __ EnterDartFrame(0);
++  __ PushObject(Object::null_object());  // Push Null obj for return value.
++  __ PushObject(smi_length);             // Push argument 1: length.
++  __ PushObject(Object::null_object());  // Push argument 2: type arguments.
++  ASSERT(kAllocateArrayRuntimeEntry.argument_count() == argc);
++  __ CallRuntime(kAllocateArrayRuntimeEntry, argc);
++  __ Drop(argc);
++  __ PopRegister(R3);  // Pop return value from return slot.
++  __ LeaveDartFrame();
++  __ Ret();
++}
++
++ISOLATE_UNIT_TEST_CASE(CallRuntimeStubCode) {
++  extern const Function& RegisterFakeFunction(const char* name,
++                                              const Code& code);
++  const int length = 10;
++  const char* kName = "Test_CallRuntimeStubCode";
++  compiler::ObjectPoolBuilder object_pool_builder;
++  compiler::Assembler assembler(&object_pool_builder);
++  GenerateCallToCallRuntimeStub(&assembler, length);
++  SafepointWriteRwLocker ml(thread, thread->isolate_group()->program_lock());
++  const Code& code = Code::Handle(Code::FinalizeCodeAndNotify(
++      *CreateFunction("Test_CallRuntimeStubCode"), nullptr, &assembler,
++      Code::PoolAttachment::kAttachPool));
++  const Function& function = RegisterFakeFunction(kName, code);
++  Array& result = Array::Handle();
++  result ^= DartEntry::InvokeFunction(function, Object::empty_array());
++  EXPECT_EQ(length, result.Length());
++}
++
++// Test calls to stub code which calls into a leaf runtime entry.
++static void GenerateCallToCallLeafRuntimeStub(compiler::Assembler* assembler,
++                                              const char* str_value,
++                                              intptr_t lhs_index_value,
++                                              intptr_t rhs_index_value,
++                                              intptr_t length_value) {
++  const String& str = String::ZoneHandle(String::New(str_value, Heap::kOld));
++  const Smi& lhs_index = Smi::ZoneHandle(Smi::New(lhs_index_value));
++  const Smi& rhs_index = Smi::ZoneHandle(Smi::New(rhs_index_value));
++  const Smi& length = Smi::ZoneHandle(Smi::New(length_value));
++  __ EnterDartFrame(0);
++  {
++    compiler::LeafRuntimeScope rt(assembler,
++                                  /*frame_size=*/0,
++                                  /*preserve_registers=*/false);
++    // ARM64's R0-R3 are r3-r6 (ABI-SPEC 2.3), the first C arguments.
++    __ LoadObject(R3, str);
++    __ LoadObject(R4, lhs_index);
++    __ LoadObject(R5, rhs_index);
++    __ LoadObject(R6, length);
++    rt.Call(kCaseInsensitiveCompareUCS2RuntimeEntry, 4);
++  }
++  __ LeaveDartFrame();
++  __ Ret();  // Return value is in R3.
++}
++
++ISOLATE_UNIT_TEST_CASE(CallLeafRuntimeStubCode) {
++  extern const Function& RegisterFakeFunction(const char* name,
++                                              const Code& code);
++  const char* str_value = "abAB";
++  intptr_t lhs_index_value = 0;
++  intptr_t rhs_index_value = 2;
++  intptr_t length_value = 2;
++  const char* kName = "Test_CallLeafRuntimeStubCode";
++  compiler::ObjectPoolBuilder object_pool_builder;
++  compiler::Assembler assembler(&object_pool_builder);
++  GenerateCallToCallLeafRuntimeStub(&assembler, str_value, lhs_index_value,
++                                    rhs_index_value, length_value);
++  SafepointWriteRwLocker ml(thread, thread->isolate_group()->program_lock());
++  const Code& code = Code::Handle(Code::FinalizeCodeAndNotify(
++      *CreateFunction("Test_CallLeafRuntimeStubCode"), nullptr, &assembler,
++      Code::PoolAttachment::kAttachPool));
++  if (FLAG_disassemble) {
++    OS::PrintErr("Disassemble:\n");
++    code.Disassemble();
++  }
++  const Function& function = RegisterFakeFunction(kName, code);
++  Instance& result = Instance::Handle();
++  result ^= DartEntry::InvokeFunction(function, Object::empty_array());
++  EXPECT_EQ(Bool::True().ptr(), result.ptr());
++}
++
++// A Dart function that writes every register Dart code may write: all the
++// allocatable GPRs (CODE_REG included), every FPR (f14-f31 are
++// allocatable and ELFv2 non-volatile), then returns null.
++static void GenerateClobberEverything(compiler::Assembler* assembler) {
++  __ EnterDartFrame(0);
++  for (intptr_t r = 0; r < kNumberOfCpuRegisters; r++) {
++    if ((kDartAvailableCpuRegs & (1 << r)) != 0) {
++      __ LoadImmediate(static_cast<Register>(r), 0x6c6f62626572ll + r);
++    }
++  }
++  for (intptr_t f = 0; f < kNumberOfFpuRegisters; f++) {
++    __ LoadDImmediate(static_cast<FpuRegister>(f), -1.5 * (f + 1));
++  }
++  __ LoadObject(R3, Object::null_object());
++  __ LeaveDartFrame();
++  __ Ret();
++}
++
++ISOLATE_UNIT_TEST_CASE(InvokeDartCodeKeepsCalleeSaved) {
++  extern const Function& RegisterFakeFunction(const char* name,
++                                              const Code& code);
++  const char* kName = "Test_InvokeDartCodeKeepsCalleeSaved";
++  compiler::ObjectPoolBuilder object_pool_builder;
++  compiler::Assembler assembler(&object_pool_builder);
++  GenerateClobberEverything(&assembler);
++  SafepointWriteRwLocker ml(thread, thread->isolate_group()->program_lock());
++  const Code& code = Code::Handle(Code::FinalizeCodeAndNotify(
++      *CreateFunction(kName), nullptr, &assembler,
++      Code::PoolAttachment::kAttachPool));
++  const Function& function = RegisterFakeFunction(kName, code);
++
++  // The ordinary way in first: DartEntry.
++  Object& result = Object::Handle(
++      DartEntry::InvokeFunction(function, Object::empty_array()));
++  EXPECT(result.IsNull());
++
++  // Then the stub directly, entered from ppc64_sentinel_call, in the state
++  // DartEntry's own scope establishes (generated, no long jump base).
++  const Array& arguments_descriptor =
++      Array::Handle(ArgumentsDescriptor::NewBoxed(/*type_args_len=*/0,
++                                                  /*num_arguments=*/0));
++  uint64_t out[40];
++  uint64_t returned;
++  {
++    TransitionToGenerated transition(thread);
++    LongJumpScope* const saved_long_jump_base = thread->long_jump_base();
++    thread->set_long_jump_base(nullptr);
++    returned = ppc64_sentinel_call(
++        StubCode::InvokeDartCode().EntryPoint(),
++        static_cast<uint64_t>(static_cast<uword>(code.ptr())),
++        static_cast<uint64_t>(static_cast<uword>(arguments_descriptor.ptr())),
++        static_cast<uint64_t>(static_cast<uword>(Object::empty_array().ptr())),
++        reinterpret_cast<uint64_t>(thread), out);
++    thread->set_long_jump_base(saved_long_jump_base);
++  }
++  EXPECT_EQ(static_cast<uint64_t>(static_cast<uword>(Object::null())),
++            returned);
++  Ppc64ExpectCalleeSavedIntact(out);
++}
++
++// A Dart function that throws through the Throw runtime entry.
++static void GenerateThrow(compiler::Assembler* assembler,
++                          const Instance& exception) {
++  __ EnterDartFrame(0);
++  __ PushObject(Object::null_object());  // Return slot.
++  __ PushObject(exception);              // Argument: the exception.
++  ASSERT(kThrowRuntimeEntry.argument_count() == 1);
++  __ CallRuntime(kThrowRuntimeEntry, 1);
++  __ Breakpoint();  // Throw does not return.
++}
++
++ISOLATE_UNIT_TEST_CASE(ExceptionAcrossCFrame) {
++  extern const Function& RegisterFakeFunction(const char* name,
++                                              const Code& code);
++  const char* kName = "Test_ExceptionAcrossCFrame";
++  const String& exception =
++      String::ZoneHandle(String::New("ppc64 exception", Heap::kOld));
++  compiler::ObjectPoolBuilder object_pool_builder;
++  compiler::Assembler assembler(&object_pool_builder);
++  GenerateThrow(&assembler, exception);
++  SafepointWriteRwLocker ml(thread, thread->isolate_group()->program_lock());
++  const Code& code = Code::Handle(Code::FinalizeCodeAndNotify(
++      *CreateFunction(kName), nullptr, &assembler,
++      Code::PoolAttachment::kAttachPool));
++  code.set_exception_handlers(Object::empty_exception_handlers());
++  const Function& function = RegisterFakeFunction(kName, code);
++  const Object& result = Object::Handle(
++      DartEntry::InvokeFunction(function, Object::empty_array()));
++  EXPECT(result.IsUnhandledException());
++  if (result.IsUnhandledException()) {
++    EXPECT(UnhandledException::Cast(result).exception() == exception.ptr());
++  }
++}
++
++}  // namespace dart
++
++#endif  // defined(TARGET_ARCH_PPC64)

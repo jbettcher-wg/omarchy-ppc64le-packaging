@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 06:09:37 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  pkg/native_stack_traces/lib/src/elf.dart
+  runtime/vm/compiler/stub_code_compiler_ppc64.cc
+
+Sources:
+  asm 17929b0
+  stubs 6bec940
+  il 8df2468
+  aot 66740f7
+---
+ pkg/native_stack_traces/lib/src/elf.dart        |  4 ++++
+ runtime/vm/compiler/stub_code_compiler_ppc64.cc | 12 +++++++++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/pkg/native_stack_traces/lib/src/elf.dart b/pkg/native_stack_traces/lib/src/elf.dart
+index 25e4c51b..4ff6b8ac 100644
+--- a/pkg/native_stack_traces/lib/src/elf.dart
++++ b/pkg/native_stack_traces/lib/src/elf.dart
+@@ -259,6 +259,7 @@ class ElfHeader {
+   static const _EM_X86_64 = 62;
+   static const _EM_AARCH64 = 183;
+   static const _EM_RISCV = 243;
++  static const _EM_PPC64 = 21;
+ 
+   String? get architecture {
+     switch (machine) {
+@@ -276,6 +277,9 @@ class ElfHeader {
+         return "x64";
+       case _EM_RISCV:
+         return wordSize == 8 ? "riscv64" : "riscv32";
++      case _EM_PPC64:
++        assert(wordSize == 8);
++        return "ppc64";
+       default:
+         return null;
+     }
+diff --git a/runtime/vm/compiler/stub_code_compiler_ppc64.cc b/runtime/vm/compiler/stub_code_compiler_ppc64.cc
+index f971a749..27086319 100644
+--- a/runtime/vm/compiler/stub_code_compiler_ppc64.cc
++++ b/runtime/vm/compiler/stub_code_compiler_ppc64.cc
+@@ -403,8 +403,18 @@ void StubCodeCompiler::GenerateLoadFfiCallbackMetadataRuntimeFunction(
+     Register dst) {
+   // Keep in sync with FfiCallbackMetadata::EnsureFirstTrampolinePageLocked.
+ 
+-  // Any address inside the stub page will do.
++  // The page that holds the START of the stub, as on arm64 and riscv: the
++  // stub (trampolines, then this shared code) begins at
++  // offset_of_first_trampoline_in_page_ inside the first page of the RX
++  // mapping and usually ends in the second one, so rounding the current PC
++  // down would find the second page whenever this code lies past the page
++  // boundary, and read the runtime function table one page too far (a null
++  // function pointer: every callback crashed in Release, where the stub is
++  // not padded to kPageSize). LoadPC gives the address of its own second
++  // instruction, CodeSize() + 4 bytes into the stub.
++  const intptr_t pc_offset = __ CodeSize() + Instr::kInstrSize;
+   __ LoadPC(dst);
++  __ AddImmediate(dst, dst, -pc_offset);
+ 
+   // Round dst down to the page size.
+   __ AndImmediate(dst, dst, FfiCallbackMetadata::kPageMask);

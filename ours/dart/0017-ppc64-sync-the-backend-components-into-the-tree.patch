@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:07:38 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
+
+Sources:
+  asm 2599c53 (uncommitted there, not synced: assembler_ppc64.h assembler_ppc64.cc)
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 07dccc5
+---
+ .../backend/flow_graph_compiler_ppc64.cc      | 125 ++++++++++++++++--
+ 1 file changed, 114 insertions(+), 11 deletions(-)
+
+diff --git a/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc b/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
+index a8849ced..f6b3297e 100644
+--- a/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
++++ b/runtime/vm/compiler/backend/flow_graph_compiler_ppc64.cc
+@@ -26,6 +26,10 @@
+ //       li r0,tts-1 ; ldx r15,type,r0 ; ld r6,stc(PP) ; mtctr r15 ; bctrl
+ //       (r15 = TTSInternalRegs::kScratchReg, r6 = TypeTestABI::
+ //       kSubtypeTestCacheReg)
++//   AOT switchable call (EmitInstanceCallAOT; global pool, slots i and i+1):
++//       ld r8,(i+1)*8(PP) ; ld r0,i*8(PP) ; mtctr r0 ; bctrl
++//   AOT PC-relative static/stub call: bl (GenerateUnRelocatedPcRelative*,
++//       far targets through CodeRelocator's trampoline, ABI-SPEC 4.4)
+ // Pool loads may take the far form `addis X,PP,ha ; ld dst,lo(X)` (ABI 6.2).
+ 
+ #include "vm/globals.h"  // Needed here to get TARGET_ARCH_PPC64.
+@@ -579,17 +583,64 @@ void FlowGraphCompiler::EmitMegamorphicInstanceCall(
+   EmitDropArguments(args_desc.SizeWithTypeArgs());
+ }
+ 
+-// AOT only (M3 is JIT). The emitted shape is the contract with Agent C's
+-// BareSwitchableCallPattern, which does not exist yet: left unimplemented
+-// rather than guessed.
+-// TODO(ppc64): AOT switchable call (M3-BOOT-PLAN 4.3 item 3, "AOT, later").
++// AOT switchable call (ARM64's structure). The target entry point and the
++// call data occupy consecutive patchable slots of the global pool (target at
++// i, data at i+1, as ARM64's LoadDoubleWordFromPoolIndex), and the AOT
++// runtime replaces slot i with an entry point (app_snapshot.cc). The target
++// is staged in R0, the Dart-call convention of ABI-SPEC 4.1 ("AOT, entry
++// point from pool: ld r0,idx(r30) ; mtctr r0 ; bctrl"), so the data load
++// comes first. Emitted, for Agent C's BareSwitchableCallPattern (walk back
++// from the return address):
++//   ld r8,(i+1)*8(PP) ; ld r0,i*8(PP) ; mtctr r0 ; bctrl
++// either pool load possibly in the far form `addis X,PP,ha ; ld dst,lo(X)`
++// (X = r8 for the data, TMP for r0; ABI-SPEC 6.2). The callee sees the
++// receiver in R3 and the data in IC_DATA_REG (the SwitchableCallMiss,
++// MonomorphicSmiableCheck, SingleTargetCall and ICCallThroughCode stubs).
++// Compile-checked only; depends on [vm-A] LoadWordFromPoolIndex.
+ void FlowGraphCompiler::EmitInstanceCallAOT(const ICData& ic_data,
+                                             intptr_t deopt_id,
+                                             const InstructionSource& source,
+                                             LocationSummary* locs,
+                                             Code::EntryKind entry_kind,
+                                             bool receiver_can_be_smi) {
+-  UNIMPLEMENTED();
++  ASSERT(CanCallDart());
++  ASSERT(ic_data.NumArgsTested() == 1);
++  const Code& initial_stub = StubCode::SwitchableCallMiss();
++  const char* switchable_call_mode = "smiable";
++  if (!receiver_can_be_smi) {
++    switchable_call_mode = "non-smi";
++    ic_data.set_receiver_cannot_be_smi(true);
++  }
++  const UnlinkedCall& data =
++      UnlinkedCall::ZoneHandle(zone(), ic_data.AsUnlinkedCall());
++
++  compiler::ObjectPoolBuilder& op = __ object_pool_builder();
++
++  __ Comment("InstanceCallAOT (%s)", switchable_call_mode);
++  // Clear argument descriptor to keep gc happy when it gets pushed on to
++  // the stack.
++  __ LoadImmediate(ARGS_DESC_REG, 0);
++  __ LoadFromOffset(R3, SP, (ic_data.SizeWithoutTypeArgs() - 1) * kWordSize);
++
++  const auto snapshot_behavior =
++      FLAG_precompiled_mode ? compiler::ObjectPoolBuilderEntry::
++                                  kResetToSwitchableCallMissEntryPoint
++                            : compiler::ObjectPoolBuilderEntry::kSnapshotable;
++  const intptr_t stub_index = op.AddObject(
++      initial_stub, ObjectPool::Patchability::kPatchable, snapshot_behavior);
++  const intptr_t data_index =
++      op.AddObject(data, ObjectPool::Patchability::kPatchable);
++  ASSERT((stub_index + 1) == data_index);
++
++  // The AOT runtime will replace the slot in the object pool with the
++  // entrypoint address - see app_snapshot.cc.
++  __ LoadWordFromPoolIndex(IC_DATA_REG, data_index);
++  __ LoadWordFromPoolIndex(R0, stub_index);
++  __ CallRegister(R0);  // mtctr r0 ; bctrl
++
++  EmitCallsiteMetadata(source, DeoptId::kNone, UntaggedPcDescriptors::kOther,
++                       locs, pending_deoptimization_env_);
++  EmitDropArguments(ic_data.SizeWithTypeArgs());
+ }
+ 
+ void FlowGraphCompiler::EmitUnoptimizedStaticCall(
+@@ -632,12 +683,29 @@ void FlowGraphCompiler::EmitOptimizedStaticCall(
+   EmitDropArguments(size_with_type_args);
+ }
+ 
+-// AOT only (dispatch table calls). TODO(ppc64): M3-BOOT-PLAN 4.3 item 3,
+-// "AOT, later".
++// AOT dispatch table call (RISC-V's address computation, ARM64's call):
++//   sldi r11,cid,3 ; add r11,r25,r11 ;
++//   ld r0,off*8(r11)  (or li/lis r0,off*8 ; ldx r0,r11,r0) ; mtctr r0 ; bctrl
++// TMP holds the slot address; the target is staged in R0 (ABI-SPEC 4.1).
++// cid_reg (DispatchTableNullErrorABI::kClassIdReg, R3) and ARGS_DESC_REG
++// survive into the callee. Not patched, so no code pattern. Compile-checked
++// only.
+ void FlowGraphCompiler::EmitDispatchTableCall(
+     int32_t selector_offset,
+     const Array& arguments_descriptor) {
+-  UNIMPLEMENTED();
++  const auto cid_reg = DispatchTableNullErrorABI::kClassIdReg;
++  ASSERT(CanCallDart());
++  ASSERT(cid_reg != ARGS_DESC_REG);
++  if (!arguments_descriptor.IsNull()) {
++    __ LoadObject(ARGS_DESC_REG, arguments_descriptor);
++  }
++  const intptr_t offset = selector_offset - DispatchTable::kOriginElement;
++  // Would like cid_reg to be available on entry to the target function
++  // for checking purposes.
++  ASSERT(cid_reg != TMP);
++  __ AddShifted(TMP, DISPATCH_TABLE_REG, cid_reg,
++                compiler::target::kWordSizeLog2);
++  __ Call(compiler::Address(TMP, offset * compiler::target::kWordSize));
+ }
+ 
+ // S-12 / contract 1: the identical stubs return TMP == 0 iff identical.
+@@ -845,12 +913,47 @@ void FlowGraphCompiler::EmitMove(Location destination,
+ // FFI native-move hooks) are defined in il_ppc64_c.cc: they are IL-C's
+ // (M3-BOOT-PLAN section 7; tools/gen-shells.py FGC_METHOD_OWNER).
+ 
+-// AOT only (BSS-relative loads read the PC, ABI-SPEC 6.5).
+-// TODO(ppc64): with the AOT work.
++// AOT: dst = *bss_start, found PC-relatively (ABI-SPEC 6.5). The
++// relocation word (bss_start - its own address, written by the image
++// writer) is placed in the instruction stream and jumped over:
++//   b skip ; [trap padding to 8] .quad reloc ; skip:
++//   mflr dst ; bcl 20,31,$+4 ; mflr tmp ; mtlr dst ;
++//   addi tmp,tmp,(reloc - pc) ; ld dst,0(tmp) ; add tmp,tmp,dst ;
++//   ld dst,0(tmp)
++// The PC read destroys LR, which may still hold a return address here (the
++// callers are FFI/native entry sequences), so it is kept in |dst| around
++// the read (dst is free until the relocation is loaded). Compile-checked
++// only.
+ void FlowGraphCompiler::LoadBSSEntry(BSS::Relocation relocation,
+                                      Register dst,
+                                      Register tmp) {
+-  UNIMPLEMENTED();
++  ASSERT(dst != tmp);
++  ASSERT(dst != R0 && tmp != R0);
++  compiler::Label skip_reloc;
++  __ Jump(&skip_reloc, compiler::Assembler::kNearJump);
++  InsertBSSRelocation(relocation);
++  __ Bind(&skip_reloc);
++  // The relocation word ends where skip_reloc is bound
++  // (AssemblerBase::InsertAlignedRelocation: padding, then the word).
++  const intptr_t reloc_offset = __ CodeSize() - compiler::target::kWordSize;
++
++  __ mflr(dst);
++  // LoadPC yields the address of its second instruction (the mflr).
++  const intptr_t pc_offset = __ CodeSize() + Instr::kInstrSize;
++  __ LoadPC(tmp);
++  __ mtlr(dst);
++  __ AddImmediate(tmp, reloc_offset - pc_offset);
++
++  // tmp holds the address of the relocation.
++  __ LoadFromOffset(dst, tmp, 0);
++
++  // dst holds the relocation itself: bss_start - tmp.
++  // tmp = tmp + (bss_start - tmp) = bss_start
++  __ AddRegisters(tmp, dst);
++
++  // tmp holds the start of the BSS section.
++  // Load the "get-thread" routine: *bss_start.
++  __ LoadFromOffset(dst, tmp, 0);
+ }
+ 
+ #undef __

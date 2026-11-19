@@ -1,0 +1,881 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# The Dart SDK on ppc64le (POWER8+, little-endian, ELFv2, glibc), with a
+# native ppc64 VM backend -- JIT and AOT -- carried as a patch series:
+# the dart CLI and its tools (pub, analyze, format, compile exe/aot-snapshot/
+# kernel/js/wasm, test, doc, DDS), dartvm, dartaotruntime, gen_snapshot and
+# the core libraries, installed as /usr/lib/dart with /usr/bin/dart and
+# /usr/bin/dartaotruntime.
+#
+# Class: local workaround (distribution packaging: system toolchain, no
+# gclient, CIPD client or sysroot). The port itself is classified patch by
+# patch in the table below.
+#
+# Seven things about this build are worth knowing before changing it.
+#
+# 1. THE PORT IS A PERMANENT DOWNSTREAM CARRY. Upstream adds architectures only
+#    when it will maintain them itself (mraleph on dart-lang/sdk#63407, the
+#    LoongArch backend, rejected May 2026). The numbered NNNN-*.patch files
+#    beside this PKGBUILD are the series' one durable home: `git format-patch`
+#    output of the unpublished port branch (flutter-port work/dart-ppc64,
+#    ppc64-backend), exported with dart-ppc64-export-patches.sh and copied in
+#    by ./sync-series. Each is applied with `patch -Np1` from the SDK root,
+#    including the ones for the BoringSSL and dart-lang/native DEPS
+#    checkouts. flutter-engine applies the same files (symlinks, its
+#    sync-dart-series) to the Dart inside the engine; gate D there proves it
+#    is the same source as this package.
+#
+# 2. SOURCES ARE FETCHED IN prepare(), SHALLOW, BY COMMIT ID, as in
+#    flutter-engine: the SDK at the 3.11.5 tag, then the 39 git DEPS
+#    (dart-sdk-fetch.sh, beside this file: one `git fetch --depth 1 <url>
+#    <sha>` each, checked against its pin). makepkg git+ sources would be
+#    `git clone --mirror`s, 5.2 GiB for the SDK repo alone (flutter-engine
+#    REPORT). Real git checkouts are also what tools/make_version.py reads for
+#    the version string and SDK hash. Of the 19 CIPD DEPS only devtools is
+#    shipped (bin/resources/devtools); it is a checksummed source from CIPD's
+#    plain /dl/ endpoint. The rest are toolchains, sysroots and test data,
+#    replaced by system packages or unused. bq shares the host's network
+#    namespace (flutter-port R15), so fetching in prepare() works under bq.
+#
+# 3. GATES. Each hashes a tree with git (`add -A -f; write-tree`), every
+#    DEPS path excluded except where named:
+#      gate 1  the SDK checkout is the tag (_base_tree)
+#      gate 2  the SDK after the series == _tree, the port branch's tree
+#      deps    each DEPS checkout the series touches == _dep_trees[path]
+#    The series is exact: applied to the pristine pins it reproduces the port
+#    branch byte for byte, so the package provably builds the source the
+#    port was tested on (ours/webkit's rule).
+#
+# 4. DART IS SELF-HOSTING. The build runs a prebuilt Dart from
+#    tools/sdks/dart-sdk, a symlink to /usr/lib/dart-bootstrap, to compile
+#    the tree's own pkg/ sources: gen_kernel, compile_platform, dart2js,
+#    create_snapshot_entry -- front-end work whose output (kernel, JS,
+#    Dart source) is platform-independent. Every snapshot that holds machine
+#    code is made by the gen_snapshot/dartvm this build compiles. CONTROL
+#    checks, in prepare() before the DEPS hooks first run the driver and
+#    again in build(), refuse a driver that is not a native linux_ppc64 Dart
+#    from this pool, and a build graph that runs the prebuilt for anything
+#    but those programs, asks it for a non-kernel snapshot, or runs a binary
+#    from outside the tree. _driver=system uses the pool's previous `dart`
+#    instead (N -> N+1 version hops). dart-bootstrap's header has the
+#    provenance chain back to the emulated arm64 stage 0.
+#
+# 5. CODEGEN IS POWER8 IN BOTH POOLS, C++ IS PER POOL. The backend has no
+#    ISA 3.0 emitter, so JIT code and every AOT snapshot -- the SDK's own
+#    tools, `dart compile` output, every Flutter app's libapp.so -- are ISA
+#    2.07 whichever pool built them; build() gates the AOT snapshots at 0
+#    ISA 3.0 instructions in BOTH pools. _power8_compat selects only the
+#    C/C++ -mcpu of the VM binaries, through the GN arg ppc64_cpu (series
+#    0004; GN never reads CFLAGS), asserted on every compile. In the baseline
+#    pool every installed ELF must scan 0. In the POWER9 pool the VM binaries
+#    carry ISA 3.0 by design (-mcpu=power9, plus the POWER9 pool's static
+#    libstdc++/libsupc++/libgcc: 1,197 words even with the compiler-default
+#    -mcpu, measured by M5); they are counted into .pkginfo, not gated.
+#
+# 6. bq RUNS makepkg --nocheck. Every gate is in prepare() or build(); check()
+#    is for a native, by-hand makepkg. Inside bq, /usr is a read-only overlay
+#    and $HOME is the real home, so HOME, PUB_CACHE and XDG_CONFIG_HOME point
+#    into $srcdir. package() runs under fakeroot and only copies files.
+#
+# 7. BUILD THIS NATIVELY: through bq / tools/build-ppc64le.sh, or makepkg in a
+#    native shell, never inside the POWERarm aarch64 sleeve Claude sessions
+#    run in (fakeroot there half-works and produces -rw------- packages owned
+#    by the builder). An agent reaches the native shell with:
+#    ssh -n -i ~/.ssh/id_claude_omarchy -o BatchMode=yes localhost
+#    Put the build root on /mnt/arch (BQ_BUILDROOT): ~3 GiB of sources and
+#    ~14 GiB of out/.
+#
+# Reproducibility, measured 2026-11-19: two independent builds of this recipe
+# (same build path) gave packages identical in 999 of 1,000 files; the one
+# that differed is an app-jit snapshot (analysis_server). The three app-jit
+# snapshots (analysis_server, dartdevc, kernel-service) come from a timed JIT
+# training run and may differ on any build; nothing gates their bytes. The
+# 14 AOT/app-jit snapshots embed the build tree's absolute path (file://
+# URIs), which is what makepkg's "Package contains reference to $srcdir"
+# warning is about; bq's elf-pathguard tolerates build-tree paths inside ELF
+# files (only $SYSROOT paths fail), so the warning is expected.
+#
+# PKGREL RULE. pacman compares versions, not contents: bump pkgrel whenever
+# the series, the gates or this recipe change at the same pkgver, then bump
+# flutter-engine (it embeds this VM) and everything built with `dart`.
+#
+# THE PATCH SERIES, in order (generated by ./sync-series from each patch's
+# own Class: line, or series.class where the commit message has none):
+# BEGIN generated: sync-series classes
+# 0001 [ppc64] tools: accept a ppc64le host; take the host arch from --host-arch
+#      Class: upstreamable in form (the --host-arch override is useful on any
+#        emulated build host); the ppc64 entries only matter together with the
+#        out-of-tree ppc64 backend.
+# 0002 [ppc64] runtime: HOST_ARCH_PPC64 host plumbing
+#      Class: upstreamable in form; only useful upstream together with a ppc64
+#        backend, which upstream does not take (dart-lang/sdk#63407).
+# 0003 [ppc64] smith: add the ppc64 architecture; map a ppc64le host to it
+#      Class: needed locally to run tools/test.py-style suites on this host;
+#        upstreamable only together with the ppc64 backend.
+# 0004 [ppc64] build: add the ppc64 cpu to the GN build
+#      Class: upstreamable in form (same shape as the riscv64 enablement); the
+#        toolchain is only exercised with the ppc64 port.
+# 0005 [ppc64] build: system clang/lld and no Debian sysroot where CIPD has none
+#      Class: local workaround (distribution packaging) in purpose; the two
+#        stamp conditions are upstreamable bug fixes on their own.
+# 0006 [ppc64] runtime: 64 KiB page constants for Linux/PPC64, as for Linux/ARM64
+#      Class: upstreamable fix (the predicate is useful even without a ppc64
+#        backend, e.g. for future 64 KiB-page targets).
+# 0007 [ppc64] sync the backend components into the tree
+#      Class: local carry: the backend itself, new files only (assembler,
+#        disassembler, IL, flow graph compiler, stubs, constants); the hunks
+#        to the shared locations.h and stub_code_compiler.cc are its arch arms
+# 0008 [ppc64] runtime: TARGET_ARCH_PPC64 arms, GN wiring, code patterns
+#      Class: local carry: backend enablement (TARGET_ARCH_PPC64 arms, GN
+#        wiring, ELF EM_PPC64/EF_PPC64_ABI_V2, assembly-snapshot CFI);
+#        upstreamable in form only together with the backend
+# 0009 [ppc64] sync the backend components into the tree
+#      Class: local carry: the ELFv2 FFI (Abi.linuxPpc64 in pkg/vm and the VM,
+#        marshaller and native calling convention); its
+#        runtime/vm/compiler/ffi/unit_test.cc and unit_test_custom_zone.h
+#        hunks are the clang 22 / libstdc++ include fix, upstreamable on its
+#        own (UPSTREAM-CANDIDATES, IL-C ffi/0002)
+# 0010 [ppc64] runtime: offsets for TARGET_ARCH_PPC64
+#      Class: local carry: generated runtime offsets for TARGET_ARCH_PPC64,
+#        extracted natively (tools/run_offsets_extractor.dart cannot cross-
+#        build ppc64)
+# 0011 [ppc64] runtime: DWARF CFI for ppc64
+#      Class: upstreamable in form: DWARF CFI uses DW_CFA_offset_extended for
+#        registers >= 64 (ELFv2's LR is 65); no change for any existing
+#        architecture
+# 0012 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (assembler, IL, flow graph compiler, FFI
+#        calling convention, cpu_ppc64)
+# 0013 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend; the flow_graph_compiler.cc hunk routes
+#        kUnboxedFloat Dart stack slots through FpuTMP on ppc64 only (ABI-SPEC
+#        A7)
+# 0014 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (il.h arch list)
+# 0015 [ppc64] runtime: BareSwitchableCallPattern for the AOT switchable call
+#      Class: local carry: backend, AOT switchable-call pattern decoder
+# 0016 [ppc64] runtime: object_ppc64_test.cc
+#      Class: local test harness: object_ppc64_test.cc code generators for
+#        object_test.cc
+# 0017 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (flow graph compiler)
+# 0018 [ppc64] runtime: list stub_code_ppc64_test.cc in vm_sources_tests
+#      Class: local test harness: stub_code_ppc64_test.cc listed in
+#        vm_sources_tests
+# 0019 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend assembler and stub unit tests
+# 0020 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (assembler, instructions_ppc64 call
+#        patterns); assembler_base.h gains the ppc64 arm
+# 0021 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (assembler, constants)
+# 0022 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (assembler + tests, IL)
+# 0023 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (cpu_ppc64: icache flush, HWCAP2 features)
+# 0024 [ppc64] sync the backend components into the tree
+#      Class: upstreamable fix + local carry: flow_graph_compiler.cc blocks
+#        FpuTMP in AllocateRegistersLocally (latent on every arch whose FpuTMP
+#        is not the last FPU register; UPSTREAM-CANDIDATES, il/shared 0002);
+#        the marshaller.cc hunk is the ppc64 variadic-HFA saved copy
+# 0025 [ppc64] sync the backend components into the tree
+#      Class: local carry: pkg/vm native-assets validator knows the ppc64
+#        architecture name
+# 0026 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend (assembler, disassembler, stubs, constants,
+#        stub tests)
+# 0027 [ppc64] sync the backend components into the tree
+#      Class: local test harness: relocation_test ppc64 arms; its "caller
+#        poisons the result register" change is upstreamable for every arch
+#        (UPSTREAM-CANDIDATES, aot 0001)
+# 0028 [ppc64] sync the backend components into the tree
+#      Class: local carry: pkg/native_stack_traces recognises EM_PPC64 as
+#        "ppc64" (aot 0002), plus a stub_code_compiler_ppc64 fix
+# 0029 [ppc64] sync the backend components into the tree
+#      Class: upstreamable fix: linear-scan SpillAfter spilled register uses
+#        between the loop header and the spill point; a latent miscompile on
+#        every arch (release arm64 encodes a garbage register; UPSTREAM-
+#        CANDIDATES, il/shared 0003)
+# 0030 [ppc64] sync the backend components into the tree
+#      Class: local test harness (aot 0004/0005/0007: vm.status SkipByDesign,
+#        LLVM tools in buildtools/linux-ppc64, Mach-O legs skipped) + Mach-O
+#        snapshots use 64 KiB pages on PPC64 (aot 0006; upstreamable as "size
+#        Mach-O pages for the largest host page")
+# 0031 [ppc64] runtime: build analyze_snapshot for ppc64
+#      Class: local carry: runtime_args.gni builds analyze_snapshot for ppc64
+#        (64-bit AOT runtime; Flutter's //flutter:flutter depends on it); a
+#        one-line arch list, upstreamable only with the backend
+# 0032 [ppc64] sync the backend components into the tree
+#      Class: local carry: backend; code_patcher_ppc64.cc patches an AOT
+#        switchable call (target, data) pair with the mutators stopped, since
+#        ppc64 call sites read the pair with two independent loads (B's A17
+#        race fix: SEGV in concurrent lazy-deopt tests)
+# 0033 [ppc64] Add a ppc64le target (generic C, no assembly)
+#      Class: local workaround for BoringSSL (upstream dropped ppc64le);
+#        Debian chromium carries an equivalent, larger patch that also
+#        restores the assembly.
+# 0034 [ppc64] sync the backend components into third_party/pkg/native
+#      Class: required, upstreamable to dart-lang/native once Dart has ppc64:
+#        Architecture.ppc64 / Target.linuxPpc64 in third_party/pkg/native
+#        code_assets and hooks_runner (ABI-SPEC A2, aot 0003); without it
+#        every dartdev command fails
+# END generated classes
+
+pkgname=dart
+pkgver=3.11.5
+pkgrel=1
+pkgdesc='Dart SDK: the dart CLI, JIT VM, AOT compiler and runtime, and core libraries (ppc64le port)'
+arch=('powerpc64le')
+url='https://dart.dev'
+license=('BSD-3-Clause')
+
+_url=https://dart.googlesource.com/sdk.git
+_commit=c70f78e7d682c158c15ca0c26c729b3ccb932284   # tag 3.11.5
+_commit_time='Wed Apr 15 00:36:32 2026 -0700'       # git log -1 --format=%cd 3.11.5
+# The tag's tree: git rev-parse 3.11.5^{tree}. Also measured: the GitHub
+# tarball of the tag, `git init; git add -A -f; git write-tree`, gives it.
+_base_tree=6f9c66dab60de2381399ffb16dffa0ef6974c405
+# Gate 2 and the DEPS gates: the port branch's trees, written by
+# ./sync-series --trees-from <port repo> (flutter-port work/dart-ppc64,
+# ppc64-backend dce83ce0, 2026-11-19 11:14). sync-series rewrites them.
+_tree=c5aba92a8a98e5187a38d8942ffac4b1f186d428
+# -g: makepkg sources this file inside a function, where a plain declare
+# would make the array local to that function and empty by prepare().
+declare -gA _dep_trees=(
+  [third_party/boringssl/src]=a67ee71bb8c93180b9f6c516bcc92702db6b5b7a
+  [third_party/pkg/native]=6b5e0cd25a6572ab51fb683632a2995c3dad5db1
+)
+_devtools_rev=9be2c887e3982e519cf58f185d5f7b008a4606e9
+
+# Measured DT_NEEDED of dart, dartvm, dartaotruntime, gen_snapshot and
+# wasm-opt (M5's create_sdk, 2026-11-19): libc.so.6, libm.so.6, ld64.so.2.
+# The C++ runtime is linked statically.
+depends=('glibc')
+# Present on the host 2026-11-19: gn 0.2595 (M5 built with it), clang/lld/
+# llvm 22.1.8, ninja 1.13.2, python 3.14.7, git 2.55. binutils for the
+# objdump/readelf gates.
+makedepends=('gn' 'clang' 'lld' 'llvm' 'ninja' 'python' 'git' 'patch' 'file' 'binutils')
+provides=('dartaotruntime')
+# !strip: create_sdk already installs stripped binaries (exe.stripped/), and
+# bin/snapshots/*_aot.dart.snapshot are ELF files written by Dart's own ELF
+# writer that strip would treat as libraries. !lto: GN ignores makepkg's flags.
+options=('!strip' '!debug' '!lto')
+
+# --- POWER8 / POWER9 ---------------------------------------------------------
+# Set by tools/build-ppc64le.sh for the baseline pool. Selects ppc64_cpu (the
+# VM's C/C++ -mcpu) and which pool's dart-bootstrap the CONTROL accepts.
+_power8_compat=${_power8_compat:-0}
+# One time only: the first baseline-pool dart has no baseline bootstrap yet.
+# With this set it may be driven by the POWER9 dart-bootstrap, on the POWER9
+# host, under tools/build-ppc64le.sh (so it links the baseline pool's own
+# toolchain and libstdc++, and the baseline ISA gate applies); .pkginfo
+# records it, and that package is what dart-bootstrap's baseline tarball is
+# made from. Never on a POWER8 builder: the POWER9 bootstrap would SIGILL
+# there, which is what the pool check prevents.
+_cross_pool_bootstrap=${_cross_pool_bootstrap:-0}
+
+# --- which Dart runs the front-end actions -----------------------------------
+#   bootstrap  /usr/lib/dart-bootstrap (default)
+#   system     /usr/lib/dart, the pool's previous dart package
+#   external   $_driver_external, an extracted POWER9 dart-bootstrap package
+#              (usr/lib/dart-bootstrap inside it). Only together with
+#              _cross_pool_bootstrap=1: the baseline lane's sysroot cannot
+#              stage the POWER9 package, and it must not enter repo-ppc64le.
+#              bq binds / into its sandbox, so the path is visible there.
+_driver=${_driver:-bootstrap}
+case $_driver in
+  bootstrap) _driver_sdk=/usr/lib/dart-bootstrap; makedepends+=("dart-bootstrap=$pkgver") ;;
+  system)    _driver_sdk=/usr/lib/dart;           makedepends+=('dart') ;;
+  external)  _driver_sdk=
+             if (( _cross_pool_bootstrap )) && [[ ${_driver_external:-} == /* ]]; then
+               _driver_sdk=$_driver_external
+             fi ;;
+  *)         _driver_sdk= ;;   # prepare() refuses
+esac
+
+# The port series, in order. Do not edit by hand: ./sync-series.
+# BEGIN generated: sync-series
+_patches=(
+  '0001-ppc64-tools-accept-a-ppc64le-host-take-the-host-arch.patch'
+  '0002-ppc64-runtime-HOST_ARCH_PPC64-host-plumbing.patch'
+  '0003-ppc64-smith-add-the-ppc64-architecture-map-a-ppc64le.patch'
+  '0004-ppc64-build-add-the-ppc64-cpu-to-the-GN-build.patch'
+  '0005-ppc64-build-system-clang-lld-and-no-Debian-sysroot-w.patch'
+  '0006-ppc64-runtime-64-KiB-page-constants-for-Linux-PPC64-.patch'
+  '0007-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0008-ppc64-runtime-TARGET_ARCH_PPC64-arms-GN-wiring-code-.patch'
+  '0009-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0010-ppc64-runtime-offsets-for-TARGET_ARCH_PPC64.patch'
+  '0011-ppc64-runtime-DWARF-CFI-for-ppc64.patch'
+  '0012-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0013-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0014-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0015-ppc64-runtime-BareSwitchableCallPattern-for-the-AOT-.patch'
+  '0016-ppc64-runtime-object_ppc64_test.cc.patch'
+  '0017-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0018-ppc64-runtime-list-stub_code_ppc64_test.cc-in-vm_sou.patch'
+  '0019-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0020-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0021-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0022-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0023-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0024-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0025-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0026-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0027-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0028-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0029-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0030-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0031-ppc64-runtime-build-analyze_snapshot-for-ppc64.patch'
+  '0032-ppc64-sync-the-backend-components-into-the-tree.patch'
+  '0033-ppc64-Add-a-ppc64le-target-generic-C-no-assembly.patch'
+  '0034-ppc64-sync-the-backend-components-into-third_party-p.patch'
+)
+_patch_sums=(
+  '123bff3c53f75db7c8225bf163953435a48d3a815e5718d8b5750e19fca24473'
+  '38a93eab9f91b50cc70c81d5c2a747ca86eb28fa95035e02504f14334c32bc82'
+  'd1fc899b6d9455752b581ee3e2bad82354c8e35b6f05618bf2ea85928769a215'
+  'cf64f249a1cb942fc9762c69e610255475a6289f338f386f27ae620b6d61c546'
+  '318fc6468eb33d99f27ad04fed330f0f77fe469d0cf23d442773cb2548639b12'
+  '6a47d495a49f2b0d14d51bdfb702076b17e1d347b17c6feb0e9feff9895fb850'
+  'b84ef6279240d78dc02fdf14429c2dfe07b082e9dd230c18708306f9f7a443fd'
+  '27b7525aa5bc66965c0521d86276a36a3c1d71474012487d0ba2ade92125c257'
+  '2557a33c080581125d248915b7d990f0e430b138fb1fdc59bf201ef6c80c554c'
+  '417ff0bdc9a85c5cef528fc8f62ec20b32f46a59044a03122b7b4900c6bd6a2e'
+  '8da995c006b9addd6696542b0ff92aa343985701fe2608cf14f2f0863e0a893a'
+  'cea221389b0750c3f74aea5b1e2f8daa5a6b80fded8b862e1e11ced4313cd64c'
+  '947c8c6c007182d887d847628703763ac45ba6c85613ebebecd0970e4cb259f6'
+  '03cc9b767e1d02a6cb266f720e0837d153e38c3987da5fd085ec29acaa29261b'
+  '39698357c8d96b17a2d245b4da4bf0e96355be2a77d305787118f6a80bdf4b6a'
+  '9189d0b3eb920e84d7b342cf7a0108066a9bb85cb8d932c4d7a1c7345f67e966'
+  'bcc1edcce3bc4545ad43da4b5b10a09282c08a28b767f922f05a8106465cdd88'
+  'e5e0fe46133ed94f7a90b6c6c8f3af6510648810e3dbe59683b472686247a58c'
+  '8135a29ec887dd967a9231a2f3191be4e8e2ba44213fc7a0d71c2581331924ec'
+  '27bfd94cf1b75031ff4c236df8d656dc122a72dd47d959c11de9cc15687b3ff5'
+  'e6d1e873c6d9b659bdacf7ea79cae087512c0a75a50a6237c2e036832ca614a6'
+  '04cfc9e0be4caf7a77757489cbd68af8110ec7bf6cff4ca64b980629e2d0e54f'
+  'd957bc71f23ccbfb07e61a124c52e67ece8daab5da1e7317637bfa0d532d4578'
+  '6c9577ac76098957ea5188e044fd30e3aa93dd269c38181f2c869964fa74f132'
+  'db264ce4d3042a8f89dfdf859bc01d6e2c44d01a8f90b48ddfaf0d8751c7bf4a'
+  '4aef0e294db59315b4130babddde1e23274de2005efdb5c56009b9b77cf33a6b'
+  'ab85b19b768dc10bb13940be0aa86758e8ff991c8ff86228a1cbeb5196a0b240'
+  'b798c7eb3349633f4903b7b2b4446f15e9073becdd4be0f640db30a796c151c0'
+  '72bb09d43cc7cde5dbd73eec363833a35109e357358fcae8499e8fb1b43f4ee1'
+  'b407ad3ec228490fbd83f3d035e539b1c7ecdf3c566ca80d1c20839a5beb6221'
+  '6ba30f855cd963384a5a1149464c1a45c0dd3e6413460d6d8e8e6c727b8f18e5'
+  '9cc930e5dd76db3082d9a8d0e308fadb96d4760761ff1513718d6348dbb0afdc'
+  'ba142923a296afc0558f217c9906b4e0a8e3e338ba93f46eadc8b884ceadd729'
+  'a1a3e4cd0b11ba659ac4f6a388424ecf1a3026079278b27311a911716367fc5f'
+)
+# END generated
+
+source=(
+  'dart-sdk-fetch.sh'
+  "devtools-$_devtools_rev.zip::https://chrome-infra-packages.appspot.com/dl/dart/third_party/flutter/devtools/+/git_revision:$_devtools_rev"
+  "${_patches[@]}"
+)
+sha256sums=(
+  'cad2179f9bab2899613d6713c591b1be75b2290b38633a3b87af9fc7d89238a3'
+  'bd823b80fd88fa9cfadfbbafce06eb99f9df3c66f94ea04d494768d0344263be'
+  "${_patch_sums[@]}"
+)
+# Unpacked by prepare() into the DEPS path it belongs to.
+noextract=("devtools-$_devtools_rev.zip")
+
+_out=out/ReleasePPC64   # tools/utils.py GetBuildConf('release', 'ppc64')
+
+# The programs the prebuilt Dart may run, by basename of its first non-option
+# argument, and the only snapshot kind it may be asked for. Measured
+# 2026-11-19 from `ninja -t commands create_sdk runtime` (M5's graph and this
+# recipe's): 39 prebuilt actions, all front end.
+_leaf_programs='bootstrap_gen_kernel.dill compile_platform.dart create_snapshot_entry.dart dart2js.dart gen_kernel.dart'
+
+_env() {
+  # bq's $HOME is the real home: keep pub, dartdev and analytics out of it.
+  export HOME="$srcdir/home" XDG_CONFIG_HOME="$srcdir/home/.config"
+  export PUB_CACHE="$srcdir/pub-cache" DART_SUPPRESS_ANALYTICS=true
+  mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$PUB_CACHE"
+}
+
+# Every DEPS path (git and CIPD), plus what the fetch writes, so the gates
+# hash the SDK's own files and nothing a fetch put there.
+_dep_paths() {
+  bash "$srcdir/dart-sdk-fetch.sh" --list "$srcdir/sdk" | cut -f2
+  printf '%s\n' buildtools build/config/gclient_args.gni
+}
+
+# _tree_of <repo dir> <pathspec excludes...>: the tree git would commit.
+_tree_of() {
+  local d=$1; shift
+  git -C "$d" add -A -f -- . "$@"
+  git -C "$d" write-tree
+}
+
+prepare() {
+  _env
+  [[ -n $_driver_sdk ]] || { echo "ERROR: no driver SDK for _driver=$_driver (external needs _cross_pool_bootstrap=1 and an absolute _driver_external)" >&2; return 1; }
+  local root=$srcdir/sdk got p
+
+  # Fresh every time: a tree left from an earlier run fails the gates,
+  # correctly but uselessly.
+  rm -rf "$root"
+  mkdir "$root"
+  git -C "$root" init -q
+  git -C "$root" remote add origin "$_url"
+  git -C "$root" fetch -q --depth 1 --no-tags origin "$_commit"
+  git -C "$root" -c advice.detachedHead=false checkout -q FETCH_HEAD
+  cd "$root"
+
+  # Gate 1: the tag, in git's own terms.
+  [[ $(git rev-parse HEAD) == "$_commit" ]] \
+    || { echo "ERROR: SDK HEAD is $(git rev-parse HEAD), not $_commit" >&2; return 1; }
+  got=$(git rev-parse 'HEAD^{tree}')
+  [[ $got == "$_base_tree" ]] \
+    || { printf 'ERROR: tag tree is %s, expected %s\n' "$got" "$_base_tree" >&2; return 1; }
+  printf 'base tree %s = tag %s\n' "$got" "$pkgver"
+
+  # DEPS: the 39 git deps, shallow, each checked against its pin by the tool
+  # (it fails on any mismatch). Also writes build/config/gclient_args.gni.
+  bash "$srcdir/dart-sdk-fetch.sh" --jobs 10 "$root"
+  # devtools (CIPD, checksummed source). Extract over the directory: it holds
+  # a README.md tracked by the SDK itself.
+  mkdir -p third_party/devtools
+  bsdtar -xf "$srcdir/devtools-$_devtools_rev.zip" -C third_party/devtools
+  # The CIPD zip stores its entries 0600/0700, and create_sdk copies them
+  # verbatim into bin/resources/devtools: the first package build shipped 433
+  # files only root could read (`dart devtools` broken for every user).
+  # DevTools is web content; normalise it. build() gates every mode.
+  find third_party/devtools -type d -exec chmod 755 {} +
+  find third_party/devtools -type f -exec chmod 644 {} +
+
+  local -a excl
+  while IFS= read -r p; do excl+=(":(exclude)$p"); done < <(_dep_paths)
+
+  # The port series, from the SDK root (it reaches the BoringSSL and
+  # dart-lang/native checkouts with ordinary paths).
+  for p in "${_patches[@]}"; do
+    printf 'Applying %s\n' "$p"
+    patch -Np1 -F0 --no-backup-if-mismatch -s -i "$srcdir/$p"
+  done
+
+  # Gate 2 and the DEPS gates.
+  got=$(_tree_of . "${excl[@]}")
+  if (( ! ${#_patches[@]} )); then
+    [[ $got == "$_base_tree" ]] || { echo "ERROR: no series, but the tree is $got" >&2; return 1; }
+  else
+    [[ $_tree != TODO ]] || { echo "ERROR: _tree is unset but the series is not empty (got $got)" >&2; return 1; }
+    [[ $got == "$_tree" ]] \
+      || { printf 'ERROR: patched SDK tree is %s, expected %s\n' "$got" "$_tree" >&2; return 1; }
+  fi
+  printf 'patched tree %s matches (%d patches)\n' "$got" "${#_patches[@]}"
+  for p in "${!_dep_trees[@]}"; do
+    got=$(_tree_of "$p")
+    [[ $got == "${_dep_trees[$p]}" ]] \
+      || { printf 'ERROR: %s patched tree is %s, expected %s\n' "$p" "$got" "${_dep_trees[$p]}" >&2; return 1; }
+    printf '%s tree %s matches\n' "$p" "$got"
+  done
+
+  # What gclient's CIPD step would have installed, replaced by system tools
+  # and the chosen driver. Everything below is AFTER the gates on purpose.
+  # buildtools/ is not in the SDK at all; it is CIPD's destination.
+  mkdir -p buildtools/ninja tools/sdks
+  ln -sfn /usr/bin/gn buildtools/gn
+  ln -sfn /usr/bin/ninja buildtools/ninja/ninja
+  rm -rf tools/sdks/dart-sdk
+  ln -sfn "$_driver_sdk" tools/sdks/dart-sdk
+
+  # The driver runs in the hooks below, so check what it is now, before it
+  # runs (build() checks it again together with the build graph).
+  _control_driver_identity
+
+  # The two DEPS hooks the build needs (Alpine runs the same pair); the
+  # others are depot_tools/clang-format, Windows, emscripten, Fuchsia and
+  # generated large tests.
+  python3 tools/generate_package_config.py
+  python3 tools/generate_sdk_version_file.py
+}
+
+build() {
+  _env
+  cd sdk
+
+  local jobs="${NINJAFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs="${MAKEFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs=48
+
+  local mcpu=power9
+  (( _power8_compat )) && mcpu=power8
+  # --host-arch so nothing probes uname (under POWERarm uname says aarch64).
+  python3 tools/gn.py --mode=release --arch=ppc64 --host-arch=ppc64 --no-rbe \
+    --gn-args "ppc64_cpu=\"$mcpu\""
+
+  _control_mcpu "$_out"
+  _control_graph "$_out"
+  _control_driver_identity
+
+  ninja -C "$_out" -j"$jobs" create_sdk runtime
+
+  local stage=$srcdir/stage
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  cp -a "$_out/dart-sdk" "$stage/dart-sdk"
+  _gate_elves "$stage/dart-sdk"
+  _gate_modes "$stage/dart-sdk"
+  _smoke "$stage/dart-sdk"
+  _gate_isa30 "$stage/dart-sdk"
+}
+
+# Every ELF about to be installed is a 64-bit little-endian PowerPC one whose
+# LOAD segments are all 64 KiB-aligned (series 0004 pins -z max-page-size;
+# Dart's own ELF writer, kElfPageSize, series 0006).
+_gate_elves() {
+  local f bad=0 n=0 al
+  while IFS= read -r -d '' f; do
+    [[ $(od -An -tx1 -N4 "$f") == " 7f 45 4c 46" ]] || continue
+    n=$((n + 1))
+    file -b "$f" | grep -q '64-bit LSB .*PowerPC' \
+      || { echo "GATE FAILED: not a ppc64le ELF: ${f#"$1"/} ($(file -b "$f" | cut -d, -f1-2))" >&2; bad=1; continue; }
+    al=$(readelf -lW "$f" | awk '$1 == "LOAD" { print $NF }' | sort -u | tr '\n' ' ')
+    [[ $al == '0x10000 ' ]] \
+      || { echo "GATE FAILED: ${f#"$1"/} LOAD alignment is '$al', not 0x10000" >&2; bad=1; }
+  done < <(find "$1" -type f -print0)
+  (( n > 0 )) || { echo "GATE FAILED: no ELF files in $1" >&2; return 1; }
+  (( ! bad )) || return 1
+  printf 'all %d ELF files are ppc64le with 64 KiB LOAD alignment\n' "$n"
+}
+
+# Every file readable, and every directory searchable, by everyone; nothing
+# writable by group or other. package() copies modes verbatim (cp -a).
+_gate_modes() {
+  local bad
+  bad=$(find "$1" \( -type f \( ! -perm -0444 -o -perm /0022 \) \) -o \
+                  \( -type d \( ! -perm -0555 -o -perm /0022 \) \) | head -5)
+  [[ -z $bad ]] || { echo "GATE FAILED: bad modes, e.g.:" >&2; ls -ld $bad >&2; return 1; }
+  printf 'modes: every file world-readable, every directory world-searchable, none group/other-writable\n'
+}
+
+# Same method as omarchy-ppc64le tools/isa30-pkgscan.sh and the M5 AOT scan:
+# objdump decodes an ISA 3.0-only encoding as .long under -M power8 but not
+# under -M power9; data in text is .long under both and cancels.
+_isa30_count() {
+  local n8 n9
+  n8=$(objdump -d --no-show-raw-insn -M power8 "$1" 2>/dev/null | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  n9=$(objdump -d --no-show-raw-insn -M power9 "$1" 2>/dev/null | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  echo $((n8 - n9))
+}
+
+# The scanner must be able to see what it gates: one ISA 3.0 word
+# (xscvhpdp vs1,vs2 = 0xf030156c, from gas -mpower9) written over the last
+# word of .text in a copy of $1 must count exactly one more.
+_isa30_selftest() {
+  local f=$1 c=$srcdir/isa30-selftest.elf off size base got
+  read -r off size < <(readelf -SW "$f" | sed 's/\[ *\([0-9]*\)\]/[\1]/' \
+                         | awk '$2 == ".text" { print strtonum("0x" $5), strtonum("0x" $6) }')
+  [[ -n $off && -n $size ]] || { echo "GATE FAILED: no .text in $f for the scanner self-test" >&2; return 1; }
+  base=$(_isa30_count "$f")
+  cp "$f" "$c"
+  printf '\x6c\x15\x30\xf0' | dd of="$c" bs=1 seek=$((off + size - 4)) conv=notrunc status=none
+  got=$(_isa30_count "$c")
+  rm -f "$c"
+  (( got == base + 1 )) \
+    || { echo "GATE FAILED: the ISA 3.0 scanner self-test counted $got, want $((base + 1))" >&2; return 1; }
+  printf 'isa30 scanner self-test: %d -> %d with one injected xscvhpdp\n' "$base" "$got"
+}
+
+# AOT snapshots (the SDK's tools and the smoke snapshot) are generated code:
+# 0 ISA 3.0 instructions in both pools. Every other ELF: 0 in the baseline
+# pool, counted only in the POWER9 pool.
+_gate_isa30() {
+  local sdk=$1 f n bad=0 kind
+  export -f _isa30_count
+  : > "$srcdir/isa30.info"
+  while read -r n f; do
+    if [[ $f == bin/snapshots/* ]]; then kind=aot-snapshot; else kind=native; fi
+    printf 'isa30 %8d  %-13s %s\n' "$n" "$kind" "$f" | tee -a "$srcdir/isa30.info"
+    if (( n != 0 )) && [[ $kind == aot-snapshot ]]; then
+      echo "GATE FAILED: $n ISA 3.0 instructions in AOT snapshot $f (Dart codegen is ISA 2.07)" >&2; bad=1
+    elif (( n != 0 && _power8_compat )); then
+      echo "GATE FAILED: $n ISA 3.0 instructions in $f (baseline pool)" >&2; bad=1
+    fi
+  done < <(cd "$sdk" && find . -type f -print0 \
+             | xargs -0 -n1 -P 16 bash -c '[[ $(od -An -tx1 -N4 "$1") == " 7f 45 4c 46" ]] || exit 0
+                                           printf "%s %s\n" "$(_isa30_count "$1")" "${1#./}"' _ \
+             | sort -k2)
+  (( ! bad ))
+}
+
+# Smoke, over the exact tree package() installs: version, JIT, `dart compile
+# exe` and `aot-snapshot` (both run), 64 KiB LOADs, ISA 2.07 codegen, FFI ABI.
+_smoke() {
+  local sdk=$1 d=$srcdir/smoke v out
+  rm -rf "$d"; mkdir -p "$d"
+  v=$("$sdk/bin/dart" --version 2>&1)
+  [[ $v == *"$pkgver (stable)"*'"linux_ppc64"'* ]] \
+    || { echo "SMOKE FAILED: dart --version: $v" >&2; return 1; }
+  v=$("$sdk/bin/dartaotruntime" --version 2>&1)
+  [[ $v == *"$pkgver (stable)"*'"linux_ppc64"'* ]] \
+    || { echo "SMOKE FAILED: dartaotruntime --version: $v" >&2; return 1; }
+  cat > "$d/smoke.dart" <<-'DART'
+	import 'dart:ffi';
+	int fib(int n) => n < 2 ? n : fib(n - 1) + fib(n - 2);
+	void main() {
+	  final m = <String, int>{};
+	  for (var i = 0; i < 1000; i++) { m['k${i % 7}'] = (m['k${i % 7}'] ?? 0) + i; }
+	  print('${fib(25)} ${[3, 1, 2]..sort()} ${1.5 * 3} ${m['k3']} ${Abi.current()} ${sizeOf<IntPtr>()}');
+	}
+	DART
+  local want='75025 [1, 2, 3] 4.5 71500 linux_ppc64 8'
+  out=$(timeout 300 "$sdk/bin/dart" --suppress-analytics run "$d/smoke.dart")
+  [[ $out == "$want" ]] || { echo "SMOKE FAILED: JIT printed '$out', want '$want'" >&2; return 1; }
+  timeout 600 "$sdk/bin/dart" --suppress-analytics compile exe "$d/smoke.dart" -o "$d/smoke.exe" > /dev/null
+  out=$("$d/smoke.exe")
+  [[ $out == "$want" ]] || { echo "SMOKE FAILED: compile exe printed '$out', want '$want'" >&2; return 1; }
+  timeout 600 "$sdk/bin/dart" --suppress-analytics compile aot-snapshot "$d/smoke.dart" -o "$d/smoke.aot" > /dev/null
+  out=$("$sdk/bin/dartaotruntime" "$d/smoke.aot")
+  [[ $out == "$want" ]] || { echo "SMOKE FAILED: aot-snapshot printed '$out', want '$want'" >&2; return 1; }
+  local f al
+  for f in "$d/smoke.exe" "$d/smoke.aot"; do
+    file -b "$f" | grep -q '64-bit LSB .*PowerPC' \
+      || { echo "SMOKE FAILED: ${f##*/} is not ppc64le: $(file -b "$f" | cut -d, -f1-2)" >&2; return 1; }
+    al=$(readelf -lW "$f" | awk '$1 == "LOAD" { print $NF }' | sort -u | tr '\n' ' ')
+    [[ $al == '0x10000 ' ]] \
+      || { echo "SMOKE FAILED: ${f##*/} LOAD alignment is '$al', not 0x10000" >&2; return 1; }
+  done
+  _isa30_selftest "$d/smoke.aot"
+  local n; n=$(_isa30_count "$d/smoke.aot")
+  (( n == 0 )) || { echo "SMOKE FAILED: $n ISA 3.0 instructions in an AOT snapshot" >&2; return 1; }
+  # Ten isolates of one group take the same AOT switchable calls from
+  # monomorphic to polymorphic at once: series 0032 (the A17 race fix).
+  # flutter-port work/dart-ppc64-smoke/isolates10.{dart,expect}, run 3 times.
+  cat > "$d/isolates10.dart" <<-'DART'
+	// 10 isolates of one group run the same polymorphic call sites at once, so
+	// AOT switchable calls go monomorphic -> polymorphic/megamorphic in several
+	// isolates concurrently (CodePatcher::PatchSwitchableCallAt, stubs 0005).
+	import 'dart:isolate';
+
+	abstract class Op {
+	  int apply(int x);
+	}
+
+	class Add extends Op {
+	  final int k;
+	  Add(this.k);
+	  @override
+	  int apply(int x) => (x + k) & 0xffffff;
+	}
+
+	class Mul extends Op {
+	  final int k;
+	  Mul(this.k);
+	  @override
+	  int apply(int x) => (x * k) & 0xffffff;
+	}
+
+	class Xor extends Op {
+	  final int k;
+	  Xor(this.k);
+	  @override
+	  int apply(int x) => (x ^ k) & 0xffffff;
+	}
+
+	class Rot extends Op {
+	  @override
+	  int apply(int x) => ((x << 3) | (x >> 21)) & 0xffffff;
+	}
+
+	int work(int seed) {
+	  final ops = <Op>[Add(seed + 1), Mul(3), Xor(0x5a5a5a), Rot(), Add(7)];
+	  var s = seed;
+	  for (var round = 0; round < 50; round++) {
+	    // The call site sees one receiver class first, then all of them.
+	    final n = round < 5 ? 1 : ops.length;
+	    for (var i = 0; i < 4000; i++) {
+	      s = ops[(i + round) % n].apply(s);
+	    }
+	  }
+	  return s;
+	}
+
+	Future<void> main() async {
+	  final results = await Future.wait(
+	      [for (var i = 0; i < 10; i++) Isolate.run(() => work(i))]);
+	  print('isolates: ${results.length}');
+	  print('results: ${results.join(' ')}');
+	}
+	DART
+  timeout 600 "$sdk/bin/dart" --suppress-analytics compile exe "$d/isolates10.dart" -o "$d/isolates10.exe" > /dev/null
+  local want10=$'isolates: 10\nresults: 4132875 4241244 12848898 15463872 11690256 14477820 16237895 7997369 14506255 1495350' i
+  for i in 1 2 3; do
+    out=$(timeout 300 "$d/isolates10.exe")
+    [[ $out == "$want10" ]] || { echo "SMOKE FAILED: isolates10 run $i printed '$out'" >&2; return 1; }
+  done
+  printf 'smoke: %s; JIT, compile exe and aot-snapshot print "%s"; 64 KiB LOADs; AOT ISA 3.0: 0; 10-isolate AOT exe x3 ok\n' "$v" "$want"
+}
+
+# CONTROL, after gn gen and before the expensive part.
+#
+# _compiles_with <out> <ERE>: "<C/C++ compile statements> <how many of them
+# get cflags matching ERE>". GN writes one `cflags = ` line per target
+# file, and every cc/cxx statement in that file uses it (rule cxx: clang++
+# ... ${cflags} ${cflags_cc}); the shared-library toolchain's rules are
+# prefixed (clang_ppc64_shared_cxx).
+_compiles_with() {
+  local out=$1 re=$2 f n tot=0 hit=0
+  while IFS= read -r -d '' f; do
+    n=$(grep -cE '^build [^:]+\.o: ([a-z0-9_]+_)?(cc|cxx) ' "$f" || true)
+    (( n )) || continue
+    tot=$((tot + n))
+    if grep -qE -- "^cflags = (.* )?$re( |\$)" "$f"; then hit=$((hit + n)); fi
+  done < <(find "$out" -name '*.ninja' -print0)
+  echo "$tot $hit"
+}
+
+# -mcpu: GN ignores CFLAGS, so assert the -mcpu that reaches the compiler, on
+# every compile, and that no other CPU is named anywhere in the graph. Bun's
+# 0013 is the cautionary tale: the env said power8, a table in the build said
+# power9, and 349,172 ISA 3.0 instructions shipped to the baseline pool.
+_control_mcpu() {
+  local out=$1 want=power9 tot hit tgt seen
+  (( _power8_compat )) && want=power8
+  # Series 0004 adds -mcpu before --target in the compiler config, so the
+  # two are matched separately; both must reach every compile.
+  read -r tot hit < <(_compiles_with "$out" "-mcpu=$want")
+  read -r _ tgt < <(_compiles_with "$out" '--target=powerpc64le-linux-gnu')
+  (( tot > 0 )) || { echo "CONTROL FAILED: no compile statements in $out" >&2; return 1; }
+  (( hit == tot && tgt == tot )) \
+    || { echo "CONTROL FAILED: -mcpu=$want reaches $hit, --target=powerpc64le-linux-gnu $tgt, of $tot compiles in $out" >&2; return 1; }
+  seen=$(find "$out" -name '*.ninja' -print0 | xargs -0 grep -hoE -- '-m(cpu|tune)=[^ ]+' | sort -u | tr '\n' ' ')
+  [[ $seen == "-mcpu=$want " ]] \
+    || { echo "CONTROL FAILED: $out names other CPUs: $seen" >&2; return 1; }
+  printf 'CONTROL: -mcpu=%s on all %d compiles in %s, no other CPU\n' "$want" "$tot" "$out"
+}
+
+# The build graph runs the prebuilt Dart only for front-end programs and
+# never for a machine-code snapshot, runs no binary from outside the tree,
+# and names no upstream or bootstrap SDK path. The drivers are taken from
+# what ninja will run (build/gn_run_binary.py compiled_action <binary>).
+_control_graph() {
+  local out=$1 d r prebuilt=0
+  local pre=../../tools/sdks/dart-sdk/bin/dart
+  local root; root=$(realpath "$srcdir/sdk")
+  local -a drivers
+  mapfile -t drivers < <(find "$out" -name '*.ninja' -print0 \
+                           | xargs -0 grep -hoE 'gn_run_binary\.py compiled_action [^ ]+' \
+                           | awk '{print $3}' | sort -u)
+  # In-tree binaries this build makes run from the out dir (dartvm,
+  # gen_snapshot, gen_snapshot_product); scripts may be named by absolute
+  # path, and must then resolve inside the tree.
+  for d in "${drivers[@]}"; do
+    if [[ $d == "$pre" ]]; then prebuilt=1; continue; fi
+    [[ $d == */* ]] || continue
+    r=$(cd "$out" && realpath -m -- "$d")
+    [[ $r == "$root"/* ]] \
+      || { echo "CONTROL FAILED: ninja runs a binary from outside the tree: $d -> $r" >&2; return 1; }
+  done
+  (( prebuilt )) || { echo "CONTROL FAILED: no prebuilt-Dart action in $out" >&2; return 1; }
+  if find "$out" \( -name '*.ninja' -o -name args.gn \) -print0 \
+       | xargs -0 grep -lsE 'bootstrap-arm64|dart-bootstrap|dartsdk-linux|linux-arm64/dart-sdk' | grep -q .; then
+    echo "CONTROL FAILED: an upstream or bootstrap SDK path is baked into $out" >&2; return 1
+  fi
+  # What the prebuilt runs for the packaged targets: the first non-option
+  # argument after the binary, and any snapshot kind it is asked for.
+  local cmds progs kinds p
+  cmds=$(ninja -C "$out" -t commands create_sdk runtime | grep -F " compiled_action $pre ")
+  progs=$(awk -v pre="$pre" '{ for (i = 1; i < NF; i++) if ($i == pre) {
+              for (j = i + 1; j <= NF; j++) if ($j !~ /^-/) { n = split($j, a, "/"); print a[n]; break }
+              break } }' <<< "$cmds" | sort -u | tr '\n' ' ')
+  for p in $progs; do
+    [[ " $_leaf_programs " == *" $p "* ]] \
+      || { echo "CONTROL FAILED: the prebuilt Dart runs $p (not an expected front-end program)" >&2; return 1; }
+  done
+  kinds=$(grep -oE -- '--snapshot[-_]kind=[^ ]+' <<< "$cmds" | sort -u | tr '\n' ' ')
+  [[ -z $kinds || $kinds == '--snapshot-kind=kernel ' ]] \
+    || { echo "CONTROL FAILED: the prebuilt Dart is asked for machine-code snapshots: $kinds" >&2; return 1; }
+  printf 'CONTROL: %d prebuilt-Dart actions, programs: %s; snapshot kinds: %s\n' \
+    "$(wc -l <<< "$cmds")" "$progs" "${kinds:-none}"
+}
+
+# The driver itself: a native linux_ppc64 Dart from this pool, at the path
+# the recipe chose. Without this a missing native bootstrap fails OPEN: an
+# arm64 dart at the same path executes fine through binfmt_misc (R15, also
+# inside bq's bwrap), and the build silently depends on POWERarm. A simarm64
+# VM hosted on ppc64 is a PowerPC ELF too; it says linux_simarm64.
+_control_driver_identity() {
+  local link=$srcdir/sdk/tools/sdks/dart-sdk
+  [[ -x $link/bin/dart ]] \
+    || { echo "CONTROL FAILED: no prebuilt Dart at tools/sdks/dart-sdk -> $(readlink "$link") (is $_driver installed?)" >&2; return 1; }
+  local driver; driver=$(readlink -f "$link/bin/dart")
+  file -L "$driver" | grep -q '64-bit LSB .*PowerPC' \
+    || { echo "CONTROL FAILED: the prebuilt Dart is not a ppc64le binary ($(file -bL "$driver" | cut -d, -f1-2))" >&2; return 1; }
+  [[ $driver == "$_driver_sdk/bin/dart" ]] \
+    || { echo "CONTROL FAILED: the prebuilt Dart is $driver, not $_driver_sdk/bin/dart" >&2; return 1; }
+  local v; v=$("$driver" --version 2>&1)
+  [[ $v == *'"linux_ppc64"'* ]] \
+    || { echo "CONTROL FAILED: the prebuilt Dart reports $v" >&2; return 1; }
+  local want=power9 have
+  (( _power8_compat )) && want=baseline
+  have=$(sed -n 's/^pool: //p' "$_driver_sdk/.pkginfo" 2>/dev/null)
+  if [[ $have != "$want" ]]; then
+    if (( _cross_pool_bootstrap )) && [[ $want == baseline && $have == power9 ]]; then
+      echo 'NOTE: one-time cross-pool build: baseline dart driven by the POWER9 bootstrap'
+    else
+      echo "CONTROL FAILED: the prebuilt Dart is from pool '${have:-?}', this build is $want" >&2; return 1
+    fi
+  fi
+  printf 'driver: %s %s (%s, pool %s)\ndriver sha256: %s\n' "$_driver" "$driver" "$v" "$have" \
+    "$(sha256sum < "$driver" | cut -d' ' -f1)" | tee "$srcdir/driver.info"
+}
+
+check() {
+  # Native by-hand makepkg only (bq passes --nocheck). The C++ unit tests
+  # that matter most for this port; anything bigger (tools/test.py suites)
+  # under a memory cgroup, as tools/jsc-test-runner does -- the suites have
+  # memory hogs and this box has 176 threads.
+  # run_vm_tests takes one exact test name (strcmp in run_vm_tests.cc), so
+  # select from --list. Assembler_*: every ppc64 emitter (133 tests);
+  # CodeRelocator_*: AOT PC-relative calls and trampolines (5, M5);
+  # {Allocate,AllocateAligned,Free}VirtualMemory: 64 KiB pages (3). Measured
+  # 2026-11-19 on the pkgtest build: 141 tests, all pass, in seconds.
+  cd "sdk/$_out"
+  local -a tests
+  mapfile -t tests < <(./run_vm_tests --list | awk '{print $1}' \
+                         | grep -E '^(Assembler_|CodeRelocator_|(Allocate|AllocateAligned|Free)VirtualMemory$)')
+  (( ${#tests[@]} )) || { echo 'CHECK FAILED: no tests selected' >&2; return 1; }
+  local t bad=0
+  for t in "${tests[@]}"; do
+    ./run_vm_tests "$t" > "$srcdir/check-$t.log" 2>&1 || { echo "CHECK FAILED: $t" >&2; bad=1; }
+  done
+  printf 'check: %d run_vm_tests, %s\n' "${#tests[@]}" "$( (( bad )) && echo FAILURES || echo all passed)"
+  (( ! bad ))
+}
+
+package() {
+  # Files only: no Dart runs here (package() is under fakeroot).
+  install -d "$pkgdir/usr/lib" "$pkgdir/usr/bin"
+  cp -a "$srcdir/stage/dart-sdk" "$pkgdir/usr/lib/dart"
+  # Dart finds its SDK through the realpath of its executable, so symlinks
+  # are enough (no wrapper script).
+  ln -s ../lib/dart/bin/dart "$pkgdir/usr/bin/dart"
+  ln -s ../lib/dart/bin/dartaotruntime "$pkgdir/usr/bin/dartaotruntime"
+  install -Dm644 sdk/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  local pool=power9
+  (( _power8_compat )) && pool=baseline
+  local p dep_trees=
+  for p in "${!_dep_trees[@]}"; do dep_trees+="$p=${_dep_trees[$p]} "; done
+  install -Dm644 /dev/stdin "$pkgdir/usr/lib/dart/.pkginfo" <<-INFO
+	version: $pkgver
+	base-commit: $_commit ($_commit_time)
+	base-tree: $_base_tree
+	patched-tree: $_tree
+	patches: ${#_patches[@]}
+	dep-trees: $dep_trees
+	pool: $pool
+	cxx-mcpu: $( (( _power8_compat )) && echo power8 || echo power9 )
+	codegen: ISA 2.07 (POWER8) in both pools
+	cross-pool bootstrap: $_cross_pool_bootstrap
+	$(cat "$srcdir/driver.info")
+	# ISA 3.0 instructions per installed ELF (objdump power8 vs power9):
+	$(cat "$srcdir/isa30.info")
+	INFO
+}

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 03:42:39 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  pkg/vm/lib/native_assets/validator.dart
+
+Sources:
+  asm c88b5a7
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 8df2468
+---
+ pkg/vm/lib/native_assets/validator.dart | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/pkg/vm/lib/native_assets/validator.dart b/pkg/vm/lib/native_assets/validator.dart
+index 47e2a780..0cc40b23 100644
+--- a/pkg/vm/lib/native_assets/validator.dart
++++ b/pkg/vm/lib/native_assets/validator.dart
+@@ -176,6 +176,7 @@ class NativeAssetsValidator {
+     'linux_arm',
+     'linux_arm64',
+     'linux_ia32',
++    'linux_ppc64',
+     'linux_riscv32',
+     'linux_riscv64',
+     'linux_x64',

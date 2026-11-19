@@ -1,0 +1,170 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:52 -0600
+Subject: [PATCH] [ppc64] build: system clang/lld and no Debian sysroot where
+ CIPD has none
+
+DEPS fetches clang and the Debian sysroots from CIPD, which has no
+linux-ppc64 packages, so on a ppc64le host the build referenced
+//buildtools/linux-x64/clang and //buildtools/sysroot/linux, neither of
+which can exist.
+
+- build/config/clang/clang.gni: new arg use_prebuilt_clang, default false
+  only for a linux-ppc64 host. Without the prebuilt, clang_prefix defaults
+  to /usr/bin; the Linux toolchains now take their clang directory from
+  clang_prefix (x64/arm64 hosts resolve to the same CIPD paths as before).
+- build/config/linux: -fuse-ld=lld with a system clang, which usually
+  defaults to GNU ld (the CIPD clang defaults to lld).
+- build/config/compiler: the TOOLCHAIN_VERSION define reads the CIPD
+  clang's version stamp; only do that with the prebuilt clang. The
+  SYSROOT_VERSION define read the Debian sysroot's stamp whenever clang was
+  used, even with no sysroot or a user-supplied one; only read it when
+  dart_sysroot == "debian".
+- tools/gn.py: no Debian sysroot for target_cpu ppc64 (Fuchsia's sysroots
+  have no ppc64 variant); the build uses the host's headers and libs.
+
+Result: a ppc64le host needs only system clang, lld, llvm (ar/nm/objcopy/
+readelf), gn and ninja; nothing from CIPD except, optionally, devtools.
+
+Class: local workaround (distribution packaging) in purpose; the two stamp
+conditions are upstreamable bug fixes on their own.
+---
+ build/config/clang/clang.gni   | 27 ++++++++++++++++++++++++---
+ build/config/compiler/BUILD.gn |  5 +++--
+ build/config/linux/BUILD.gn    |  7 +++++++
+ build/toolchain/linux/BUILD.gn |  9 ++++-----
+ tools/gn.py                    |  6 ++++--
+ 5 files changed, 42 insertions(+), 12 deletions(-)
+
+diff --git a/build/config/clang/clang.gni b/build/config/clang/clang.gni
+index f6d9d897..8ab0bcaa 100644
+--- a/build/config/clang/clang.gni
++++ b/build/config/clang/clang.gni
+@@ -4,10 +4,31 @@
+ 
+ _toolchain_cpu = host_cpu
+ 
+-default_clang_prefix =
+-    rebase_path("//buildtools/${host_os}-${_toolchain_cpu}/clang/bin",
+-                root_build_dir)
++# DEPS fetches a prebuilt clang from CIPD into //buildtools/<os>-<cpu>/clang
++# for linux-x64, linux-arm64, mac-x64 and mac-arm64 hosts. Linux hosts the
++# Linux toolchain has always mapped onto the x64 package keep doing so.
++if (host_os == "linux" && host_cpu != "arm64") {
++  _toolchain_cpu = "x64"
++}
+ 
+ declare_args() {
++  # Whether the build uses the CIPD prebuilt clang under //buildtools. There
++  # is no such package for a ppc64 host; there the build uses the system's
++  # clang, lld and llvm binutils instead, and nothing reads the CIPD
++  # toolchain version stamp.
++  use_prebuilt_clang = !(host_os == "linux" && host_cpu == "ppc64")
++}
++
++if (use_prebuilt_clang) {
++  default_clang_prefix =
++      rebase_path("//buildtools/${host_os}-${_toolchain_cpu}/clang/bin",
++                  root_build_dir)
++} else {
++  default_clang_prefix = "/usr/bin"
++}
++
++declare_args() {
++  # Directory holding clang, clang++, llvm-ar, llvm-nm, llvm-readelf and
++  # llvm-objcopy.
+   clang_prefix = default_clang_prefix
+ }
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index f47e08be..e57cff39 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -446,7 +446,8 @@ config("compiler") {
+   # changes since artifacts from an older version of the toolchain may or may
+   # not be compatible with newer ones. To achieve this, we insert a synthetic
+   # define into the compile line.
+-  if (is_clang && (is_linux || is_mac || is_ios) && dart_sysroot != "alpine") {
++  if (is_clang && (is_linux || is_mac || is_ios) && dart_sysroot != "alpine" &&
++      use_prebuilt_clang) {
+     if (is_linux && host_cpu == "arm64") {
+       toolchain_stamp_file =
+           "//buildtools/linux-arm64/clang/.versions/clang.cipd_version"
+@@ -463,7 +464,7 @@ config("compiler") {
+     toolchain_cipd_version = read_file(toolchain_stamp_file, "json")
+     defines = [ "TOOLCHAIN_VERSION=${toolchain_cipd_version.instance_id}" ]
+ 
+-    if (is_linux) {
++    if (is_linux && dart_sysroot == "debian") {
+       if (current_cpu == "riscv64") {
+         sysroot_stamp_file =
+             "//buildtools/sysroot/focal/.versions/sysroot.cipd_version"
+diff --git a/build/config/linux/BUILD.gn b/build/config/linux/BUILD.gn
+index ac81ac07..1cfe769d 100644
+--- a/build/config/linux/BUILD.gn
++++ b/build/config/linux/BUILD.gn
+@@ -2,6 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//build/config/clang/clang.gni")
+ import("//build/config/sysroot.gni")
+ 
+ config("sdk") {
+@@ -22,6 +23,12 @@ config("sdk") {
+     ]
+   }
+ 
++  # The CIPD clang links with lld by default; a system clang (no prebuilt for
++  # this host, see //build/config/clang/clang.gni) usually defaults to GNU ld.
++  if (is_clang && !use_prebuilt_clang) {
++    ldflags += [ "-fuse-ld=lld" ]
++  }
++
+   if (sysroot != "") {
+     cflags += [ "--sysroot=" + sysroot ]
+     ldflags += [ "--sysroot=" + sysroot ]
+diff --git a/build/toolchain/linux/BUILD.gn b/build/toolchain/linux/BUILD.gn
+index 0ca57072..fc3b424f 100644
+--- a/build/toolchain/linux/BUILD.gn
++++ b/build/toolchain/linux/BUILD.gn
+@@ -2,6 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//build/config/clang/clang.gni")
+ import("//build/config/sysroot.gni")
+ import("//build/toolchain/ccache.gni")
+ import("//build/toolchain/gcc_toolchain.gni")
+@@ -48,12 +49,10 @@ if (use_rbe) {
+ # Google's clang does not work for alpine, use alpine's system clang
+ if (dart_sysroot == "alpine") {
+   rebased_clang_dir = "/usr/bin"
+-} else if (host_cpu == "arm64") {
+-  rebased_clang_dir =
+-      rebase_path("//buildtools/linux-arm64/clang/bin", root_build_dir)
+ } else {
+-  rebased_clang_dir =
+-      rebase_path("//buildtools/linux-x64/clang/bin", root_build_dir)
++  # //buildtools/linux-{x64,arm64}/clang/bin, or the system clang on hosts
++  # without a CIPD prebuilt (see //build/config/clang/clang.gni).
++  rebased_clang_dir = clang_prefix
+ }
+ 
+ template("gcc_toolchain_suite") {
+diff --git a/tools/gn.py b/tools/gn.py
+index 7afb4d78..cdd966de 100755
+--- a/tools/gn.py
++++ b/tools/gn.py
+@@ -185,8 +185,10 @@ def UseSysroot(args, gn_args):
+     # Don't use the sysroot if we're given another toolchain.
+     if not gn_args['is_clang']:
+         return False
+-    # Fuchsia's Linux sysroot doesn't support RISCV32
+-    if gn_args['target_cpu'] in ['riscv32']:
++    # Fuchsia's Linux sysroots don't support RISCV32 or PPC64. A PPC64 build
++    # uses the host's own headers and libraries (and the system clang, see
++    # //build/config/clang/clang.gni).
++    if gn_args['target_cpu'] in ['riscv32', 'ppc64']:
+         return False
+     # Otherwise use the sysroot.
+     return True

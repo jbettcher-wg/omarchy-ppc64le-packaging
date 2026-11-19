@@ -1,0 +1,1605 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 01:50:32 -0600
+Subject: [PATCH] [ppc64] runtime: TARGET_ARCH_PPC64 arms, GN wiring, code
+ patterns
+
+- runtime/BUILD.gn dart_arch_config: dart_target_arch "ppc64" defines
+  TARGET_ARCH_PPC64.
+- compiler_sources.gni, vm_sources.gni: the ppc64 files. The assembler and
+  IL file sets are generated blocks ("ppc64-sync"), maintained by
+  work/dart-ppc64-sync.sh, because those components split their files.
+- Arch dispatch: assembler.h, constants.h, cpu.h, instructions.h,
+  stack_frame.h, locations_helpers.h.
+- vm/globals.h: ppc64 uses the object pool (PP = r30, untagged) and supports
+  precompilation.
+- assembler_base.cc: the DEBUG code buffer is filled with trap words, not a
+  byte memset of the instruction (a non-trapping tdi sled on ppc64).
+- ELF: EM_PPC64 (21) with e_flags EF_PPC64_ABI_V2 in the snapshot writer and
+  the loader; .cfi for assembly snapshots (CFA = r31 + 16, LR at -8).
+- Snapshot features " ppc64"; text padding with trap words; disassembly to
+  memory carries the encodings; object pool dump with an untagged PP;
+  ReturnAddressLocator; unit-test code runs natively; offsets extractor
+  "ppc64"; cpu_test; Float32x4/Float64x2 clamp in portable C.
+- instructions_ppc64.{h,cc}: the call and pool-load patterns of ABI-SPEC
+  4.1/6.2 (JIT and AOT calls through the pool, IC/switchable calls over two
+  consecutive slots, native calls), PC-relative bl/b, the position-
+  independent 32-byte far trampoline of ABI-SPEC 4.4, the TTS call, and
+  DecodeLoadObjectFromPoolOrThread. BareSwitchableCallPattern is
+  UNIMPLEMENTED until the AOT switchable call exists.
+- code_patcher_ppc64.cc: pool-slot patching only (ARM64's, with the ppc64
+  pool-call decoder). debugger_ppc64.cc: ARM64's (architecture-neutral).
+- asm_intrinsifier_ppc64.cc: no assembly intrinsics in v1; every generator
+  emits nothing (= not intrinsified).
+---
+ runtime/BUILD.gn                              |   2 +
+ runtime/bin/elf_loader.cc                     |   2 +
+ runtime/lib/simd128.cc                        |   6 +-
+ runtime/platform/elf.h                        |   4 +
+ runtime/vm/code_patcher_ppc64.cc              | 180 +++++++++
+ runtime/vm/compiler/asm_intrinsifier_ppc64.cc | 178 +++++++++
+ runtime/vm/compiler/assembler/assembler.h     |   2 +
+ .../vm/compiler/assembler/assembler_base.cc   |   3 +-
+ runtime/vm/compiler/assembler/disassembler.cc |   2 +-
+ .../vm/compiler/backend/locations_helpers.h   |   2 +
+ runtime/vm/compiler/compiler_sources.gni      |  11 +
+ runtime/vm/compiler/offsets_extractor.cc      |   2 +
+ runtime/vm/constants.h                        |   2 +
+ runtime/vm/cpu.h                              |   2 +
+ runtime/vm/cpu_test.cc                        |   2 +
+ runtime/vm/dart.cc                            |   2 +
+ runtime/vm/debugger_ppc64.cc                  |  75 ++++
+ runtime/vm/elf.cc                             |   4 +
+ runtime/vm/globals.h                          |   4 +-
+ runtime/vm/image_snapshot.cc                  |  12 +-
+ runtime/vm/instructions.h                     |   2 +
+ runtime/vm/instructions_ppc64.cc              | 345 ++++++++++++++++++
+ runtime/vm/instructions_ppc64.h               | 268 ++++++++++++++
+ runtime/vm/object.cc                          |   2 +
+ runtime/vm/profiler.cc                        |   3 +-
+ runtime/vm/stack_frame.h                      |   2 +
+ runtime/vm/unit_test.h                        |   6 +-
+ runtime/vm/vm_sources.gni                     |  11 +
+ 28 files changed, 1125 insertions(+), 11 deletions(-)
+ create mode 100644 runtime/vm/code_patcher_ppc64.cc
+ create mode 100644 runtime/vm/compiler/asm_intrinsifier_ppc64.cc
+ create mode 100644 runtime/vm/debugger_ppc64.cc
+ create mode 100644 runtime/vm/instructions_ppc64.cc
+ create mode 100644 runtime/vm/instructions_ppc64.h
+
+diff --git a/runtime/BUILD.gn b/runtime/BUILD.gn
+index 769f0d2c..7086474d 100644
+--- a/runtime/BUILD.gn
++++ b/runtime/BUILD.gn
+@@ -203,6 +203,8 @@ config("dart_arch_config") {
+     defines += [ "TARGET_ARCH_RISCV32" ]
+   } else if (dart_target_arch == "riscv64") {
+     defines += [ "TARGET_ARCH_RISCV64" ]
++  } else if (dart_target_arch == "ppc64") {
++    defines += [ "TARGET_ARCH_PPC64" ]
+   } else {
+     print("Invalid dart_target_arch: $dart_target_arch")
+     assert(false)
+diff --git a/runtime/bin/elf_loader.cc b/runtime/bin/elf_loader.cc
+index 2aef72be..937bf309 100644
+--- a/runtime/bin/elf_loader.cc
++++ b/runtime/bin/elf_loader.cc
+@@ -195,6 +195,8 @@ bool LoadedElf::ReadHeader() {
+               "Architecture mismatch.");
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+   CHECK_ERROR(header_.machine == dart::elf::EM_RISCV, "Architecture mismatch.");
++#elif defined(TARGET_ARCH_PPC64)
++  CHECK_ERROR(header_.machine == dart::elf::EM_PPC64, "Architecture mismatch.");
+ #else
+ #error Unsupported architecture architecture.
+ #endif
+diff --git a/runtime/lib/simd128.cc b/runtime/lib/simd128.cc
+index 9d8f6848..43a003a6 100644
+--- a/runtime/lib/simd128.cc
++++ b/runtime/lib/simd128.cc
+@@ -235,7 +235,8 @@ DEFINE_NATIVE_ENTRY(Float32x4_clamp, 0, 3) {
+   _y = vmaxf(_y, lo.y());
+   _z = vmaxf(_z, lo.z());
+   _w = vmaxf(_w, lo.w());
+-#elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
++#elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64) ||          \
++    defined(TARGET_ARCH_PPC64)
+   _x = fminf(self.x(), hi.x());
+   _y = fminf(self.y(), hi.y());
+   _z = fminf(self.z(), hi.z());
+@@ -802,7 +803,8 @@ DEFINE_NATIVE_ENTRY(Float64x2_clamp, 0, 3) {
+   _y = vmind(self.y(), hi.y());
+   _x = vmaxd(_x, lo.x());
+   _y = vmaxd(_y, lo.y());
+-#elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
++#elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64) ||          \
++    defined(TARGET_ARCH_PPC64)
+   _x = fmin(self.x(), hi.x());
+   _y = fmin(self.y(), hi.y());
+   _x = fmax(_x, lo.x());
+diff --git a/runtime/platform/elf.h b/runtime/platform/elf.h
+index 6eecd797..b48266a9 100644
+--- a/runtime/platform/elf.h
++++ b/runtime/platform/elf.h
+@@ -173,11 +173,15 @@ static constexpr intptr_t EF_ARM_ABI = 0x05000000;
+ static constexpr intptr_t EF_RISCV_RVC = 0x1;
+ static constexpr intptr_t EF_RISCV_FLOAT_ABI_DOUBLE = 0x4;
+ 
++// e_flags bits 0-1: the ELFv2 ABI (ppc64le).
++static constexpr intptr_t EF_PPC64_ABI_V2 = 0x2;
++
+ static constexpr intptr_t EM_386 = 3;
+ static constexpr intptr_t EM_ARM = 40;
+ static constexpr intptr_t EM_X86_64 = 62;
+ static constexpr intptr_t EM_AARCH64 = 183;
+ static constexpr intptr_t EM_RISCV = 243;
++static constexpr intptr_t EM_PPC64 = 21;
+ 
+ static constexpr intptr_t EV_CURRENT = 1;
+ 
+diff --git a/runtime/vm/code_patcher_ppc64.cc b/runtime/vm/code_patcher_ppc64.cc
+new file mode 100644
+index 00000000..e03a156c
+--- /dev/null
++++ b/runtime/vm/code_patcher_ppc64.cc
+@@ -0,0 +1,180 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "vm/globals.h"  // Needed here to get TARGET_ARCH_PPC64.
++#if defined(TARGET_ARCH_PPC64)
++
++#include "vm/code_patcher.h"
++#include "vm/cpu.h"
++#include "vm/instructions.h"
++#include "vm/object.h"
++
++namespace dart {
++
++class PoolPointerCall : public ValueObject {
++ public:
++  // A call through a pool slot (instructions_ppc64.h): the JIT shape
++  // "ld r28,slot(PP) ; li r0,entry-1 ; ldx r0,r28,r0 ; mtctr r0 ; bctrl" or
++  // the AOT shape "ld r0,slot(PP) ; mtctr r0 ; bctrl". Only the pool slot is
++  // ever rewritten.
++  PoolPointerCall(uword pc, const Code& code)
++      : end_(pc), object_pool_(ObjectPool::Handle(code.GetObjectPool())) {
++    InstructionPattern::DecodeCallThroughPool(end_, &reg_, &index_);
++  }
++
++  intptr_t pp_index() const { return index_; }
++
++  CodePtr Target() const {
++    return static_cast<CodePtr>(object_pool_.ObjectAt(pp_index()));
++  }
++
++  void SetTarget(const Code& target) const {
++    object_pool_.SetObjectAt<std::memory_order_release>(pp_index(), target);
++    // No need to flush the instruction cache, since the code is not modified.
++  }
++
++ private:
++  uword end_;
++  const ObjectPool& object_pool_;
++  Register reg_;
++  intptr_t index_;
++  DISALLOW_IMPLICIT_CONSTRUCTORS(PoolPointerCall);
++};
++
++CodePtr CodePatcher::GetStaticCallTargetAt(uword return_address,
++                                           const Code& code) {
++  ASSERT(code.ContainsInstructionAt(return_address));
++  PoolPointerCall call(return_address, code);
++  return call.Target();
++}
++
++void CodePatcher::PatchStaticCallAt(uword return_address,
++                                    const Code& code,
++                                    const Code& new_target) {
++  PatchPoolPointerCallAt(return_address, code, new_target);
++}
++
++void CodePatcher::PatchPoolPointerCallAt(uword return_address,
++                                         const Code& code,
++                                         const Code& new_target) {
++  ASSERT(code.ContainsInstructionAt(return_address));
++  PoolPointerCall call(return_address, code);
++  call.SetTarget(new_target);
++}
++
++CodePtr CodePatcher::GetInstanceCallAt(uword return_address,
++                                       const Code& caller_code,
++                                       Object* data) {
++  ASSERT(caller_code.ContainsInstructionAt(return_address));
++  ICCallPattern call(return_address, caller_code);
++  if (data != nullptr) {
++    *data = call.Data();
++  }
++  return call.TargetCode();
++}
++
++void CodePatcher::PatchInstanceCallAt(uword return_address,
++                                      const Code& caller_code,
++                                      const Object& data,
++                                      const Code& target) {
++  auto thread = Thread::Current();
++  thread->isolate_group()->RunWithStoppedMutators([&]() {
++    PatchInstanceCallAtWithMutatorsStopped(thread, return_address, caller_code,
++                                           data, target);
++  });
++}
++
++void CodePatcher::PatchInstanceCallAtWithMutatorsStopped(
++    Thread* thread,
++    uword return_address,
++    const Code& caller_code,
++    const Object& data,
++    const Code& target) {
++  ASSERT(caller_code.ContainsInstructionAt(return_address));
++  ICCallPattern call(return_address, caller_code);
++  call.SetData(data);
++  call.SetTargetCode(target);
++}
++
++FunctionPtr CodePatcher::GetUnoptimizedStaticCallAt(uword return_address,
++                                                    const Code& code,
++                                                    ICData* ic_data_result) {
++  ASSERT(code.ContainsInstructionAt(return_address));
++  ICCallPattern static_call(return_address, code);
++  ICData& ic_data = ICData::Handle();
++  ic_data ^= static_call.Data();
++  if (ic_data_result != nullptr) {
++    *ic_data_result = ic_data.ptr();
++  }
++  return ic_data.GetTargetAt(0);
++}
++
++void CodePatcher::PatchSwitchableCallAt(uword return_address,
++                                        const Code& caller_code,
++                                        const Object& data,
++                                        const Code& target) {
++  // We lock to block other writers but don't start a safepoint to block readers
++  // (i.e., Dart execution).
++  // First update target to a stub that does not read 'data' so that concurrent
++  // Dart execution cannot observe the new stub with the old data or the old
++  // stub with the new data.
++  SafepointMutexLocker ml(IsolateGroup::Current()->type_feedback_mutex());
++  if (FLAG_precompiled_mode) {
++    BareSwitchableCallPattern call(return_address);
++    call.SetTargetRelease(StubCode::SwitchableCallMiss());
++    call.SetDataRelease(data);
++    call.SetTargetRelease(target);
++  } else {
++    SwitchableCallPattern call(return_address, caller_code);
++    call.SetTargetRelease(StubCode::SwitchableCallMiss());
++    call.SetDataRelease(data);
++    call.SetTargetRelease(target);
++  }
++}
++
++uword CodePatcher::GetSwitchableCallTargetEntryAt(uword return_address,
++                                                  const Code& caller_code) {
++  if (FLAG_precompiled_mode) {
++    BareSwitchableCallPattern call(return_address);
++    return call.target_entry();
++  } else {
++    UNREACHABLE();
++  }
++}
++
++ObjectPtr CodePatcher::GetSwitchableCallDataAt(uword return_address,
++                                               const Code& caller_code) {
++  if (FLAG_precompiled_mode) {
++    BareSwitchableCallPattern call(return_address);
++    return call.data();
++  } else {
++    SwitchableCallPattern call(return_address, caller_code);
++    return call.data();
++  }
++}
++
++void CodePatcher::PatchNativeCallAt(uword return_address,
++                                    const Code& caller_code,
++                                    NativeFunction target,
++                                    const Code& trampoline) {
++  Thread::Current()->isolate_group()->RunWithStoppedMutators([&]() {
++    ASSERT(caller_code.ContainsInstructionAt(return_address));
++    NativeCallPattern call(return_address, caller_code);
++    call.set_target(trampoline);
++    call.set_native_function(target);
++  });
++}
++
++CodePtr CodePatcher::GetNativeCallAt(uword return_address,
++                                     const Code& caller_code,
++                                     NativeFunction* target) {
++  ASSERT(caller_code.ContainsInstructionAt(return_address));
++  NativeCallPattern call(return_address, caller_code);
++  *target = call.native_function();
++  return call.target();
++}
++
++}  // namespace dart
++
++#endif  // defined TARGET_ARCH_PPC64
+diff --git a/runtime/vm/compiler/asm_intrinsifier_ppc64.cc b/runtime/vm/compiler/asm_intrinsifier_ppc64.cc
+new file mode 100644
+index 00000000..c2821926
+--- /dev/null
++++ b/runtime/vm/compiler/asm_intrinsifier_ppc64.cc
+@@ -0,0 +1,178 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "vm/globals.h"  // Needed here to get TARGET_ARCH_PPC64.
++#if defined(TARGET_ARCH_PPC64)
++
++#define SHOULD_NOT_INCLUDE_RUNTIME
++
++#include "vm/compiler/asm_intrinsifier.h"
++
++// No assembly intrinsics on ppc64 in v1 (M3-BOOT-PLAN 2.5: correct and simple
++// over fast). Every generator emits nothing, which Intrinsifier::Intrinsify
++// reads as "not intrinsified" (size_before == size_after): the function's
++// normal IL body is compiled instead. The list is the one asm_intrinsifier_
++// riscv.cc defines, minus the generators asm_intrinsifier.cc shares.
++
++namespace dart {
++namespace compiler {
++
++void AsmIntrinsifier::Integer_shl(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Integer_lessThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Integer_greaterThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Integer_lessEqualThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Integer_greaterEqualThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Integer_equalToInteger(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Integer_equal(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Smi_bitLength(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_lsh(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_rsh(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_absAdd(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_absSub(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_mulAdd(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_sqrAdd(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Bigint_estimateQuotientDigit(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Montgomery_mulMod(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_greaterThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_greaterEqualThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_lessThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_equal(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_lessEqualThan(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_add(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_mul(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_sub(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_div(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_mulFromInteger(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::DoubleFromInteger(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_getIsNaN(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_getIsInfinite(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Double_getIsNegative(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::ObjectEquals(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::ObjectRuntimeType(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::ObjectHaveSameRuntimeType(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::String_getHashCode(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Type_equality(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::AbstractType_getHashCode(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::AbstractType_equality(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::Object_getHash(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::StringBaseSubstringMatches(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::StringBaseCharAt(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::StringBaseIsEmpty(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::OneByteString_getHashCode(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::OneByteString_substringUnchecked(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::WriteIntoOneByteString(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::WriteIntoTwoByteString(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::AllocateOneByteString(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::AllocateTwoByteString(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::OneByteString_equality(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::TwoByteString_equality(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++void AsmIntrinsifier::IntrinsifyRegExpExecuteMatch(Assembler* assembler,
++                                                   Label* normal_ir_body,
++                                                   bool sticky) {}
++
++void AsmIntrinsifier::Timeline_getNextTaskId(Assembler* assembler,
++    Label* normal_ir_body) {}
++
++}  // namespace compiler
++}  // namespace dart
++
++#endif  // defined(TARGET_ARCH_PPC64)
+diff --git a/runtime/vm/compiler/assembler/assembler.h b/runtime/vm/compiler/assembler/assembler.h
+index cd030eda..9e7b77c4 100644
+--- a/runtime/vm/compiler/assembler/assembler.h
++++ b/runtime/vm/compiler/assembler/assembler.h
+@@ -27,6 +27,8 @@
+ #include "vm/compiler/assembler/assembler_arm64.h"
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+ #include "vm/compiler/assembler/assembler_riscv.h"
++#elif defined(TARGET_ARCH_PPC64)
++#include "vm/compiler/assembler/assembler_ppc64.h"
+ #else
+ #error Unknown architecture.
+ #endif
+diff --git a/runtime/vm/compiler/assembler/assembler_base.cc b/runtime/vm/compiler/assembler/assembler_base.cc
+index bc9f9a60..d11b2a50 100644
+--- a/runtime/vm/compiler/assembler/assembler_base.cc
++++ b/runtime/vm/compiler/assembler/assembler_base.cc
+@@ -428,7 +428,8 @@ void AssemblerBase::MsanUnpoison(Register base, Register length_in_bytes) {
+ 
+ #if defined(DEBUG)
+ static void InitializeMemoryWithBreakpoints(uword data, intptr_t length) {
+-#if defined(TARGET_ARCH_ARM) || defined(TARGET_ARCH_ARM64)
++#if defined(TARGET_ARCH_ARM) || defined(TARGET_ARCH_ARM64) ||                  \
++    defined(TARGET_ARCH_PPC64)
+   ASSERT(Utils::IsAligned(data, 4));
+   ASSERT(Utils::IsAligned(length, 4));
+   const uword end = data + length;
+diff --git a/runtime/vm/compiler/assembler/disassembler.cc b/runtime/vm/compiler/assembler/disassembler.cc
+index 6b59c0f3..c8b9c655 100644
+--- a/runtime/vm/compiler/assembler/disassembler.cc
++++ b/runtime/vm/compiler/assembler/disassembler.cc
+@@ -81,7 +81,7 @@ void DisassembleToMemory::ConsumeInstruction(char* hex_buffer,
+   // TODO(compiler): Update assembler tests for other architectures so there is
+   // coverage of encodings, not just mnemonics.
+ #if defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64) ||            \
+-    defined(TARGET_ARCH_ARM)
++    defined(TARGET_ARCH_ARM) || defined(TARGET_ARCH_PPC64)
+   len = strlen(hex_buffer);
+   if (remaining_ < len + 100) {
+     *buffer_++ = '.';
+diff --git a/runtime/vm/compiler/backend/locations_helpers.h b/runtime/vm/compiler/backend/locations_helpers.h
+index e80edc08..eb429189 100644
+--- a/runtime/vm/compiler/backend/locations_helpers.h
++++ b/runtime/vm/compiler/backend/locations_helpers.h
+@@ -438,6 +438,8 @@ void InvokeEmitter(
+ 
+ #elif defined(TARGET_ARCH_RISCV64)
+ 
++#elif defined(TARGET_ARCH_PPC64)
++
+ #else
+ #error Unknown architecture.
+ #endif
+diff --git a/runtime/vm/compiler/compiler_sources.gni b/runtime/vm/compiler/compiler_sources.gni
+index 4cf854ae..6551ce9c 100644
+--- a/runtime/vm/compiler/compiler_sources.gni
++++ b/runtime/vm/compiler/compiler_sources.gni
+@@ -18,6 +18,7 @@ compiler_sources = [
+   "asm_intrinsifier_arm.cc",
+   "asm_intrinsifier_arm64.cc",
+   "asm_intrinsifier_ia32.cc",
++  "asm_intrinsifier_ppc64.cc",
+   "asm_intrinsifier_riscv.cc",
+   "asm_intrinsifier_x64.cc",
+   "assembler/assembler.h",
+@@ -29,6 +30,9 @@ compiler_sources = [
+   "assembler/assembler_base.h",
+   "assembler/assembler_ia32.cc",
+   "assembler/assembler_ia32.h",
++  "assembler/assembler_ppc64.h",
++  # ppc64-sync: begin assembler (generated by work/dart-ppc64-sync.sh)
++  # ppc64-sync: end assembler
+   "assembler/assembler_riscv.cc",
+   "assembler/assembler_riscv.h",
+   "assembler/assembler_x64.cc",
+@@ -57,6 +61,7 @@ compiler_sources = [
+   "backend/flow_graph_compiler_arm.cc",
+   "backend/flow_graph_compiler_arm64.cc",
+   "backend/flow_graph_compiler_ia32.cc",
++  "backend/flow_graph_compiler_ppc64.cc",
+   "backend/flow_graph_compiler_riscv.cc",
+   "backend/flow_graph_compiler_x64.cc",
+   "backend/il.cc",
+@@ -66,6 +71,8 @@ compiler_sources = [
+   "backend/il_ia32.cc",
+   "backend/il_printer.cc",
+   "backend/il_printer.h",
++  # ppc64-sync: begin il (generated by work/dart-ppc64-sync.sh)
++  # ppc64-sync: end il
+   "backend/il_riscv.cc",
+   "backend/il_serializer.cc",
+   "backend/il_serializer.h",
+@@ -150,6 +157,7 @@ compiler_sources = [
+   "stub_code_compiler_arm.cc",
+   "stub_code_compiler_arm64.cc",
+   "stub_code_compiler_ia32.cc",
++  "stub_code_compiler_ppc64.cc",
+   "stub_code_compiler_riscv.cc",
+   "stub_code_compiler_x64.cc",
+   "write_barrier_elimination.cc",
+@@ -161,6 +169,8 @@ compiler_sources_tests = [
+   "assembler/assembler_arm64_test.cc",
+   "assembler/assembler_arm_test.cc",
+   "assembler/assembler_ia32_test.cc",
++  # ppc64-sync: begin assembler_test (generated by work/dart-ppc64-sync.sh)
++  # ppc64-sync: end assembler_test
+   "assembler/assembler_riscv_test.cc",
+   "assembler/assembler_test.cc",
+   "assembler/assembler_x64_test.cc",
+@@ -209,6 +219,7 @@ disassembler_sources = [
+   "assembler/disassembler_arm64.cc",
+   "assembler/disassembler_kbc.cc",
+   "assembler/disassembler_kbc.h",
++  "assembler/disassembler_ppc64.cc",
+   "assembler/disassembler_riscv.cc",
+   "assembler/disassembler_x86.cc",
+ ]
+diff --git a/runtime/vm/compiler/offsets_extractor.cc b/runtime/vm/compiler/offsets_extractor.cc
+index 2320c1c0..4db52e9e 100644
+--- a/runtime/vm/compiler/offsets_extractor.cc
++++ b/runtime/vm/compiler/offsets_extractor.cc
+@@ -35,6 +35,8 @@
+ #define ARCH_DEF_CPU "riscv32"
+ #elif defined(TARGET_ARCH_RISCV64)
+ #define ARCH_DEF_CPU "riscv64"
++#elif defined(TARGET_ARCH_PPC64)
++#define ARCH_DEF_CPU "ppc64"
+ #else
+ #error Unknown architecture
+ #endif
+diff --git a/runtime/vm/constants.h b/runtime/vm/constants.h
+index 029d7a53..234a19f8 100644
+--- a/runtime/vm/constants.h
++++ b/runtime/vm/constants.h
+@@ -15,6 +15,8 @@
+ #include "vm/constants_arm64.h"
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+ #include "vm/constants_riscv.h"
++#elif defined(TARGET_ARCH_PPC64)
++#include "vm/constants_ppc64.h"
+ #else
+ #error Unknown architecture.
+ #endif
+diff --git a/runtime/vm/cpu.h b/runtime/vm/cpu.h
+index bc570309..c54efdce 100644
+--- a/runtime/vm/cpu.h
++++ b/runtime/vm/cpu.h
+@@ -32,6 +32,8 @@ class CPU : public AllStatic {
+ #include "vm/cpu_arm64.h"
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+ #include "vm/cpu_riscv.h"
++#elif defined(TARGET_ARCH_PPC64)
++#include "vm/cpu_ppc64.h"
+ #else
+ #error Unknown architecture.
+ #endif
+diff --git a/runtime/vm/cpu_test.cc b/runtime/vm/cpu_test.cc
+index 5e59d310..8118b290 100644
+--- a/runtime/vm/cpu_test.cc
++++ b/runtime/vm/cpu_test.cc
+@@ -38,6 +38,8 @@ VM_UNIT_TEST_CASE(Id) {
+ #else   // defined(HOST_ARCH_RISCV64)
+   EXPECT_STREQ("simriscv64", CPU::Id());
+ #endif  // defined(HOST_ARCH_RISCV64)
++#elif defined(TARGET_ARCH_PPC64)
++  EXPECT_STREQ("ppc64", CPU::Id());  // Native only: no ppc64 simulator.
+ #else
+ #error Architecture was not detected as supported by Dart.
+ #endif
+diff --git a/runtime/vm/dart.cc b/runtime/vm/dart.cc
+index 28fb5ef0..00ead17e 100644
+--- a/runtime/vm/dart.cc
++++ b/runtime/vm/dart.cc
+@@ -1126,6 +1126,8 @@ char* Dart::FeaturesString(IsolateGroup* isolate_group,
+     buffer.AddString(" riscv32");
+ #elif defined(TARGET_ARCH_RISCV64)
+     buffer.AddString(" riscv64");
++#elif defined(TARGET_ARCH_PPC64)
++    buffer.AddString(" ppc64");
+ #else
+ #error What architecture?
+ #endif
+diff --git a/runtime/vm/debugger_ppc64.cc b/runtime/vm/debugger_ppc64.cc
+new file mode 100644
+index 00000000..cb93d641
+--- /dev/null
++++ b/runtime/vm/debugger_ppc64.cc
+@@ -0,0 +1,75 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "vm/globals.h"
++#if defined(TARGET_ARCH_PPC64)
++
++#include "vm/code_patcher.h"
++#include "vm/cpu.h"
++#include "vm/debugger.h"
++#include "vm/instructions.h"
++#include "vm/stub_code.h"
++
++namespace dart {
++
++#ifndef PRODUCT
++
++CodePtr CodeBreakpoint::OrigStubAddress() const {
++  return saved_value_;
++}
++
++void CodeBreakpoint::PatchCode() {
++  ASSERT(!IsEnabled());
++  const Code& code = Code::Handle(code_);
++  switch (breakpoint_kind_) {
++    case UntaggedPcDescriptors::kIcCall: {
++      Object& data = Object::Handle();
++      saved_value_ = CodePatcher::GetInstanceCallAt(pc_, code, &data);
++      CodePatcher::PatchInstanceCallAt(pc_, code, data,
++                                       StubCode::ICCallBreakpoint());
++      break;
++    }
++    case UntaggedPcDescriptors::kUnoptStaticCall:
++      saved_value_ = CodePatcher::GetStaticCallTargetAt(pc_, code);
++      CodePatcher::PatchStaticCallAt(pc_, code,
++                                     StubCode::UnoptStaticCallBreakpoint());
++      break;
++    case UntaggedPcDescriptors::kRuntimeCall:
++      saved_value_ = CodePatcher::GetStaticCallTargetAt(pc_, code);
++      CodePatcher::PatchPoolPointerCallAt(pc_, code,
++                                          StubCode::RuntimeCallBreakpoint());
++      break;
++    default:
++      UNREACHABLE();
++  }
++}
++
++void CodeBreakpoint::RestoreCode() {
++  ASSERT(IsEnabled());
++  const Code& code = Code::Handle(code_);
++  switch (breakpoint_kind_) {
++    case UntaggedPcDescriptors::kIcCall: {
++      Object& data = Object::Handle();
++      CodePatcher::GetInstanceCallAt(pc_, code, &data);
++      CodePatcher::PatchInstanceCallAt(pc_, code, data,
++                                       Code::Handle(saved_value_));
++      break;
++    }
++    case UntaggedPcDescriptors::kUnoptStaticCall:
++      CodePatcher::PatchStaticCallAt(pc_, code, Code::Handle(saved_value_));
++      break;
++    case UntaggedPcDescriptors::kRuntimeCall:
++      CodePatcher::PatchPoolPointerCallAt(pc_, code,
++                                          Code::Handle(saved_value_));
++      break;
++    default:
++      UNREACHABLE();
++  }
++}
++
++#endif  // !PRODUCT
++
++}  // namespace dart
++
++#endif  // defined TARGET_ARCH_PPC64
+diff --git a/runtime/vm/elf.cc b/runtime/vm/elf.cc
+index 1e81350a..9948c1e5 100644
+--- a/runtime/vm/elf.cc
++++ b/runtime/vm/elf.cc
+@@ -1893,6 +1893,8 @@ void ElfHeader::Write(ElfWriteStream* stream) const {
+   stream->WriteHalf(elf::EM_AARCH64);
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+   stream->WriteHalf(elf::EM_RISCV);
++#elif defined(TARGET_ARCH_PPC64)
++  stream->WriteHalf(elf::EM_PPC64);
+ #else
+   FATAL("Unknown ELF architecture");
+ #endif
+@@ -1908,6 +1910,8 @@ void ElfHeader::Write(ElfWriteStream* stream) const {
+                                        : elf::EF_ARM_ABI_FLOAT_SOFT);
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+   uword flags = elf::EF_RISCV_RVC | elf::EF_RISCV_FLOAT_ABI_DOUBLE;
++#elif defined(TARGET_ARCH_PPC64)
++  uword flags = elf::EF_PPC64_ABI_V2;
+ #else
+   uword flags = 0;
+ #endif
+diff --git a/runtime/vm/globals.h b/runtime/vm/globals.h
+index 84ba5178..c39ecf5a 100644
+--- a/runtime/vm/globals.h
++++ b/runtime/vm/globals.h
+@@ -216,14 +216,14 @@ static constexpr intptr_t kAllocationCanary = 123;
+ 
+ #if defined(TARGET_ARCH_ARM) || defined(TARGET_ARCH_ARM64) ||                  \
+     defined(TARGET_ARCH_X64) || defined(TARGET_ARCH_RISCV32) ||                \
+-    defined(TARGET_ARCH_RISCV64)
++    defined(TARGET_ARCH_RISCV64) || defined(TARGET_ARCH_PPC64)
+ #define TARGET_USES_OBJECT_POOL 1
+ #endif
+ 
+ #if defined(DART_PRECOMPILER) &&                                               \
+     (defined(TARGET_ARCH_X64) || defined(TARGET_ARCH_ARM) ||                   \
+      defined(TARGET_ARCH_ARM64) || defined(TARGET_ARCH_RISCV32) ||             \
+-     defined(TARGET_ARCH_RISCV64))
++     defined(TARGET_ARCH_RISCV64) || defined(TARGET_ARCH_PPC64))
+ #define DART_SUPPORT_PRECOMPILATION 1
+ #endif
+ 
+diff --git a/runtime/vm/image_snapshot.cc b/runtime/vm/image_snapshot.cc
+index a7efdef1..5ceafaf6 100644
+--- a/runtime/vm/image_snapshot.cc
++++ b/runtime/vm/image_snapshot.cc
+@@ -1034,8 +1034,8 @@ intptr_t ImageWriter::AlignWithBreakInstructions(intptr_t alignment,
+   // All instructions are 4 bytes long on ARM architectures, so on 32-bit ARM
+   // there won't be any padding.
+   ASSERT_EQUAL(remaining, 0);
+-#elif defined(TARGET_ARCH_ARM64)
+-  // All instructions are 4 bytes long on ARM architectures, so on 64-bit ARM
++#elif defined(TARGET_ARCH_ARM64) || defined(TARGET_ARCH_PPC64)
++  // All instructions are 4 bytes long on ARM and PPC64, so on a 64-bit target
+   // there is only 0 or 4 bytes of padding.
+   if (remaining != 0) {
+     ASSERT_EQUAL(remaining, 4);
+@@ -1826,6 +1826,14 @@ void AssemblyImageWriter::FrameUnwindPrologue() {
+   assembly_stream_->WriteString(".cfi_def_cfa fp, 0\n");
+   assembly_stream_->WriteString(".cfi_offset ra, -8\n");
+   assembly_stream_->WriteString(".cfi_offset fp, -16\n");
++#elif defined(TARGET_ARCH_PPC64)
++  // Dart frame (ABI-SPEC 3.1): FP = r31 points at the saved caller FP, the
++  // return address is at FP+8, the caller's SP is FP+16. DWARF numbers: r31
++  // is 31, LR is 65 (kDwarfLinkRegister).
++  COMPILE_ASSERT(FP == R31);
++  assembly_stream_->WriteString(".cfi_def_cfa 31, 16\n");
++  assembly_stream_->WriteString(".cfi_offset 65, -8\n");
++  assembly_stream_->WriteString(".cfi_offset 31, -16\n");
+ #else
+ #error Unexpected architecture.
+ #endif
+diff --git a/runtime/vm/instructions.h b/runtime/vm/instructions.h
+index 3ddb87d1..104a7852 100644
+--- a/runtime/vm/instructions.h
++++ b/runtime/vm/instructions.h
+@@ -17,6 +17,8 @@
+ #include "vm/instructions_arm64.h"
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+ #include "vm/instructions_riscv.h"
++#elif defined(TARGET_ARCH_PPC64)
++#include "vm/instructions_ppc64.h"
+ #else
+ #error Unknown architecture.
+ #endif
+diff --git a/runtime/vm/instructions_ppc64.cc b/runtime/vm/instructions_ppc64.cc
+new file mode 100644
+index 00000000..c49f38c1
+--- /dev/null
++++ b/runtime/vm/instructions_ppc64.cc
+@@ -0,0 +1,345 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++
++#include "vm/globals.h"  // Needed here to get TARGET_ARCH_PPC64.
++#if defined(TARGET_ARCH_PPC64)
++
++#include "vm/instructions.h"
++#include "vm/instructions_ppc64.h"
++
++#include "vm/constants.h"
++#include "vm/cpu.h"
++#include "vm/object.h"
++#include "vm/object_store.h"
++#include "vm/reverse_pc_lookup_cache.h"
++
++namespace dart {
++
++// The instructions of the call shapes (instructions_ppc64.h).
++static constexpr uint32_t kMtctrR0 = kPpcMtctr | (0u << 21);       // mtctr r0
++static constexpr uint32_t kLdxR0CodeR0 =                            // ldx r0,r28,r0
++    kPpcLdx | (0u << 21) | (static_cast<uint32_t>(CODE_REG) << 16) | (0u << 11);
++
++static bool IsLi(const Instr* instr, Register rt) {  // addi rt,0,si
++  return instr->IsD(kPpcAddi) && instr->RTField() == rt &&
++         instr->RAField() == R0;
++}
++
++uword InstructionPattern::DecodeLoadWordFromPool(uword end,
++                                                 Register* reg,
++                                                 intptr_t* index) {
++  // 1. ld dst,off(PP)
++  // or
++  // 2. addis X,PP,ha(off) ; ld dst,lo(off)(X)    X = dst, or TMP if dst = r0
++  uword start = end - Instr::kInstrSize;
++  const Instr* ld = Instr::At(start);
++  RELEASE_ASSERT(ld->IsDS(kPpcLd));
++  *reg = ld->RTField();
++  intptr_t offset = ld->DSField();
++  const Register base = ld->RAField();
++  if (base != PP) {
++    ASSERT(base == *reg || (*reg == R0 && base == TMP));
++    start -= Instr::kInstrSize;
++    const Instr* addis = Instr::At(start);
++    RELEASE_ASSERT(addis->IsD(kPpcAddis) && addis->RTField() == base &&
++                   addis->RAField() == PP);
++    offset += static_cast<intptr_t>(addis->SIField()) << 16;
++  }
++  // PP is untagged on PPC64.
++  ASSERT(Utils::IsAligned(offset, 8));
++  *index = ObjectPool::IndexFromOffset(offset - kHeapObjectTag);
++  return start;
++}
++
++bool InstructionPattern::IsCallThroughCtr(uword pc) {
++  return Instr::At(pc - Instr::kInstrSize)->IsBctrl() &&
++         Instr::At(pc - 2 * Instr::kInstrSize)->InstructionBits() == kMtctrR0;
++}
++
++uword InstructionPattern::DecodeCallThroughPool(uword pc,
++                                                Register* reg,
++                                                intptr_t* index) {
++  RELEASE_ASSERT(IsCallThroughCtr(pc));
++  uword end = pc - 2 * Instr::kInstrSize;  // the mtctr
++  if (Instr::At(end - Instr::kInstrSize)->InstructionBits() == kLdxR0CodeR0) {
++    // JIT: <pool load of CODE_REG> ; li r0,entry-1 ; ldx r0,r28,r0
++    RELEASE_ASSERT(IsLi(Instr::At(end - 2 * Instr::kInstrSize), R0));
++    end -= 2 * Instr::kInstrSize;
++    const uword start = DecodeLoadWordFromPool(end, reg, index);
++    ASSERT(*reg == CODE_REG);
++    return start;
++  }
++  // AOT: <pool load of r0>
++  const uword start = DecodeLoadWordFromPool(end, reg, index);
++  ASSERT(*reg == R0);
++  return start;
++}
++
++CallPattern::CallPattern(uword pc, const Code& code)
++    : object_pool_(ObjectPool::Handle(code.GetObjectPool())),
++      target_code_pool_index_(-1) {
++  ASSERT(code.ContainsInstructionAt(pc));
++  Register reg;
++  InstructionPattern::DecodeCallThroughPool(pc, &reg,
++                                            &target_code_pool_index_);
++}
++
++// The two pool loads (target, then data) of the IC / switchable call;
++// returns the target's pool index, the data's is the next one.
++static intptr_t DecodeTwoSlotCall(uword pc, uword* start) {
++  RELEASE_ASSERT(InstructionPattern::IsCallThroughCtr(pc));
++  uword end = pc - 2 * Instr::kInstrSize;
++  RELEASE_ASSERT(Instr::At(end - Instr::kInstrSize)->InstructionBits() ==
++                 kLdxR0CodeR0);
++  RELEASE_ASSERT(IsLi(Instr::At(end - 2 * Instr::kInstrSize), R0));
++  end -= 2 * Instr::kInstrSize;
++  Register data_reg, code_reg;
++  intptr_t data_index, target_index;
++  end = InstructionPattern::DecodeLoadWordFromPool(end, &data_reg, &data_index);
++  ASSERT(data_reg == IC_DATA_REG);
++  end = InstructionPattern::DecodeLoadWordFromPool(end, &code_reg,
++                                                   &target_index);
++  ASSERT(code_reg == CODE_REG);
++  RELEASE_ASSERT(target_index + 1 == data_index);
++  if (start != nullptr) *start = end;
++  return target_index;
++}
++
++ICCallPattern::ICCallPattern(uword pc, const Code& code)
++    : object_pool_(ObjectPool::Handle(code.GetObjectPool())),
++      target_pool_index_(-1),
++      data_pool_index_(-1) {
++  ASSERT(code.ContainsInstructionAt(pc));
++  target_pool_index_ = DecodeTwoSlotCall(pc, nullptr);
++  data_pool_index_ = target_pool_index_ + 1;
++}
++
++NativeCallPattern::NativeCallPattern(uword pc, const Code& code)
++    : object_pool_(ObjectPool::Handle(code.GetObjectPool())),
++      end_(pc),
++      native_function_pool_index_(-1),
++      target_code_pool_index_(-1) {
++  ASSERT(code.ContainsInstructionAt(pc));
++  Register reg;
++  const uword native_function_load_end = InstructionPattern::DecodeCallThroughPool(
++      end_, &reg, &target_code_pool_index_);
++  ASSERT(reg == CODE_REG);
++  InstructionPattern::DecodeLoadWordFromPool(native_function_load_end, &reg,
++                                             &native_function_pool_index_);
++  // The native-call stubs take the native function in R8 (STUBS-SPEC 2.3).
++  ASSERT(reg == R8);
++}
++
++CodePtr NativeCallPattern::target() const {
++  return static_cast<CodePtr>(object_pool_.ObjectAt(target_code_pool_index_));
++}
++
++void NativeCallPattern::set_target(const Code& target) const {
++  object_pool_.SetObjectAt<std::memory_order_release>(target_code_pool_index_,
++                                                      target);
++  // No need to flush the instruction cache, since the code is not modified.
++}
++
++NativeFunction NativeCallPattern::native_function() const {
++  return reinterpret_cast<NativeFunction>(
++      object_pool_.RawValueAt(native_function_pool_index_));
++}
++
++void NativeCallPattern::set_native_function(NativeFunction func) const {
++  object_pool_.SetRawValueAt<std::memory_order_relaxed>(
++      native_function_pool_index_, reinterpret_cast<uword>(func));
++}
++
++bool DecodeLoadObjectFromPoolOrThread(uword pc, const Code& code, Object* obj) {
++  ASSERT(code.ContainsInstructionAt(pc));
++  const Instr* instr = Instr::At(pc);
++  if (!instr->IsDS(kPpcLd)) {
++    return false;
++  }
++  intptr_t offset = instr->DSField();
++  Register base = instr->RAField();
++  if (base != PP && base != THR) {
++    // The far pool form: addis X,PP,ha ; ld dst,lo(X).
++    const Instr* addis = Instr::At(pc - Instr::kInstrSize);
++    if (!addis->IsD(kPpcAddis) || addis->RTField() != base ||
++        (addis->RAField() != PP && addis->RAField() != THR)) {
++      return false;
++    }
++    offset += static_cast<intptr_t>(addis->SIField()) << 16;
++    base = addis->RAField();
++  }
++  if (base == PP) {
++    // PP is untagged on PPC64.
++    ASSERT(Utils::IsAligned(offset, 8));
++    const intptr_t index = ObjectPool::IndexFromOffset(offset - kHeapObjectTag);
++    return ObjectAtPoolIndex(code, index, obj);
++  }
++  return Thread::ObjectAtOffset(offset, obj);
++}
++
++CodePtr CallPattern::TargetCode() const {
++  return static_cast<CodePtr>(object_pool_.ObjectAt(target_code_pool_index_));
++}
++
++void CallPattern::SetTargetCode(const Code& target) const {
++  object_pool_.SetObjectAt<std::memory_order_release>(target_code_pool_index_,
++                                                      target);
++  // No need to flush the instruction cache, since the code is not modified.
++}
++
++ObjectPtr ICCallPattern::Data() const {
++  return object_pool_.ObjectAt<std::memory_order_acquire>(data_pool_index_);
++}
++
++void ICCallPattern::SetData(const Object& data) const {
++  ASSERT(data.IsArray() || data.IsICData() || data.IsMegamorphicCache());
++  object_pool_.SetObjectAt<std::memory_order_release>(data_pool_index_, data);
++}
++
++CodePtr ICCallPattern::TargetCode() const {
++  return static_cast<CodePtr>(object_pool_.ObjectAt(target_pool_index_));
++}
++
++void ICCallPattern::SetTargetCode(const Code& target) const {
++  object_pool_.SetObjectAt<std::memory_order_release>(target_pool_index_,
++                                                      target);
++  // No need to flush the instruction cache, since the code is not modified.
++}
++
++SwitchableCallPatternBase::SwitchableCallPatternBase(
++    const ObjectPool& object_pool)
++    : object_pool_(object_pool), data_pool_index_(-1), target_pool_index_(-1) {}
++
++ObjectPtr SwitchableCallPatternBase::data() const {
++  return object_pool_.ObjectAt<std::memory_order_acquire>(data_pool_index_);
++}
++
++void SwitchableCallPatternBase::SetDataRelease(const Object& data) const {
++  ASSERT(!Object::Handle(object_pool_.ObjectAt(data_pool_index_)).IsCode());
++  object_pool_.SetObjectAt<std::memory_order_release>(data_pool_index_, data);
++}
++
++SwitchableCallPattern::SwitchableCallPattern(uword pc, const Code& code)
++    : SwitchableCallPatternBase(ObjectPool::Handle(code.GetObjectPool())) {
++  ASSERT(code.ContainsInstructionAt(pc));
++  target_pool_index_ = DecodeTwoSlotCall(pc, nullptr);
++  data_pool_index_ = target_pool_index_ + 1;
++}
++
++ObjectPtr SwitchableCallPattern::target() const {
++  return object_pool_.ObjectAt(target_pool_index_);
++}
++
++void SwitchableCallPattern::SetTargetRelease(const Code& target) const {
++  ASSERT(Object::Handle(object_pool_.ObjectAt(target_pool_index_)).IsCode());
++  object_pool_.SetObjectAt<std::memory_order_release>(target_pool_index_,
++                                                      target);
++}
++
++BareSwitchableCallPattern::BareSwitchableCallPattern(uword pc)
++    : SwitchableCallPatternBase(ObjectPool::Handle(
++          IsolateGroup::Current()->object_store()->global_object_pool())) {
++  // TODO(ppc64): decode the AOT switchable call once
++  // FlowGraphCompiler::EmitInstanceCallAOT defines it (M3-BOOT-PLAN 4.3,
++  // "AOT, later"). Until then nothing can construct this pattern.
++  UNIMPLEMENTED();
++}
++
++uword BareSwitchableCallPattern::target_entry() const {
++  return object_pool_.RawValueAt<std::memory_order_relaxed>(target_pool_index_);
++}
++
++void BareSwitchableCallPattern::SetTargetRelease(const Code& target) const {
++  ASSERT(object_pool_.TypeAt(target_pool_index_) ==
++         ObjectPool::EntryType::kImmediate);
++  object_pool_.SetRawValueAt<std::memory_order_release>(
++      target_pool_index_, target.MonomorphicEntryPoint());
++}
++
++ReturnPattern::ReturnPattern(uword pc) : pc_(pc) {}
++
++bool ReturnPattern::IsValid() const {
++  return Instr::At(pc_)->IsBlr();
++}
++
++bool PcRelativeCallPattern::IsValid() const {
++  return Instr::At(pc_)->IsBl();
++}
++
++bool PcRelativeTailCallPattern::IsValid() const {
++  return Instr::At(pc_)->IsB();
++}
++
++// The fixed words of the trampoline (instructions_ppc64.h). Words 4 and 5
++// carry the displacement.
++static constexpr uint32_t kTrampolineMflrR0 = kPpcMflr | (0u << 21);
++static constexpr uint32_t kTrampolineMflrR12 = kPpcMflr | (12u << 21);
++static constexpr uint32_t kTrampolineMtlrR0 = kPpcMtlr | (0u << 21);
++static constexpr uint32_t kTrampolineAddis = kPpcAddis | (12u << 21) | (12u << 16);
++static constexpr uint32_t kTrampolineAddi = kPpcAddi | (12u << 21) | (12u << 16);
++static constexpr uint32_t kTrampolineMtctrR12 = kPpcMtctr | (12u << 21);
++
++void PcRelativeTrampolineJumpPattern::Initialize() {
++  uint32_t* pattern = reinterpret_cast<uint32_t*>(pattern_start_);
++  pattern[0] = kTrampolineMflrR0;
++  pattern[1] = kPpcBclNextInstr;
++  pattern[2] = kTrampolineMflrR12;
++  pattern[3] = kTrampolineMtlrR0;
++  pattern[4] = kTrampolineAddis;
++  pattern[5] = kTrampolineAddi;
++  pattern[6] = kTrampolineMtctrR12;
++  pattern[7] = kPpcBctr;
++  set_distance(0);
++}
++
++int32_t PcRelativeTrampolineJumpPattern::distance() {
++  const uint32_t* pattern = reinterpret_cast<uint32_t*>(pattern_start_);
++  const int32_t hi = static_cast<int16_t>(pattern[4] & 0xffff);
++  const int32_t lo = static_cast<int16_t>(pattern[5] & 0xffff);
++  return static_cast<int32_t>((static_cast<int64_t>(hi) << 16) + lo +
++                              kPcReadOffset);
++}
++
++void PcRelativeTrampolineJumpPattern::set_distance(int32_t distance) {
++  uint32_t* pattern = reinterpret_cast<uint32_t*>(pattern_start_);
++  const int64_t d = static_cast<int64_t>(distance) - kPcReadOffset;
++  pattern[4] = kTrampolineAddis | EncodeSI(HighAdjusted16(d));
++  pattern[5] = kTrampolineAddi | EncodeSI(Low16(d));
++  ASSERT(IsValid());
++}
++
++bool PcRelativeTrampolineJumpPattern::IsValid() const {
++  const uint32_t* pattern = reinterpret_cast<uint32_t*>(pattern_start_);
++  return pattern[0] == kTrampolineMflrR0 && pattern[1] == kPpcBclNextInstr &&
++         pattern[2] == kTrampolineMflrR12 && pattern[3] == kTrampolineMtlrR0 &&
++         (pattern[4] & ~0xffffu) == kTrampolineAddis &&
++         (pattern[5] & ~0xffffu) == kTrampolineAddi &&
++         pattern[6] == kTrampolineMtctrR12 && pattern[7] == kPpcBctr;
++}
++
++intptr_t TypeTestingStubCallPattern::GetSubtypeTestCachePoolIndex() {
++  // Calls to the type testing stubs look like (GenerateIndirectTTSCall):
++  //   ... ; ld r6,stc(PP) ; mtctr rX ; bctrl
++  // or (AOT, PC-relative):
++  //   ld r6,stc(PP) ; bl tts
++  // where r6 = TypeTestABI::kSubtypeTestCacheReg.
++  uword pc = pc_ - Instr::kInstrSize;
++  const Instr* call = Instr::At(pc);
++  if (call->IsBctrl()) {
++    pc -= Instr::kInstrSize;
++    RELEASE_ASSERT(Instr::At(pc)->IsSprMove(kPpcMtctr));
++  } else {
++    PcRelativeCallPattern pattern(pc);
++    RELEASE_ASSERT(pattern.IsValid());
++  }
++  Register reg;
++  intptr_t pool_index = -1;
++  InstructionPattern::DecodeLoadWordFromPool(pc, &reg, &pool_index);
++  ASSERT_EQUAL(reg, TypeTestABI::kSubtypeTestCacheReg);
++  return pool_index;
++}
++
++}  // namespace dart
++
++#endif  // defined TARGET_ARCH_PPC64
+diff --git a/runtime/vm/instructions_ppc64.h b/runtime/vm/instructions_ppc64.h
+new file mode 100644
+index 00000000..db78cf74
+--- /dev/null
++++ b/runtime/vm/instructions_ppc64.h
+@@ -0,0 +1,268 @@
++// Copyright (c) 2026, the Dart project authors.  Please see the AUTHORS file
++// for details. All rights reserved. Use of this source code is governed by a
++// BSD-style license that can be found in the LICENSE file.
++// Classes that describe assembly patterns as used by inline caches.
++
++#ifndef RUNTIME_VM_INSTRUCTIONS_PPC64_H_
++#define RUNTIME_VM_INSTRUCTIONS_PPC64_H_
++
++#ifndef RUNTIME_VM_INSTRUCTIONS_H_
++#error Do not include instructions_ppc64.h directly; use instructions.h instead.
++#endif
++
++#include "vm/allocation.h"
++#include "vm/constants.h"
++#include "vm/native_function.h"
++#include "vm/tagged_pointer.h"
++
++namespace dart {
++
++class Code;
++class ICData;
++class Object;
++class ObjectPool;
++
++// The code shapes decoded here are those of ABI-SPEC 4.1 and 6.2. Call
++// targets and IC data are patched by rewriting object pool slots, never
++// instructions; only AOT relocation rewrites a "bl"/"b" (before the code
++// ever runs).
++//
++//   pool load (Assembler::LoadWordFromPoolIndex; PP = r30 is untagged):
++//       ld dst,off(r30)                            offset < 32 KiB
++//       addis X,r30,ha(off) ; ld dst,lo(off)(X)    X = dst, or TMP if dst = r0
++//   JIT call through a Code object (BranchLink, Call(FieldAddress(r28, ..))):
++//       <pool load of r28> ; li r0,entry-1 ; ldx r0,r28,r0 ; mtctr r0 ; bctrl
++//   AOT call through an entry point in the pool:
++//       <pool load of r0> ; mtctr r0 ; bctrl
++//   IC / megamorphic / switchable call (JIT): two consecutive pool slots,
++//       <pool load of r28 (slot i)> ; <pool load of r8 (slot i+1)> ;
++//       li r0,entry-1 ; ldx r0,r28,r0 ; mtctr r0 ; bctrl
++//   native call: <pool load of r8 (native function)> ; <JIT call>
++class InstructionPattern : public AllStatic {
++ public:
++  // Decodes a pool load ending at |end| (the load's last instruction is the
++  // one before |end|). Returns the address of its first instruction, and the
++  // loaded register and pool index in |reg| and |index|.
++  static uword DecodeLoadWordFromPool(uword end,
++                                      Register* reg,
++                                      intptr_t* index);
++
++  // Decodes a call through the object pool whose return address is |pc|:
++  // either shape above (JIT through Code, AOT through an entry point).
++  // Returns the address of its first instruction; |reg| is the register the
++  // pool slot was loaded into (CODE_REG, or R0 for the AOT shape).
++  static uword DecodeCallThroughPool(uword pc, Register* reg, intptr_t* index);
++
++  // The branch-through-CTR tail of every call: "mtctr r0 ; bctrl" ending at
++  // |pc|.
++  static bool IsCallThroughCtr(uword pc);
++};
++
++class CallPattern : public ValueObject {
++ public:
++  CallPattern(uword pc, const Code& code);
++
++  CodePtr TargetCode() const;
++  void SetTargetCode(const Code& target) const;
++
++ private:
++  const ObjectPool& object_pool_;
++
++  intptr_t target_code_pool_index_;
++
++  DISALLOW_COPY_AND_ASSIGN(CallPattern);
++};
++
++class ICCallPattern : public ValueObject {
++ public:
++  ICCallPattern(uword pc, const Code& caller_code);
++
++  ObjectPtr Data() const;
++  void SetData(const Object& data) const;
++
++  CodePtr TargetCode() const;
++  void SetTargetCode(const Code& target) const;
++
++ private:
++  const ObjectPool& object_pool_;
++
++  intptr_t target_pool_index_;
++  intptr_t data_pool_index_;
++
++  DISALLOW_COPY_AND_ASSIGN(ICCallPattern);
++};
++
++class NativeCallPattern : public ValueObject {
++ public:
++  NativeCallPattern(uword pc, const Code& code);
++
++  CodePtr target() const;
++  void set_target(const Code& target) const;
++
++  NativeFunction native_function() const;
++  void set_native_function(NativeFunction target) const;
++
++ private:
++  const ObjectPool& object_pool_;
++
++  uword end_;
++  intptr_t native_function_pool_index_;
++  intptr_t target_code_pool_index_;
++
++  DISALLOW_COPY_AND_ASSIGN(NativeCallPattern);
++};
++
++// Instance call that can switch between a direct monomorphic call, an IC
++// call, and a megamorphic call.
++//   load guarded cid            load ICData             load MegamorphicCache
++//   load monomorphic target <-> load ICLookup stub  ->  load MMLookup stub
++//   call target.entry           call stub.entry         call stub.entry
++class SwitchableCallPatternBase : public ValueObject {
++ public:
++  explicit SwitchableCallPatternBase(const ObjectPool& object_pool);
++
++  ObjectPtr data() const;
++  void SetDataRelease(const Object& data) const;
++
++ protected:
++  const ObjectPool& object_pool_;
++  intptr_t data_pool_index_;
++  intptr_t target_pool_index_;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(SwitchableCallPatternBase);
++};
++
++// See [SwitchableCallBase] for a switchable calls in general.
++//
++// The target slot is always a [Code] object: Either the code of the
++// monomorphic function or a stub code.
++class SwitchableCallPattern : public SwitchableCallPatternBase {
++ public:
++  SwitchableCallPattern(uword pc, const Code& code);
++
++  ObjectPtr target() const;
++  void SetTargetRelease(const Code& target) const;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(SwitchableCallPattern);
++};
++
++// See [SwitchableCallBase] for a switchable calls in general.
++//
++// The target slot is always a direct entrypoint address: Either the entry
++// point of the monomorphic function or a stub entry point.
++//
++// AOT only. The AOT switchable call (FlowGraphCompiler::EmitInstanceCallAOT)
++// is not written yet (M3 is JIT); this pattern follows it when it is.
++class BareSwitchableCallPattern : public SwitchableCallPatternBase {
++ public:
++  explicit BareSwitchableCallPattern(uword pc);
++
++  uword target_entry() const;
++  void SetTargetRelease(const Code& target) const;
++
++ private:
++  DISALLOW_COPY_AND_ASSIGN(BareSwitchableCallPattern);
++};
++
++class ReturnPattern : public ValueObject {
++ public:
++  explicit ReturnPattern(uword pc);
++
++  // blr = 1 instruction.
++  static constexpr int kLengthInBytes = 1 * Instr::kInstrSize;
++
++  int pattern_length_in_bytes() const { return kLengthInBytes; }
++
++  bool IsValid() const;
++
++ private:
++  const uword pc_;
++};
++
++// "bl target" / "b target": a signed 26-bit byte offset (24-bit LI field
++// times 4), +/-32 MiB (ABI-SPEC 4.4).
++class PcRelativePatternBase : public ValueObject {
++ public:
++  static constexpr intptr_t kLowerCallingRange = -(1 << 25);
++  static constexpr intptr_t kUpperCallingRange = (1 << 25) - Instr::kInstrSize;
++
++  explicit PcRelativePatternBase(uword pc) : pc_(pc) {}
++
++  static constexpr int kLengthInBytes = 1 * Instr::kInstrSize;
++
++  int32_t distance() { return Instr::At(pc_)->LIField(); }
++
++  void set_distance(int32_t distance) {
++    ASSERT(IsBranch24Offset(distance));
++    Instr* instr = Instr::At(pc_);
++    instr->SetInstructionBits((instr->InstructionBits() & ~0x03fffffcu) |
++                              EncodeLI(distance));
++  }
++
++  bool IsValid() const;
++
++ protected:
++  uword pc_;
++};
++
++class PcRelativeCallPattern : public PcRelativePatternBase {
++ public:
++  explicit PcRelativeCallPattern(uword pc) : PcRelativePatternBase(pc) {}
++
++  bool IsValid() const;
++};
++
++class PcRelativeTailCallPattern : public PcRelativePatternBase {
++ public:
++  explicit PcRelativeTailCallPattern(uword pc) : PcRelativePatternBase(pc) {}
++
++  bool IsValid() const;
++};
++
++// Instruction pattern for a tail call to a signed 32-bit PC-relative offset.
++//
++// The AOT compiler emits PC-relative calls ("bl"). If the destination is not
++// in range for "bl", the code relocator inserts this trampoline, which is in
++// range, and which tail-calls the final destination with a full signed
++// 32-bit offset. It must be position independent (a snapshot has no
++// relocations), so it reads the PC -- the one place this backend does
++// (ABI-SPEC 4.4, 6.5):
++//
++//     mflr  r0
++//     bcl   20,31,$+4
++//     mflr  r12              r12 = address of this instruction (start + 8)
++//     mtlr  r0               the original call's return address restored
++//     addis r12,r12,ha(d)    d = target - (start + 8)
++//     addi  r12,r12,lo(d)
++//     mtctr r12
++//     bctr
++//
++// Clobbers r0, r12 and CTR, which are dead at every Dart call boundary.
++class PcRelativeTrampolineJumpPattern : public ValueObject {
++ public:
++  explicit PcRelativeTrampolineJumpPattern(uword pattern_start)
++      : pattern_start_(pattern_start) {
++    USE(pattern_start_);
++  }
++
++  static constexpr int kLengthInBytes = 8 * Instr::kInstrSize;
++
++  void Initialize();
++
++  // The distance from the start of the trampoline to the target.
++  int32_t distance();
++  void set_distance(int32_t distance);
++  bool IsValid() const;
++
++ private:
++  // The PC that "bcl 20,31,$+4" leaves in LR, relative to the start.
++  static constexpr intptr_t kPcReadOffset = 2 * Instr::kInstrSize;
++
++  uword pattern_start_;
++};
++
++}  // namespace dart
++
++#endif  // RUNTIME_VM_INSTRUCTIONS_PPC64_H_
+diff --git a/runtime/vm/object.cc b/runtime/vm/object.cc
+index 0a374b35..35c1b523 100644
+--- a/runtime/vm/object.cc
++++ b/runtime/vm/object.cc
+@@ -16550,6 +16550,8 @@ void ObjectPool::DebugPrint() const {
+     THR_Print("  %" Pd "(pp) ", offset);  // PP is untagged
+ #elif defined(TARGET_ARCH_ARM64)
+     THR_Print("  [pp, #%" Pd "] ", offset);  // PP is untagged
++#elif defined(TARGET_ARCH_PPC64)
++    THR_Print("  %" Pd "(pp) ", offset);  // PP is untagged
+ #elif defined(TARGET_ARCH_ARM32)
+     THR_Print("  [pp, #%" Pd "] ", offset - kHeapObjectTag);  // PP is tagged
+ #else
+diff --git a/runtime/vm/profiler.cc b/runtime/vm/profiler.cc
+index 40de43e3..a26987d6 100644
+--- a/runtime/vm/profiler.cc
++++ b/runtime/vm/profiler.cc
+@@ -1049,7 +1049,8 @@ bool ReturnAddressLocator::LocateReturnAddress(uword* return_address) {
+   return false;
+ }
+ #elif defined(TARGET_ARCH_ARM) || defined(TARGET_ARCH_ARM64) ||                \
+-    defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
++    defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64) ||            \
++    defined(TARGET_ARCH_PPC64)
+ bool ReturnAddressLocator::LocateReturnAddress(uword* return_address) {
+   ASSERT(return_address != nullptr);
+   return false;
+diff --git a/runtime/vm/stack_frame.h b/runtime/vm/stack_frame.h
+index e86941e8..05f183e3 100644
+--- a/runtime/vm/stack_frame.h
++++ b/runtime/vm/stack_frame.h
+@@ -22,6 +22,8 @@
+ #include "vm/stack_frame_arm64.h"
+ #elif defined(TARGET_ARCH_RISCV32) || defined(TARGET_ARCH_RISCV64)
+ #include "vm/stack_frame_riscv.h"
++#elif defined(TARGET_ARCH_PPC64)
++#include "vm/stack_frame_ppc64.h"
+ #else
+ #error Unknown architecture.
+ #endif
+diff --git a/runtime/vm/unit_test.h b/runtime/vm/unit_test.h
+index 0a282cca..3f836ec1 100644
+--- a/runtime/vm/unit_test.h
++++ b/runtime/vm/unit_test.h
+@@ -127,9 +127,11 @@
+ #define ASSEMBLER_TEST_RUN(name, test)                                         \
+   ASSEMBLER_TEST_RUN_WITH_EXPECTATION(name, test, "Pass")
+ 
+-#if defined(TARGET_ARCH_IA32) || defined(TARGET_ARCH_X64)
++#if defined(TARGET_ARCH_IA32) || defined(TARGET_ARCH_X64) ||                   \
++    defined(TARGET_ARCH_PPC64)
+ // We don't have simulators for these architectures, but define the macros so
+-// they can be used in architecture-independent tests.
++// they can be used in architecture-independent tests. (PPC64 only ever runs
++// natively: there is no ppc64 simulator.)
+ #define EXECUTE_TEST_CODE_INT32(name, entry) reinterpret_cast<name>(entry)()
+ #define EXECUTE_TEST_CODE_INT64(name, entry) reinterpret_cast<name>(entry)()
+ #define EXECUTE_TEST_CODE_INT64_LL(name, entry, long_arg0, long_arg1)          \
+diff --git a/runtime/vm/vm_sources.gni b/runtime/vm/vm_sources.gni
+index f3b980a8..4d644667 100644
+--- a/runtime/vm/vm_sources.gni
++++ b/runtime/vm/vm_sources.gni
+@@ -44,6 +44,7 @@ vm_sources = [
+   "code_patcher_arm.cc",
+   "code_patcher_arm64.cc",
+   "code_patcher_ia32.cc",
++  "code_patcher_ppc64.cc",
+   "code_patcher_riscv.cc",
+   "code_patcher_x64.cc",
+   "constants_arm.cc",
+@@ -55,6 +56,8 @@ vm_sources = [
+   "constants_ia32.h",
+   "constants_kbc.cc",
+   "constants_kbc.h",
++  "constants_ppc64.cc",
++  "constants_ppc64.h",
+   "constants_riscv.cc",
+   "constants_riscv.h",
+   "constants_x64.cc",
+@@ -63,6 +66,8 @@ vm_sources = [
+   "cpu_arm.cc",
+   "cpu_arm64.cc",
+   "cpu_ia32.cc",
++  "cpu_ppc64.cc",
++  "cpu_ppc64.h",
+   "cpu_riscv.cc",
+   "cpu_x64.cc",
+   "cpuid.cc",
+@@ -88,6 +93,7 @@ vm_sources = [
+   "debugger_arm.cc",
+   "debugger_arm64.cc",
+   "debugger_ia32.cc",
++  "debugger_ppc64.cc",
+   "debugger_riscv.cc",
+   "debugger_x64.cc",
+   "deferred_objects.cc",
+@@ -137,6 +143,8 @@ vm_sources = [
+   "instructions_arm64.h",
+   "instructions_ia32.cc",
+   "instructions_ia32.h",
++  "instructions_ppc64.cc",
++  "instructions_ppc64.h",
+   "instructions_riscv.cc",
+   "instructions_riscv.h",
+   "instructions_x64.cc",
+@@ -307,6 +315,7 @@ vm_sources = [
+   "stack_frame_arm64.h",
+   "stack_frame_ia32.h",
+   "stack_frame_kbc.h",
++  "stack_frame_ppc64.h",
+   "stack_frame_x64.h",
+   "stack_trace.cc",
+   "stack_trace.h",
+@@ -474,6 +483,8 @@ constants_sources = [
+   "constants_base.h",
+   "constants_ia32.cc",
+   "constants_ia32.h",
++  "constants_ppc64.cc",
++  "constants_ppc64.h",
+   "constants_riscv.cc",
+   "constants_riscv.h",
+   "constants_x64.cc",

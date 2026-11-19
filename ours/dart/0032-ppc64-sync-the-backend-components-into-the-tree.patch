@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 11:14:55 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/code_patcher_ppc64.cc
+
+Sources:
+  asm d91c212
+  stubs 13bf3e2
+  il c1c5ab0
+  aot 7264885
+---
+ runtime/vm/code_patcher_ppc64.cc | 48 +++++++++++++++++++++-----------
+ 1 file changed, 31 insertions(+), 17 deletions(-)
+
+diff --git a/runtime/vm/code_patcher_ppc64.cc b/runtime/vm/code_patcher_ppc64.cc
+index e03a156c..b4d873e9 100644
+--- a/runtime/vm/code_patcher_ppc64.cc
++++ b/runtime/vm/code_patcher_ppc64.cc
+@@ -114,23 +114,37 @@ void CodePatcher::PatchSwitchableCallAt(uword return_address,
+                                         const Code& caller_code,
+                                         const Object& data,
+                                         const Code& target) {
+-  // We lock to block other writers but don't start a safepoint to block readers
+-  // (i.e., Dart execution).
+-  // First update target to a stub that does not read 'data' so that concurrent
+-  // Dart execution cannot observe the new stub with the old data or the old
+-  // stub with the new data.
+-  SafepointMutexLocker ml(IsolateGroup::Current()->type_feedback_mutex());
+-  if (FLAG_precompiled_mode) {
+-    BareSwitchableCallPattern call(return_address);
+-    call.SetTargetRelease(StubCode::SwitchableCallMiss());
+-    call.SetDataRelease(data);
+-    call.SetTargetRelease(target);
+-  } else {
+-    SwitchableCallPattern call(return_address, caller_code);
+-    call.SetTargetRelease(StubCode::SwitchableCallMiss());
+-    call.SetDataRelease(data);
+-    call.SetTargetRelease(target);
+-  }
++  // Unlike ARM64 (and x64), ppc64 also stops the mutators. The other
++  // architectures patch while Dart code runs and rely on the readers: ARM64
++  // reads the (target, data) pair with one ldp, x64 with two loads in
++  // program order (TSO). The ppc64 call site reads the pair with two `ld`s
++  // (no 16-byte load on the whitelist), and POWER performs independent
++  // loads in any order and with wide timing windows: another isolate of the
++  // group then sees, e.g., ICCallThroughCode with the old UnlinkedCall
++  // data, SEGV at 0x17 (language/vm/lazy_deopt_with_exception_concurrent_
++  // test, product AOT, ~5% of runs; making the target load
++  // address-dependent on the data load raised it to ~30%, the window being
++  // between the two loads, not their order). With the mutators stopped no
++  // Dart code is between those two loads while the pair changes. The cost
++  // is a safepoint per switchable-call transition, which is bounded per
++  // call site and nearly free with a single mutator.
++  // Lock order: the mutex first, then the safepoint (a mutator waiting for
++  // the mutex is safepointed by SafepointMutexLocker).
++  Thread* thread = Thread::Current();
++  SafepointMutexLocker ml(thread->isolate_group()->type_feedback_mutex());
++  thread->isolate_group()->RunWithStoppedMutators([&]() {
++    if (FLAG_precompiled_mode) {
++      BareSwitchableCallPattern call(return_address);
++      call.SetTargetRelease(StubCode::SwitchableCallMiss());
++      call.SetDataRelease(data);
++      call.SetTargetRelease(target);
++    } else {
++      SwitchableCallPattern call(return_address, caller_code);
++      call.SetTargetRelease(StubCode::SwitchableCallMiss());
++      call.SetDataRelease(data);
++      call.SetTargetRelease(target);
++    }
++  });
+ }
+ 
+ uword CodePatcher::GetSwitchableCallTargetEntryAt(uword return_address,

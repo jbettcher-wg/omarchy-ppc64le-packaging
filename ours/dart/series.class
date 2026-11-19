@@ -1,0 +1,41 @@
+# Class lines for the patches of the Dart ppc64 series whose commit message
+# carries none: the "[ppc64] sync the backend components" commits, which
+# work/dart-ppc64-sync.sh writes with a file list and the component revisions
+# instead of prose. Keyed by patch number; sync-series reads this file and
+# refuses a patch that has neither a Class: line nor an entry here, so a
+# re-export that renumbers the series fails loudly until this is updated:
+# an entry whose patch carries its own Class: line, or names no patch in the
+# series, is refused as stale.
+# Written 2026-11-19 from each patch's file list and hunks, against
+# flutter-port work/UPSTREAM-CANDIDATES.md.
+#
+# "local carry" = the ppc64 VM backend or something only it needs. Upstream
+# adds no architecture it will not maintain itself (dart-lang/sdk#63407), so
+# these stay downstream for good.
+0007 local carry: the backend itself, new files only (assembler, disassembler, IL, flow graph compiler, stubs, constants); the hunks to the shared locations.h and stub_code_compiler.cc are its arch arms
+0008 local carry: backend enablement (TARGET_ARCH_PPC64 arms, GN wiring, ELF EM_PPC64/EF_PPC64_ABI_V2, assembly-snapshot CFI); upstreamable in form only together with the backend
+0009 local carry: the ELFv2 FFI (Abi.linuxPpc64 in pkg/vm and the VM, marshaller and native calling convention); its runtime/vm/compiler/ffi/unit_test.cc and unit_test_custom_zone.h hunks are the clang 22 / libstdc++ include fix, upstreamable on its own (UPSTREAM-CANDIDATES, IL-C ffi/0002)
+0010 local carry: generated runtime offsets for TARGET_ARCH_PPC64, extracted natively (tools/run_offsets_extractor.dart cannot cross-build ppc64)
+0011 upstreamable in form: DWARF CFI uses DW_CFA_offset_extended for registers >= 64 (ELFv2's LR is 65); no change for any existing architecture
+0012 local carry: backend (assembler, IL, flow graph compiler, FFI calling convention, cpu_ppc64)
+0013 local carry: backend; the flow_graph_compiler.cc hunk routes kUnboxedFloat Dart stack slots through FpuTMP on ppc64 only (ABI-SPEC A7)
+0014 local carry: backend (il.h arch list)
+0015 local carry: backend, AOT switchable-call pattern decoder
+0016 local test harness: object_ppc64_test.cc code generators for object_test.cc
+0017 local carry: backend (flow graph compiler)
+0018 local test harness: stub_code_ppc64_test.cc listed in vm_sources_tests
+0019 local carry: backend assembler and stub unit tests
+0020 local carry: backend (assembler, instructions_ppc64 call patterns); assembler_base.h gains the ppc64 arm
+0021 local carry: backend (assembler, constants)
+0022 local carry: backend (assembler + tests, IL)
+0023 local carry: backend (cpu_ppc64: icache flush, HWCAP2 features)
+0024 upstreamable fix + local carry: flow_graph_compiler.cc blocks FpuTMP in AllocateRegistersLocally (latent on every arch whose FpuTMP is not the last FPU register; UPSTREAM-CANDIDATES, il/shared 0002); the marshaller.cc hunk is the ppc64 variadic-HFA saved copy
+0025 local carry: pkg/vm native-assets validator knows the ppc64 architecture name
+0026 local carry: backend (assembler, disassembler, stubs, constants, stub tests)
+0027 local test harness: relocation_test ppc64 arms; its "caller poisons the result register" change is upstreamable for every arch (UPSTREAM-CANDIDATES, aot 0001)
+0028 local carry: pkg/native_stack_traces recognises EM_PPC64 as "ppc64" (aot 0002), plus a stub_code_compiler_ppc64 fix
+0029 upstreamable fix: linear-scan SpillAfter spilled register uses between the loop header and the spill point; a latent miscompile on every arch (release arm64 encodes a garbage register; UPSTREAM-CANDIDATES, il/shared 0003)
+0030 local test harness (aot 0004/0005/0007: vm.status SkipByDesign, LLVM tools in buildtools/linux-ppc64, Mach-O legs skipped) + Mach-O snapshots use 64 KiB pages on PPC64 (aot 0006; upstreamable as "size Mach-O pages for the largest host page")
+0031 local carry: runtime_args.gni builds analyze_snapshot for ppc64 (64-bit AOT runtime; Flutter's //flutter:flutter depends on it); a one-line arch list, upstreamable only with the backend
+0032 local carry: backend; code_patcher_ppc64.cc patches an AOT switchable call (target, data) pair with the mutators stopped, since ppc64 call sites read the pair with two independent loads (B's A17 race fix: SEGV in concurrent lazy-deopt tests)
+0034 required, upstreamable to dart-lang/native once Dart has ppc64: Architecture.ppc64 / Target.linuxPpc64 in third_party/pkg/native code_assets and hooks_runner (ABI-SPEC A2, aot 0003); without it every dartdev command fails

@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 03:42:13 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/backend/flow_graph_compiler.cc
+  runtime/vm/compiler/ffi/marshaller.cc
+
+Sources:
+  asm c88b5a7
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 8df2468
+---
+ .../compiler/backend/flow_graph_compiler.cc   |  5 +++++
+ runtime/vm/compiler/ffi/marshaller.cc         | 20 +++++++++++++++----
+ 2 files changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/runtime/vm/compiler/backend/flow_graph_compiler.cc b/runtime/vm/compiler/backend/flow_graph_compiler.cc
+index a888ab75..b76eecc5 100644
+--- a/runtime/vm/compiler/backend/flow_graph_compiler.cc
++++ b/runtime/vm/compiler/backend/flow_graph_compiler.cc
+@@ -1657,6 +1657,11 @@ void FlowGraphCompiler::AllocateRegistersLocally(Instruction* instr) {
+   for (intptr_t i = 0; i < kNumberOfFpuRegisters; i++) {
+     blocked_fpu_registers[i] = false;
+   }
++  // FpuTMP is scratch for the macro-assembler and the instructions' own
++  // code, as in the linear scan allocator (linearscan.cc). Upstream targets
++  // get away without this because their FpuTMP is a high register that the
++  // first-free search below never reaches; on ppc64 FpuTMP is f0.
++  blocked_fpu_registers[FpuTMP] = true;
+ 
+   // Mark all fixed input, temp and output registers as used.
+   for (intptr_t i = 0; i < locs->input_count(); i++) {
+diff --git a/runtime/vm/compiler/ffi/marshaller.cc b/runtime/vm/compiler/ffi/marshaller.cc
+index d95d83dc..a5fffe42 100644
+--- a/runtime/vm/compiler/ffi/marshaller.cc
++++ b/runtime/vm/compiler/ffi/marshaller.cc
+@@ -811,11 +811,24 @@ class CallbackArgumentTranslator : public ValueObject {
+       }
+     } else {
+       ASSERT(arg.IsBoth());
+-      const auto& both = arg.AsBoth();
+-      AllocateArgument(both.location(0));
++      AllocateArgument(SavedCopy(arg.AsBoth()));
+     }
+   }
+ 
++  // The copy of a Both that NativeEntryInstr::SaveArguments saves, which is
++  // the one the callback reads. That is location(0), except for a variadic
++  // HFA on ppc64, B(M(FPRs), M(doubleword chunks)): BaseMarshaller::Location
++  // (which SaveArguments iterates over) gives its doubleword copy,
++  // location(1), the copy every C caller fills.
++  static const NativeLocation& SavedCopy(const BothNativeLocations& both) {
++#if defined(TARGET_ARCH_PPC64)
++    if (both.payload_type().IsCompound()) {
++      return both.location(1);
++    }
++#endif
++    return both.location(0);
++  }
++
+   const NativeLocation& TranslateArgument(Zone* zone,
+                                           const NativeLocation& arg) {
+     if (arg.IsStack()) {
+@@ -876,9 +889,8 @@ class CallbackArgumentTranslator : public ValueObject {
+     }
+ 
+     ASSERT(arg.IsBoth());
+-    const auto& both = arg.AsBoth();
+     // We only need one.
+-    return TranslateArgument(zone, both.location(0));
++    return TranslateArgument(zone, SavedCopy(arg.AsBoth()));
+   }
+ 
+   intptr_t argument_slots_used_ = 0;

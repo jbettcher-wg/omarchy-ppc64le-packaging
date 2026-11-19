@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 07:49:17 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/backend/linearscan.cc
+
+Sources:
+  asm 09815e0
+  stubs 6bec940
+  il c1c5ab0
+  aot bd67317
+---
+ runtime/vm/compiler/backend/linearscan.cc | 27 ++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/vm/compiler/backend/linearscan.cc b/runtime/vm/compiler/backend/linearscan.cc
+index 1fc14ec8..57cc6d8b 100644
+--- a/runtime/vm/compiler/backend/linearscan.cc
++++ b/runtime/vm/compiler/backend/linearscan.cc
+@@ -573,6 +573,21 @@ static bool HasOnlyUnconstrainedUsesInLoop(LiveRange* range,
+   return true;
+ }
+ 
++// Returns true if all uses of the given range at positions in [from, to) have
++// Any allocation policy.
++static bool HasOnlyUnconstrainedUsesBetween(LiveRange* range,
++                                            intptr_t from,
++                                            intptr_t to) {
++  for (UsePosition* use = range->first_use();
++       (use != nullptr) && (use->pos() < to); use = use->next()) {
++    if ((use->pos() >= from) &&
++        !use->location_slot()->Equals(Location::Any())) {
++      return false;
++    }
++  }
++  return true;
++}
++
+ // Returns true if all uses of the given range have Any allocation policy.
+ static bool HasOnlyUnconstrainedUses(LiveRange* range) {
+   UsePosition* use = range->first_use();
+@@ -2187,10 +2202,20 @@ void FlowGraphAllocator::SpillAfter(LiveRange* range, intptr_t from) {
+ 
+   // When spilling the value inside the loop check if this spill can
+   // be moved outside.
++  //
++  // HasOnlyUnconstrainedUsesInLoop only looked at the uses up to the loop's
++  // linear end (its last back edge), but blocks of a loop can be placed after
++  // that (irregexp's backtracking code does this), so |from| can be past it:
++  // moving the spill back to the header would then also spill the uses in
++  // between, register uses included, and an input that requires a register
++  // would get the spill location (for a constant: a Constant location, which
++  // the backends read as a register number). Check that range as well.
+   LoopInfo* loop_info = BlockEntryAt(from)->loop_info();
+   if (loop_info != nullptr) {
+     if ((range->Start() <= loop_info->header()->start_pos()) &&
+-        RangeHasOnlyUnconstrainedUsesInLoop(range, loop_info->id())) {
++        RangeHasOnlyUnconstrainedUsesInLoop(range, loop_info->id()) &&
++        HasOnlyUnconstrainedUsesBetween(
++            range, loop_info->header()->start_pos(), from)) {
+       ASSERT(loop_info->header()->start_pos() <= from);
+       from = loop_info->header()->start_pos();
+       TRACE_ALLOC(

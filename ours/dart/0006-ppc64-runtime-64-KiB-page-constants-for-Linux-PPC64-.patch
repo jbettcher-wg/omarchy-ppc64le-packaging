@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:52 -0600
+Subject: [PATCH] [ppc64] runtime: 64 KiB page constants for Linux/PPC64, as
+ for Linux/ARM64
+
+Two compile-time constants must be at least the run-time page size, and
+were 64 KiB only for Linux/ARM64 (and 64-bit Android):
+
+- kElfPageSize (vm/elf.h): segment alignment of AOT ELF snapshots
+  (libapp.so). At the 16 KiB default, a ppc64 snapshot's LOAD segments
+  cannot be mapped on a 64 KiB-page kernel (cf. dart-lang/sdk#47618,
+  CL 220381 for ARM64).
+- FfiCallbackMetadata::kPageSize (vm/ffi_callback_metadata.h): the FFI
+  callback trampoline page. At the 4 KiB default, trampolines are laid out
+  for 4 KiB pages and FFI callbacks break on a 64 KiB-page kernel
+  (cf. dart-lang/sdk#56823 / flutter#155965, CL 368525).
+
+Most ppc64le distributions (this one included: getconf PAGESIZE = 65536)
+build their kernels with CONFIG_PPC_64K_PAGES. Both conditions now use one
+predicate in platform/globals.h, DART_TARGET_MAY_USE_64K_PAGES (Linux and
+ARM64 or PPC64), so the two cannot drift apart again. The third constant
+of this kind, kAppSnapshotPageSize (bin/snapshot_utils.cc), is already
+64 KiB on every target. Nothing changes for any existing target.
+
+Class: upstreamable fix (the predicate is useful even without a ppc64
+backend, e.g. for future 64 KiB-page targets).
+---
+ runtime/platform/globals.h         | 10 ++++++++++
+ runtime/vm/elf.h                   |  8 ++++----
+ runtime/vm/ffi_callback_metadata.h |  2 +-
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
+index de5fc62e..ea29a17e 100644
+--- a/runtime/platform/globals.h
++++ b/runtime/platform/globals.h
+@@ -441,6 +441,16 @@ struct simd128_value_t {
+ #endif
+ #endif
+ 
++// Linux targets whose kernels are commonly configured with 64 KiB base pages
++// (CONFIG_ARM64_64K_PAGES on some ARM64 server distributions,
++// CONFIG_PPC_64K_PAGES on most ppc64le distributions). Constants that must be
++// at least the run-time page size, and that have to be fixed at compile time
++// because they shape generated code or snapshots, use 64 KiB here.
++#if defined(DART_TARGET_OS_LINUX) &&                                           \
++    (defined(TARGET_ARCH_ARM64) || defined(TARGET_ARCH_PPC64))
++#define DART_TARGET_MAY_USE_64K_PAGES 1
++#endif
++
+ // Short form printf format specifiers
+ #define Pd PRIdPTR
+ #define Pu PRIuPTR
+diff --git a/runtime/vm/elf.h b/runtime/vm/elf.h
+index 64d3d893..b171952e 100644
+--- a/runtime/vm/elf.h
++++ b/runtime/vm/elf.h
+@@ -21,10 +21,10 @@ namespace dart {
+ // The max page size on all supported architectures. Used to determine
+ // the alignment of load segments, so that they are guaranteed page-aligned,
+ // and no shared object section or segment should have a larger alignment.
+-#if defined(DART_TARGET_OS_LINUX) && defined(TARGET_ARCH_ARM64)
+-// Some Linux distributions on ARM64 select 64 KB page size.
+-// Follow LLVM (https://reviews.llvm.org/D25079) and set maximum page size
+-// to 64 KB for ARM64 Linux builds.
++#if defined(DART_TARGET_MAY_USE_64K_PAGES)
++// Some Linux distributions on ARM64, and most on ppc64le, select a 64 KB page
++// size. Follow LLVM (https://reviews.llvm.org/D25079, and lld's PPC64 default)
++// and set the maximum page size to 64 KB for those Linux builds.
+ static constexpr intptr_t kElfPageSize = 64 * KB;
+ #elif defined(DART_TARGET_OS_ANDROID) && defined(TARGET_ARCH_IS_64_BIT)
+ static constexpr intptr_t kElfPageSize = 64 * KB;
+diff --git a/runtime/vm/ffi_callback_metadata.h b/runtime/vm/ffi_callback_metadata.h
+index cc146a3c..912506ae 100644
+--- a/runtime/vm/ffi_callback_metadata.h
++++ b/runtime/vm/ffi_callback_metadata.h
+@@ -269,7 +269,7 @@ class FfiCallbackMetadata {
+   // host and target since it affects stub code generation. So kPageSize may be
+   // an overestimate of the target's VirtualMemory::PageSize(), but we try to
+   // get it as close as possible to avoid wasting memory.
+-#if defined(DART_TARGET_OS_LINUX) && defined(TARGET_ARCH_ARM64)
++#if defined(DART_TARGET_MAY_USE_64K_PAGES)
+   static constexpr intptr_t kPageSize = 64 * KB;
+ #elif defined(DART_TARGET_OS_ANDROID) && defined(TARGET_ARCH_IS_64_BIT)
+   static constexpr intptr_t kPageSize = 64 * KB;

@@ -1,0 +1,145 @@
+#!/bin/bash
+# sync-series [SERIES_DIR] [--trees-from SDK_REPO]
+#
+# Brings the Dart ppc64 port series into this recipe directory, which is the
+# series' one durable home (flutter-engine links to these files through its
+# own sync-dart-series). Run it whenever the series is re-exported
+# (flutter-port work/dart-ppc64-export-patches.sh writes SERIES_DIR).
+#
+#   1. Copies every patch named in SERIES_DIR/series here, as a real file,
+#      flat (makepkg finds local sources by basename in this directory only),
+#      plus the `series` file itself. Patches here that the series no longer
+#      names are deleted.
+#   2. Rewrites the two generated blocks of PKGBUILD:
+#        - the header's class table: one entry per patch, its subject and its
+#          Class: line, taken from the patch's own commit message, or from
+#          series.class beside this script for the patches whose message has
+#          none ("sync the backend components" commits). A patch with neither
+#          is an error: every patch the recipe carries says what it is.
+#        - _patches / _patch_sums.
+#   3. With --trees-from, also rewrites _tree and _dep_trees from the export's
+#      source: `git rev-parse HEAD^{tree}` of SDK_REPO and of every nested repo
+#      the series patches (each must be clean). prepare() checks all of them
+#      against the tree it builds, so a wrong value fails the build; this only
+#      saves copying hashes by hand.
+#
+# Default SERIES_DIR is the flutter-port layout: ../../dart-sdk-patches-next.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+dir=../../dart-sdk-patches-next trees_from=
+while (( $# )); do
+  case $1 in
+    --trees-from) trees_from=$(cd "$2" && pwd); shift 2 ;;
+    -*) echo "unknown option $1" >&2; exit 2 ;;
+    *) dir=$1; shift ;;
+  esac
+done
+cd "$here"
+dir=$(cd "$dir" && pwd)
+[[ -f $dir/series ]] || { echo "$dir has no series file" >&2; exit 1; }
+mapfile -t names < <(grep -v '^\s*\(#\|$\)' "$dir/series")
+(( ${#names[@]} )) || { echo "the series in $dir is empty" >&2; exit 1; }
+
+for n in "${names[@]}"; do
+  [[ -f $dir/$n ]] || { echo "missing: $dir/$n" >&2; exit 1; }
+done
+find . -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.patch' -delete
+for n in "${names[@]}"; do cp "$dir/$n" .; done
+cp "$dir/series" series
+
+# Nested repos the series patches: the directories with their own .git that
+# contain a patched path (only meaningful with --trees-from).
+declare -A dep_trees=()
+tree=
+if [[ -n $trees_from ]]; then
+  [[ -z $(git -C "$trees_from" status --porcelain --untracked-files=no) ]] \
+    || { echo "$trees_from has uncommitted changes" >&2; exit 1; }
+  tree=$(git -C "$trees_from" rev-parse 'HEAD^{tree}')
+  while IFS= read -r p; do
+    d=$p
+    while [[ $d == */* ]]; do
+      d=${d%/*}
+      if [[ -e $trees_from/$d/.git ]]; then
+        [[ -z $(git -C "$trees_from/$d" status --porcelain --untracked-files=no) ]] \
+          || { echo "$trees_from/$d has uncommitted changes" >&2; exit 1; }
+        dep_trees[$d]=$(git -C "$trees_from/$d" rev-parse 'HEAD^{tree}')
+        break
+      fi
+    done
+  done < <(for n in "${names[@]}"; do
+             sed -n -E 's#^\+\+\+ b/([^[:space:]]+).*#\1#p' "$n"
+           done | sort -u)
+fi
+
+python3 -I - "$tree" "$(for k in "${!dep_trees[@]}"; do printf '%s=%s\n' "$k" "${dep_trees[$k]}"; done)" \
+  "${names[@]}" <<'EOF'
+import re, sys, textwrap
+tree, deps, names = sys.argv[1], sys.argv[2], sys.argv[3:]
+
+classes = {}
+try:
+    for line in open('series.class'):
+        line = line.rstrip('\n')
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        num, text = line.split(None, 1)
+        classes[num] = text.strip()
+except FileNotFoundError:
+    pass
+
+table, missing = [], []
+for n in names:
+    msg = open(n, encoding='utf-8', errors='replace').read().split('\n---\n', 1)[0]
+    m = re.search(r'^Subject: (?:\[PATCH[^\]]*\] )?(.*(?:\n [^\n]*)*)', msg, re.M)
+    subject = ' '.join(m.group(1).split()) if m else n
+    m = re.search(r'^Class:(.*(?:\n(?!\n)[^\n]*)*)', msg, re.M)
+    cls = ' '.join(m.group(1).split()) if m else classes.get(n[:4])
+    if not cls:
+        missing.append(n)
+        continue
+    table.append('# %s %s' % (n[:4], subject))
+    table += textwrap.wrap('Class: ' + cls, width=78, initial_indent='#      ',
+                           subsequent_indent='#        ')
+if missing:
+    sys.exit('no Class: line and no series.class entry for:\n  ' + '\n  '.join(missing))
+# Stale entries: series.class is keyed by number, so a re-export that
+# renumbers the series must not silently attach a class to another patch.
+own = {n[:4] for n in names
+       if re.search(r'^Class:', open(n, encoding='utf-8', errors='replace').read().split('\n---\n', 1)[0], re.M)}
+stale = sorted(k for k in classes if k in own or k not in {n[:4] for n in names})
+if stale:
+    sys.exit('stale series.class entries (the patch has its own Class: line, or no such patch): '
+             + ' '.join(stale))
+
+import hashlib
+arrays = ['# BEGIN generated: sync-series', '_patches=(']
+arrays += ["  '%s'" % n for n in names]
+arrays += [')', '_patch_sums=(']
+arrays += ["  '%s'" % hashlib.sha256(open(n, 'rb').read()).hexdigest() for n in names]
+arrays += [')', '# END generated']
+
+p = 'PKGBUILD'
+s = open(p).read()
+s, n1 = re.subn(r'# BEGIN generated: sync-series classes\n.*?# END generated classes',
+                lambda _: '\n'.join(['# BEGIN generated: sync-series classes'] + table
+                                    + ['# END generated classes']), s, count=1, flags=re.S)
+s, n2 = re.subn(r'# BEGIN generated: sync-series\n.*?# END generated',
+                lambda _: '\n'.join(arrays), s, count=1, flags=re.S)
+if n1 != 1 or n2 != 1:
+    sys.exit('PKGBUILD lacks a sync-series block (classes: %d, arrays: %d)' % (n1, n2))
+if tree:
+    s, n = re.subn(r'^_tree=\S+', '_tree=' + tree, s, count=1, flags=re.M)
+    if n != 1:
+        sys.exit('PKGBUILD has no _tree= line')
+    entries = ['  [%s]=%s' % tuple(l.split('=', 1)) for l in sorted(deps.split('\n')) if l]
+    s, n = re.subn(r'^declare -gA _dep_trees=\(\n.*?^\)', lambda _: '\n'.join(
+        ['declare -gA _dep_trees=('] + entries + [')']), s, count=1, flags=re.M | re.S)
+    if n != 1:
+        sys.exit('PKGBUILD has no multi-line declare -gA _dep_trees=( ... ) block')
+open(p, 'w').write(s)
+EOF
+echo "synced ${#names[@]} patches from $dir"
+[[ -z $tree ]] || {
+  echo "_tree=$tree"
+  for k in "${!dep_trees[@]}"; do echo "_dep_trees[$k]=${dep_trees[$k]}"; done
+}

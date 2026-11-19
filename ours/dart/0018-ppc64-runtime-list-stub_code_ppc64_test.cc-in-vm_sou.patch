@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:12:09 -0600
+Subject: [PATCH] [ppc64] runtime: list stub_code_ppc64_test.cc in
+ vm_sources_tests
+
+---
+ runtime/vm/vm_sources.gni | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/runtime/vm/vm_sources.gni b/runtime/vm/vm_sources.gni
+index 92d10c30..3bf44a5a 100644
+--- a/runtime/vm/vm_sources.gni
++++ b/runtime/vm/vm_sources.gni
+@@ -462,6 +462,7 @@ vm_sources_tests = [
+   "stub_code_ia32_test.cc",
+   "stub_code_test.cc",
+   "stub_code_x64_test.cc",
++  "stub_code_ppc64_test.cc",
+   "stub_code_riscv_test.cc",
+   "thread_barrier_test.cc",
+   "thread_pool_test.cc",

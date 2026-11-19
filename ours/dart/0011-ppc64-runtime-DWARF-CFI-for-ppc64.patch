@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 01:57:33 -0600
+Subject: [PATCH] [ppc64] runtime: DWARF CFI for ppc64
+
+The ELFv2 DWARF number of LR is 65 (ABI-SPEC 2.3): FDEs name it as the
+return-address column and record where it is saved, which DW_CFA_offset
+cannot encode (6-bit register field). Registers >= 64 now use
+DW_CFA_offset_extended; every other architecture's registers are < 64 and
+emit exactly what they did. CFA = r31 + 16, as in the assembly snapshots.
+---
+ runtime/vm/dwarf.cc | 12 +++++++++++-
+ runtime/vm/dwarf.h  |  1 +
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/vm/dwarf.cc b/runtime/vm/dwarf.cc
+index daa27922..66bf36ae 100644
+--- a/runtime/vm/dwarf.cc
++++ b/runtime/vm/dwarf.cc
+@@ -951,6 +951,10 @@ void Dwarf::WriteCallFrameInformationRecords(
+   // the registers' usual encoding within instructions.
+   const intptr_t DWARF_RA = 16;  // No corresponding register.
+   const intptr_t DWARF_FP = 6;   // RBP
++#elif defined(TARGET_ARCH_PPC64)
++  // The ELFv2 ABI's DWARF numbers: LR is 65 (not a GPR), r31 is 31.
++  const intptr_t DWARF_RA = kDwarfLinkRegister;
++  const intptr_t DWARF_FP = FP;
+ #else
+   const intptr_t DWARF_RA = ConcreteRegister(LINK_REGISTER);
+   const intptr_t DWARF_FP = FP;
+@@ -982,7 +986,13 @@ void Dwarf::WriteCallFrameInformationRecords(
+   const auto cfa_offset = [&](intptr_t reg, intptr_t offset) {
+     const intptr_t scaled_offset = offset / kDataAlignment;
+     RELEASE_ASSERT(scaled_offset >= 0);
+-    stream->u1(Dwarf::DW_CFA_offset | reg);
++    if (reg < 64) {
++      stream->u1(Dwarf::DW_CFA_offset | reg);
++    } else {
++      // DW_CFA_offset holds the register in 6 bits (PPC64's LR is 65).
++      stream->u1(Dwarf::DW_CFA_offset_extended);
++      stream->uleb128(reg);
++    }
+     stream->uleb128(scaled_offset);
+   };
+ 
+diff --git a/runtime/vm/dwarf.h b/runtime/vm/dwarf.h
+index ee93a822..2eba56b2 100644
+--- a/runtime/vm/dwarf.h
++++ b/runtime/vm/dwarf.h
+@@ -255,6 +255,7 @@ class Dwarf : public ZoneAllocated {
+   static constexpr intptr_t DW_LNE_set_address = 0x02;
+ 
+   static constexpr intptr_t DW_CFA_offset = 0x80;
++  static constexpr intptr_t DW_CFA_offset_extended = 0x05;
+   static constexpr intptr_t DW_CFA_val_offset = 0x14;
+   static constexpr intptr_t DW_CFA_def_cfa = 0x0c;
+ 

@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 02:03:16 -0600
+Subject: [PATCH] [ppc64] sync the backend components into the tree
+
+  runtime/vm/compiler/backend/il.h
+
+Sources:
+  asm 2599c53 (uncommitted there, not synced: assembler_ppc64.h assembler_ppc64.cc)
+  stubs (not a git repository): stub_code_compiler_ppc64.cc=71aee14c3e53 0001-stub_code_compiler-ppc64-no-simd-box-stubs-null-reg.patch=e6c37f1109ac 0002-locations-AddAllGeneralRegisters-skip-r2-r13.patch=9db3b993a84b 0003-ffi_callback_metadata-ppc64-trampoline-sizes.patch=bd67895a6fe5 0004-object-ppc64-entry-offsets.patch=c679d1eacddc
+  il 4fcf45d (uncommitted there, not synced: flow_graph_compiler_ppc64.cc)
+---
+ runtime/vm/compiler/backend/il.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/runtime/vm/compiler/backend/il.h b/runtime/vm/compiler/backend/il.h
+index 617d488e..d398596c 100644
+--- a/runtime/vm/compiler/backend/il.h
++++ b/runtime/vm/compiler/backend/il.h
+@@ -5250,7 +5250,7 @@ class TestIntInstr : public TemplateCondition<2, NoThrow, Pure> {
+     switch (representation) {
+       case kTagged:
+ #if defined(TARGET_ARCH_X64) || defined(TARGET_ARCH_ARM64) ||                  \
+-    defined(TARGET_ARCH_RISCV64)
++    defined(TARGET_ARCH_RISCV64) || defined(TARGET_ARCH_PPC64)
+       case kUnboxedInt64:
+ #endif
+         return true;

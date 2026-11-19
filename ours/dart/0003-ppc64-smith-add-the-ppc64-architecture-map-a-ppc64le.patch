@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:43 -0600
+Subject: [PATCH] [ppc64] smith: add the ppc64 architecture; map a ppc64le host
+ to it
+
+pkg/test_runner could not start on a ppc64le host: smith's
+Architecture.host runs `uname -m` and throws "Unknown host architecture:
+ppc64le", and test_runner evaluates it while building its option parser
+(the --arch default), so even `-a simarm64` runs died at startup.
+
+Adds Architecture.ppc64 and maps uname "ppc64le" to it. Every switch over
+Architecture in test_runner already has a default arm.
+
+Class: needed locally to run tools/test.py-style suites on this host;
+upstreamable only together with the ppc64 backend.
+---
+ pkg/smith/lib/configuration.dart | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/pkg/smith/lib/configuration.dart b/pkg/smith/lib/configuration.dart
+index 9398ac21..203cc76c 100644
+--- a/pkg/smith/lib/configuration.dart
++++ b/pkg/smith/lib/configuration.dart
+@@ -736,7 +736,8 @@ enum Architecture {
+   riscv32._('riscv32'),
+   riscv64._('riscv64'),
+   simriscv32._('simriscv32', isSimulator: true),
+-  simriscv64._('simriscv64', isSimulator: true);
++  simriscv64._('simriscv64', isSimulator: true),
++  ppc64._('ppc64');
+ 
+   final String name;
+   final bool isSimulator;
+@@ -801,6 +802,9 @@ enum Architecture {
+         return riscv32;
+       case "riscv64":
+         return riscv64;
++      // Little-endian only; "ppc64" from uname is big-endian.
++      case "ppc64le":
++        return ppc64;
+     }
+ 
+     throw "Unknown host architecture: $arch";

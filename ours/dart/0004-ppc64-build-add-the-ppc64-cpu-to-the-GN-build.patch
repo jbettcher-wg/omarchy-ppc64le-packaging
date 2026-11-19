@@ -1,0 +1,215 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:52 -0600
+Subject: [PATCH] [ppc64] build: add the ppc64 cpu to the GN build
+
+GN already calls a ppc64le host host_cpu = "ppc64", but nothing in
+//build knew that cpu, so `gn gen` failed in several places:
+
+- build/toolchain/linux: no clang_ppc64 (or gcc ppc64) toolchain, which
+  BUILDCONFIG.gn selects as both host and default toolchain.
+- build/config/compiler: clang gets --target=powerpc64le-linux-gnu like
+  every other Linux cpu; new arg ppc64_cpu passes -mcpu explicitly (empty =
+  the compiler default for powerpc64le, i.e. the POWER8 / ISA 2.07
+  baseline), since GN does not read CFLAGS; and -z max-page-size=65536,
+  because ppc64le kernels commonly use 64 KiB pages (lld and GNU ld already
+  default to it on ppc64; this pins it).
+- build/config/host_byteorder.gni runs //build/config/get_host_byteorder.py
+  for host_cpu == "ppc64" (which can be either endianness), but the script
+  was never copied into this tree: "Can't open file". Added, as in
+  Chromium (print(sys.byteorder)).
+- tools/debian_package asserted "Don't know Debian name for ppc64" at gen
+  time; ppc64 is Debian's ppc64el.
+- runtime/tools/bin_to_assembly.py emitted 64-bit size symbols as .long
+  unless the arch was arm64/x64/riscv64. On ppc64 the VM reads such a
+  symbol (e.g. a snapshot or kernel blob size) as an 8-byte intptr_t, so
+  its upper half was whatever followed. ppc64 now gets .quad.
+- tools/gn.py: --toolchain-prefix accepts ppc64=...
+
+Class: upstreamable in form (same shape as the riscv64 enablement); the
+toolchain is only exercised with the ppc64 port.
+---
+ build/config/compiler/BUILD.gn     | 20 ++++++++++++++
+ build/config/get_host_byteorder.py | 13 +++++++++
+ build/toolchain/linux/BUILD.gn     | 44 ++++++++++++++++++++++++++++++
+ runtime/tools/bin_to_assembly.py   |  2 +-
+ tools/debian_package/BUILD.gn      |  4 +++
+ tools/gn.py                        |  4 ++-
+ 6 files changed, 85 insertions(+), 2 deletions(-)
+ create mode 100755 build/config/get_host_byteorder.py
+
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index 6830b0c1..f47e08be 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -11,8 +11,14 @@ declare_args() {
+   } else {
+     debug_optimization_level = "2"
+   }
++
++  # -mcpu for ppc64 (little-endian ELFv2) C/C++ code, e.g. "power8" or
++  # "power9". Empty means the compiler's default for powerpc64le, which is
++  # the POWER8 (ISA 2.07) baseline.
++  ppc64_cpu = ""
+ }
+ 
++import("//build/config/clang/clang.gni")
+ import("//build/config/sysroot.gni")
+ 
+ import("//build/config/android/config.gni")
+@@ -276,6 +282,10 @@ config("compiler") {
+       if (arm_tune != "") {
+         cflags += [ "-mtune=$arm_tune" ]
+       }
++    } else if (current_cpu == "ppc64") {
++      if (ppc64_cpu != "") {
++        cflags += [ "-mcpu=$ppc64_cpu" ]
++      }
+     }
+   }
+ 
+@@ -290,6 +300,13 @@ config("compiler") {
+     ]
+   }
+ 
++  # ppc64le Linux kernels are commonly built with 64 KiB pages, so segments
++  # must be 64 KiB-aligned. lld and GNU ld already default to this for
++  # ppc64; say it explicitly so a different linker cannot regress it.
++  if (is_linux && current_cpu == "ppc64") {
++    ldflags += [ "-Wl,-z,max-page-size=65536" ]
++  }
++
+   if (is_android || is_linux || is_mac || is_ios || is_fuchsia) {
+     if (is_shared_library) {
+       cflags += [ "-fPIC" ]
+@@ -345,6 +362,9 @@ config("compiler") {
+         } else if (current_cpu == "x86") {
+           cflags += [ "--target=i386-linux-gnu" ]
+           ldflags += [ "--target=i386-linux-gnu" ]
++        } else if (current_cpu == "ppc64") {
++          cflags += [ "--target=powerpc64le-linux-gnu" ]
++          ldflags += [ "--target=powerpc64le-linux-gnu" ]
+         }
+       }
+     }
+diff --git a/build/config/get_host_byteorder.py b/build/config/get_host_byteorder.py
+new file mode 100755
+index 00000000..117fce09
+--- /dev/null
++++ b/build/config/get_host_byteorder.py
+@@ -0,0 +1,13 @@
++#!/usr/bin/env python3
++# Copyright 2017 The Chromium Authors. All rights reserved.
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++"""Get Byteorder of host architecture.
++
++//build/config/host_byteorder.gni runs this for host_cpu == "ppc64", which
++can be either endianness.
++"""
++
++import sys
++
++print(sys.byteorder)
+diff --git a/build/toolchain/linux/BUILD.gn b/build/toolchain/linux/BUILD.gn
+index 5ff6db3d..0ca57072 100644
+--- a/build/toolchain/linux/BUILD.gn
++++ b/build/toolchain/linux/BUILD.gn
+@@ -15,6 +15,7 @@ declare_args() {
+   arm64_toolchain_prefix = ""
+   riscv32_toolchain_prefix = ""
+   riscv64_toolchain_prefix = ""
++  ppc64_toolchain_prefix = ""
+ }
+ 
+ if (use_rbe) {
+@@ -317,3 +318,46 @@ gcc_toolchain_suite("clang_riscv64") {
+   toolchain_os = "linux"
+   is_clang = true
+ }
++
++gcc_toolchain_suite("ppc64") {
++  prefix = "powerpc64le-linux-gnu-"
++  if (ppc64_toolchain_prefix != "") {
++    prefix = ppc64_toolchain_prefix
++  }
++
++  cc = "${gcc_compiler_prefix}${prefix}gcc"
++  cxx = "${gcc_compiler_prefix}${prefix}g++"
++  asm = "${gcc_compiler_prefix}${prefix}gcc"
++
++  ar = "${prefix}ar"
++  ld = "${link_prefix}${prefix}g++"
++  readelf = "${prefix}readelf"
++  nm = "${prefix}nm"
++  strip = "${prefix}strip"
++
++  toolchain_cpu = "ppc64"
++  toolchain_os = "linux"
++  is_clang = false
++}
++
++gcc_toolchain_suite("clang_ppc64") {
++  prefix = rebased_clang_dir
++  cc = "${compiler_prefix}${prefix}/clang"
++  cxx = "${compiler_prefix}${prefix}/clang++"
++  asm = "${assembler_prefix}${prefix}/clang"
++
++  if (use_rbe) {
++    cc = "${cc} --target=powerpc64le-linux-gnu"
++    cxx = "${cxx} --target=powerpc64le-linux-gnu"
++  }
++
++  readelf = "${prefix}/llvm-readelf"
++  nm = "${prefix}/llvm-nm"
++  ar = "${prefix}/llvm-ar"
++  ld = "${link_prefix}${prefix}/clang++"
++  llvm_objcopy = "${prefix}/llvm-objcopy"
++
++  toolchain_cpu = "ppc64"
++  toolchain_os = "linux"
++  is_clang = true
++}
+diff --git a/runtime/tools/bin_to_assembly.py b/runtime/tools/bin_to_assembly.py
+index 888d2d7b..c008d083 100755
+--- a/runtime/tools/bin_to_assembly.py
++++ b/runtime/tools/bin_to_assembly.py
+@@ -117,7 +117,7 @@ def Main():
+ 
+             is64bit = 0
+             if options.target_arch:
+-                if options.target_arch in ["arm64", "x64", "riscv64"]:
++                if options.target_arch in ["arm64", "x64", "riscv64", "ppc64"]:
+                     is64bit = 1
+ 
+             if options.target_os in ["win"]:
+diff --git a/tools/debian_package/BUILD.gn b/tools/debian_package/BUILD.gn
+index 3aeaeb02..35c02d83 100644
+--- a/tools/debian_package/BUILD.gn
++++ b/tools/debian_package/BUILD.gn
+@@ -20,6 +20,10 @@ if (is_linux) {
+     } else if (target_cpu == "riscv64") {
+       debian_arch = "riscv64"
+       lib_dir = "//buildtools/sysroot/focal/lib/riscv64-linux-gnu/"
++    } else if (target_cpu == "ppc64") {
++      # No CIPD sysroot for ppc64: use the build host's own multiarch libdir.
++      debian_arch = "ppc64el"
++      lib_dir = "/usr/lib/powerpc64le-linux-gnu"
+     } else {
+       assert(false, "Don't know Debian name for $target_cpu")
+     }
+diff --git a/tools/gn.py b/tools/gn.py
+index 0607da6c..7afb4d78 100755
+--- a/tools/gn.py
++++ b/tools/gn.py
+@@ -301,7 +301,9 @@ def ToGnArgs(args, mode, arch, target_os, sanitizer, verify_sdk_hash,
+ 
+         toolchain = ToolchainPrefix(args)
+         if toolchain:
+-            for arch in ['ia32', 'x64', 'arm', 'arm64', 'riscv32', 'riscv64']:
++            for arch in [
++                    'ia32', 'x64', 'arm', 'arm64', 'riscv32', 'riscv64', 'ppc64'
++            ]:
+                 prefix = ParseStringMap(arch, toolchain)
+                 if prefix != None:
+                     gn_args[arch + '_toolchain_prefix'] = prefix

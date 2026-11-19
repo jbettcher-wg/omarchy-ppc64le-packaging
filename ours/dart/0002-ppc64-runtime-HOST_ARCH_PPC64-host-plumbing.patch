@@ -1,0 +1,424 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:33:43 -0600
+Subject: [PATCH] [ppc64] runtime: HOST_ARCH_PPC64 host plumbing
+
+The VM did not compile on a ppc64le host at all: platform/globals.h ends
+in "#error Architecture was not detected as supported by Dart". This adds
+the host side only, enough to build and run the VM for a simulated target
+(simarm64) on ppc64le. There is no ppc64 code generator here.
+
+- platform/globals.h: detect __powerpc64__ as HOST_ARCH_PPC64 (64-bit);
+  #error unless little-endian ELFv2. kHostArchitectureName "ppc64".
+  Recognise TARGET_ARCH_PPC64 as a 64-bit target and select it when a
+  translation unit names no target and the host is ppc64, as every other
+  host does. Without that, host-only code that includes globals.h without
+  target defines (runtime/bin/abstract_socket_test.cc,
+  ffi_test_functions_vmspecific.cc) hits "Automatic target architecture
+  detection failed". kTargetArchitectureName "ppc64".
+- platform/atomic.h: StoreStoreFence() is lwsync (Linux's smp_wmb on
+  64-bit POWER).
+- vm/signal_handler_linux.cc: PC = gp_regs[PT_NIP], SP = gp_regs[PT_R1],
+  FP = gp_regs[31], LR = gp_regs[PT_LNK].
+- vm/profiler.cc: native frames on ppc64 are linked through the ELFv2
+  back chain at 0(r1), and a callee saves its return address in its
+  caller's frame at 16(caller SP). The walker reads the saved PC relative
+  to the caller's frame, after checking that frame lies above this one and
+  inside the stack.
+- vm/cpuinfo_linux.cc: read the descriptive "cpu"/"machine" fields of
+  /proc/cpuinfo (ppc64 has no feature list there; ISA features are a
+  getauxval(AT_HWCAP2) matter for the backend).
+- vm/os_linux.cc: EM_PPC64 for the perf jitdump ELF header, and 16-byte
+  stack alignment, for TARGET_ARCH_PPC64 (inert until a backend exists).
+- vm/compiler/ffi/abi.cc: ppc64 aligns double and int64 to 8 bytes.
+- vm/heap/freelist_test.cc: the executable-page test needs a `blr`, and
+  on POWER the copied instruction must be pushed out of the d-cache and
+  invalidated in the i-cache (dcbst; sync; icbi; isync) before it runs.
+- bin/ffi_test/clobber_ppc64.S: ClobberAndCall for the FFI test library,
+  which the `runtime` target builds for the host cpu. ELFv2: saves LR and
+  r2 (the target may live in another module), calls through r12/CTR,
+  clobbers r0, r3-r11 and the r25-r30 a Dart backend would reserve.
+
+Class: upstreamable in form; only useful upstream together with a ppc64
+backend, which upstream does not take (dart-lang/sdk#63407).
+---
+ runtime/bin/ffi_test/clobber_ppc64.S | 71 ++++++++++++++++++++++++++++
+ runtime/platform/atomic.h            |  4 ++
+ runtime/platform/globals.h           | 25 ++++++++--
+ runtime/vm/compiler/ffi/abi.cc       |  3 +-
+ runtime/vm/cpuinfo_linux.cc          | 12 +++++
+ runtime/vm/heap/freelist_test.cc     |  9 ++++
+ runtime/vm/os_linux.cc               |  5 +-
+ runtime/vm/profiler.cc               | 32 +++++++++++++
+ runtime/vm/signal_handler_linux.cc   | 17 +++++++
+ 9 files changed, 173 insertions(+), 5 deletions(-)
+ create mode 100644 runtime/bin/ffi_test/clobber_ppc64.S
+
+diff --git a/runtime/bin/ffi_test/clobber_ppc64.S b/runtime/bin/ffi_test/clobber_ppc64.S
+new file mode 100644
+index 00000000..dec628de
+--- /dev/null
++++ b/runtime/bin/ffi_test/clobber_ppc64.S
+@@ -0,0 +1,71 @@
++/* ppc64le, ELFv2 ABI.
++
++   Clobber all volatile general-purpose registers, plus the callee-saved
++   registers r25-r30 that a Dart backend is expected to reserve for fixed
++   roles (dispatch table, null, heap bits, code, thread, pool), and call the
++   nullary function which is passed in as the first argument (r3).
++
++   r2 (TOC) and r13 (thread pointer) are never clobbered. The call goes
++   through a function pointer that may lead into another module, so r2 is
++   saved in the TOC save doubleword and restored afterwards, and r12 holds
++   the target address for the callee's global entry point. */
++
++  .abiversion 2
++  .text
++
++#if defined(__linux__) || defined(__FreeBSD__) /* HOST_OS_LINUX */
++  .globl ClobberAndCall
++  .type ClobberAndCall, @function
++  .p2align 4
++ClobberAndCall:
++#endif
++
++  mflr 0
++  std 0, 16(1)        /* LR save doubleword, in the caller's frame. */
++  stdu 1, -112(1)     /* 32-byte linkage area + 6 saved GPRs, 16-aligned. */
++  std 2, 24(1)        /* TOC save doubleword. */
++  std 25, 32(1)
++  std 26, 40(1)
++  std 27, 48(1)
++  std 28, 56(1)
++  std 29, 64(1)
++  std 30, 72(1)
++
++  mr 12, 3
++  mtctr 12
++
++  li 0, 1
++  li 3, 1
++  li 4, 1
++  li 5, 1
++  li 6, 1
++  li 7, 1
++  li 8, 1
++  li 9, 1
++  li 10, 1
++  li 11, 1
++  li 25, 1
++  li 26, 1
++  li 27, 1
++  li 28, 1
++  li 29, 1
++  li 30, 1
++
++  bctrl
++
++  ld 2, 24(1)
++  ld 25, 32(1)
++  ld 26, 40(1)
++  ld 27, 48(1)
++  ld 28, 56(1)
++  ld 29, 64(1)
++  ld 30, 72(1)
++  addi 1, 1, 112
++  ld 0, 16(1)
++  mtlr 0
++  blr
++
++#if defined(__linux__) || defined(__FreeBSD__)
++  .size ClobberAndCall, .-ClobberAndCall
++  .section .note.GNU-stack,"",@progbits
++#endif
+diff --git a/runtime/platform/atomic.h b/runtime/platform/atomic.h
+index 8b6180c2..2eea5f83 100644
+--- a/runtime/platform/atomic.h
++++ b/runtime/platform/atomic.h
+@@ -166,6 +166,10 @@ inline void StoreStoreFence() {
+   __asm__ __volatile__("fence w,w" : : : "memory");
+ #elif defined(HOST_ARCH_RISCV64) && defined(__GNUC__)
+   __asm__ __volatile__("fence w,w" : : : "memory");
++#elif defined(HOST_ARCH_PPC64) && defined(__GNUC__)
++  // lwsync orders store-store (and load-load, load-store) for cacheable
++  // memory; it is what Linux uses for smp_wmb() on 64-bit POWER.
++  __asm__ __volatile__("lwsync" : : : "memory");
+ #else
+   // GCC warns that TSAN doesn't understand thread fences.
+ #if defined(__GNUC__) && !defined(__clang__)
+diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
+index b70b16fc..de5fc62e 100644
+--- a/runtime/platform/globals.h
++++ b/runtime/platform/globals.h
+@@ -224,6 +224,14 @@ struct simd128_value_t {
+ #else
+ #error Unknown XLEN
+ #endif
++#elif defined(__powerpc64__)
++// Little-endian ELFv2 only: the big-endian ELFv1 ABI (function descriptors,
++// TOC conventions) is not supported.
++#if !defined(__LITTLE_ENDIAN__) || !defined(_CALL_ELF) || _CALL_ELF != 2
++#error Only little-endian ELFv2 PPC64 (ppc64le) is supported.
++#endif
++#define HOST_ARCH_PPC64 1
++#define ARCH_IS_64_BIT 1
+ #else
+ #error Architecture was not detected as supported by Dart.
+ #endif
+@@ -321,7 +329,8 @@ struct simd128_value_t {
+ 
+ #if !defined(TARGET_ARCH_ARM) && !defined(TARGET_ARCH_X64) &&                  \
+     !defined(TARGET_ARCH_IA32) && !defined(TARGET_ARCH_ARM64) &&               \
+-    !defined(TARGET_ARCH_RISCV32) && !defined(TARGET_ARCH_RISCV64)
++    !defined(TARGET_ARCH_RISCV32) && !defined(TARGET_ARCH_RISCV64) &&          \
++    !defined(TARGET_ARCH_PPC64)
+ // No target architecture specified pick the one matching the host architecture.
+ #if defined(HOST_ARCH_ARM)
+ #define TARGET_ARCH_ARM 1
+@@ -335,6 +344,8 @@ struct simd128_value_t {
+ #define TARGET_ARCH_RISCV32 1
+ #elif defined(HOST_ARCH_RISCV64)
+ #define TARGET_ARCH_RISCV64 1
++#elif defined(HOST_ARCH_PPC64)
++#define TARGET_ARCH_PPC64 1
+ #else
+ #error Automatic target architecture detection failed.
+ #endif
+@@ -344,7 +355,7 @@ struct simd128_value_t {
+     defined(TARGET_ARCH_RISCV32)
+ #define TARGET_ARCH_IS_32_BIT 1
+ #elif defined(TARGET_ARCH_X64) || defined(TARGET_ARCH_ARM64) ||                \
+-    defined(TARGET_ARCH_RISCV64)
++    defined(TARGET_ARCH_RISCV64) || defined(TARGET_ARCH_PPC64)
+ #define TARGET_ARCH_IS_64_BIT 1
+ #else
+ #error Automatic target architecture detection failed.
+@@ -357,7 +368,7 @@ struct simd128_value_t {
+ // Verify that host and target architectures match, we cannot
+ // have a 64 bit Dart VM generating 32 bit code or vice-versa.
+ #if defined(TARGET_ARCH_X64) || defined(TARGET_ARCH_ARM64) ||                  \
+-    defined(TARGET_ARCH_RISCV64)
++    defined(TARGET_ARCH_RISCV64) || defined(TARGET_ARCH_PPC64)
+ #if !defined(ARCH_IS_64_BIT) && !defined(FFI_UNIT_TESTS)
+ #error Mismatched Host/Target architectures.
+ #endif  // !defined(ARCH_IS_64_BIT) && !defined(FFI_UNIT_TESTS)
+@@ -400,6 +411,10 @@ struct simd128_value_t {
+ #if !defined(HOST_ARCH_RISCV64)
+ #define DART_INCLUDE_SIMULATOR 1
+ #endif
++#elif defined(TARGET_ARCH_PPC64)
++#if !defined(HOST_ARCH_PPC64)
++#define DART_INCLUDE_SIMULATOR 1
++#endif
+ #else
+ #error Unknown architecture.
+ #endif
+@@ -767,6 +782,8 @@ DART_FORCE_INLINE D bit_copy(const S& source) {
+ #define kHostArchitectureName "riscv32"
+ #elif defined(HOST_ARCH_RISCV64)
+ #define kHostArchitectureName "riscv64"
++#elif defined(HOST_ARCH_PPC64)
++#define kHostArchitectureName "ppc64"
+ #elif defined(HOST_ARCH_X64)
+ #define kHostArchitectureName "x64"
+ #else
+@@ -783,6 +800,8 @@ DART_FORCE_INLINE D bit_copy(const S& source) {
+ #define kTargetArchitectureName "riscv32"
+ #elif defined(TARGET_ARCH_RISCV64)
+ #define kTargetArchitectureName "riscv64"
++#elif defined(TARGET_ARCH_PPC64)
++#define kTargetArchitectureName "ppc64"
+ #elif defined(TARGET_ARCH_X64)
+ #define kTargetArchitectureName "x64"
+ #else
+diff --git a/runtime/vm/compiler/ffi/abi.cc b/runtime/vm/compiler/ffi/abi.cc
+index 66fa5a8d..229b8cf6 100644
+--- a/runtime/vm/compiler/ffi/abi.cc
++++ b/runtime/vm/compiler/ffi/abi.cc
+@@ -24,7 +24,8 @@ struct AbiAlignmentUint64 {
+ };
+ 
+ #if defined(HOST_ARCH_X64) || defined(HOST_ARCH_ARM64) ||                      \
+-    defined(HOST_ARCH_RISCV32) || defined(HOST_ARCH_RISCV64)
++    defined(HOST_ARCH_RISCV32) || defined(HOST_ARCH_RISCV64) ||                \
++    defined(HOST_ARCH_PPC64)
+ static_assert(offsetof(AbiAlignmentDouble, d) == 8,
+               "FFI transformation alignment");
+ static_assert(offsetof(AbiAlignmentUint64, i) == 8,
+diff --git a/runtime/vm/cpuinfo_linux.cc b/runtime/vm/cpuinfo_linux.cc
+index cc24d3ef..0bb6e9cc 100644
+--- a/runtime/vm/cpuinfo_linux.cc
++++ b/runtime/vm/cpuinfo_linux.cc
+@@ -49,6 +49,18 @@ void CpuInfo::Init() {
+   // We only rely on the base Linux configuration of IMAFDC, so don't need
+   // dynamic feature detection.
+   method_ = kCpuInfoNone;
++#elif defined(HOST_ARCH_PPC64)
++  // /proc/cpuinfo on ppc64 has "cpu : POWER9, altivec supported",
++  // "model : 8335-GTH", "machine : PowerNV 8335-GTH" and no feature list.
++  // These strings are descriptive only: ISA features are taken from
++  // getauxval(AT_HWCAP/AT_HWCAP2), which unlike /proc works in a chroot.
++  fields_[kCpuInfoProcessor] = "cpu";
++  fields_[kCpuInfoModel] = "cpu";
++  fields_[kCpuInfoHardware] = "machine";
++  fields_[kCpuInfoFeatures] = "cpu";
++  fields_[kCpuInfoArchitecture] = "cpu";
++  method_ = kCpuInfoSystem;
++  ProcCpuInfo::Init();
+ #else
+ #error Unrecognized target architecture
+ #endif
+diff --git a/runtime/vm/heap/freelist_test.cc b/runtime/vm/heap/freelist_test.cc
+index 53794742..7328b502 100644
+--- a/runtime/vm/heap/freelist_test.cc
++++ b/runtime/vm/heap/freelist_test.cc
+@@ -213,10 +213,19 @@ static void TestRegress38528(intptr_t header_overlap) {
+   const uint8_t ret[4] = {0xc0, 0x03, 0x5f, 0xd6};  // ret
+ #elif defined(HOST_ARCH_RISCV32) || defined(HOST_ARCH_RISCV64)
+   const uint8_t ret[2] = {0x82, 0x80};  // c.ret
++#elif defined(HOST_ARCH_PPC64)
++  const uint8_t ret[4] = {0x20, 0x00, 0x80, 0x4e};  // blr (little-endian)
+ #else
+ #error "Unknown architecture."
+ #endif
+   memcpy(other_code, ret, sizeof(ret));  // NOLINT
++#if defined(HOST_ARCH_PPC64)
++  // POWER does not keep the instruction cache coherent with stores: push the
++  // line out of the data cache and invalidate it in the instruction cache.
++  __asm__ __volatile__(
++      "dcbst 0,%0\n\tsync\n\ticbi 0,%0\n\tsync\n\tisync" ::"r"(other_code)
++      : "memory");
++#endif
+ 
+   free_list->Free(blob->start(), alloc_size + remainder_size);
+   blob->WriteProtectCode();  // not writable
+diff --git a/runtime/vm/os_linux.cc b/runtime/vm/os_linux.cc
+index 6d37bb19..ed1927de 100644
+--- a/runtime/vm/os_linux.cc
++++ b/runtime/vm/os_linux.cc
+@@ -298,6 +298,8 @@ class JitDumpCodeObserver : public CodeObserver {
+     return EM_AARCH64;
+ #elif TARGET_ARCH_RISCV32 || TARGET_ARCH_RISCV64
+     return EM_RISCV;
++#elif TARGET_ARCH_PPC64
++    return EM_PPC64;
+ #else
+     UNREACHABLE();
+     return 0;
+@@ -526,7 +528,8 @@ int64_t OS::GetCurrentMonotonicMicrosForTimeline() {
+ intptr_t OS::ActivationFrameAlignment() {
+ #if defined(TARGET_ARCH_IA32) || defined(TARGET_ARCH_X64) ||                   \
+     defined(TARGET_ARCH_ARM64) || defined(TARGET_ARCH_RISCV32) ||              \
+-    defined(TARGET_ARCH_RISCV64)
++    defined(TARGET_ARCH_RISCV64) || defined(TARGET_ARCH_PPC64)
++  // PPC64 ELFv2: the stack pointer is always quadword (16-byte) aligned.
+   const int kMinimumAlignment = 16;
+ #elif defined(TARGET_ARCH_ARM)
+   const int kMinimumAlignment = 8;
+diff --git a/runtime/vm/profiler.cc b/runtime/vm/profiler.cc
+index e388bbbd..40de43e3 100644
+--- a/runtime/vm/profiler.cc
++++ b/runtime/vm/profiler.cc
+@@ -238,6 +238,24 @@ static constexpr intptr_t kHostSavedCallerFpSlotFromFp = 0;
+ // +-------------+
+ static constexpr intptr_t kHostSavedCallerPcSlotFromFp = -1;
+ static constexpr intptr_t kHostSavedCallerFpSlotFromFp = -2;
++#elif defined(HOST_ARCH_PPC64)
++// ELFv2 frames are linked through the back chain at 0(r1); "FP" here is the
++// frame's stack pointer (r31 == r1 after a frame-pointer prologue). A callee
++// saves its return address in its *caller's* frame, at 16(caller SP), so the
++// saved PC is found relative to the caller's FP, not this one.
++// +-------------+
++// | saved LR    |  <- caller FP + 16 (written by the callee)
++// +-------------+
++// | saved CR    |
++// +-------------+
++// | back chain  |  <- caller FP
++// +-------------+
++//       ...
++// +-------------+
++// | back chain  |  <- FP (points at caller FP)
++// +-------------+
++static constexpr intptr_t kHostSavedCallerPcSlotFromCallerFp = 2;
++static constexpr intptr_t kHostSavedCallerFpSlotFromFp = 0;
+ #else
+ #error What architecture?
+ #endif
+@@ -322,7 +340,21 @@ class ProfilerNativeStackWalker : public ProfilerStackWalker {
+  private:
+   uword* CallerPC(uword* fp) const {
+     ASSERT(fp != nullptr);
++#if defined(HOST_ARCH_PPC64)
++    // The slot lives in the caller's frame: check that frame is plausible
++    // before reading from it. If it is not, walk() stops at the CallerFP
++    // check without using this value.
++    uword* caller_fp = CallerFP(fp);
++    if ((caller_fp <= fp) || !Utils::IsAligned(caller_fp, kWordSize) ||
++        (reinterpret_cast<uword>(caller_fp +
++                                 kHostSavedCallerPcSlotFromCallerFp + 1) >
++         stack_upper_)) {
++      return nullptr;
++    }
++    return LoadStackSlot(caller_fp + kHostSavedCallerPcSlotFromCallerFp);
++#else
+     return LoadStackSlot(fp + kHostSavedCallerPcSlotFromFp);
++#endif
+   }
+ 
+   uword* CallerFP(uword* fp) const {
+diff --git a/runtime/vm/signal_handler_linux.cc b/runtime/vm/signal_handler_linux.cc
+index 1078498d..1cb70c24 100644
+--- a/runtime/vm/signal_handler_linux.cc
++++ b/runtime/vm/signal_handler_linux.cc
+@@ -8,6 +8,12 @@
+ #include "vm/simulator.h"
+ #if defined(DART_HOST_OS_LINUX)
+ 
++#if defined(HOST_ARCH_PPC64)
++// PT_NIP, PT_R1, PT_LNK: indices into mcontext_t::gp_regs, which has the
++// kernel's pt_regs layout (r0..r31, then nip, msr, orig_gpr3, ctr, link, ...).
++#include <asm/ptrace.h>
++#endif
++
+ namespace dart {
+ 
+ uintptr_t SignalHandler::GetProgramCounter(const mcontext_t& mcontext) {
+@@ -25,6 +31,8 @@ uintptr_t SignalHandler::GetProgramCounter(const mcontext_t& mcontext) {
+   pc = static_cast<uintptr_t>(mcontext.__gregs[REG_PC]);
+ #elif defined(HOST_ARCH_RISCV64)
+   pc = static_cast<uintptr_t>(mcontext.__gregs[REG_PC]);
++#elif defined(HOST_ARCH_PPC64)
++  pc = static_cast<uintptr_t>(mcontext.gp_regs[PT_NIP]);
+ #else
+ #error Unsupported architecture.
+ #endif  // HOST_ARCH_...
+@@ -53,6 +61,11 @@ uintptr_t SignalHandler::GetFramePointer(const mcontext_t& mcontext) {
+   fp = static_cast<uintptr_t>(mcontext.__gregs[REG_S0]);
+ #elif defined(HOST_ARCH_RISCV64)
+   fp = static_cast<uintptr_t>(mcontext.__gregs[REG_S0]);
++#elif defined(HOST_ARCH_PPC64)
++  // r31 is the frame pointer of clang/gcc code built with
++  // -fno-omit-frame-pointer (and equals r1 after the prologue), and the
++  // planned Dart FP on ppc64.
++  fp = static_cast<uintptr_t>(mcontext.gp_regs[31]);
+ #else
+ #error Unsupported architecture.
+ #endif  // HOST_ARCH_...
+@@ -75,6 +88,8 @@ uintptr_t SignalHandler::GetCStackPointer(const mcontext_t& mcontext) {
+   sp = static_cast<uintptr_t>(mcontext.__gregs[REG_SP]);
+ #elif defined(HOST_ARCH_RISCV64)
+   sp = static_cast<uintptr_t>(mcontext.__gregs[REG_SP]);
++#elif defined(HOST_ARCH_PPC64)
++  sp = static_cast<uintptr_t>(mcontext.gp_regs[PT_R1]);
+ #else
+ #error Unsupported architecture.
+ #endif  // HOST_ARCH_...
+@@ -104,6 +119,8 @@ uintptr_t SignalHandler::GetLinkRegister(const mcontext_t& mcontext) {
+   lr = static_cast<uintptr_t>(mcontext.__gregs[REG_RA]);
+ #elif defined(HOST_ARCH_RISCV64)
+   lr = static_cast<uintptr_t>(mcontext.__gregs[REG_RA]);
++#elif defined(HOST_ARCH_PPC64)
++  lr = static_cast<uintptr_t>(mcontext.gp_regs[PT_LNK]);
+ #else
+ #error Unsupported architecture.
+ #endif  // HOST_ARCH_...
