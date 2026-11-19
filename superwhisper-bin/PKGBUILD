@@ -1,11 +1,35 @@
-# Maintainer: Omarchy <https://omarchy.org>
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Upstream maintainer: Omarchy <https://omarchy.org>
+#
+# Superwhisper, Omarchy 4.5's default dictation backend. Taken from upstream's
+# own recipe (github.com/omacom/omarchy-pkgs, pkgbuilds/superwhisper-bin at
+# 06dec62d15); the version is Omarchy's stable channel (pkgs.omarchy.org/stable
+# superwhisper-bin 1.3.1-1). Omarchy's migrations compare versions against
+# theirs, so our pkgrel stays above it.
+#
+# ppc64le: Superwhisper is closed source and published for x86_64 and aarch64
+# only. POWER installs the vendor's signed aarch64 build and runs it under
+# POWERarm, which every POWER install carries with its ArchLinuxARM-vk guest
+# root. Everything ppc64le-specific is behind a CARCH test or in a
+# *_powerpc64le array; x86_64 and aarch64 build exactly as upstream does.
+# README.md explains each piece and the bump procedure:
+#  - the aarch64 archive, verified with the same minisign key;
+#  - the aarch64 libraries the guest root lacks (GTK4 for the recording pill
+#    and tray icon, fontconfig and xkbcommon for the settings window), pinned
+#    in guest.manifest by guest-resolve.py and served from POWERarm's
+#    snapshot, since Arch Linux ARM keeps only the current version of each;
+#  - a native python3 shim, so the helper scripts use the host's Python;
+#  - a launcher that pins the vk guest root and sets the library path, and a
+#    unit drop-in that waits for POWERarm to build that root;
+#  - no fcitx5 addon: it is an aarch64 module for the host's native fcitx5.
+#    Dictation is pasted instead.
 
 pkgname=superwhisper-bin
 pkgver=1.3.1
 _version=1.3.1
-pkgrel=1
+pkgrel=1.1
 pkgdesc='Local and cloud voice dictation with Superwhisper'
-arch=('x86_64' 'aarch64')
+arch=('x86_64' 'aarch64' 'powerpc64le')
 url='https://superwhisper.com'
 license=('LicenseRef-proprietary' 'MIT')
 provides=('superwhisper')
@@ -14,6 +38,7 @@ depends=('glibc' 'libgcc' 'libstdc++' 'libgomp' 'xdg-utils' 'python' 'python-gob
          'gtk4-layer-shell' 'at-spi2-core' 'pipewire-pulse' 'libnotify'
          'wl-clipboard' 'ffmpeg' 'vulkan-icd-loader' 'librsvg' 'fontconfig'
          'hicolor-icon-theme' 'foot')
+depends_powerpc64le=('powerarm')
 optdepends=('fcitx5: insert dictation directly through the input method'
             'vulkan-intel: local processing on Intel GPUs'
             'vulkan-radeon: local processing on AMD GPUs'
@@ -24,6 +49,11 @@ makedepends=('minisign')
 options=('!debug' '!strip')
 _release_x86_64="https://tux.superwhisper.com/x86_64/v$_version/superwhisper-omarchy-x86_64-$_version.tar.zst"
 _release_aarch64="https://tux.superwhisper.com/aarch64/v$_version/superwhisper-omarchy-aarch64-$_version.tar.zst"
+# The vendor build a CARCH installs: POWER runs aarch64's.
+case $CARCH in
+  powerpc64le) _varch=aarch64 ;;
+  *) _varch=$CARCH ;;
+esac
 source=('linux-release.pub'
         'superwhisper'
         'superwhisper.service'
@@ -34,6 +64,11 @@ source_x86_64=("superwhisper-$pkgver-x86_64.tar.zst::$_release_x86_64"
                "superwhisper-$pkgver-x86_64.tar.zst.minisig::$_release_x86_64.minisig")
 source_aarch64=("superwhisper-$pkgver-aarch64.tar.zst::$_release_aarch64"
                 "superwhisper-$pkgver-aarch64.tar.zst.minisig::$_release_aarch64.minisig")
+source_powerpc64le=("superwhisper-$pkgver-aarch64.tar.zst::$_release_aarch64"
+                    "superwhisper-$pkgver-aarch64.tar.zst.minisig::$_release_aarch64.minisig"
+                    'superwhisper-powerarm'
+                    'superwhisper-powerarm.conf'
+                    'host-python3.c')
 sha256sums=('0672b5230ed6390f9168eaea009c6ce1e8838f0961a87888d9073d1e1db5267d'
             '54a0fd574f2b123af24031e910fe0dc47be1d4c055ee5df775f1c681e6201c93'
             '8b9a2cb81a6ea015d663c9981ba67edafe934eb0e56904fab5030fbbfdd8506b'
@@ -42,15 +77,267 @@ sha256sums=('0672b5230ed6390f9168eaea009c6ce1e8838f0961a87888d9073d1e1db5267d'
             '707f72caf6d906a3390703d604b3cd68024545d9a8e7aac546ff218230e1e0fd')
 sha256sums_x86_64=('464a732ca6c928d3f2b8bb94687176a75ca2b09c186333d34d94d051ccb5f0e4' '72731cfb901fce4b4d343104bf5b0046538ee94be332ff40e2e1013527f87029')
 sha256sums_aarch64=('a440c85ea31bdb0c3c3b3de971a042402cc698efa27c54dc573c9553fd28f06f' 'fded60e623149212d37bfcd20b9421854affd783a4364eb7db69833fee7b55db')
-noextract=("superwhisper-$pkgver-$CARCH.tar.zst")
+sha256sums_powerpc64le=('a440c85ea31bdb0c3c3b3de971a042402cc698efa27c54dc573c9553fd28f06f'
+                        'fded60e623149212d37bfcd20b9421854affd783a4364eb7db69833fee7b55db'
+                        'c4ec376abb58d4111dbc58de924e0942d6abd5eb15e5a57234b6e833ac20dc6b'
+                        '939ac8aca500b604c7d4fcc366cf157aed004288b95d73c32c7f7a556953696a'
+                        'fbc6157c5d3d17e8b400b984ec1e959c518257cd9f204755861700866f15bdff')
+noextract=("superwhisper-$pkgver-$_varch.tar.zst")
+
+# ppc64le: the aarch64 libraries carried for POWERarm. The block is rewritten by
+# guest-resolve.py; each entry is <repo>/<file> in POWERarm's snapshot.
+_snapshot=https://omappc64le.download/archrootfs
+# BEGIN guest-libs: generated by guest-resolve.py from guest.manifest; do not edit
+_guest_pkgs=(
+  'extra/avahi-1:0.9rc5-2-aarch64.pkg.tar.xz'
+  'core/brotli-1.2.1-1-aarch64.pkg.tar.xz'
+  'core/bzip2-1.0.8-6-aarch64.pkg.tar.xz'
+  'extra/cairo-1.18.6-1-aarch64.pkg.tar.xz'
+  'core/dbus-1.16.4-1-aarch64.pkg.tar.xz'
+  'core/expat-2.10.0-1-aarch64.pkg.tar.xz'
+  'extra/fontconfig-2:2.18.4-1-aarch64.pkg.tar.xz'
+  'extra/freetype2-2.15.0-1-aarch64.pkg.tar.xz'
+  'extra/fribidi-1.0.18-1-aarch64.pkg.tar.xz'
+  'extra/gdk-pixbuf2-2.44.8-1-aarch64.pkg.tar.xz'
+  'core/glib2-2.90.1-1-aarch64.pkg.tar.xz'
+  'extra/glycin-2.2.6-1-aarch64.pkg.tar.xz'
+  'core/gmp-6.3.0-3-aarch64.pkg.tar.xz'
+  'core/gnutls-3.8.13-3-aarch64.pkg.tar.xz'
+  'extra/graphene-1.10.8-2.1-aarch64.pkg.tar.xz'
+  'extra/graphite-1:1.3.15-1-aarch64.pkg.tar.xz'
+  'extra/gst-plugins-bad-libs-1.28.9-3-aarch64.pkg.tar.xz'
+  'extra/gst-plugins-base-libs-1.28.9-3-aarch64.pkg.tar.xz'
+  'extra/gstreamer-1.28.9-3-aarch64.pkg.tar.xz'
+  'extra/gtk4-1:4.24.1-1-aarch64.pkg.tar.xz'
+  'extra/gtk4-layer-shell-1.3.0-1-aarch64.pkg.tar.xz'
+  'extra/harfbuzz-15.1.0-1-aarch64.pkg.tar.xz'
+  'extra/hunspell-1.7.6-1-aarch64.pkg.tar.xz'
+  'core/icu-78.3-1-aarch64.pkg.tar.xz'
+  'extra/jbigkit-2.2-1-aarch64.pkg.tar.xz'
+  'extra/json-glib-1.10.8-1-aarch64.pkg.tar.xz'
+  'extra/lcms2-2.20-1-aarch64.pkg.tar.xz'
+  'core/leancrypto-1.9.1-1-aarch64.pkg.tar.xz'
+  'extra/libcloudproviders-0.4.2-1-aarch64.pkg.tar.xz'
+  'extra/libcolord-1.4.8-2-aarch64.pkg.tar.xz'
+  'extra/libcups-2:2.4.20-1-aarch64.pkg.tar.xz'
+  'extra/libdatrie-0.2.14-1-aarch64.pkg.tar.xz'
+  'extra/libdeflate-1.26-1-aarch64.pkg.tar.xz'
+  'core/libelf-0.197-1-aarch64.pkg.tar.xz'
+  'extra/libepoxy-1.5.10-3-aarch64.pkg.tar.xz'
+  'core/libffi-3.8.1-1-aarch64.pkg.tar.xz'
+  'extra/libgudev-238-4-aarch64.pkg.tar.xz'
+  'core/libidn2-2.3.8-1-aarch64.pkg.tar.xz'
+  'extra/libjpeg-turbo-3.2.1-1-aarch64.pkg.tar.xz'
+  'core/libp11-kit-0.26.6-1-aarch64.pkg.tar.xz'
+  'extra/libpng-1.6.59-1-aarch64.pkg.tar.xz'
+  'core/libseccomp-2.6.0-1-aarch64.pkg.tar.xz'
+  'core/libtasn1-4.21.0-1-aarch64.pkg.tar.xz'
+  'extra/libthai-0.1.30-1-aarch64.pkg.tar.xz'
+  'extra/libtiff-4.7.2-2-aarch64.pkg.tar.xz'
+  'core/libunistring-1.4.2-1-aarch64.pkg.tar.xz'
+  'extra/libunwind-1.8.3-1-aarch64.pkg.tar.xz'
+  'extra/libwebp-1.6.0-2-aarch64.pkg.tar.xz'
+  'extra/libx11-1.8.14-1-aarch64.pkg.tar.xz'
+  'extra/libxau-1.0.12-1-aarch64.pkg.tar.xz'
+  'extra/libxcb-1.17.0-1-aarch64.pkg.tar.xz'
+  'extra/libxcursor-1.2.3-1-aarch64.pkg.tar.xz'
+  'extra/libxdamage-1.1.7-1-aarch64.pkg.tar.xz'
+  'extra/libxdmcp-1.1.5-2-aarch64.pkg.tar.xz'
+  'extra/libxext-1.3.7-1-aarch64.pkg.tar.xz'
+  'extra/libxfixes-6.0.2-1-aarch64.pkg.tar.xz'
+  'extra/libxi-1.8.4-1-aarch64.pkg.tar.xz'
+  'extra/libxinerama-1.1.6-1-aarch64.pkg.tar.xz'
+  'extra/libxkbcommon-1.13.2-1-aarch64.pkg.tar.xz'
+  'extra/libxkbcommon-x11-1.13.2-1-aarch64.pkg.tar.xz'
+  'core/libxml2-2.15.4-1-aarch64.pkg.tar.xz'
+  'extra/libxrandr-1.5.5-1-aarch64.pkg.tar.xz'
+  'extra/libxrender-0.9.13-1-aarch64.pkg.tar.xz'
+  'core/lzo-2.10-5-aarch64.pkg.tar.xz'
+  'core/nettle-4.0-1-aarch64.pkg.tar.xz'
+  'extra/orc-0.4.44-1-aarch64.pkg.tar.xz'
+  'extra/pango-1:1.58.2-1-aarch64.pkg.tar.xz'
+  'core/pcre2-10.49-1-aarch64.pkg.tar.xz'
+  'extra/pixman-0.46.4-1.1-aarch64.pkg.tar.xz'
+  'core/sqlite-3.54.1-1-aarch64.pkg.tar.xz'
+  'core/systemd-libs-262.2-1-aarch64.pkg.tar.xz'
+  'extra/tinysparql-3.12.0-1-aarch64.pkg.tar.xz'
+  'core/util-linux-libs-2.42.4-1-aarch64.pkg.tar.xz'
+  'core/xz-5.8.4-1-aarch64.pkg.tar.xz'
+  'core/zlib-1:1.4-1-aarch64.pkg.tar.xz'
+  'core/zstd-1.5.7-3-aarch64.pkg.tar.xz'
+)
+_guest_sha256=(
+  'ef808937dd227d0edca14cd59b6618270f9b7fbedff529eb1df5b89799db2da8'
+  '4ecc05235d5625e9adade827fbf775d28176679048aec072ee70d10f113db693'
+  'b11f21c0bc3d1193dd02040644cd604d49cc89184db1b7bc76a623532fcb0dcb'
+  '8c5a5c0470ff369386a3597d1e414c79c951a18d03313c162e5fff3d91989773'
+  '659a480117b91cee200c826a4d582c6df4bcb6c4b094800afa6abc213e8f74ea'
+  '2d3edd455e2c189290e7ab118b943ecb025fa3851f439355896b56aeb3c30548'
+  'd68515befe913772867f35a740f7d6d1067874f6b38ef5133d42dd28b7a89ab4'
+  '9f155b171de0169d9b87b9ad8ac1effb8aa226bf6dcc631c2b0f2a495738d7d0'
+  '6e0867c4e416c36ad7911ff41fb6c79a266ca9ef00818846a384d7472dab688f'
+  '3e8b614b8cab4b983129bfd0195673a45a485dc603a4b5b5d4dce7218f649082'
+  'c0beb07e62117bf5adef1561580b7878742521a4caea1227bff76a2f894b9bd0'
+  '82cee6b0f7cb53eabf9529bc46b9ad213c196da40b1f8ca285389209132354fd'
+  '720607bed2249dd8cd0304b6cf4102884fa2ca24c21444f007bc12af542ea6c5'
+  'aa74e78dc3f954e2b5399e1da8f89e926190aa64ffd57cf30006b3c1e2e037b1'
+  '2f928a829385d79626cba58fcc111f8f930d1ae951d83f405813a3886ab9ec7b'
+  '87c700c71585c7f44f951928184deb690a78d39ad36ea9b6c07c59d7592e4c92'
+  '6a1d5c2fc2886c14dfba5a3e2a7f9ad69205dc2fb40aa0bad74af41b2a1ee6f1'
+  'd4168fa1e96218689a396ef9924df1e091d586f8c7dd00aee7499e2cce8ff7ed'
+  '4811a54323603d7a51ac6a165830ec200872e71db51f5cf282c7f36658574534'
+  'a9c34b926a251f4d610ede9bd4f38d61a2097358ba477a743ff72a882f5278d2'
+  'ecac97fb92c492333a13724d1a6ce39c52352ca56520ebfaa6957199788ec3d4'
+  '9c9efb5023659796932da19a736ec18d4471eab13d02fef141d0b805098c572e'
+  'af59065ce912ba7d14de394f1b43c2975c48ea3a7ffefed9db0bafa837eb0f43'
+  '314cb2fecde9fd2a64ca9b6652c4c0e517bec0dceeafaf7e6a0cd578c607357f'
+  '1be37e2dc4b2029668838e9dc7068c5674199a883ca5a0f4c11c7d8005f626ba'
+  'dc2a5ff08d3d7c8fcadeb820411aa31d5f1522e425045f6408fbf134db817d85'
+  'e9bb9f60db4824e7a58479628f5f9960c2462f35ef8da0e93aa934973763d7b9'
+  'dff917183d2a2149c6a698ca3bbf6f645accdcf632b404159ff85d4e4a711fbb'
+  'e4c7732f816d048149c8410192b60bf98f7685ed86a18bba8e57ddc8c3f73665'
+  '19937a3e61f1493d304d3515f48282edc64b84fb5898f26ccbbb9aa9ee4a82bd'
+  'f280995b8d7426dc9f40c70ca8d19dead27aa8a116cfeb94afa0149028709e66'
+  '13f6aeb32f57d91c59ca68ce21abce48353081e886d3e8c2d89d5884b1f4b969'
+  'd8798122abe2cdc8f496d7a65904b6c14bfcd4448d31a47629aaeb021d1134e9'
+  'd089e8549ef4039f4938c61a928162de56a6930eb6538e342091b9e5912a3f1c'
+  '8bb73da9e2df09cf7798904a8709dfb49826a7a9c593a166cddd4a891a280724'
+  'a37dbe292062d284b1f48f0c5833bd21dc494e7c0bedc1a5862cb7a42badb1e8'
+  'bdb77f57d81268f03b5f38ff74de80d319a39c391cd3f8b5149feadd15a10abe'
+  '43224d721d0afb6bc99af5c7a546dd0c7cff44b597224fc5f5f8d6c5a7c14d89'
+  'ad4440b30743a353b3fcac655259dae74a956d9ba97da6d02f7c78bbf6a7cf18'
+  'f6ec06e91d1eb4d0bcaa7c54f2672f5e3ba8dd4871bb511d6372c934644ec40b'
+  '6265adc1c9ec9f3cb6dc3393ea90e6d8e934e99291ce4fbf5affe3ea1b9370fc'
+  'ebb62cc156a605aa3f024a6d2c9dd99ba66db6f50d9aeb75b8bb336316f0a2f5'
+  '96ef7088790462586eec0b5ba2aacdcbd1fc71bfd2a6dbe8bd7c20b03ed298a8'
+  '6bef55010b97524e3e2c7de4ec8834df5971eab8fe8ac4c5f2e88e42fad28524'
+  '60308af15d83863b3ee1587922add34faca8d950b55aae29434de1423638a9f5'
+  '106ac7728ff2cc498ffa49d7623e64cf9002eea15c5026ec54fab8cd6a294134'
+  '3cdbe9df64c78d640327afcd6e8b89a3a1b03fbfe2c001abe0c40fff367c41e8'
+  '0fb38b71173ed214640ab0b6d5ad22d85f884f4d368ca9fef927b51ee43d0f9e'
+  '0cdaa6fafbcfddc005d6e30ae1f0a00d1692879f05cc12eb4f002d86a15f6e29'
+  'f9abaead8ca4f0d4f9a6e181c3fcad8f96ddb9cf1d75d1d82a81c0ca8ad08a50'
+  '329a41249a09b4bb7f9b5f9694c1848c971188243cc1c0a479df4227800214c0'
+  '9102597b8989250aa23379202a95ae15e2c7816e573d9bc81bc1bf4bc77b646f'
+  'c10d529d8e1eb9e518eea2249d4250ea8f7a711f9ec15a644164b94a6b554955'
+  'aaf3575b4139a0ee675cbc15c03324d09892ded2188ac7cc326a8b36ef308496'
+  'bff987768ac6bb9ed809d49f3c171c93ccf0c7264c59ec7b0940e844ba4e53ac'
+  'be025023ed05babf0372515e8346128f5dd7eccd82fd51be6c3c88eb8881d7a2'
+  '293a34587a9b640cf14a0004684a8bf68065ddfc19d188a2ba71b25ed3944520'
+  '3a44bdcbc01e68437ea76c8746051586bfda37a36f2c0c5613844eebf9eafdad'
+  '76b922d87d0af0011072b156464041ec5674f24ff1c78b7e85132fda72c9a7e7'
+  '6f456540140a0abea3ac01502a6bb0419af81851d08d159879091a05962004fd'
+  'c86239f383dc47736c4f6851063fb034edcda5ed59c7cafbe694e5f65e2d0da0'
+  '50ced1a5945e325ef28fd4a5f9ee3e45e49f538841271f49326916576213a5f3'
+  '33d2d130a4a304ecdaae5be07b2500f7d8cc531b82fa97e4e351e1700e794ceb'
+  '7831512f18a7764b64f04c2c3483405c7576aefaf543b3fcfd462721afcf3c7d'
+  '0912dee3f6f20361e607e7101f39345af7ca9fe7bc51a4ba34620468f8949300'
+  '17d187c9a6381bf1bb991f5d98e1c3b19b636ed7bd05b5f4d6601bf41b19868f'
+  '89712127cef41515a3a7b92bc632dcb9c635e9088126ee238d3b63f675d4e7eb'
+  '8334385fdb4ed51807d6345cbe23c961ada160b589855d362c28127f5065a5a6'
+  '4d20f22998a75c9fe1d38c86cd6f4324120fc2bb02f4a749e4794daac6b87dd2'
+  '5aab7581983e9a7c3ca65d90af41c33d957604276b8709c39fc1850d7d18c8a5'
+  '8c7f92899781091b6633098ba15cf40f4145751eeff1f754c82d2ff14a463dfa'
+  '1c8b9c410a1acacade255e52b19de54fd022929dc48bdc36b021a86439fd8fb5'
+  'fc33959229b44ee81ab4c66177783b65cae4390868552a81493dc94be0cf9c60'
+  '0a72061585c62a92d1a38348bc7f160665b0b508ddc92fd289b6b2ca12785150'
+  '41599dc1681537721b80178a567fe11ea93eb45fc025417fb63e6efc6ed2f7d9'
+  'c3b907c36049b338bda0c6d85260251e48d17e2be6c0e11ddc0dfd4cf9d2e89a'
+)
+# The usr/lib members taken from each package, in the same order.
+_guest_libs=(
+  'libavahi-client.so.3 libavahi-client.so.3.2.9 libavahi-common.so.3 libavahi-common.so.3.5.4'
+  'libbrotlicommon.so.1 libbrotlicommon.so.1.2.1 libbrotlidec.so.1 libbrotlidec.so.1.2.1'
+  'libbz2.so.1.0 libbz2.so.1.0.8'
+  'libcairo-gobject.so.2 libcairo-gobject.so.2.11806.6 libcairo-script-interpreter.so.2 libcairo-script-interpreter.so.2.11806.6 libcairo.so.2 libcairo.so.2.11806.6'
+  'libdbus-1.so.3 libdbus-1.so.3.38.5'
+  'libexpat.so.1 libexpat.so.1.13.1'
+  'libfontconfig.so.1 libfontconfig.so.1.17.0'
+  'libfreetype.so.6 libfreetype.so.6.20.7'
+  'libfribidi.so.0 libfribidi.so.0.4.0'
+  'libgdk_pixbuf-2.0.so.0 libgdk_pixbuf-2.0.so.0.4400.8'
+  'libgio-2.0.so.0 libgio-2.0.so.0.9000.1 libglib-2.0.so.0 libglib-2.0.so.0.9000.1 libgmodule-2.0.so.0 libgmodule-2.0.so.0.9000.1 libgobject-2.0.so.0 libgobject-2.0.so.0.9000.1'
+  'libglycin-2.so.0'
+  'libgmp.so.10 libgmp.so.10.5.0'
+  'libgnutls.so.30 libgnutls.so.30.42.0'
+  'libgraphene-1.0.so.0 libgraphene-1.0.so.0.1000.8'
+  'libgraphite2.so.3 libgraphite2.so.3.3.1'
+  'libgstplay-1.0.so.0 libgstplay-1.0.so.0.2809.0'
+  'libgstallocators-1.0.so.0 libgstallocators-1.0.so.0.2809.0 libgstaudio-1.0.so.0 libgstaudio-1.0.so.0.2809.0 libgstgl-1.0.so.0 libgstgl-1.0.so.0.2809.0 libgstpbutils-1.0.so.0 libgstpbutils-1.0.so.0.2809.0 libgsttag-1.0.so.0 libgsttag-1.0.so.0.2809.0 libgstvideo-1.0.so.0 libgstvideo-1.0.so.0.2809.0'
+  'libgstbase-1.0.so.0 libgstbase-1.0.so.0.2809.0 libgstreamer-1.0.so.0 libgstreamer-1.0.so.0.2809.0'
+  'libgtk-4.so.1 libgtk-4.so.1.2400.1'
+  'libgtk4-layer-shell.so.0 libgtk4-layer-shell.so.1.3.0'
+  'libharfbuzz-subset.so.0 libharfbuzz-subset.so.0.61510.0 libharfbuzz.so.0 libharfbuzz.so.0.61510.0'
+  'libhunspell-1.7.so.0 libhunspell-1.7.so.0.2.2'
+  'libicudata.so.78 libicudata.so.78.3 libicuuc.so.78 libicuuc.so.78.3'
+  'libjbig.so.2.2'
+  'libjson-glib-1.0.so.0 libjson-glib-1.0.so.0.1000.8'
+  'liblcms2.so.2 liblcms2.so.2.0.20'
+  'libleancrypto.so.1.9 libleancrypto.so.1.9.1'
+  'libcloudproviders.so.0 libcloudproviders.so.0.4.2'
+  'libcolord.so.2 libcolord.so.2.0.5'
+  'libcups.so.2'
+  'libdatrie.so.1 libdatrie.so.1.4.1'
+  'libdeflate.so.0'
+  'libdw-0.197.so libdw.so.1 libelf-0.197.so libelf.so.1'
+  'libepoxy.so.0 libepoxy.so.0.0.0'
+  'libffi.so.8 libffi.so.8.5.1'
+  'libgudev-1.0.so.0 libgudev-1.0.so.0.3.0'
+  'libidn2.so.0 libidn2.so.0.4.0'
+  'libjpeg.so.8 libjpeg.so.8.3.2'
+  'libp11-kit.so.0 libp11-kit.so.0.4.12'
+  'libpng16.so.16 libpng16.so.16.59.0'
+  'libseccomp.so.2 libseccomp.so.2.6.0'
+  'libtasn1.so.6 libtasn1.so.6.6.5'
+  'libthai.so.0 libthai.so.0.3.2'
+  'libtiff.so.6 libtiff.so.6.3.0'
+  'libunistring.so.5 libunistring.so.5.2.1'
+  'libunwind.so.8 libunwind.so.8.2.0'
+  'libsharpyuv.so.0 libsharpyuv.so.0.1.2 libwebp.so.7 libwebp.so.7.2.0'
+  'libX11-xcb.so.1 libX11-xcb.so.1.0.0 libX11.so.6 libX11.so.6.4.0'
+  'libXau.so.6 libXau.so.6.0.0'
+  'libxcb-render.so.0 libxcb-render.so.0.0.0 libxcb-shm.so.0 libxcb-shm.so.0.0.0 libxcb-xkb.so.1 libxcb-xkb.so.1.0.0 libxcb.so.1 libxcb.so.1.1.0'
+  'libXcursor.so.1 libXcursor.so.1.0.2'
+  'libXdamage.so.1 libXdamage.so.1.1.0'
+  'libXdmcp.so.6 libXdmcp.so.6.0.0'
+  'libXext.so.6 libXext.so.6.4.0'
+  'libXfixes.so.3 libXfixes.so.3.1.0'
+  'libXi.so.6 libXi.so.6.1.0'
+  'libXinerama.so.1 libXinerama.so.1.0.0'
+  'libxkbcommon.so.0 libxkbcommon.so.0.13.2'
+  'libxkbcommon-x11.so.0 libxkbcommon-x11.so.0.13.2'
+  'libxml2.so.16 libxml2.so.16.1.4'
+  'libXrandr.so.2 libXrandr.so.2.2.0'
+  'libXrender.so.1 libXrender.so.1.3.0'
+  'liblzo2.so.2 liblzo2.so.2.0.0'
+  'libhogweed.so.7 libhogweed.so.7.0 libnettle.so.9 libnettle.so.9.0'
+  'liborc-0.4.so.0 liborc-0.4.so.0.44.0'
+  'libpango-1.0.so.0 libpango-1.0.so.0.5800.2 libpangocairo-1.0.so.0 libpangocairo-1.0.so.0.5800.2 libpangoft2-1.0.so.0 libpangoft2-1.0.so.0.5800.2'
+  'libpcre2-8.so.0 libpcre2-8.so.0.16.1'
+  'libpixman-1.so.0 libpixman-1.so.0.46.4'
+  'libsqlite3.so.0 libsqlite3.so.3.54.1'
+  'libsystemd.so.0 libsystemd.so.0.45.0 libudev.so.1 libudev.so.1.7.15'
+  'libtinysparql-3.0.so.0 libtinysparql-3.0.so.0.1200.0'
+  'libblkid.so.1 libblkid.so.1.1.0 libmount.so.1 libmount.so.1.1.0'
+  'liblzma.so.5 liblzma.so.5.8.4'
+  'libz.so.1 libz.so.1.4'
+  'libzstd.so.1 libzstd.so.1.5.7'
+)
+# END guest-libs
+for _i in "${!_guest_pkgs[@]}"; do
+  source_powerpc64le+=("$_snapshot/${_guest_pkgs[_i]}")
+  sha256sums_powerpc64le+=("${_guest_sha256[_i]}")
+  noextract+=("${_guest_pkgs[_i]#*/}")
+done
+unset _i
 
 prepare() {
-  minisign -Vm "superwhisper-$pkgver-$CARCH.tar.zst" -x "superwhisper-$pkgver-$CARCH.tar.zst.minisig" -p linux-release.pub
-  bsdtar -xf "superwhisper-$pkgver-$CARCH.tar.zst"
-  local bundle="superwhisper-omarchy-$CARCH-$_version"
+  minisign -Vm "superwhisper-$pkgver-$_varch.tar.zst" -x "superwhisper-$pkgver-$_varch.tar.zst.minisig" -p linux-release.pub
+  bsdtar -xf "superwhisper-$pkgver-$_varch.tar.zst"
+  local bundle="superwhisper-omarchy-$_varch-$_version"
   [[ $(< "$bundle/VERSION") == "$_version" ]] || return 1
   # Qt 6.12 adds a Color type that shadows Omarchy's palette singleton.
-  python - "superwhisper-omarchy-$CARCH-$_version/app/assets/omarchy-plugin/superwhisper-panel" <<'PYTHON'
+  python - "superwhisper-omarchy-$_varch-$_version/app/assets/omarchy-plugin/superwhisper-panel" <<'PYTHON'
 from pathlib import Path
 import re
 import sys
@@ -68,10 +355,78 @@ for path in Path(sys.argv[1]).glob("*.qml"):
       raise SystemExit(f"Invalid palette references in {path}")
     path.write_text(updated)
 PYTHON
+  if [[ $CARCH == powerpc64le ]]; then
+    _prepare_powerarm "$bundle"
+  fi
+}
+
+# ppc64le: what the POWERarm launcher relies on in the vendor's archive. A
+# release that changes any of it has to be looked at, not packaged.
+_prepare_powerarm() {
+  local app=$1/app
+  # run.sh puts its own lib/ first and keeps ours behind it, then runs bin/.
+  grep -Fq 'export LD_LIBRARY_PATH="$loop_dir/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' "$app/run.sh" \
+    || { error "run.sh no longer appends to LD_LIBRARY_PATH"; return 1; }
+  grep -Fq 'exec "$loop_dir/bin/superwhisper" "$@"' "$app/run.sh" \
+    || { error "run.sh no longer runs bin/superwhisper"; return 1; }
+  # Every executable is the aarch64 build POWERarm runs.
+  local f
+  for f in "$app"/bin/*; do
+    readelf -h "$f" | grep -q 'Machine:.*AArch64' \
+      || { error "${f##*/} is not an aarch64 executable"; return 1; }
+  done
+}
+
+build() {
+  [[ $CARCH == powerpc64le ]] || return 0
+  local bundle="superwhisper-omarchy-$_varch-$_version"
+
+  # The guest libraries: from each pinned package, only the usr/lib members
+  # guest-resolve.py found the aarch64 build needs (the library and its
+  # soname symlink). Data files come from the host's /usr/share.
+  rm -rf powerarm
+  mkdir -p powerarm/lib powerarm/bin
+  local i lib tmp members
+  for i in "${!_guest_pkgs[@]}"; do
+    members=()
+    for lib in ${_guest_libs[i]}; do members+=("usr/lib/$lib"); done
+    tmp=$(mktemp -d -p "$srcdir")
+    bsdtar -xf "${_guest_pkgs[i]#*/}" -C "$tmp" "${members[@]}"
+    cp -a "$tmp/usr/lib/." powerarm/lib/
+    rm -rf "$tmp"
+  done
+  _check_guest_closure "$bundle/app" powerarm/lib
+
+  # A native python3 for the helper scripts (host-python3.c says why).
+  ${CC:-cc} $CPPFLAGS $CFLAGS $LDFLAGS -o powerarm/bin/python3 host-python3.c
+}
+
+# ppc64le: every library the aarch64 build loads must be in the vendor's lib/,
+# in the guest libraries, or in the floor the guest root provides: glibc, the
+# gcc runtime, and the GPU and thunked libraries (guest-resolve.py's FLOOR).
+# This is what fails when a release needs something guest.manifest lacks.
+_check_guest_closure() {
+  local app=$1 lib=$2 f so missing=()
+  local floor='^(ld-linux-aarch64\.so\.1|lib(c|m|dl|pthread|rt|resolv|util)\.so\.[0-9]+|libgcc_s\.so\.1|libstdc\+\+\.so\.6|libgomp\.so\.1|libatomic\.so\.1|libvulkan\.so\.1|lib(GL|GLX|EGL|OpenGL|GLdispatch)\.so\.[0-9]+|libgbm\.so\.1|libdrm(_[a-z0-9]+)?\.so\.[0-9]+|libwayland-[a-z]+\.so\.[0-9]+|libxshmfence\.so\.1|libasound\.so\.2)$'
+  while IFS= read -r -d '' f; do
+    [[ $(head -c4 "$f") == $'\x7fELF' ]] || continue
+    while read -r so; do
+      [[ $so =~ $floor || -e $app/lib/$so || -e $lib/$so ]] || missing+=("${f#"$srcdir"/}: $so")
+    done < <(readelf -dW "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
+  done < <(find "$app/bin" "$app/lib" "$lib" -type f -not -path '*/lib/fcitx5/*' -print0)
+  # Loaded with dlopen, so no DT_NEEDED names them.
+  for so in libgtk4-layer-shell.so.0 libhunspell-1.7.so.0; do
+    [[ -e $lib/$so ]] || missing+=("dlopen: $so")
+  done
+  if (( ${#missing[@]} )); then
+    printf '  %s\n' "${missing[@]}" >&2
+    error "the guest libraries do not cover the aarch64 build; rerun guest-resolve.py"
+    return 1
+  fi
 }
 
 package() {
-  local bundle="superwhisper-omarchy-$CARCH-$_version"
+  local bundle="superwhisper-omarchy-$_varch-$_version"
   install -dm755 "$pkgdir/opt/superwhisper"
   cp -a --no-preserve=ownership "$bundle/app/." "$pkgdir/opt/superwhisper/"
   # Omarchy owns its Dictation menu; omit the portable installer's menu writer.
@@ -90,4 +445,21 @@ package() {
   install -dm755 "$pkgdir/usr/share/fcitx5/addon"
   sed 's|@LIBRARY@|/opt/superwhisper/lib/fcitx5/libsuperwhisper-fcitx5|' \
     "$bundle/app/assets/fcitx5/superwhisper.conf.in" > "$pkgdir/usr/share/fcitx5/addon/superwhisper.conf"
+  if [[ $CARCH == powerpc64le ]]; then
+    _package_powerarm
+  fi
+}
+
+_package_powerarm() {
+  local opt=$pkgdir/opt/superwhisper
+  # The fcitx5 addon is an aarch64 module for the host's native fcitx5, which
+  # cannot load it. Without it Superwhisper pastes, as it does without fcitx5.
+  rm -r "$opt/lib/fcitx5" "$pkgdir/usr/share/fcitx5"
+  # Upstream's launcher stays as it is, behind ours.
+  install -Dm755 superwhisper "$opt/powerarm/superwhisper"
+  install -Dm755 superwhisper-powerarm "$pkgdir/usr/bin/superwhisper"
+  install -Dm755 powerarm/bin/python3 "$opt/powerarm/bin/python3"
+  cp -a --no-preserve=ownership powerarm/lib "$opt/powerarm/lib"
+  install -Dm644 superwhisper-powerarm.conf "$pkgdir/usr/lib/systemd/user/superwhisper.service.d/powerarm.conf"
+  install -Dm644 guest.manifest "$pkgdir/usr/share/doc/$pkgname/guest.manifest" 2>/dev/null || true
 }

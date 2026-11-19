@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# superwhisper-bin, ppc64le: Superwhisper's aarch64 build under POWERarm.
+# Sets up the guest, then runs upstream's launcher unchanged. README.md in the
+# recipe explains each line.
+#
+# POWERARM_ROOTFS  the guest root this build is tested in, which POWERarm builds
+#                  for every user at login. A user's own default may differ.
+# PATH             a native python3 first, so the helper scripts run on the
+#                  host's Python and its gi bindings, never a guest interpreter.
+# LD_LIBRARY_PATH  the aarch64 libraries the guest root lacks (GTK4,
+#                  fontconfig, xkbcommon, ...). Native children such as
+#                  pw-record and wl-copy are unaffected: the loader skips a
+#                  library built for another machine.
+export POWERARM_ROOTFS=${POWERARM_ROOTFS:-ArchLinuxARM-vk}
+export PATH=/opt/superwhisper/powerarm/bin${PATH:+:$PATH}
+export LD_LIBRARY_PATH=/opt/superwhisper/powerarm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+exec /opt/superwhisper/powerarm/superwhisper "$@"
