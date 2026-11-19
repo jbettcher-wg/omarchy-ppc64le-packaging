@@ -1,0 +1,673 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# Flutter 3.41.9 for ppc64le (POWER8+, little-endian, ELFv2, glibc): the
+# framework packages and the `flutter` tool, installed as a *managed*,
+# read-only SDK in /usr/lib/flutter with /usr/bin/flutter. The engine
+# (libflutter_linux_gtk.so, gen_snapshot, flutter_tester, the patched SDK)
+# is the flutter-engine package, installed into the same tree; the Dart SDK
+# is the dart package, linked as bin/cache/dart-sdk.
+#
+# Class: local workaround (distribution packaging). The tool changes are
+# classified patch by patch, in each patch's Class: line (table below).
+#
+# Eight things about this build are worth knowing before changing it.
+#
+# 1. THE TOOL IS PATCHED, NOT THE FRAMEWORK. The numbered NNNN-*.patch files
+#    are `git format-patch` output of the unpublished branch
+#    ppc64-tool-3.41.9 (flutter-port work/flutter-tool/flutter), applied with
+#    `patch -Np1` at the monorepo root. They teach flutter_tools a
+#    linux_ppc64 host and target, carry dart-lang/native's code_assets and
+#    hooks_runner with Architecture.ppc64 (vendored in third_party/pkg), and
+#    add the managed SDK mode this package relies on (0007).
+#
+# 2. A MANAGED SDK NEVER WRITES UNDER /usr/lib/flutter AND NEVER DOWNLOADS.
+#    bin/cache/managed-by marks the install (0007): bin/flutter execs the
+#    prebuilt snapshot without git, pub or a rebuild; the cache lock is
+#    skipped; a missing artifact is an error naming the package to install
+#    instead of a download; the version comes from bin/cache/
+#    flutter.version.json; upgrade/channel/downgrade refuse; analytics
+#    default to off. Everything the tool would otherwise write at run time is
+#    pre-generated here by write-managed-metadata.sh: the marker, the version
+#    files, engine_stamp.json, every artifact stamp, the dart-sdk link.
+#    build() proves it: the smoke app's whole create/pub/test/build cycle
+#    leaves every file under the staged SDK untouched (gate W).
+#
+# 3. SOURCES: the monorepo is fetched in prepare(), shallow, by commit
+#    (flutter-engine does the same), and gated by git tree hash: gate 1 is
+#    the tag's tree, gate 2 the branch's tree after the series. The
+#    flutter_tools dependencies are fetched by `dart pub get
+#    --enforce-lockfile` against flutter_tools-pubspec.lock (pins every
+#    archive's sha256), the smoke app's by `dart pub get`, both in prepare()
+#    (pub.dev; bq shares the host's network namespace). The material fonts and the Gradle wrapper (universal
+#    artifacts the tool checks on every command) are checksummed source=()
+#    zips from Flutter's storage bucket. build() and package() are offline.
+#
+# 4. THE PREBUILT IS THE POOL'S OWN dart, AS A DRIVER ONLY. It runs `pub get`
+#    and makes flutter_tools.snapshot, an app-jit snapshot: JIT code for
+#    that exact VM build. Hence the exact dart=$_dart_pkgver-$_dart_pkgrel and the PKGREL
+#    RULE below. CONTROL refuses a dart that is not a native linux_ppc64 one
+#    from this pool (an emulated arm64 dart at the same path runs through
+#    binfmt_misc and would bake arm64 code into the snapshot).
+#
+# 5. THE ENGINE AND dart MUST AGREE ON THE DART SDK HASH. The tool compiles
+#    kernels with dart's frontend_server (dart-sdk/bin/snapshots/
+#    frontend_server_aot.dart.snapshot) against flutter-engine's
+#    flutter_patched_sdk, and the engine's VM and gen_snapshot read them.
+#    Gate H compiles a program that way; with an engine built on a different
+#    hash (measured 2026-11-19: 627460b45a, the git HEAD of the engine's
+#    patched Dart tree) it fails with "Unexpected Kernel SDK Version".
+#    flutter-engine pins dart_sdk_verification_hash for that reason.
+#
+# 6. ISA. This package installs no native code (gate E: no ELF in the
+#    stage; the snapshot is a Dart app-jit file, not an ELF). The smoke
+#    app's libapp.so, made by flutter-engine's gen_snapshot through this
+#    tool, must carry 0 ISA 3.0 instructions in BOTH pools: Dart codegen is
+#    ISA 2.07. It is scanned with objdump -D -z -j .text (a stripped
+#    libapp.so has only two OBJECT symbols over its code, and -d hex-dumps
+#    them: 25% coverage measured), with a coverage gate (>= 99% of .text
+#    words decoded) and a mid-.text control word that must count 1.
+#
+# 7. bq RUNS makepkg --nocheck. Every gate is in prepare() or build().
+#    Inside bq /usr is a read-only overlay (which is the managed SDK's
+#    normal state) and $HOME is the real home, so HOME, PUB_CACHE and
+#    XDG_CONFIG_HOME point into $srcdir. package() runs under fakeroot and
+#    only copies files.
+#
+# 8. BUILD THIS NATIVELY: through bq / tools/build-ppc64le.sh, or makepkg in
+#    a native shell, never inside the POWERarm aarch64 sleeve Claude
+#    sessions run in. An agent reaches the native shell with:
+#    ssh -n -i ~/.ssh/id_claude_omarchy -o BatchMode=yes localhost
+#
+# Reproducibility: flutter_tools.snapshot comes from a timed JIT training
+# run and embeds the build tree's file:// URIs, like dart's three app-jit
+# snapshots; nothing gates its bytes, and makepkg's "reference to $srcdir"
+# warning names it. Every installed text file is gated free of $srcdir.
+#
+# PKGREL RULE. pacman compares versions, not contents: bump pkgrel whenever
+# dart or flutter-engine is rebuilt (the snapshot is tied to that dart's VM;
+# the stamps to that engine), and whenever the series or this recipe
+# changes. Then bump everything built with flutter (localsend).
+#
+# THE PATCH SERIES (flutter-port work/flutter-tool/patches, branch
+# ppc64-tool-3.41.9 128dc992), with each patch's Class: line:
+# 0001 [flutter_tools] Take the Linux host architecture from the Dart ABI, not uname
+#      Class: upstreamable fix (backport of upstream #185369 + #190480).
+# 0002 [flutter_tools] Vendor code_assets 1.0.0 and hooks_runner 1.0.1
+#      Class: local workaround (carry mechanism; no functional change).
+# 0003 [third_party/pkg] Add Architecture.ppc64 and the linux_ppc64 target
+#      Class: upstreamable fix (to dart-lang/native); dart's series 0034 is
+#        the same change in the SDK's own copy.
+# 0004 [flutter_tools] Add the linux_ppc64 host and target platform
+#      Class: upstreamable in form (follows #178711, linux_riscv64); local
+#        until the Dart VM has an upstream ppc64 backend.
+# 0005 [flutter_tools] Resolve a hook's Target only when it has code assets
+#      Class: upstreamable fix; defensive here.
+# 0006 [flutter_tools] Stop rewriting the iOS USB artifact stamps on non-macOS hosts
+#      Class: upstreamable fix.
+# 0007 [flutter_tools] Add a managed, read-only SDK mode for distribution packages
+#      Class: local workaround (distribution packaging).
+# 0008 [flutter_tools] doctor: accept the dart that bin/cache/dart-sdk links to
+#      Class: local workaround (packaging layout).
+# 0009 [flutter_tools] Fix icon tree shaking when building for desktop (backport)
+#      Class: upstreamable fix, already upstream (#184249).
+
+pkgname=flutter
+pkgver=3.41.9
+pkgrel=1
+pkgdesc='Flutter SDK: the framework and the flutter tool, as a managed read-only SDK (ppc64le port)'
+arch=('powerpc64le')
+url='https://flutter.dev'
+license=('BSD-3-Clause')
+
+_url=https://github.com/flutter/flutter.git
+_commit=00b0c91f06209d9e4a41f71b7a512d6eb3b9c694       # tag 3.41.9
+_commit_time='Wed Apr 29 17:03:19 2026 +0000'           # git log -1 --format=%cd 3.41.9
+_commit_date_iso='2026-04-29 17:03:19 +0000'            # for flutter.version.json
+# Gate 1: the tag's tree (git rev-parse 3.41.9^{tree}); flutter-engine's too.
+_base_tree=77bb2e2312ad0f9cdf8e44d868396dc3751b1ed8
+# Gate 2: the monorepo after the series = ppc64-tool-3.41.9^{tree} (128dc992).
+_tree=6666747b51907fc4096ea5898ac9b4ebb63ce853
+# bin/internal/engine.version at the tag: the engine revision every engine
+# stamp holds; flutter-engine's .pkginfo records the same value.
+_engine_revision=42d3d75a56efe1a2e9902f52dc8006099c45d937
+_dart_pkgver=3.11.5
+# Exact builds: the tool snapshot is JIT code for that dart's VM, and the
+# stamps and the hash gate describe that flutter-engine (PKGREL RULE).
+_dart_pkgrel=1
+_engine_pkgrel=1
+_sdk_hash=c70f78e7d6          # Dart SDK hash: dart's tag, 10 hex digits
+_dart_tree=c5aba92a8a98e5187a38d8942ffac4b1f186d428   # dart's patched tree (34 patches)
+_materialfontsver=3012db47f3130e62f7cc0beabff968a33cbec8d8   # bin/internal/material_fonts.version
+_gradlewver=fd5c1f2c013565a3bea56ada6df9d2b8e96d56aa         # bin/internal/gradle_wrapper.version
+
+# The managed SDK runs bin/flutter (bash), finds tools with `which`, and pub
+# needs git for git dependencies. `flutter build linux` needs the C/C++
+# toolchain, CMake, ninja, pkg-config and GTK 3 headers (the runner and
+# plugins are compiled on the user's machine).
+depends=("dart=$_dart_pkgver-$_dart_pkgrel" "flutter-engine=$pkgver-$_engine_pkgrel"
+         'bash' 'which' 'git' 'clang' 'cmake' 'ninja' 'pkgconf' 'gtk3')
+optdepends=('lld: ld.lld for native-assets build hooks (else binutils ld next to clang)'
+            'llvm: llvm-ar for native-assets build hooks (else binutils ar next to clang)')
+# The smoke build in build() is a real `flutter build linux`, so it needs
+# what `depends` names for that, plus objdump/readelf for the gates.
+makedepends=("dart=$_dart_pkgver-$_dart_pkgrel" "flutter-engine=$pkgver-$_engine_pkgrel" 'git' 'patch' 'file' 'binutils'
+             'clang' 'cmake' 'ninja' 'pkgconf' 'gtk3')
+# !strip: nothing here is a native ELF (gate E), and the pub cache is source.
+options=('!strip' '!debug' '!lto')
+
+# --- POWER8 / POWER9 ---------------------------------------------------------
+# Set by tools/build-ppc64le.sh for the baseline pool. This package has no
+# native code of its own; the pool only selects which dart and flutter-engine
+# CONTROL accepts, and is recorded in .pkginfo.
+_power8_compat=${_power8_compat:-0}
+
+# --- scratch builds only -----------------------------------------------------
+# The gates and the smoke cycle read the installed dart and flutter-engine
+# at these paths. A scratch build (flutter-port work/packaging/pkgtest/
+# flutter/harness) runs makepkg in a bwrap whose read-only /usr overlays the
+# extracted packages there, so nothing here changes for it.
+# _interim_engine=1 (set only by that harness's PKGBUILD.harness) accepts an
+# engine tree without flutter-engine's .pkginfo (the engine track's stage),
+# and .pkginfo then says INTERIM; a pool build never sets it.
+_interim_engine=0
+_dart_root=/usr/lib/dart
+_engine_root=/usr/lib/flutter/bin/cache
+
+_patches=(
+  0001-flutter_tools-Take-the-Linux-host-architecture-from-the-Dart-ABI.patch
+  0002-flutter_tools-Vendor-code_assets-1.0.0-and-hooks_runner-1.0.1.patch
+  0003-third_party-pkg-Add-Architecture.ppc64-and-the-linux_ppc64-target.patch
+  0004-flutter_tools-Add-the-linux_ppc64-host-and-target-platform.patch
+  0005-flutter_tools-Resolve-a-hook-s-Target-only-when-it-has-code-assets.patch
+  0006-flutter_tools-Stop-rewriting-the-iOS-USB-artifact-stamps.patch
+  0007-flutter_tools-Add-a-managed-read-only-SDK-mode.patch
+  0008-flutter_tools-doctor-accept-the-dart-that-bin-cache-dart-sdk-links-to.patch
+  0009-flutter_tools-Fix-icon-tree-shaking-when-building-for-desktop.patch
+)
+source=(
+  "material_fonts-$_materialfontsver.zip::https://storage.googleapis.com/flutter_infra_release/flutter/fonts/$_materialfontsver/fonts.zip"
+  "gradle_wrapper-$_gradlewver.tar.gz::https://storage.googleapis.com/flutter_infra_release/gradle-wrapper/$_gradlewver/gradle-wrapper.tgz"
+  'write-managed-metadata.sh'
+  'flutter_tools-pubspec.lock'
+  "${_patches[@]}"
+)
+noextract=("material_fonts-$_materialfontsver.zip" "gradle_wrapper-$_gradlewver.tar.gz")
+sha256sums=('e56fa8e9bb4589fde964be3de451f3e5b251e4a1eafb1dc98d94add034dd5a86'
+            '31e9428baf1a2b2f485f1110c5899f852649b33d46a2e9b07f9d17752d50190a'
+            'e78a6988466acbe6107fafdd0c963ed2b9f2b8cbe7af942f16b2e7c762ddd5d9'
+            'c3b4e6bb262ae65f9315a22adcd4013e2d54963435e74e73973d0bcf55540b52'
+            '6dd1ad24aee5f64c7d9ec547450e3dfe4740ebc0dd97ed8368d59acf2801f3b9'
+            'c5467331cb9b3ed881dcd753b9daaf6c918f13e69ee6210d234bb5059b4bca89'
+            '0a7ee99b23501651c3472fd458a02fb36d83ac3f67c0b9a57b71feedefc15aa9'
+            '3da97b238036ca696dc7616ddfaec7ee639c5256c3829a288bd95b58e27851ab'
+            '19636f4881b28dccef8bfef38972f0bbd23c9b9344dc886d521e8b3f9317f22b'
+            'd48d8102d4572cc213bc9271cb1e339fc83d5c6c7aa8c8c73ac03ba272444bfb'
+            'a31275b06d24f3a790d349dc003f5df0c3ee2695c0266658e618f892f6ac6025'
+            '069250dfea1b73f2c8460ec1f3252a206f8bfc40ed30b092e087804c4cc0cb21'
+            'dc20212d7eff3e3bd4f2d19fb8a9ce07f4267d6f45bd6f072998a2d3845a399f')
+
+_env() {
+  # bq's $HOME is the real home: keep pub, dart and flutter state out of it.
+  export HOME="$srcdir/home" XDG_CONFIG_HOME="$srcdir/home/.config"
+  export PUB_CACHE="$srcdir/pub-cache"
+  export DART_SUPPRESS_ANALYTICS=true FLUTTER_SUPPRESS_ANALYTICS=true
+  mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$PUB_CACHE"
+}
+
+_pool() { (( _power8_compat )) && echo baseline || echo power9; }
+
+_meta() {  # write-managed-metadata.sh <phase> <root> [extra key=value...]
+  local root=$2
+  bash "$srcdir/write-managed-metadata.sh" "$1" "$root" \
+    owner="pacman ($pkgname $pkgver-$pkgrel, $(_pool) pool)" arch=ppc64 dart_sdk=/usr/lib/dart \
+    check_dart="$_dart_root" check_root="${_engine_root%/bin/cache}" \
+    framework_version=$pkgver channel=stable \
+    framework_revision=$_commit framework_date="$_commit_date_iso" \
+    engine_revision=$_engine_revision engine_date="$_commit_date_iso" \
+    engine_build_ms="$(( $(stat -c %Y "$_engine_root/artifacts/engine/linux-ppc64-release/libflutter_linux_gtk.so") * 1000 ))" \
+    dart_version=$_dart_pkgver devtools_version="$(_devtools_version)" "${@:3}"
+}
+_devtools_version() {
+  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$_dart_root/bin/resources/devtools/version.json"
+}
+
+# _tree_of <repo dir>: the tree git would commit, ignored files included.
+_tree_of() {
+  git -C "$1" add -A -f -- .
+  git -C "$1" write-tree
+}
+
+prepare() {
+  _env
+  _control_dart
+  _control_engine
+
+  local root=$srcdir/flutter got p
+  rm -rf "$root"
+  mkdir "$root"
+  git -C "$root" init -q
+  git -C "$root" remote add origin "$_url"
+  git -C "$root" fetch -q --depth 1 --no-tags origin "$_commit"
+  git -C "$root" -c advice.detachedHead=false checkout -q FETCH_HEAD
+  cd "$root"
+
+  # Gate 1: the tag.
+  [[ $(git rev-parse HEAD) == "$_commit" ]] \
+    || { echo "ERROR: monorepo HEAD is $(git rev-parse HEAD), not $_commit" >&2; return 1; }
+  got=$(git rev-parse 'HEAD^{tree}')
+  [[ $got == "$_base_tree" ]] \
+    || { printf 'ERROR: tag tree is %s, expected %s\n' "$got" "$_base_tree" >&2; return 1; }
+  printf 'base tree %s = tag %s\n' "$got" "$pkgver"
+
+  for p in "${_patches[@]}"; do
+    printf 'Applying %s\n' "$p"
+    patch -Np1 -F0 --no-backup-if-mismatch -s -i "$srcdir/$p"
+  done
+  # Gate 2: the series reproduces the branch byte for byte.
+  got=$(_tree_of .)
+  [[ $got == "$_tree" ]] \
+    || { printf 'ERROR: patched tree is %s, expected %s\n' "$got" "$_tree" >&2; return 1; }
+  printf 'patched tree %s matches (%d patches)\n' "$got" "${#_patches[@]}"
+  [[ $(cat bin/internal/engine.version) == "$_engine_revision" ]] \
+    || { echo "ERROR: bin/internal/engine.version is not $_engine_revision" >&2; return 1; }
+
+  # Everything below writes ignored files, AFTER the gates on purpose.
+  # flutter_tools' dependencies (network). Upstream has no lockfile for it
+  # (its pubspec pins every version; bin/internal/shared.sh resolves at
+  # first run). flutter_tools-pubspec.lock is that resolution, made once by
+  # `dart pub get` on this patched tree: --enforce-lockfile then fetches
+  # exactly those versions and checks each archive's sha256 in it. code_assets
+  # and hooks_runner must resolve to the vendored, patched copies (series
+  # 0002/0003).
+  install -m644 "$srcdir/flutter_tools-pubspec.lock" packages/flutter_tools/pubspec.lock
+  (cd packages/flutter_tools && "$_dart_root/bin/dart" pub get --enforce-lockfile --suppress-analytics)
+  grep -q '"rootUri": "../../../third_party/pkg/code_assets"' packages/flutter_tools/.dart_tool/package_config.json \
+    && grep -q '"rootUri": "../../../third_party/pkg/hooks_runner"' packages/flutter_tools/.dart_tool/package_config.json \
+    || { echo "ERROR: flutter_tools does not resolve code_assets/hooks_runner to third_party/pkg" >&2; return 1; }
+
+  # Mark the build tree managed now: the version files make `pub get` of a
+  # Flutter app work here, and the snapshot's training run in build() must
+  # take no lock, ask no git and download nothing.
+  _meta version "$root" dart_sdk="$_dart_root"
+
+  # The smoke app's dependencies (network): the framework's own (sdk:
+  # flutter, flutter_test), from pub.dev. sky_engine comes from the engine.
+  _smoke_app "$srcdir/smoke"
+  ln -sfn "$_engine_root/pkg" "$root/bin/cache/pkg"
+  (cd "$srcdir/smoke" && FLUTTER_ROOT=$root PUB_CACHE=$srcdir/smoke-pub-cache \
+     "$_dart_root/bin/dart" pub get --suppress-analytics)
+  rm "$root/bin/cache/pkg"
+}
+
+# A counter app with an icon (so the release build tree-shakes MaterialIcons
+# with the engine's const_finder and font-subset, series 0009), a widget
+# test, and a twin test that must fail.
+_smoke_app() {
+  local d=$1
+  rm -rf "$d"; mkdir -p "$d/lib" "$d/test" "$d/control"
+  cat > "$d/pubspec.yaml" <<-'YAML'
+	name: smoke
+	description: flutter package build() smoke app
+	publish_to: none
+	version: 1.0.0+1
+	environment:
+	  sdk: ^3.11.0
+	dependencies:
+	  flutter:
+	    sdk: flutter
+	dev_dependencies:
+	  flutter_test:
+	    sdk: flutter
+	flutter:
+	  uses-material-design: true
+	YAML
+  cat > "$d/lib/main.dart" <<-'DART'
+	import 'package:flutter/foundation.dart';
+	import 'package:flutter/material.dart';
+
+	int fib(int n) => n < 2 ? n : fib(n - 1) + fib(n - 2);
+
+	void main() => runApp(const MaterialApp(home: Counter()));
+
+	class Counter extends StatefulWidget {
+	  const Counter({super.key});
+	  @override
+	  State<Counter> createState() => _CounterState();
+	}
+
+	class _CounterState extends State<Counter> {
+	  int _n = 0;
+	  int? _fib;
+	  Future<void> _tap() async {
+	    final int f = await compute(fib, 20);
+	    setState(() { _n++; _fib = f; });
+	  }
+	  @override
+	  Widget build(BuildContext context) => Scaffold(
+	        body: Center(child: Text('$_n ${_fib ?? '-'}')),
+	        floatingActionButton: FloatingActionButton(
+	          onPressed: _tap, child: const Icon(Icons.add)),
+	      );
+	}
+	DART
+  cat > "$d/test/smoke_test.dart" <<-'DART'
+	import 'package:flutter/material.dart';
+	import 'package:flutter_test/flutter_test.dart';
+	import 'package:smoke/main.dart';
+
+	void main() {
+	  testWidgets('counter increments through compute()', (WidgetTester tester) async {
+	    await tester.pumpWidget(const MaterialApp(home: Counter()));
+	    expect(find.text('0 -'), findsOneWidget);
+	    await tester.runAsync(() async {
+	      await tester.tap(find.byIcon(Icons.add));
+	      await Future<void>.delayed(const Duration(seconds: 2));
+	    });
+	    await tester.pump();
+	    expect(find.text('1 6765'), findsOneWidget);
+	  });
+	}
+	DART
+  sed "s/'1 6765'/'1 6766'/" "$d/test/smoke_test.dart" > "$d/control/wrong_test.dart"
+}
+
+build() {
+  _env
+  # Offline from here: a download attempt fails fast instead of reaching
+  # Flutter's storage bucket (bq shares the host's network).
+  export FLUTTER_STORAGE_BASE_URL=http://127.0.0.1:9
+  _control_dart
+  _control_engine
+  local root=$srcdir/flutter
+  cd "$root"
+
+  # The tool snapshot, by the pool's native dart (app-jit: a training run of
+  # the tool itself, on the managed build tree).
+  "$_dart_root/bin/dart" --verbosity=error --disable-dart-dev \
+    --snapshot=bin/cache/flutter_tools.snapshot --snapshot-kind=app-jit \
+    --packages=packages/flutter_tools/.dart_tool/package_config.json \
+    --no-enable-mirrors packages/flutter_tools/bin/flutter_tools.dart > /dev/null
+  [[ ! -e bin/cache/lockfile ]] \
+    || { echo "GATE FAILED: the training run took bin/cache/lockfile (managed mode off?)" >&2; return 1; }
+
+  _stage "$srcdir/stage"
+  local sdk=$srcdir/stage/usr/lib/flutter
+  _gate_leaks "$srcdir/stage"
+  _gate_no_elf "$srcdir/stage"
+  _gate_modes "$srcdir/stage"
+  _gate_hash "$sdk"
+  _smoke "$sdk"
+  _write_pkginfo "$sdk/.pkginfo"
+}
+
+# The installed tree: what package() copies verbatim to /usr/lib/flutter.
+_stage() {
+  local st=$1/usr/lib/flutter s=$srcdir/flutter p
+  rm -rf "$1"; mkdir -p "$st/packages" "$st/third_party" "$st/bin/cache/artifacts"
+  cp -a "$s/bin" "$st/"
+  rm -f "$st/bin/cache/dart-sdk"      # _meta all links it to /usr/lib/dart
+  for p in flutter flutter_driver flutter_goldens flutter_localizations flutter_test \
+           flutter_web_plugins fuchsia_remote_debug_protocol integration_test flutter_tools; do
+    cp -a "$s/packages/$p" "$st/packages/"
+  done
+  rm -rf "$st/packages/flutter_tools/test"
+  cp -a "$s/third_party/pkg" "$st/third_party/"
+  install -m644 "$s/LICENSE" "$st/LICENSE"
+  # FlutterCommandRunner.getRepoRoots() lists these; nothing in them is read.
+  install -d "$st/dev" "$st/examples"
+  : > "$st/dev/.keep"; : > "$st/examples/.keep"
+  # The pub cache moves into the SDK, and the tool's package_config.json
+  # points at it relatively (relative to packages/flutter_tools/.dart_tool),
+  # so no build path is installed and the staged tree runs in place.
+  cp -a "$PUB_CACHE" "$st/pub-cache"
+  # active_roots names the build tree's package_config.json (for pub cache gc).
+  rm -rf "$st/pub-cache/_temp" "$st/pub-cache/log" "$st/pub-cache/active_roots"
+  find "$st/pub-cache" -name '*.aot' -delete
+  sed -i -e "s|\"file://$PUB_CACHE/|\"../../../pub-cache/|g" \
+         -e "s|\"pubCache\": \"file://$PUB_CACHE\"|\"pubCache\": \"file:///usr/lib/flutter/pub-cache\"|" \
+    "$st/packages/flutter_tools/.dart_tool/package_config.json"
+  # The universal artifacts. GradleWrapper.updateInner drops these two.
+  install -d "$st/bin/cache/artifacts/material_fonts" "$st/bin/cache/artifacts/gradle_wrapper"
+  bsdtar -xf "$srcdir/material_fonts-$_materialfontsver.zip" -C "$st/bin/cache/artifacts/material_fonts"
+  bsdtar -xf "$srcdir/gradle_wrapper-$_gradlewver.tar.gz" -C "$st/bin/cache/artifacts/gradle_wrapper"
+  rm -f "$st/bin/cache/artifacts/gradle_wrapper/gradle/wrapper/gradle-wrapper.properties" \
+        "$st/bin/cache/artifacts/gradle_wrapper/NOTICE"
+  # Marker, version files, every stamp, the dart-sdk link; the engine's
+  # artifacts are checked where flutter-engine installs them.
+  _meta all "$st"
+  # flutter-engine owns these; the two packages must not share a file.
+  [[ ! -e $st/bin/cache/artifacts/engine && ! -e $st/bin/cache/pkg ]] \
+    || { echo 'GATE FAILED: the stage holds flutter-engine paths (bin/cache/artifacts/engine or pkg)' >&2; return 1; }
+  # Normalise modes: the pub cache and the zips carry their own.
+  find "$st" -type d -exec chmod 755 {} +
+  find "$st" -type f -perm /0111 -exec chmod 755 {} +
+  find "$st" -type f ! -perm /0111 -exec chmod 644 {} +
+}
+
+# No installed text file may name the build tree. Binary files that do are
+# listed (the app-jit snapshot embeds its sources' file:// URIs).
+_gate_leaks() {
+  local hits bins
+  hits=$(grep -rIl -F "$srcdir" "$1" | head -5)
+  [[ -z $hits ]] || { echo "GATE FAILED: installed text files name the build tree:" >&2; echo "$hits" >&2; return 1; }
+  bins=$(grep -rl -F "$srcdir" "$1" | sed "s#^$1/##" | tr '\n' ' ')
+  printf 'leaks: no installed text file names the build tree; binary files that do: %s\n' "${bins:-none}" \
+    | tee "$srcdir/leaks.info"
+}
+
+# The package's own record, at /usr/lib/flutter/.pkginfo (as dart's and
+# flutter-engine's): sources, gates, the dart and engine it was built with.
+_write_pkginfo() {
+  install -Dm644 /dev/stdin "$1" <<-INFO
+	version: $pkgver
+	base-commit: $_commit ($_commit_time)
+	base-tree: $_base_tree
+	patched-tree: $_tree
+	patches: ${#_patches[@]}
+	pool: $(_pool)
+	managed-by: $(head -1 "$srcdir/stage/usr/lib/flutter/bin/cache/managed-by")
+	$(cat "$srcdir/dart.info")
+	$(cat "$srcdir/engine.info")
+	$(cat "$srcdir/hash.info")
+	# ISA: no native ELF in this package. Smoke app libapp.so (flutter-engine
+	# gen_snapshot through this tool), objdump -D -z -j .text power8 vs power9:
+	$(cat "$srcdir/smoke.info")
+	$(cat "$srcdir/leaks.info")
+	INFO
+  ! grep -qF "$srcdir" "$1" || { echo "GATE FAILED: .pkginfo names the build tree" >&2; return 1; }
+}
+
+# Gate E: this package installs no native code. The CONTROL is that the
+# check sees the ELF magic at all: the dart binary it ran must count.
+_gate_no_elf() {
+  local f n=0
+  [[ $(od -An -tx1 -N4 "$_dart_root/bin/dart") == " 7f 45 4c 46" ]] \
+    || { echo "GATE FAILED: the ELF check does not recognise $_dart_root/bin/dart" >&2; return 1; }
+  while IFS= read -r -d '' f; do
+    [[ $(od -An -tx1 -N4 "$f") == " 7f 45 4c 46" ]] || continue
+    echo "GATE FAILED: native ELF in the package: ${f#"$1"/}" >&2; n=$((n + 1))
+  done < <(find "$1" -type f -print0)
+  (( n == 0 )) || return 1
+  echo 'no ELF files in the package (the ELF check recognises the dart it ran)'
+}
+
+_gate_modes() {
+  local bad
+  bad=$(find "$1" \( -type f \( ! -perm -0444 -o -perm /0022 \) \) -o \
+                  \( -type d \( ! -perm -0555 -o -perm /0022 \) \) | head -5)
+  [[ -z $bad ]] || { echo "GATE FAILED: bad modes, e.g.:" >&2; ls -ld $bad >&2; return 1; }
+  echo 'modes: every file world-readable, every directory world-searchable, none group/other-writable'
+}
+
+# Gate H: dart's frontend_server reads flutter-engine's patched SDK (same
+# Dart SDK hash on both sides; see 5. above).
+_gate_hash() {
+  local t=$srcdir/hashgate
+  rm -rf "$t"; mkdir -p "$t"
+  echo 'void main() {}' > "$t/h.dart"
+  if ! "$_dart_root/bin/dartaotruntime" "$_dart_root/bin/snapshots/frontend_server_aot.dart.snapshot" \
+         --sdk-root "$_engine_root/artifacts/engine/common/flutter_patched_sdk/" --target=flutter \
+         --output-dill "$t/h.dill" "$t/h.dart" > "$t/log" 2>&1 || [[ ! -s $t/h.dill ]]; then
+    grep -m1 -o 'Unexpected Kernel SDK Version[^)]*)' "$t/log" >&2
+    echo "GATE FAILED: dart's frontend_server cannot read flutter-engine's patched SDK (SDK hash mismatch?)" >&2
+    return 1
+  fi
+  echo "hash gate: dart's frontend_server compiles against flutter-engine's flutter_patched_sdk" | tee "$srcdir/hash.info"
+}
+
+# objdump -D -z -j .text: (.long under power8) - (.long under power9). -D
+# decodes .text whatever its symbols say; -z keeps zero words, so coverage
+# can be required: >= 99% of the .text words, or the scan fails.
+_isa30_count() {
+  local f=$1 n8 n9 words lines
+  words=$(( $(readelf -SW "$f" | sed 's/\[ *\([0-9]*\)\]/[\1]/' \
+                | awk '$2 == ".text" { print strtonum("0x" $6) }') / 4 ))
+  lines=$(objdump -D -z -j .text --no-show-raw-insn -M power8 "$f" | grep -cP '^\s+[0-9a-f]+:\s' || true)
+  (( words > 0 && lines * 100 >= words * 99 )) \
+    || { echo "GATE FAILED: objdump decoded $lines of $words .text words in $f" >&2; return 1; }
+  echo "$lines $words" > "$srcdir/isa30-coverage"
+  n8=$(objdump -D -z -j .text --no-show-raw-insn -M power8 "$f" | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  n9=$(objdump -D -z -j .text --no-show-raw-insn -M power9 "$f" | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  echo $((n8 - n9))
+}
+
+# The scanner must see what it gates: one xscvhpdp (0xf030156c, ISA 3.0)
+# written over the word in the middle of .text must count exactly one more.
+_isa30_selftest() {
+  local f=$1 c=$srcdir/isa30-selftest.elf off size base got
+  read -r off size < <(readelf -SW "$f" | sed 's/\[ *\([0-9]*\)\]/[\1]/' \
+                         | awk '$2 == ".text" { print strtonum("0x" $5), strtonum("0x" $6) }')
+  [[ -n $off && -n $size ]] || { echo "GATE FAILED: no .text in $f" >&2; return 1; }
+  base=$(_isa30_count "$f") || return 1
+  cp "$f" "$c"
+  printf '\x6c\x15\x30\xf0' | dd of="$c" bs=1 seek=$((off + (size / 8) * 4)) conv=notrunc status=none
+  got=$(_isa30_count "$c") || return 1
+  rm -f "$c"
+  (( got == base + 1 )) \
+    || { echo "GATE FAILED: the ISA 3.0 scanner self-test counted $got, want $((base + 1))" >&2; return 1; }
+  printf 'isa30 scanner self-test: %d -> %d with one xscvhpdp at mid-.text\n' "$base" "$got"
+}
+
+# The smoke cycle, on a copy of the stage that also holds the engine (as
+# installed): create, pub get --offline, flutter test (and a test that must
+# fail), flutter build linux --release, then gates on the bundle. Gate W:
+# nothing under the SDK changes while the tool runs.
+_smoke() {
+  local sdk=$1 sr=$srcdir/smoke-root app=$srcdir/smoke out v n al b
+  rm -rf "$sr"; mkdir -p "$sr"
+  cp -al "$sdk" "$sr/flutter"
+  ln -s "$_engine_root/artifacts/engine" "$sr/flutter/bin/cache/artifacts/engine"
+  ln -s "$_engine_root/pkg" "$sr/flutter/bin/cache/pkg"
+  ln -sfn "$_dart_root" "$sr/flutter/bin/cache/dart-sdk"
+  local fl=$sr/flutter/bin/flutter mark=$srcdir/smoke-start
+  export PUB_CACHE=$srcdir/smoke-pub-cache
+  touch "$mark"; sleep 1
+  v=$("$fl" --version 2>&1 | head -1)
+  [[ $v == "Flutter $pkgver "* ]] || { echo "SMOKE FAILED: flutter --version: $v" >&2; return 1; }
+  # `devices`, not `doctor`: doctor's network check would leave the host.
+  out=$("$fl" devices 2>&1 || true)
+  grep -q '• linux  *• linux-ppc64 ' <<< "$out" \
+    || { echo "SMOKE FAILED: flutter devices does not list a linux-ppc64 desktop:" >&2; echo "$out" >&2; return 1; }
+  (cd "$app" && "$fl" create --no-pub --platforms=linux --project-name smoke . > "$srcdir/smoke-create.log")
+  grep -q "find.text('0 -')" "$app/test/smoke_test.dart" \
+    || { echo 'SMOKE FAILED: flutter create overwrote the smoke test' >&2; return 1; }
+  rm -f "$app/test/widget_test.dart"
+  (cd "$app" && "$fl" pub get --offline > "$srcdir/smoke-pub.log")
+  (cd "$app" && "$fl" test --no-pub test/smoke_test.dart > "$srcdir/smoke-test.log" 2>&1) \
+    || { cat "$srcdir/smoke-test.log" >&2; echo 'SMOKE FAILED: flutter test' >&2; return 1; }
+  # CONTROL: the harness must see a failing test fail.
+  cp "$app/control/wrong_test.dart" "$app/test/"
+  if (cd "$app" && "$fl" test --no-pub test/wrong_test.dart > "$srcdir/smoke-control.log" 2>&1); then
+    echo 'CONTROL FAILED: flutter test passed a test that expects the wrong value' >&2; return 1
+  fi
+  rm "$app/test/wrong_test.dart"
+  (cd "$app" && "$fl" build linux --release --no-pub > "$srcdir/smoke-build.log" 2>&1) \
+    || { cat "$srcdir/smoke-build.log" >&2; echo 'SMOKE FAILED: flutter build linux --release' >&2; return 1; }
+  b=$app/build/linux/ppc64/release/bundle
+  [[ -x $b/smoke && -f $b/lib/libapp.so && -f $b/lib/libflutter_linux_gtk.so ]] \
+    || { echo "SMOKE FAILED: no bundle at build/linux/ppc64/release/bundle" >&2; return 1; }
+  cmp -s "$b/lib/libflutter_linux_gtk.so" "$_engine_root/artifacts/engine/linux-ppc64-release/libflutter_linux_gtk.so" \
+    || { echo 'SMOKE FAILED: the bundle does not carry the release engine' >&2; return 1; }
+  file -b "$b/lib/libapp.so" | grep -q '64-bit LSB .*PowerPC' \
+    || { echo "SMOKE FAILED: libapp.so is $(file -b "$b/lib/libapp.so" | cut -d, -f1-2)" >&2; return 1; }
+  al=$(readelf -lW "$b/lib/libapp.so" | awk '$1 == "LOAD" { print $NF }' | sort -u | tr '\n' ' ')
+  [[ $al == '0x10000 ' ]] || { echo "SMOKE FAILED: libapp.so LOAD alignment '$al'" >&2; return 1; }
+  ! ldd "$b/smoke" | grep -q 'not found' || { echo 'SMOKE FAILED: unresolved libraries' >&2; ldd "$b/smoke" >&2; return 1; }
+  n=$(stat -c %s "$b/data/flutter_assets/fonts/MaterialIcons-Regular.otf")
+  (( n < 100000 )) || { echo "SMOKE FAILED: MaterialIcons not tree-shaken ($n bytes)" >&2; return 1; }
+  _isa30_selftest "$b/lib/libapp.so"
+  n=$(_isa30_count "$b/lib/libapp.so") || return 1
+  (( n == 0 )) || { echo "SMOKE FAILED: $n ISA 3.0 instructions in libapp.so (Dart codegen is ISA 2.07)" >&2; return 1; }
+  # Gate W: the tool wrote nothing under the SDK (the engine and dart are
+  # symlinks out of it; the hard links share inodes with the stage).
+  local w; w=$(find "$sr/flutter" -newer "$mark" ! -type l | head -5)
+  [[ -z $w ]] || { echo 'GATE FAILED: the tool wrote under FLUTTER_ROOT:' >&2; echo "$w" >&2; return 1; }
+  {
+    printf 'smoke: %s; devices: linux-ppc64; flutter test: %s; control test: failed as it must\n' \
+      "$v" "$(tail -1 "$srcdir/smoke-test.log")"
+    read -r n al < "$srcdir/isa30-coverage"
+    printf 'smoke: build linux --release ok; libapp.so ppc64le, 64 KiB LOADs; ISA 3.0: 0 in %d .text words (%d decoded), mid-.text control fired; MaterialIcons %d bytes after tree shaking\n' \
+      "$al" "$n" "$(stat -c %s "$b/data/flutter_assets/fonts/MaterialIcons-Regular.otf")"
+    echo 'smoke: nothing under FLUTTER_ROOT changed during the cycle'
+  } | tee "$srcdir/smoke.info"
+}
+
+# CONTROL: the dart that drives the build and that the SDK links to is a
+# native linux_ppc64 Dart from this pool, with the SDK hash the engine needs.
+_control_dart() {
+  local d=$_dart_root/bin/dart v have
+  [[ -x $d ]] || { echo "CONTROL FAILED: no dart at $d (is dart installed?)" >&2; return 1; }
+  file -L "$d" | grep -q '64-bit LSB .*PowerPC' \
+    || { echo "CONTROL FAILED: $d is not a ppc64le binary ($(file -bL "$d" | cut -d, -f1-2))" >&2; return 1; }
+  v=$("$d" --version 2>&1)
+  [[ $v == *"$_dart_pkgver (stable)"*'"linux_ppc64"'* ]] \
+    || { echo "CONTROL FAILED: $d reports $v" >&2; return 1; }
+  have=$(sed -n 's/^pool: //p' "$_dart_root/.pkginfo" 2>/dev/null)
+  [[ $have == "$(_pool)" ]] \
+    || { echo "CONTROL FAILED: dart is from pool '${have:-?}', this build is $(_pool)" >&2; return 1; }
+  grep -q "^patched-tree: $_dart_tree\$" "$_dart_root/.pkginfo" \
+    || { echo "CONTROL FAILED: dart's patched tree is not $_dart_tree" >&2; return 1; }
+  grep -aqx "$_sdk_hash" <(strings -n 10 "$_dart_root/bin/dartvm") \
+    || { echo "CONTROL FAILED: dart does not carry SDK hash $_sdk_hash" >&2; return 1; }
+  printf 'dart: %s (%s, pool %s, tree %s, SDK hash %s)\ndart sha256: %s\n' "$d" "$v" "$have" \
+    "${_dart_tree:0:8}" "$_sdk_hash" "$(sha256sum < "$d" | cut -d' ' -f1)" | tee "$srcdir/dart.info"
+}
+
+# CONTROL: flutter-engine is the one this tool's stamps describe: same
+# revision, same pool, the same Dart tree as dart, native ppc64 gen_snapshot.
+_control_engine() {
+  local e=$_engine_root/artifacts/engine info v d
+  info=$e/.pkginfo
+  for d in linux-ppc64 linux-ppc64-profile linux-ppc64-release; do
+    v=$("$e/$d/gen_snapshot" --version 2>&1) || true
+    [[ $v == *"$_dart_pkgver"*'"linux_ppc64"'* ]] \
+      || { echo "CONTROL FAILED: $d/gen_snapshot reports: $v" >&2; return 1; }
+  done
+  [[ -f $_engine_root/pkg/sky_engine/pubspec.yaml ]] \
+    || { echo "CONTROL FAILED: no sky_engine in $_engine_root/pkg" >&2; return 1; }
+  if [[ -f $info ]]; then
+    grep -q "^engine-revision: $_engine_revision\$" "$info" \
+      || { echo "CONTROL FAILED: flutter-engine's engine revision is not $_engine_revision" >&2; return 1; }
+    grep -q "^pool: $(_pool)\$" "$info" \
+      || { echo "CONTROL FAILED: flutter-engine is from pool '$(sed -n 's/^pool: //p' "$info")', this build is $(_pool)" >&2; return 1; }
+    grep -q "^dart-tree: $_dart_tree\$" "$info" \
+      || { echo "CONTROL FAILED: flutter-engine embeds Dart tree $(sed -n 's/^dart-tree: //p' "$info"), dart is $_dart_tree" >&2; return 1; }
+    printf 'engine: flutter-engine %s, pool %s, revision %s, gen_snapshot: %s\n' \
+      "$(sed -n 's/^version: //p' "$info")" "$(_pool)" "${_engine_revision:0:10}" "$v" | tee "$srcdir/engine.info"
+  elif (( _interim_engine )); then
+    printf 'engine: INTERIM, %s (no flutter-engine .pkginfo), gen_snapshot: %s\n' "$_engine_root" "$v" \
+      | tee "$srcdir/engine.info"
+  else
+    echo "CONTROL FAILED: no flutter-engine .pkginfo at $info" >&2; return 1
+  fi
+}
+
+package() {
+  # Files only: nothing runs here (package() is under fakeroot). build()
+  # wrote and gated everything under stage/, .pkginfo included.
+  cp -a "$srcdir/stage/." "$pkgdir/"
+  install -d "$pkgdir/usr/bin"
+  # bin/flutter resolves its own symlinks to find FLUTTER_ROOT.
+  ln -s ../lib/flutter/bin/flutter "$pkgdir/usr/bin/flutter"
+  install -Dm644 "$srcdir/flutter/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,706 @@
+From b2874e8ef5005ce09b53e0f6cd525f5904fe7e3a Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:19:22 -0600
+Subject: [PATCH 7/9] [flutter_tools] Add a managed, read-only SDK mode for
+ distribution packages
+
+Class: local workaround (distribution packaging). It replaces the
+blunter patches Alpine (testing/flutter: no-cache, version, not-in-git)
+and the AUR flutter package (no-lock, no-runtime-download, version)
+carry for the same purpose.
+
+A distribution installs the SDK read-only (bq builds against a read-only
+/usr overlay), with engine artifacts, stamps, the version file and the
+flutter_tools snapshot all made at package build time. The stock tool
+writes under FLUTTER_ROOT on every run, downloads whatever it finds
+stale, and needs a git checkout. It now recognises such an install by
+`bin/cache/managed-by`, whose first line names the owner (for example
+`pacman (flutter 3.41.9-1)`), and then:
+
+* bin/internal/shared.sh execs the prebuilt snapshot directly: no git
+  check, no engine.stamp rewrite, no Dart SDK download, no `pub upgrade`
+  and no snapshot rebuild. It also defaults FLUTTER_SUPPRESS_ANALYTICS
+  to true (set it to false to opt in), as Alpine and the AUR do.
+* Cache.lock() creates no lockfile and checkLockAcquired() passes.
+* Cache.updateAll() never updates. If a required artifact set is not up
+  to date, it fails with one ToolExit that names every such set and the
+  owner, instead of downloading. Artifacts that the command does not
+  require are not looked at, so Android/iOS/web pieces need not ship.
+* FlutterVersion is read from bin/cache/flutter.version.json, never from
+  git, even when tags are to be fetched; a missing or invalid file is an
+  error and is not deleted. Framework and engine ages come from the
+  dates in that file. The legacy `version` file is not written, and the
+  freshness check (git fetch, flutter_version_check.stamp) is skipped.
+* `flutter upgrade`, `channel` and `downgrade`, and `precache --force`
+  (Cache.clearStampFiles), stop with "Cannot ...: this Flutter SDK is
+  managed by <owner> and is read-only."
+
+Nothing changes for an SDK without the marker. Together with the
+previous commit, a fully populated managed install is not written to by
+the tool at all; PKGBUILD.draft lists the files a package must
+pre-generate.
+
+Tests: cache_test (marker and owner; lock and checkLockAcquired;
+updateAll fails naming the missing sets, succeeds when complete, ignores
+sets not required; clearStampFiles refuses), version_test (file only,
+no git, ages from dates; fetchTags keeps the files; no legacy file;
+missing or invalid file is an error and is kept), upgrade_test (refuses).
+With cache_test, version_test, upgrade, downgrade, precache,
+flutter_command_runner and flutter_validator tests: 224 pass.
+---
+ bin/internal/shared.sh                        |  18 +++
+ packages/flutter_tools/lib/src/cache.dart     |  74 ++++++++++-
+ .../lib/src/commands/channel.dart             |   1 +
+ .../lib/src/commands/downgrade.dart           |   1 +
+ .../lib/src/commands/upgrade.dart             |   1 +
+ packages/flutter_tools/lib/src/version.dart   |  79 ++++++++++--
+ .../commands.shard/hermetic/upgrade_test.dart |  30 +++++
+ .../test/general.shard/cache_test.dart        | 115 +++++++++++++++++
+ .../test/general.shard/version_test.dart      | 120 ++++++++++++++++++
+ 9 files changed, 429 insertions(+), 10 deletions(-)
+
+diff --git a/bin/internal/shared.sh b/bin/internal/shared.sh
+index 65cdf07f..1113d712 100644
+--- a/bin/internal/shared.sh
++++ b/bin/internal/shared.sh
+@@ -226,6 +226,24 @@ function shared::execute() {
+     >&2 echo "📎"
+   fi
+ 
++  # A managed SDK is installed read-only by a package manager, with bin/cache
++  # complete and the tool snapshot prebuilt, and is marked by
++  # bin/cache/managed-by (see Cache.managedSdkOwner in flutter_tools). Run it
++  # as it is: it needs no git checkout, and nothing is updated, downloaded,
++  # rebuilt or written under FLUTTER_ROOT. Analytics default to off there;
++  # set FLUTTER_SUPPRESS_ANALYTICS=false to opt in.
++  if [[ -f "$FLUTTER_ROOT/bin/cache/managed-by" ]]; then
++    export FLUTTER_SUPPRESS_ANALYTICS="${FLUTTER_SUPPRESS_ANALYTICS:-true}"
++    case "$(basename "$PROG_NAME")" in
++      flutter*)
++        exec "$DART" --packages="$FLUTTER_TOOLS_DIR/.dart_tool/package_config.json" $FLUTTER_TOOL_ARGS "$SNAPSHOT_PATH" "$@"
++        ;;
++      dart*)
++        exec "$DART" "$@"
++        ;;
++    esac
++  fi
++
+   # Test if Git is available on the Host
+   if ! hash git 2>/dev/null; then
+     >&2 echo "Error: Unable to find git in your PATH."
+diff --git a/packages/flutter_tools/lib/src/cache.dart b/packages/flutter_tools/lib/src/cache.dart
+index 06f90124..c1c05ff8 100644
+--- a/packages/flutter_tools/lib/src/cache.dart
++++ b/packages/flutter_tools/lib/src/cache.dart
+@@ -242,6 +242,62 @@ class Cache {
+   // Explore making this field lazy to catch non-initialized access.
+   static String? flutterRoot;
+ 
++  /// The name of the file in `bin/cache` that marks a managed SDK.
++  static const managedByFileName = 'managed-by';
++
++  /// Who manages the Flutter SDK at [flutterRoot], or null if nobody does.
++  ///
++  /// A distribution package can install the SDK read-only (for example to
++  /// /usr/lib/flutter), with every artifact already in `bin/cache`, every
++  /// stamp written and the tool snapshot built. It marks such an install with
++  /// `bin/cache/managed-by`, whose first line names the package (for example
++  /// `pacman (flutter 3.41.9-1)`). A managed SDK is never written to and never
++  /// downloads anything:
++  ///
++  ///  * [lock] does not create the lockfile,
++  ///  * [updateAll] checks that the required artifacts are present and fails
++  ///    if they are not, instead of downloading them,
++  ///  * the version comes from `bin/cache/flutter.version.json`, never from
++  ///    git, and is not checked for freshness (see `FlutterVersion`),
++  ///  * `flutter upgrade`, `channel` and `downgrade`, and
++  ///    `precache --force`, refuse to run.
++  static String? managedSdkOwner(FileSystem fileSystem, String flutterRoot) {
++    final File marker = fileSystem.file(
++      fileSystem.path.join(flutterRoot, 'bin', 'cache', managedByFileName),
++    );
++    if (!marker.existsSync()) {
++      return null;
++    }
++    String owner;
++    try {
++      owner = marker.readAsLinesSync().firstOrNull?.trim() ?? '';
++    } on FileSystemException {
++      owner = '';
++    }
++    return owner.isEmpty ? 'a package manager' : owner;
++  }
++
++  /// Who manages this Flutter SDK, or null; see [managedSdkOwner].
++  late final String? managedBy = switch (_rootOverride?.path ?? flutterRoot) {
++    final String root => managedSdkOwner(_fileSystem, root),
++    null => null,
++  };
++
++  /// Whether this Flutter SDK is managed; see [managedSdkOwner].
++  bool get isManaged => managedBy != null;
++
++  /// Throws a [ToolExit] if this Flutter SDK is managed, because [action]
++  /// would modify it.
++  void checkNotManaged(String action) {
++    final String? owner = managedBy;
++    if (owner != null) {
++      throwToolExit(
++        'Cannot $action: this Flutter SDK is managed by $owner and is read-only. '
++        'Update it through $owner instead.',
++      );
++    }
++  }
++
+   /// Determine the absolute and normalized path for the root of the current
+   /// Flutter checkout.
+   ///
+@@ -354,7 +410,8 @@ class Cache {
+   ///
+   /// This uses normal POSIX flock semantics.
+   Future<void> lock() async {
+-    if (!_lockEnabled) {
++    // A managed SDK is never written to, so there is nothing to lock.
++    if (!_lockEnabled || isManaged) {
+       return;
+     }
+     assert(_lock == null);
+@@ -412,6 +469,7 @@ class Cache {
+   /// this very moment; throws a [StateError] if it doesn't.
+   void checkLockAcquired() {
+     if (_lockEnabled &&
++        !isManaged &&
+         _lock == null &&
+         _platform.environment['FLUTTER_ALREADY_LOCKED'] != 'true') {
+       throw StateError(
+@@ -696,6 +754,7 @@ class Cache {
+ 
+   /// Delete all stamp files maintained by the cache.
+   void clearStampFiles() {
++    checkNotManaged('clear the artifact cache');
+     try {
+       getStampFileFor('flutter_tools').deleteSync();
+       for (final ArtifactSet artifact in _artifacts) {
+@@ -751,6 +810,7 @@ class Cache {
+     if (!_lockEnabled) {
+       return;
+     }
++    final missingFromManagedSdk = <String>[];
+     for (final ArtifactSet artifact in _artifacts) {
+       if (!requiredArtifacts.contains(artifact.developmentArtifact)) {
+         _logger.printTrace('Artifact $artifact is not required, skipping update.');
+@@ -759,6 +819,10 @@ class Cache {
+       if (await artifact.isUpToDate(_fileSystem)) {
+         continue;
+       }
++      if (isManaged) {
++        missingFromManagedSdk.add(artifact.stampName);
++        continue;
++      }
+       try {
+         await artifact.update(_artifactUpdater, _logger, _fileSystem, _osUtils, offline: offline);
+       } on SocketException catch (e) {
+@@ -773,6 +837,14 @@ class Cache {
+         rethrow;
+       }
+     }
++    if (missingFromManagedSdk.isNotEmpty) {
++      throwToolExit(
++        'This Flutter SDK is managed by $managedBy and does not download artifacts, '
++        'but these are missing or out of date in ${getRoot().path}: '
++        '${missingFromManagedSdk.join(', ')}.\n'
++        'Reinstall $managedBy, or install the package that provides them.',
++      );
++    }
+   }
+ 
+   Future<bool> areRemoteArtifactsAvailable({
+diff --git a/packages/flutter_tools/lib/src/commands/channel.dart b/packages/flutter_tools/lib/src/commands/channel.dart
+index adec381b..4412748f 100644
+--- a/packages/flutter_tools/lib/src/commands/channel.dart
++++ b/packages/flutter_tools/lib/src/commands/channel.dart
+@@ -55,6 +55,7 @@ class ChannelCommand extends FlutterCommand {
+ 
+   @override
+   Future<FlutterCommandResult> runCommand() async {
++    globals.cache.checkNotManaged('list or switch channels');
+     final List<String> rest = argResults?.rest ?? <String>[];
+     switch (rest.length) {
+       case 0:
+diff --git a/packages/flutter_tools/lib/src/commands/downgrade.dart b/packages/flutter_tools/lib/src/commands/downgrade.dart
+index f4a87591..a92d52c2 100644
+--- a/packages/flutter_tools/lib/src/commands/downgrade.dart
++++ b/packages/flutter_tools/lib/src/commands/downgrade.dart
+@@ -80,6 +80,7 @@ class DowngradeCommand extends FlutterCommand {
+ 
+   @override
+   Future<FlutterCommandResult> runCommand() async {
++    globals.cache.checkNotManaged('downgrade Flutter');
+     // Commands do not necessarily have access to the correct zone injected
+     // values when being created. Fields must be lazily instantiated in runCommand,
+     // at least until the zone injection is refactored.
+diff --git a/packages/flutter_tools/lib/src/commands/upgrade.dart b/packages/flutter_tools/lib/src/commands/upgrade.dart
+index 425ae1f2..8d9167f7 100644
+--- a/packages/flutter_tools/lib/src/commands/upgrade.dart
++++ b/packages/flutter_tools/lib/src/commands/upgrade.dart
+@@ -93,6 +93,7 @@ class UpgradeCommand extends FlutterCommand {
+ 
+   @override
+   Future<FlutterCommandResult> runCommand() {
++    globals.cache.checkNotManaged('upgrade Flutter');
+     _commandRunner.workingDirectory = stringArg('working-directory') ?? Cache.flutterRoot!;
+     return _commandRunner.runCommand(
+       _parsePhaseFromContinueArg(),
+diff --git a/packages/flutter_tools/lib/src/version.dart b/packages/flutter_tools/lib/src/version.dart
+index 0eb275a7..0c8c03c8 100644
+--- a/packages/flutter_tools/lib/src/version.dart
++++ b/packages/flutter_tools/lib/src/version.dart
+@@ -79,6 +79,28 @@ abstract class FlutterVersion {
+   }) {
+     final File versionFile = getVersionFile(fs, flutterRoot);
+ 
++    // A managed SDK has no git checkout to read a version from, and must not
++    // have its version file deleted or rewritten (see Cache.managedSdkOwner).
++    final String? managedBy = Cache.managedSdkOwner(fs, flutterRoot);
++    if (managedBy != null) {
++      final _FlutterVersionFromFile? version = versionFile.existsSync()
++          ? _FlutterVersionFromFile.tryParseFromFile(
++              versionFile,
++              git: git,
++              flutterRoot: flutterRoot,
++              clock: clock,
++              managed: true,
++            )
++          : null;
++      if (version == null) {
++        throwToolExit(
++          'This Flutter SDK is managed by $managedBy, but ${versionFile.path} is missing or '
++          'invalid. Reinstall $managedBy.',
++        );
++      }
++      return version;
++    }
++
+     if (!fetchTags && versionFile.existsSync()) {
+       final _FlutterVersionFromFile? version = _FlutterVersionFromFile.tryParseFromFile(
+         versionFile,
+@@ -228,10 +250,12 @@ abstract class FlutterVersion {
+         .trim();
+   }
+ 
+-  // TODO(fujino): calculate this relative to frameworkCommitDate for
+-  // _FlutterVersionFromFile so we don't need a git call.
+-  late final String frameworkAge = _getTimeSinceCommit();
+-  late final String engineAge = engineBuildDate != null
++  late final String frameworkAge = _frameworkAge();
++  late final String engineAge = _engineAge();
++
++  String _frameworkAge() => _getTimeSinceCommit();
++
++  String _engineAge() => engineBuildDate != null
+       ? _clock.now().difference(DateTime.parse(engineBuildDate!)).ago()
+       : _getTimeSinceCommit(revision: engineRevision);
+ 
+@@ -308,6 +332,11 @@ abstract class FlutterVersion {
+     if (!kOfficialChannels.contains(channel)) {
+       return;
+     }
++    // A managed SDK is updated by its package manager, not by `flutter
++    // upgrade`, and has no git checkout to compare with the remote.
++    if (Cache.managedSdkOwner(fs, flutterRoot) != null) {
++      return;
++    }
+     // Don't perform the update check if the tracking remote is not standard.
+     if (VersionUpstreamValidator(version: this, platform: globals.platform).run() != null) {
+       return;
+@@ -509,13 +538,24 @@ class _FlutterVersionFromFile extends FlutterVersion {
+     required super.flutterRoot,
+     required super.fs,
+     required super.git,
+-  }) : super._();
++    required bool managed,
++  }) : _managed = managed,
++       super._();
+ 
++  /// Whether this is the version of a managed SDK (see Cache.managedSdkOwner),
++  /// which has no git checkout and must not be written to.
++  final bool _managed;
++
++  /// Reads [jsonFile], or returns null if it is invalid.
++  ///
++  /// An invalid file is deleted, so that the next run rebuilds it from git,
++  /// unless [managed] is true.
+   static _FlutterVersionFromFile? tryParseFromFile(
+     File jsonFile, {
+     required String flutterRoot,
+     required Git git,
+     SystemClock clock = const SystemClock(),
++    bool managed = false,
+   }) {
+     try {
+       final String jsonContents = jsonFile.readAsStringSync();
+@@ -538,20 +578,37 @@ class _FlutterVersionFromFile extends FlutterVersion {
+         gitTagVersion: GitTagVersion.parse(manifest['flutterVersion']! as String),
+         flutterRoot: flutterRoot,
+         fs: jsonFile.fileSystem,
++        managed: managed,
+       );
+       // ignore: avoid_catches_without_on_clauses
+     } catch (err) {
+       globals.printTrace('Failed to parse ${jsonFile.path} with $err');
+-      try {
+-        jsonFile.deleteSync();
+-      } on FileSystemException {
+-        globals.printTrace('Failed to delete ${jsonFile.path}');
++      if (!managed) {
++        try {
++          jsonFile.deleteSync();
++        } on FileSystemException {
++          globals.printTrace('Failed to delete ${jsonFile.path}');
++        }
+       }
+       // Returning null means fallback to git implementation.
+       return null;
+     }
+   }
+ 
++  // A managed SDK has no git checkout to ask for the age of a commit; use
++  // the dates the version file records instead.
++  @override
++  String _frameworkAge() => _managed ? _ageOf(frameworkCommitDate) : super._frameworkAge();
++
++  @override
++  String _engineAge() =>
++      _managed ? _ageOf(engineBuildDate ?? engineCommitDate) : super._engineAge();
++
++  String _ageOf(String? date) {
++    final DateTime? dateTime = date == null ? null : DateTime.tryParse(date);
++    return dateTime == null ? 'unknown age' : _clock.now().difference(dateTime).ago();
++  }
++
+   @override
+   final GitTagVersion gitTagVersion;
+ 
+@@ -713,6 +770,10 @@ void _ensureLegacyVersionFile({
+   if (featureFlags.isOmitLegacyVersionFileEnabled) {
+     return;
+   }
++  // A managed SDK ships this file, and is read-only.
++  if (Cache.managedSdkOwner(fs, flutterRoot) != null) {
++    return;
++  }
+   final File legacyVersionFile = fs.file(fs.path.join(flutterRoot, 'version'));
+   if (!legacyVersionFile.existsSync()) {
+     legacyVersionFile.writeAsStringSync(frameworkVersion);
+diff --git a/packages/flutter_tools/test/commands.shard/hermetic/upgrade_test.dart b/packages/flutter_tools/test/commands.shard/hermetic/upgrade_test.dart
+index 0d848a1a..58369756 100644
+--- a/packages/flutter_tools/test/commands.shard/hermetic/upgrade_test.dart
++++ b/packages/flutter_tools/test/commands.shard/hermetic/upgrade_test.dart
+@@ -13,6 +13,7 @@ import 'package:flutter_tools/src/cache.dart';
+ import 'package:flutter_tools/src/commands/upgrade.dart';
+ import 'package:flutter_tools/src/version.dart';
+ 
++import '../../src/common.dart';
+ import '../../src/context.dart';
+ import '../../src/fake_process_manager.dart';
+ import '../../src/fakes.dart' show FakeFlutterVersion;
+@@ -42,6 +43,35 @@ void main() {
+     runner = createTestCommandRunner(command);
+   });
+ 
++  testUsingContext(
++    'refuses to upgrade a managed SDK',
++    () async {
++      fileSystem.file('/managed/bin/cache/${Cache.managedByFileName}')
++        ..createSync(recursive: true)
++        ..writeAsStringSync('pacman (flutter 3.41.9-1)');
++
++      await expectLater(
++        runner.run(<String>['upgrade']),
++        throwsToolExit(
++          message:
++              'Cannot upgrade Flutter: this Flutter SDK is managed by pacman (flutter 3.41.9-1)',
++        ),
++      );
++      expect(processManager, hasNoRemainingExpectations);
++    },
++    overrides: <Type, Generator>{
++      Cache: () => Cache.test(
++        fileSystem: fileSystem,
++        rootOverride: fileSystem.directory('/managed'),
++        processManager: processManager,
++      ),
++      FileSystem: () => fileSystem,
++      FlutterVersion: () => FakeFlutterVersion(),
++      Logger: () => logger,
++      ProcessManager: () => processManager,
++    },
++  );
++
+   testUsingContext(
+     'can auto-migrate a user from dev to beta',
+     () async {
+diff --git a/packages/flutter_tools/test/general.shard/cache_test.dart b/packages/flutter_tools/test/general.shard/cache_test.dart
+index 8774259f..27eec19a 100644
+--- a/packages/flutter_tools/test/general.shard/cache_test.dart
++++ b/packages/flutter_tools/test/general.shard/cache_test.dart
+@@ -38,6 +38,118 @@ void main() {
+     );
+   }
+ 
++  group('managed SDK', () {
++    late FileSystem fileSystem;
++    late Cache cache;
++
++    setUp(() {
++      Cache.enableLocking();
++      fileSystem = MemoryFileSystem.test();
++    });
++
++    tearDown(() {
++      Cache.enableLocking();
++    });
++
++    Cache createManagedCache({
++      String marker = 'pacman (flutter 3.41.9-1)\n',
++      List<ArtifactSet>? artifacts,
++    }) {
++      fileSystem.file('/flutter/bin/cache/${Cache.managedByFileName}')
++        ..createSync(recursive: true)
++        ..writeAsStringSync(marker);
++      return Cache.test(
++        fileSystem: fileSystem,
++        rootOverride: fileSystem.directory('/flutter'),
++        artifacts: artifacts,
++        processManager: FakeProcessManager.empty(),
++      );
++    }
++
++    testWithoutContext('is marked by bin/cache/managed-by, which names the owner', () {
++      expect(Cache.managedSdkOwner(fileSystem, '/flutter'), isNull);
++      cache = Cache.test(
++        fileSystem: fileSystem,
++        rootOverride: fileSystem.directory('/flutter'),
++        processManager: FakeProcessManager.empty(),
++      );
++      expect(cache.isManaged, isFalse);
++      expect(() => cache.checkNotManaged('do it'), returnsNormally);
++
++      cache = createManagedCache();
++      expect(cache.isManaged, isTrue);
++      expect(cache.managedBy, 'pacman (flutter 3.41.9-1)');
++      expect(Cache.managedSdkOwner(fileSystem, '/flutter'), 'pacman (flutter 3.41.9-1)');
++      expect(
++        () => cache.checkNotManaged('do it'),
++        throwsToolExit(message: 'Cannot do it: this Flutter SDK is managed by pacman'),
++      );
++    });
++
++    testWithoutContext('an empty marker still marks the SDK as managed', () {
++      cache = createManagedCache(marker: '');
++      expect(cache.managedBy, 'a package manager');
++    });
++
++    testWithoutContext('lock writes no lockfile and checkLockAcquired passes', () async {
++      final String? oldRoot = Cache.flutterRoot;
++      Cache.flutterRoot = '/flutter';
++      try {
++        cache = createManagedCache();
++        await cache.lock();
++        expect(fileSystem.file('/flutter/bin/cache/lockfile').existsSync(), isFalse);
++        expect(cache.checkLockAcquired, returnsNormally);
++        cache.releaseLock();
++      } finally {
++        Cache.flutterRoot = oldRoot;
++      }
++    });
++
++    testWithoutContext('updateAll never updates, and names what is missing', () async {
++      final upToDate = FakeSecondaryCachedArtifact()
++        ..upToDate = true
++        ..stampName = 'material_fonts';
++      final stale = FakeSecondaryCachedArtifact()
++        ..upToDate = false
++        ..stampName = 'linux-sdk';
++      cache = createManagedCache(artifacts: <ArtifactSet>[upToDate, stale]);
++
++      await expectLater(
++        cache.updateAll(<DevelopmentArtifact>{DevelopmentArtifact.universal}),
++        throwsToolExit(message: 'managed by pacman (flutter 3.41.9-1) and does not download'),
++      );
++      await expectLater(
++        cache.updateAll(<DevelopmentArtifact>{DevelopmentArtifact.universal}),
++        throwsToolExit(message: 'out of date in /flutter/bin/cache: linux-sdk.'),
++      );
++      expect(upToDate.didUpdate, isFalse);
++      expect(stale.didUpdate, isFalse);
++    });
++
++    testWithoutContext('updateAll succeeds when every required artifact is present', () async {
++      final upToDate = FakeSecondaryCachedArtifact()..upToDate = true;
++      cache = createManagedCache(artifacts: <ArtifactSet>[upToDate]);
++
++      await cache.updateAll(<DevelopmentArtifact>{DevelopmentArtifact.universal});
++      expect(upToDate.didUpdate, isFalse);
++    });
++
++    testWithoutContext('updateAll ignores missing artifacts that are not required', () async {
++      final stale = FakeSecondaryCachedArtifact()..upToDate = false;
++      cache = createManagedCache(artifacts: <ArtifactSet>[stale]);
++
++      await cache.updateAll(<DevelopmentArtifact>{DevelopmentArtifact.web});
++      expect(stale.didUpdate, isFalse);
++    });
++
++    testWithoutContext('clearStampFiles refuses', () {
++      cache = createManagedCache();
++      fileSystem.file('/flutter/bin/cache/flutter_tools.stamp').createSync();
++      expect(cache.clearStampFiles, throwsToolExit(message: 'managed by pacman'));
++      expect(fileSystem.file('/flutter/bin/cache/flutter_tools.stamp').existsSync(), isTrue);
++    });
++  });
++
+   group('Cache.checkLockAcquired', () {
+     setUp(() {
+       Cache.enableLocking();
+@@ -1354,6 +1466,9 @@ class FakeSecondaryCachedArtifact extends Fake implements CachedArtifact {
+   bool didUpdate = false;
+   Exception? updateException;
+ 
++  @override
++  String stampName = 'fake_artifact';
++
+   @override
+   Future<bool> isUpToDate(FileSystem fileSystem) async => upToDate;
+ 
+diff --git a/packages/flutter_tools/test/general.shard/version_test.dart b/packages/flutter_tools/test/general.shard/version_test.dart
+index 1d8360c1..da41fcb7 100644
+--- a/packages/flutter_tools/test/general.shard/version_test.dart
++++ b/packages/flutter_tools/test/general.shard/version_test.dart
+@@ -1000,6 +1000,126 @@ void main() {
+     overrides: <Type, Generator>{ProcessManager: () => processManager, Cache: () => cache},
+   );
+ 
++  group('managed SDK', () {
++    late MemoryFileSystem fs;
++    late Directory flutterRoot;
++    late Directory cacheDir;
++    const managedVersionJson = <String, Object>{
++      'channel': 'stable',
++      'frameworkVersion': '3.41.9',
++      'repositoryUrl': 'https://github.com/flutter/flutter.git',
++      'frameworkRevision': '00b0c91f06209d9e4a41f71b7a512d6eb3b9c694',
++      'frameworkCommitDate': '2014-12-01 00:00:00 +0000',
++      'engineRevision': '42d3d75a56efe1a2e9902f52dc8006099c45d937',
++      'engineBuildDate': '2014-12-29 00:00:00.000Z',
++      'dartSdkVersion': '3.11.5',
++      'devToolsVersion': '2.54.2',
++      'flutterVersion': '3.41.9',
++    };
++
++    setUp(() {
++      fs = MemoryFileSystem.test();
++      flutterRoot = fs.directory('/usr/lib/flutter');
++      cacheDir = flutterRoot.childDirectory('bin').childDirectory('cache')
++        ..createSync(recursive: true);
++      cacheDir.childFile(Cache.managedByFileName).writeAsStringSync('pacman (flutter 3.41.9-1)');
++    });
++
++    testUsingContext(
++      'reads flutter.version.json and never runs git',
++      () async {
++        cacheDir
++            .childFile('flutter.version.json')
++            .writeAsStringSync(jsonEncode(managedVersionJson));
++        // processManager is empty: any git command fails the test.
++        final flutterVersion = FlutterVersion(
++          clock: _testClock,
++          fs: fs,
++          flutterRoot: flutterRoot.path,
++          git: git,
++        );
++        expect(flutterVersion.frameworkVersion, '3.41.9');
++        expect(flutterVersion.channel, 'stable');
++        expect(flutterVersion.getBranchName(), 'stable');
++        expect(flutterVersion.frameworkAge, '31 days ago');
++        expect(flutterVersion.engineAge, '3 days ago');
++        expect(flutterVersion.toString(), contains('Flutter 3.41.9 • channel stable'));
++        expect(flutterVersion.fetchTagsAndGetVersion(clock: _testClock), same(flutterVersion));
++        await flutterVersion.checkFlutterVersionFreshness();
++        expect(processManager, hasNoRemainingExpectations);
++      },
++      overrides: <Type, Generator>{ProcessManager: () => processManager, Cache: () => cache},
++    );
++
++    testUsingContext(
++      'fetching tags neither deletes the version files nor runs git',
++      () async {
++        final File versionFile = cacheDir.childFile('flutter.version.json')
++          ..writeAsStringSync(jsonEncode(managedVersionJson));
++        final File legacyVersionFile = flutterRoot.childFile('version')
++          ..writeAsStringSync('3.41.9');
++        final flutterVersion = FlutterVersion(
++          clock: _testClock,
++          fs: fs,
++          flutterRoot: flutterRoot.path,
++          git: git,
++          fetchTags: true,
++        );
++        expect(flutterVersion.frameworkVersion, '3.41.9');
++        expect(versionFile, exists);
++        expect(legacyVersionFile, exists);
++      },
++      overrides: <Type, Generator>{ProcessManager: () => processManager, Cache: () => cache},
++    );
++
++    testUsingContext(
++      'does not write the legacy version file',
++      () async {
++        cacheDir
++            .childFile('flutter.version.json')
++            .writeAsStringSync(jsonEncode(managedVersionJson));
++        final flutterVersion = FlutterVersion(
++          clock: _testClock,
++          fs: fs,
++          flutterRoot: flutterRoot.path,
++          git: git,
++        );
++        flutterVersion.ensureVersionFile();
++        expect(flutterRoot.childFile('version'), isNot(exists));
++      },
++      overrides: <Type, Generator>{
++        ProcessManager: () => processManager,
++        Cache: () => cache,
++        // ignore: avoid_redundant_argument_values
++        FeatureFlags: () => TestFeatureFlags(isOmitLegacyVersionFileEnabled: false),
++      },
++    );
++
++    testUsingContext(
++      'a missing version file is an error, not a git fallback',
++      () async {
++        expect(
++          () => FlutterVersion(clock: _testClock, fs: fs, flutterRoot: flutterRoot.path, git: git),
++          throwsToolExit(message: 'managed by pacman (flutter 3.41.9-1), but'),
++        );
++      },
++      overrides: <Type, Generator>{ProcessManager: () => processManager, Cache: () => cache},
++    );
++
++    testUsingContext(
++      'an invalid version file is an error, and is kept',
++      () async {
++        final File versionFile = cacheDir.childFile('flutter.version.json')..writeAsStringSync('{');
++        expect(
++          () => FlutterVersion(clock: _testClock, fs: fs, flutterRoot: flutterRoot.path, git: git),
++          throwsToolExit(message: 'is missing or invalid'),
++        );
++        expect(versionFile, exists);
++      },
++      overrides: <Type, Generator>{ProcessManager: () => processManager, Cache: () => cache},
++    );
++  });
++
+   testUsingContext(
+     'version does not call git if a .version.json file exists',
+     () async {

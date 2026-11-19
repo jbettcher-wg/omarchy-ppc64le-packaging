@@ -1,0 +1,205 @@
+From b3001c201411b4e2b8ccfc23c39afd833da2cac3 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:02:18 -0600
+Subject: [PATCH 3/9] [third_party/pkg] Add Architecture.ppc64 and the
+ linux_ppc64 target
+
+Class: upstreamable fix (to dart-lang/native). This is the lib/ part of
+patches/dart-lang-native/0001-code_assets-hooks_runner-Add-Architecture.ppc64.patch,
+applied with -p3 to the vendored code_assets 1.0.0 and hooks_runner 1.0.1.
+The tests, the JSON schema and the generated syntax it also changes live
+in that patch; they ran in a dart-lang/native checkout at
+hooks_runner-v1.0.1 (code_assets: 479 tests, hooks_runner test/model: 10).
+
+* code_assets: Architecture.ppc64 ('ppc64'), in Architecture.values and
+  ArchitectureSyntax. Architecture.fromAbi and Architecture.current fall
+  back to architectureFromAbiName(abi.toString()) for an ABI the constant
+  table cannot name.
+* hooks_runner: Target.linuxPpc64 is looked up by name in Abi.values and
+  is null on SDKs without that ABI; Target.values includes it when
+  present; Target.os falls back to Target.osFromAbiName.
+
+Abi.linuxPpc64 exists only in the ppc64 port of the Dart SDK. Nothing
+here names it as a constant, so both packages still compile on, and are
+unchanged on, the stock SDK that runs the flutter_tools tests. The
+contract with the SDK port is that Abi.linuxPpc64.toString() is
+'linux_ppc64' (_Architecture.ppc64, as dart:ffi names architectures).
+---
+ .../lib/src/code_assets/architecture.dart     | 36 ++++++++++++++-
+ .../lib/src/code_assets/syntax.g.dart         |  3 ++
+ .../hooks_runner/lib/src/model/target.dart    | 45 +++++++++++++++++--
+ 3 files changed, 79 insertions(+), 5 deletions(-)
+
+diff --git a/third_party/pkg/code_assets/lib/src/code_assets/architecture.dart b/third_party/pkg/code_assets/lib/src/code_assets/architecture.dart
+index 6fa35f01..cec107fd 100644
+--- a/third_party/pkg/code_assets/lib/src/code_assets/architecture.dart
++++ b/third_party/pkg/code_assets/lib/src/code_assets/architecture.dart
+@@ -14,7 +14,13 @@ final class Architecture {
+   const Architecture._(this.name);
+ 
+   /// The [Architecture] corresponding to the given [abi].
+-  factory Architecture.fromAbi(Abi abi) => _abiToArch[abi]!;
++  ///
++  /// An [Abi] that has no entry in [_abiToArch] is resolved by its name; see
++  /// [architectureFromAbiName].
++  factory Architecture.fromAbi(Abi abi) =>
++      _abiToArch[abi] ??
++      architectureFromAbiName(abi.toString()) ??
++      (throw ArgumentError.value(abi, 'abi', 'Unknown architecture'));
+ 
+   /// The [arm](https://en.wikipedia.org/wiki/ARM_architecture_family)
+   /// architecture.
+@@ -26,6 +32,10 @@ final class Architecture {
+   /// The [IA-32](https://en.wikipedia.org/wiki/IA-32) architecture.
+   static const Architecture ia32 = Architecture._('ia32');
+ 
++  /// The 64-bit little-endian [Power ISA](https://en.wikipedia.org/wiki/Ppc64)
++  /// architecture, with the ELFv2 ABI.
++  static const Architecture ppc64 = Architecture._('ppc64');
++
+   /// The [RISC-V](https://en.wikipedia.org/wiki/RISC-V) 32 bit architecture.
+   static const Architecture riscv32 = Architecture._('riscv32');
+ 
+@@ -40,6 +50,7 @@ final class Architecture {
+     arm,
+     arm64,
+     ia32,
++    ppc64,
+     riscv32,
+     riscv64,
+     x64,
+@@ -85,7 +96,28 @@ final class Architecture {
+       ArchitectureSyntaxExtension.fromSyntax(ArchitectureSyntax.fromJson(name));
+ 
+   /// The current [Architecture].
+-  static final Architecture current = _abiToArch[Abi.current()]!;
++  static final Architecture current = Architecture.fromAbi(Abi.current());
++}
++
++/// The [Architecture] named by the architecture part of an [Abi] name, or
++/// `null` if there is none.
++///
++/// [Abi.toString] returns `'<os>_<architecture>'`, for example
++/// `'linux_ppc64'`. A Dart SDK can have an [Abi] that this package cannot name
++/// as a constant: `Abi.linuxPpc64` exists only in the ppc64 port of the SDK.
++/// Matching on the name keeps this package compiling against every SDK.
++Architecture? architectureFromAbiName(String abiName) {
++  final separator = abiName.indexOf('_');
++  if (separator == -1) {
++    return null;
++  }
++  final name = abiName.substring(separator + 1);
++  for (final architecture in Architecture.values) {
++    if (architecture.name == name) {
++      return architecture;
++    }
++  }
++  return null;
+ }
+ 
+ /// Extension methods for [Architecture] to convert to and from the syntax.
+diff --git a/third_party/pkg/code_assets/lib/src/code_assets/syntax.g.dart b/third_party/pkg/code_assets/lib/src/code_assets/syntax.g.dart
+index 0feadbd2..8ea32c8e 100644
+--- a/third_party/pkg/code_assets/lib/src/code_assets/syntax.g.dart
++++ b/third_party/pkg/code_assets/lib/src/code_assets/syntax.g.dart
+@@ -47,6 +47,8 @@ class ArchitectureSyntax {
+ 
+   static const ia32 = ArchitectureSyntax._('ia32');
+ 
++  static const ppc64 = ArchitectureSyntax._('ppc64');
++
+   static const riscv32 = ArchitectureSyntax._('riscv32');
+ 
+   static const riscv64 = ArchitectureSyntax._('riscv64');
+@@ -57,6 +59,7 @@ class ArchitectureSyntax {
+     arm,
+     arm64,
+     ia32,
++    ppc64,
+     riscv32,
+     riscv64,
+     x64,
+diff --git a/third_party/pkg/hooks_runner/lib/src/model/target.dart b/third_party/pkg/hooks_runner/lib/src/model/target.dart
+index 6c9bb76e..01e8e998 100644
+--- a/third_party/pkg/hooks_runner/lib/src/model/target.dart
++++ b/third_party/pkg/hooks_runner/lib/src/model/target.dart
+@@ -6,6 +6,7 @@ import 'dart:ffi' show Abi;
+ import 'dart:io';
+ 
+ import 'package:code_assets/code_assets.dart';
++import 'package:meta/meta.dart';
+ 
+ final class Target implements Comparable<Target> {
+   final Abi abi;
+@@ -71,7 +72,27 @@ final class Target implements Comparable<Target> {
+   static const windowsIA32 = Target._(Abi.windowsIA32);
+   static const windowsX64 = Target._(Abi.windowsX64);
+ 
+-  static const Set<Target> values = {
++  /// Linux on 64-bit little-endian Power with the ELFv2 ABI.
++  ///
++  /// `null` on a Dart SDK that has no `linux_ppc64` [Abi]. Only the ppc64
++  /// port of the SDK has `Abi.linuxPpc64`, so this target is looked up by
++  /// name instead of being written as a constant. That keeps this package
++  /// compiling against every SDK.
++  static final Target? linuxPpc64 = fromAbiName('linux_ppc64');
++
++  /// The [Target] for the [Abi] whose [Abi.toString] is [abiName], or `null`
++  /// if the running Dart SDK has no such [Abi].
++  @visibleForTesting
++  static Target? fromAbiName(String abiName) {
++    for (final abi in Abi.values) {
++      if (abi.toString() == abiName) {
++        return Target._(abi);
++      }
++    }
++    return null;
++  }
++
++  static final Set<Target> values = {
+     androidArm,
+     androidArm64,
+     androidIA32,
+@@ -93,6 +114,7 @@ final class Target implements Comparable<Target> {
+     windowsArm64,
+     windowsIA32,
+     windowsX64,
++    ?linuxPpc64,
+   };
+ 
+   /// Mapping from strings as used in [Target.toString] to [Target]s.
+@@ -113,7 +135,9 @@ final class Target implements Comparable<Target> {
+ 
+   Architecture get architecture => Architecture.fromAbi(abi);
+ 
+-  OS get os => {
++  OS get os => _knownOS ?? osFromAbiName(abi.toString());
++
++  OS? get _knownOS => {
+     Abi.androidArm: OS.android,
+     Abi.androidArm64: OS.android,
+     Abi.androidIA32: OS.android,
+@@ -135,7 +159,22 @@ final class Target implements Comparable<Target> {
+     Abi.windowsArm64: OS.windows,
+     Abi.windowsIA32: OS.windows,
+     Abi.windowsX64: OS.windows,
+-  }[abi]!;
++  }[abi];
++
++  /// The [OS] named by the OS part of an [Abi] name, such as `linux` in
++  /// `linux_ppc64`.
++  ///
++  /// [Abi.toString] returns `'<os>_<architecture>'`, and the OS part is an
++  /// [OS.name]. This resolves an [Abi] that [os] cannot name as a constant;
++  /// see [linuxPpc64].
++  @visibleForTesting
++  static OS osFromAbiName(String abiName) {
++    final osName = abiName.split('_').first;
++    return OS.values.firstWhere(
++      (os) => os.name == osName,
++      orElse: () => throw ArgumentError.value(abiName, 'abiName', 'Unknown OS'),
++    );
++  }
+ 
+   @override
+   String toString() => dartVMToString();

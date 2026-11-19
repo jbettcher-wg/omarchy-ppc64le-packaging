@@ -1,0 +1,1061 @@
+From c92da3f9bdd8b94f89f894bf872e82ed7c3d0ec1 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:10:30 -0600
+Subject: [PATCH 4/9] [flutter_tools] Add the linux_ppc64 host and target
+ platform
+
+Class: upstreamable in form (it follows flutter#178711, the linux_riscv64
+tool enablement merged for 3.44, shape for shape); local until the Dart
+VM has an upstream ppc64 backend, which upstream policy rules out.
+
+Names, as fixed for the port: HostPlatform.linux_ppc64 and
+TargetPlatform.linux_ppc64; `linux-ppc64` for --target-platform, cache
+and engine artifact directories (`linux-ppc64`, `linux-ppc64-profile`,
+`linux-ppc64-release`); `ppc64` for the CMake build directory
+(build/linux/ppc64/<mode>/bundle), FLUTTER_HOST_ARCH and the
+native-assets Architecture.
+
+* os.dart: the enum value, platformName `ppc64`, `linux-ppc64`, and the
+  `linux_ppc64` ABI name and `ppc64` FLUTTER_HOST_ARCH value.
+* build_info.dart: the enum value, osName `linux`, simpleName `ppc64`,
+  and the `linux-ppc64` name in both directions.
+* artifacts.dart: desktop artifact paths, the host target for a
+  linux_ppc64 host, the `linux-ppc64` prebuilt directory of a local
+  engine, and `clang_ppc64` among the local-engine gen_snapshot dirs.
+* build linux: `linux-ppc64` is allowed and is the default on a ppc64
+  host. The old check rejected every non-arm64 target on a non-x64
+  host, so it is now the cross-build check of #178711; building for
+  ppc64 on any other host is refused, since gen_snapshot for ppc64 is
+  only built as a ppc64 binary.
+* assemble: debug/profile/release Linux bundle targets for linux_ppc64.
+* Linux device, AOT platform list, kernel snapshot, shader compiler,
+  application package, mdns, resident runner, artifact selection and
+  Android switch arms, as #178711 does for riscv64.
+* native assets: linux_ppc64 builds hooks for (OS.linux,
+  Architecture.ppc64), and ppc64 is a Linux architecture. This needs
+  the vendored code_assets of the previous commit.
+* bin/internal/update_dart_sdk.sh: `uname -m` ppc64le selects the
+  `linux-ppc64` Dart SDK name instead of falling back to arm64.
+
+Not taken from #178711: the riscv64 feature flag (it gates
+cross-building, which ppc64 does not support at all) and the extra
+Fuchsia debug-symbol download.
+
+Tests mirror #178711 and cover each new name and mapping: build_linux
+(debug, profile, release with --analyze-size under build/linux/ppc64,
+and the three cross-build refusals), os, build_info, artifacts, cache
+(font-subset, FlutterSdk and Linux engine dirs), linux_device, Linux
+bundle target names, plugin registrant, and native-assets targets
+(including the `ppc64` target_architecture in the hook input).
+---
+ bin/internal/update_dart_sdk.sh               |   3 +
+ .../lib/src/android/android_device.dart       |   2 +
+ packages/flutter_tools/lib/src/artifacts.dart |  16 +-
+ .../flutter_tools/lib/src/base/build.dart     |   1 +
+ packages/flutter_tools/lib/src/base/os.dart   |   5 +
+ .../flutter_tools/lib/src/build_info.dart     |   9 +-
+ .../lib/src/build_system/targets/common.dart  |   5 +-
+ .../build_system/tools/shader_compiler.dart   |   1 +
+ .../lib/src/commands/assemble.dart            |   3 +
+ .../lib/src/commands/build_bundle.dart        |   2 +
+ .../lib/src/commands/build_linux.dart         |  21 +-
+ .../lib/src/flutter_application_package.dart  |   1 +
+ .../isolated/native_assets/native_assets.dart |   2 +
+ .../src/isolated/native_assets/targets.dart   |   3 +
+ .../lib/src/linux/linux_device.dart           |   2 +
+ .../flutter_tools/lib/src/mdns_discovery.dart |   1 +
+ .../lib/src/resident_runner.dart              |   1 +
+ .../lib/src/runner/flutter_command.dart       |   1 +
+ .../hermetic/build_linux_test.dart            | 204 ++++++++++++++++++
+ .../test/general.shard/artifacts_test.dart    |  36 ++++
+ .../test/general.shard/base/os_test.dart      |  57 +++++
+ .../test/general.shard/build_info_test.dart   |  22 ++
+ .../targets/dart_plugin_registrant_test.dart  |   1 +
+ .../build_system/targets/linux_test.dart      |  12 ++
+ .../test/general.shard/cache_test.dart        |  33 +++
+ .../isolated/linux/native_assets_test.dart    |  36 ++++
+ .../linux/linux_device_test.dart              |  10 +
+ 27 files changed, 478 insertions(+), 12 deletions(-)
+
+diff --git a/bin/internal/update_dart_sdk.sh b/bin/internal/update_dart_sdk.sh
+index 9ab61510..addbf9c7 100755
+--- a/bin/internal/update_dart_sdk.sh
++++ b/bin/internal/update_dart_sdk.sh
+@@ -89,6 +89,9 @@ if [ ! -f "$ENGINE_STAMP" ] || [ "$ENGINE_VERSION" != `cat "$ENGINE_STAMP"` ]; t
+       x86_64)
+         ARCH="x64"
+         ;;
++      ppc64le)
++        ARCH="ppc64"
++        ;;
+       *)
+         ARCH="arm64"
+         ;;
+diff --git a/packages/flutter_tools/lib/src/android/android_device.dart b/packages/flutter_tools/lib/src/android/android_device.dart
+index d95c9ee2..7ecf4f6b 100644
+--- a/packages/flutter_tools/lib/src/android/android_device.dart
++++ b/packages/flutter_tools/lib/src/android/android_device.dart
+@@ -228,6 +228,7 @@ class AndroidDevice extends Device {
+       case TargetPlatform.fuchsia_x64:
+       case TargetPlatform.ios:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.tester:
+       case TargetPlatform.web_javascript:
+@@ -551,6 +552,7 @@ class AndroidDevice extends Device {
+       case TargetPlatform.fuchsia_x64:
+       case TargetPlatform.ios:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.tester:
+       case TargetPlatform.web_javascript:
+diff --git a/packages/flutter_tools/lib/src/artifacts.dart b/packages/flutter_tools/lib/src/artifacts.dart
+index 545b594e..d4e36971 100644
+--- a/packages/flutter_tools/lib/src/artifacts.dart
++++ b/packages/flutter_tools/lib/src/artifacts.dart
+@@ -155,6 +155,7 @@ TargetPlatform? _mapTargetPlatform(TargetPlatform? targetPlatform) {
+     case TargetPlatform.darwin:
+     case TargetPlatform.linux_x64:
+     case TargetPlatform.linux_arm64:
++    case TargetPlatform.linux_ppc64:
+     case TargetPlatform.windows_x64:
+     case TargetPlatform.windows_arm64:
+     case TargetPlatform.fuchsia_arm64:
+@@ -519,6 +520,7 @@ class CachedArtifacts implements Artifacts {
+       case TargetPlatform.darwin:
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.windows_x64:
+       case TargetPlatform.windows_arm64:
+         return _getDesktopArtifactPath(artifact, platform!, mode);
+@@ -878,6 +880,7 @@ class CachedArtifacts implements Artifacts {
+     switch (platform) {
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.darwin:
+       case TargetPlatform.windows_x64:
+       case TargetPlatform.windows_arm64:
+@@ -919,9 +922,11 @@ TargetPlatform _currentHostPlatform(Platform platform, OperatingSystemUtils oper
+     return TargetPlatform.darwin;
+   }
+   if (platform.isLinux) {
+-    return operatingSystemUtils.hostPlatform == HostPlatform.linux_x64
+-        ? TargetPlatform.linux_x64
+-        : TargetPlatform.linux_arm64;
++    return switch (operatingSystemUtils.hostPlatform) {
++      HostPlatform.linux_x64 => TargetPlatform.linux_x64,
++      HostPlatform.linux_ppc64 => TargetPlatform.linux_ppc64,
++      _ => TargetPlatform.linux_arm64,
++    };
+   }
+   if (platform.isWindows) {
+     return operatingSystemUtils.hostPlatform == HostPlatform.windows_arm64
+@@ -1340,6 +1345,8 @@ class CachedLocalEngineArtifacts implements Artifacts {
+         return 'macos-x64';
+       case TargetPlatform.linux_arm64:
+         return 'linux-arm64';
++      case TargetPlatform.linux_ppc64:
++        return 'linux-ppc64';
+       case TargetPlatform.linux_x64:
+         return 'linux-x64';
+       case TargetPlatform.windows_x64:
+@@ -1373,6 +1380,7 @@ class CachedLocalEngineArtifacts implements Artifacts {
+       'clang_x86',
+       'clang_i386',
+       'clang_arm64',
++      'clang_ppc64',
+     ];
+     final String genSnapshotName = _artifactToFileName(artifact, _platform)!;
+     for (final clangDir in clangDirs) {
+@@ -1570,6 +1578,8 @@ class CachedLocalWebSdkArtifacts implements Artifacts {
+         return 'macos-x64';
+       case TargetPlatform.linux_arm64:
+         return 'linux-arm64';
++      case TargetPlatform.linux_ppc64:
++        return 'linux-ppc64';
+       case TargetPlatform.linux_x64:
+         return 'linux-x64';
+       case TargetPlatform.windows_x64:
+diff --git a/packages/flutter_tools/lib/src/base/build.dart b/packages/flutter_tools/lib/src/base/build.dart
+index bb967d71..f2900117 100644
+--- a/packages/flutter_tools/lib/src/base/build.dart
++++ b/packages/flutter_tools/lib/src/base/build.dart
+@@ -354,6 +354,7 @@ class AOTSnapshotter {
+       TargetPlatform.darwin,
+       TargetPlatform.linux_x64,
+       TargetPlatform.linux_arm64,
++      TargetPlatform.linux_ppc64,
+       TargetPlatform.windows_x64,
+       TargetPlatform.windows_arm64,
+     ].contains(platform);
+diff --git a/packages/flutter_tools/lib/src/base/os.dart b/packages/flutter_tools/lib/src/base/os.dart
+index 74704174..f5f6c579 100644
+--- a/packages/flutter_tools/lib/src/base/os.dart
++++ b/packages/flutter_tools/lib/src/base/os.dart
+@@ -639,6 +639,7 @@ enum HostPlatform {
+   darwin_arm64,
+   linux_x64,
+   linux_arm64,
++  linux_ppc64,
+   windows_x64,
+   windows_arm64;
+ 
+@@ -647,6 +648,7 @@ enum HostPlatform {
+     HostPlatform.darwin_arm64 => 'arm64',
+     HostPlatform.linux_x64 => 'x64',
+     HostPlatform.linux_arm64 => 'arm64',
++    HostPlatform.linux_ppc64 => 'ppc64',
+     HostPlatform.windows_x64 => 'x64',
+     HostPlatform.windows_arm64 => 'arm64',
+   };
+@@ -661,6 +663,7 @@ enum HostPlatform {
+       ('macos', 'arm64') => darwin_arm64,
+       ('linux', 'x64') => linux_x64,
+       ('linux', 'arm64') => linux_arm64,
++      ('linux', 'ppc64') => linux_ppc64,
+       ('windows', 'x64') => windows_x64,
+       ('windows', 'arm64') => windows_arm64,
+       _ => null,
+@@ -679,6 +682,7 @@ enum HostPlatform {
+       'macos_arm64' => darwin_arm64,
+       'linux_x64' => linux_x64,
+       'linux_arm64' => linux_arm64,
++      'linux_ppc64' => linux_ppc64,
+       'windows_x64' => windows_x64,
+       'windows_arm64' => windows_arm64,
+       _ => null,
+@@ -692,6 +696,7 @@ String getNameForHostPlatform(HostPlatform platform) {
+     HostPlatform.darwin_arm64 => 'darwin-arm64',
+     HostPlatform.linux_x64 => 'linux-x64',
+     HostPlatform.linux_arm64 => 'linux-arm64',
++    HostPlatform.linux_ppc64 => 'linux-ppc64',
+     HostPlatform.windows_x64 => 'windows-x64',
+     HostPlatform.windows_arm64 => 'windows-arm64',
+   };
+diff --git a/packages/flutter_tools/lib/src/build_info.dart b/packages/flutter_tools/lib/src/build_info.dart
+index 6867be4c..07661581 100644
+--- a/packages/flutter_tools/lib/src/build_info.dart
++++ b/packages/flutter_tools/lib/src/build_info.dart
+@@ -582,6 +582,7 @@ enum TargetPlatform {
+   darwin,
+   linux_x64,
+   linux_arm64,
++  linux_ppc64,
+   windows_x64,
+   windows_arm64,
+   fuchsia_arm64,
+@@ -610,6 +611,7 @@ enum TargetPlatform {
+       case TargetPlatform.darwin:
+       case TargetPlatform.ios:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.tester:
+       case TargetPlatform.web_javascript:
+@@ -624,6 +626,7 @@ enum TargetPlatform {
+     switch (this) {
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+         return 'linux';
+       case TargetPlatform.darwin:
+         return 'macos';
+@@ -658,6 +661,8 @@ enum TargetPlatform {
+       case TargetPlatform.linux_arm64:
+       case TargetPlatform.windows_arm64:
+         return 'arm64';
++      case TargetPlatform.linux_ppc64:
++        return 'ppc64';
+       case TargetPlatform.android:
+       case TargetPlatform.android_arm:
+       case TargetPlatform.android_arm64:
+@@ -792,6 +797,7 @@ String getNameForTargetPlatform(TargetPlatform platform, {DarwinArch? darwinArch
+     TargetPlatform.android_x64 => 'android-x64',
+     TargetPlatform.linux_x64 => 'linux-x64',
+     TargetPlatform.linux_arm64 => 'linux-arm64',
++    TargetPlatform.linux_ppc64 => 'linux-ppc64',
+     TargetPlatform.windows_x64 => 'windows-x64',
+     TargetPlatform.windows_arm64 => 'windows-arm64',
+     TargetPlatform.fuchsia_arm64 => 'fuchsia-arm64',
+@@ -817,6 +823,7 @@ TargetPlatform getTargetPlatformForName(String platform) {
+     'darwin' || 'darwin-x64' || 'darwin-arm64' => TargetPlatform.darwin,
+     'linux-x64' => TargetPlatform.linux_x64,
+     'linux-arm64' => TargetPlatform.linux_arm64,
++    'linux-ppc64' => TargetPlatform.linux_ppc64,
+     'windows-x64' => TargetPlatform.windows_x64,
+     'windows-arm64' => TargetPlatform.windows_arm64,
+     'web-javascript' => TargetPlatform.web_javascript,
+@@ -853,7 +860,7 @@ HostPlatform getCurrentHostPlatform() {
+     };
+   }
+   if (globals.platform.isLinux) {
+-    // support x64 and arm64 architecture.
++    // support x64, arm64 and ppc64 architecture.
+     return globals.os.hostPlatform;
+   }
+   if (globals.platform.isWindows) {
+diff --git a/packages/flutter_tools/lib/src/build_system/targets/common.dart b/packages/flutter_tools/lib/src/build_system/targets/common.dart
+index 63eb1c73..292e095b 100644
+--- a/packages/flutter_tools/lib/src/build_system/targets/common.dart
++++ b/packages/flutter_tools/lib/src/build_system/targets/common.dart
+@@ -228,6 +228,7 @@ class KernelSnapshot extends Target {
+       case TargetPlatform.fuchsia_x64:
+       case TargetPlatform.ios:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.tester:
+       case TargetPlatform.web_javascript:
+         forceLinkPlatform = false;
+@@ -243,7 +244,9 @@ class KernelSnapshot extends Target {
+       TargetPlatform.android_x64 => 'android',
+       TargetPlatform.darwin => 'macos',
+       TargetPlatform.ios => 'ios',
+-      TargetPlatform.linux_arm64 || TargetPlatform.linux_x64 => 'linux',
++      TargetPlatform.linux_arm64 ||
++      TargetPlatform.linux_ppc64 ||
++      TargetPlatform.linux_x64 => 'linux',
+       TargetPlatform.windows_arm64 || TargetPlatform.windows_x64 => 'windows',
+       TargetPlatform.tester || TargetPlatform.web_javascript => null,
+       TargetPlatform.unsupported => TargetPlatform.throwUnsupportedTarget(),
+diff --git a/packages/flutter_tools/lib/src/build_system/tools/shader_compiler.dart b/packages/flutter_tools/lib/src/build_system/tools/shader_compiler.dart
+index db28675d..dae49850 100644
+--- a/packages/flutter_tools/lib/src/build_system/tools/shader_compiler.dart
++++ b/packages/flutter_tools/lib/src/build_system/tools/shader_compiler.dart
+@@ -112,6 +112,7 @@ class ShaderCompiler {
+       case TargetPlatform.android:
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.windows_x64:
+       case TargetPlatform.windows_arm64:
+         return <String>[
+diff --git a/packages/flutter_tools/lib/src/commands/assemble.dart b/packages/flutter_tools/lib/src/commands/assemble.dart
+index 564aa971..b1f3148e 100644
+--- a/packages/flutter_tools/lib/src/commands/assemble.dart
++++ b/packages/flutter_tools/lib/src/commands/assemble.dart
+@@ -46,10 +46,13 @@ var _kDefaultTargets = <Target>[
+   // Linux targets
+   const DebugBundleLinuxAssets(TargetPlatform.linux_x64),
+   const DebugBundleLinuxAssets(TargetPlatform.linux_arm64),
++  const DebugBundleLinuxAssets(TargetPlatform.linux_ppc64),
+   const ProfileBundleLinuxAssets(TargetPlatform.linux_x64),
+   const ProfileBundleLinuxAssets(TargetPlatform.linux_arm64),
++  const ProfileBundleLinuxAssets(TargetPlatform.linux_ppc64),
+   const ReleaseBundleLinuxAssets(TargetPlatform.linux_x64),
+   const ReleaseBundleLinuxAssets(TargetPlatform.linux_arm64),
++  const ReleaseBundleLinuxAssets(TargetPlatform.linux_ppc64),
+   const ReleaseAndroidApplication(),
+   // This is a one-off rule for bundle and aot compat.
+   const CopyFlutterBundle(),
+diff --git a/packages/flutter_tools/lib/src/commands/build_bundle.dart b/packages/flutter_tools/lib/src/commands/build_bundle.dart
+index 927edb22..4c2dbaba 100644
+--- a/packages/flutter_tools/lib/src/commands/build_bundle.dart
++++ b/packages/flutter_tools/lib/src/commands/build_bundle.dart
+@@ -46,6 +46,7 @@ class BuildBundleCommand extends BuildSubCommand {
+           'darwin',
+           'linux-x64',
+           'linux-arm64',
++          'linux-ppc64',
+           'windows-x64',
+           'windows-arm64',
+         ],
+@@ -122,6 +123,7 @@ class BuildBundleCommand extends BuildSubCommand {
+         }
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+         if (!featureFlags.isLinuxEnabled) {
+           throwToolExit('Linux is not a supported target platform.');
+         }
+diff --git a/packages/flutter_tools/lib/src/commands/build_linux.dart b/packages/flutter_tools/lib/src/commands/build_linux.dart
+index 832be184..1607eac7 100644
+--- a/packages/flutter_tools/lib/src/commands/build_linux.dart
++++ b/packages/flutter_tools/lib/src/commands/build_linux.dart
+@@ -23,13 +23,15 @@ class BuildLinuxCommand extends BuildSubCommand {
+   }) : _operatingSystemUtils = operatingSystemUtils,
+        super(verboseHelp: verboseHelp) {
+     addCommonDesktopBuildOptions(verboseHelp: verboseHelp);
+-    final defaultTargetPlatform = (_operatingSystemUtils.hostPlatform == HostPlatform.linux_arm64)
+-        ? 'linux-arm64'
+-        : 'linux-x64';
++    final String defaultTargetPlatform = switch (_operatingSystemUtils.hostPlatform) {
++      HostPlatform.linux_arm64 => 'linux-arm64',
++      HostPlatform.linux_ppc64 => 'linux-ppc64',
++      _ => 'linux-x64',
++    };
+     argParser.addOption(
+       'target-platform',
+       defaultsTo: defaultTargetPlatform,
+-      allowed: <String>['linux-arm64', 'linux-x64'],
++      allowed: <String>['linux-arm64', 'linux-x64', 'linux-ppc64'],
+       help: 'The target platform for which the app is compiled.',
+     );
+     argParser.addOption(
+@@ -79,11 +81,16 @@ class BuildLinuxCommand extends BuildSubCommand {
+     if (!globals.platform.isLinux) {
+       throwToolExit('"build linux" only supported on Linux hosts.');
+     }
+-    // Cross-building for x64 targets on arm64 hosts is not supported.
+-    if (_operatingSystemUtils.hostPlatform != HostPlatform.linux_x64 &&
+-        targetPlatform != TargetPlatform.linux_arm64) {
++    // Cross-building is only supported on x64 hosts.
++    if (_operatingSystemUtils.hostPlatform != HostPlatform.linux_x64 && needCrossBuild) {
+       throwToolExit('"cross-building" only supported on Linux x64 hosts.');
+     }
++    // There is no cross-compiling path to ppc64: gen_snapshot for ppc64 is
++    // built as a ppc64 binary only.
++    if (_operatingSystemUtils.hostPlatform != HostPlatform.linux_ppc64 &&
++        targetPlatform == TargetPlatform.linux_ppc64) {
++      throwToolExit('Building for Linux ppc64 is only supported on Linux ppc64 hosts.');
++    }
+     // TODO(fujino): https://github.com/flutter/flutter/issues/74929
+     if (_operatingSystemUtils.hostPlatform == HostPlatform.linux_x64 &&
+         targetPlatform == TargetPlatform.linux_arm64) {
+diff --git a/packages/flutter_tools/lib/src/flutter_application_package.dart b/packages/flutter_tools/lib/src/flutter_application_package.dart
+index 75eaeea4..02d8415a 100644
+--- a/packages/flutter_tools/lib/src/flutter_application_package.dart
++++ b/packages/flutter_tools/lib/src/flutter_application_package.dart
+@@ -91,6 +91,7 @@ class FlutterApplicationPackageFactory extends ApplicationPackageFactory {
+         return WebApplicationPackage(FlutterProject.current());
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+         return applicationBinary == null
+             ? LinuxApp.fromLinuxProject(FlutterProject.current().linux)
+             : LinuxApp.fromPrebuiltApp(applicationBinary);
+diff --git a/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart b/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart
+index 1ed907c0..491e082b 100644
+--- a/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart
++++ b/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart
+@@ -666,6 +666,7 @@ OS getNativeOSFromTargetPlatform(TargetPlatform platform) {
+       return OS.macOS;
+     case TargetPlatform.linux_x64:
+     case TargetPlatform.linux_arm64:
++    case TargetPlatform.linux_ppc64:
+       return OS.linux;
+     case TargetPlatform.windows_x64:
+     case TargetPlatform.windows_arm64:
+@@ -713,6 +714,7 @@ const _osTargets = <OS, Set<Architecture>>{
+     Architecture.arm,
+     Architecture.arm64,
+     Architecture.ia32,
++    Architecture.ppc64,
+     Architecture.riscv32,
+     Architecture.riscv64,
+     Architecture.x64,
+diff --git a/packages/flutter_tools/lib/src/isolated/native_assets/targets.dart b/packages/flutter_tools/lib/src/isolated/native_assets/targets.dart
+index cc0de9f2..8370fcd3 100644
+--- a/packages/flutter_tools/lib/src/isolated/native_assets/targets.dart
++++ b/packages/flutter_tools/lib/src/isolated/native_assets/targets.dart
+@@ -69,6 +69,8 @@ sealed class AssetBuildTarget {
+         return _linuxTarget(supportedAssetTypes, Architecture.x64);
+       case TargetPlatform.linux_arm64:
+         return _linuxTarget(supportedAssetTypes, Architecture.arm64);
++      case TargetPlatform.linux_ppc64:
++        return _linuxTarget(supportedAssetTypes, Architecture.ppc64);
+       case TargetPlatform.windows_arm64:
+         return _windowsTarget(supportedAssetTypes, Architecture.arm64);
+       case TargetPlatform.darwin:
+@@ -402,6 +404,7 @@ List<AndroidArch> _androidArchs(TargetPlatform targetPlatform, String? androidAr
+     case TargetPlatform.fuchsia_x64:
+     case TargetPlatform.ios:
+     case TargetPlatform.linux_arm64:
++    case TargetPlatform.linux_ppc64:
+     case TargetPlatform.linux_x64:
+     case TargetPlatform.tester:
+     case TargetPlatform.web_javascript:
+diff --git a/packages/flutter_tools/lib/src/linux/linux_device.dart b/packages/flutter_tools/lib/src/linux/linux_device.dart
+index 3f113c97..17760e15 100644
+--- a/packages/flutter_tools/lib/src/linux/linux_device.dart
++++ b/packages/flutter_tools/lib/src/linux/linux_device.dart
+@@ -49,6 +49,8 @@ class LinuxDevice extends DesktopDevice {
+   late final Future<TargetPlatform> targetPlatform = () async {
+     if (_operatingSystemUtils.hostPlatform == HostPlatform.linux_x64) {
+       return TargetPlatform.linux_x64;
++    } else if (_operatingSystemUtils.hostPlatform == HostPlatform.linux_ppc64) {
++      return TargetPlatform.linux_ppc64;
+     }
+     return TargetPlatform.linux_arm64;
+   }();
+diff --git a/packages/flutter_tools/lib/src/mdns_discovery.dart b/packages/flutter_tools/lib/src/mdns_discovery.dart
+index b21795dd..711e66c8 100644
+--- a/packages/flutter_tools/lib/src/mdns_discovery.dart
++++ b/packages/flutter_tools/lib/src/mdns_discovery.dart
+@@ -599,6 +599,7 @@ class MDnsVmServiceDiscovery {
+       case TargetPlatform.fuchsia_arm64:
+       case TargetPlatform.fuchsia_x64:
+       case TargetPlatform.linux_arm64:
++      case TargetPlatform.linux_ppc64:
+       case TargetPlatform.linux_x64:
+       case TargetPlatform.tester:
+       case TargetPlatform.web_javascript:
+diff --git a/packages/flutter_tools/lib/src/resident_runner.dart b/packages/flutter_tools/lib/src/resident_runner.dart
+index 8f22a8cb..b04ab55b 100644
+--- a/packages/flutter_tools/lib/src/resident_runner.dart
++++ b/packages/flutter_tools/lib/src/resident_runner.dart
+@@ -1612,6 +1612,7 @@ Future<String?> getMissingPackageHintForPlatform(TargetPlatform platform) async
+     case TargetPlatform.fuchsia_arm64:
+     case TargetPlatform.fuchsia_x64:
+     case TargetPlatform.linux_arm64:
++    case TargetPlatform.linux_ppc64:
+     case TargetPlatform.linux_x64:
+     case TargetPlatform.tester:
+     case TargetPlatform.web_javascript:
+diff --git a/packages/flutter_tools/lib/src/runner/flutter_command.dart b/packages/flutter_tools/lib/src/runner/flutter_command.dart
+index 452ab9d2..ddd33003 100644
+--- a/packages/flutter_tools/lib/src/runner/flutter_command.dart
++++ b/packages/flutter_tools/lib/src/runner/flutter_command.dart
+@@ -2143,6 +2143,7 @@ DevelopmentArtifact? artifactFromTargetPlatform(TargetPlatform targetPlatform) {
+       return null;
+     case TargetPlatform.linux_x64:
+     case TargetPlatform.linux_arm64:
++    case TargetPlatform.linux_ppc64:
+       if (featureFlags.isLinuxEnabled) {
+         return DevelopmentArtifact.linux;
+       }
+diff --git a/packages/flutter_tools/test/commands.shard/hermetic/build_linux_test.dart b/packages/flutter_tools/test/commands.shard/hermetic/build_linux_test.dart
+index 2448b46b..647ac899 100644
+--- a/packages/flutter_tools/test/commands.shard/hermetic/build_linux_test.dart
++++ b/packages/flutter_tools/test/commands.shard/hermetic/build_linux_test.dart
+@@ -578,6 +578,151 @@ ERROR: No file or variants found for asset: images/a_dot_burr.jpeg
+     },
+   );
+ 
++  testUsingContext(
++    'Linux on PPC64 build --debug passes debug mode to cmake and ninja',
++    () async {
++      final command = BuildCommand(
++        androidSdk: FakeAndroidSdk(),
++        buildSystem: TestBuildSystem.all(BuildResult(success: true)),
++        fileSystem: fileSystem,
++        logger: logger,
++
++        osUtils: CustomFakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++      );
++      setUpMockProjectFilesForBuild();
++      processManager.addCommands(<FakeCommand>[
++        cmakeCommand('debug', target: 'ppc64'),
++        ninjaCommand('debug', target: 'ppc64'),
++      ]);
++
++      await createTestCommandRunner(
++        command,
++      ).run(const <String>['build', 'linux', '--debug', '--no-pub']);
++    },
++    overrides: <Type, Generator>{
++      FileSystem: () => fileSystem,
++      ProcessManager: () => processManager,
++      Platform: () => linuxPlatform,
++      FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
++    },
++  );
++
++  testUsingContext(
++    'Linux on PPC64 build --profile passes profile mode to make',
++    () async {
++      final command = BuildCommand(
++        androidSdk: FakeAndroidSdk(),
++        buildSystem: TestBuildSystem.all(BuildResult(success: true)),
++        fileSystem: fileSystem,
++        logger: logger,
++
++        osUtils: CustomFakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++      );
++      setUpMockProjectFilesForBuild();
++      processManager.addCommands(<FakeCommand>[
++        cmakeCommand('profile', target: 'ppc64'),
++        ninjaCommand('profile', target: 'ppc64'),
++      ]);
++
++      await createTestCommandRunner(
++        command,
++      ).run(const <String>['build', 'linux', '--profile', '--no-pub']);
++    },
++    overrides: <Type, Generator>{
++      FileSystem: () => fileSystem,
++      ProcessManager: () => processManager,
++      Platform: () => linuxPlatform,
++      FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
++    },
++  );
++
++  testUsingContext(
++    'Not support Linux cross-build for ppc64 on x64',
++    () async {
++      final command = BuildCommand(
++        androidSdk: FakeAndroidSdk(),
++        buildSystem: TestBuildSystem.all(BuildResult(success: true)),
++        fileSystem: fileSystem,
++        logger: logger,
++
++        osUtils: CustomFakeOperatingSystemUtils(),
++      );
++
++      setUpMockProjectFilesForBuild();
++
++      expect(
++        createTestCommandRunner(
++          command,
++        ).run(const <String>['build', 'linux', '--no-pub', '--target-platform=linux-ppc64']),
++        throwsToolExit(message: 'only supported on Linux ppc64 hosts'),
++      );
++    },
++    overrides: <Type, Generator>{
++      FileSystem: () => fileSystem,
++      ProcessManager: () => processManager,
++      Platform: () => linuxPlatform,
++      FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
++    },
++  );
++
++  testUsingContext(
++    'Not support Linux cross-build for ppc64 on arm64',
++    () async {
++      final command = BuildCommand(
++        androidSdk: FakeAndroidSdk(),
++        buildSystem: TestBuildSystem.all(BuildResult(success: true)),
++        fileSystem: fileSystem,
++        logger: logger,
++
++        osUtils: CustomFakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_arm64),
++      );
++
++      setUpMockProjectFilesForBuild();
++
++      expect(
++        createTestCommandRunner(
++          command,
++        ).run(const <String>['build', 'linux', '--no-pub', '--target-platform=linux-ppc64']),
++        throwsToolExit(message: 'only supported on Linux x64 hosts'),
++      );
++    },
++    overrides: <Type, Generator>{
++      FileSystem: () => fileSystem,
++      ProcessManager: () => processManager,
++      Platform: () => linuxPlatform,
++      FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
++    },
++  );
++
++  testUsingContext(
++    'Not support Linux cross-build for x64 on ppc64',
++    () async {
++      final command = BuildCommand(
++        androidSdk: FakeAndroidSdk(),
++        buildSystem: TestBuildSystem.all(BuildResult(success: true)),
++        fileSystem: fileSystem,
++        logger: logger,
++
++        osUtils: CustomFakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++      );
++
++      setUpMockProjectFilesForBuild();
++
++      expect(
++        createTestCommandRunner(
++          command,
++        ).run(const <String>['build', 'linux', '--no-pub', '--target-platform=linux-x64']),
++        throwsToolExit(message: 'only supported on Linux x64 hosts'),
++      );
++    },
++    overrides: <Type, Generator>{
++      FileSystem: () => fileSystem,
++      ProcessManager: () => processManager,
++      Platform: () => linuxPlatform,
++      FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
++    },
++  );
++
+   testUsingContext(
+     'Not support Linux cross-build for x64 on arm64',
+     () async {
+@@ -880,6 +1025,65 @@ set(BINARY_NAME "fizz_bar")
+       Analytics: () => fakeAnalytics,
+     },
+   );
++
++  testUsingContext(
++    'Linux on PPC64 build --release passes, and check if the LinuxBuildDirectory for ppc64 can be referenced correctly by using analytics',
++    () async {
++      final command = BuildCommand(
++        androidSdk: FakeAndroidSdk(),
++        buildSystem: TestBuildSystem.all(BuildResult(success: true)),
++        fileSystem: fileSystem,
++        logger: logger,
++
++        osUtils: CustomFakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++      );
++      setUpMockProjectFilesForBuild();
++      processManager.addCommands(<FakeCommand>[
++        cmakeCommand('release', target: 'ppc64'),
++        ninjaCommand(
++          'release',
++          target: 'ppc64',
++          onRun: (_) {
++            fileSystem.file('build/flutter_size_01/snapshot.linux-ppc64.json')
++              ..createSync(recursive: true)
++              ..writeAsStringSync('''
++[
++  {
++    "l": "dart:_internal",
++    "c": "SubListIterable",
++    "n": "[Optimized] skip",
++    "s": 2400
++  }
++]''');
++            fileSystem.file('build/flutter_size_01/trace.linux-ppc64.json')
++              ..createSync(recursive: true)
++              ..writeAsStringSync('{}');
++          },
++        ),
++      ]);
++
++      fileSystem.file('build/linux/ppc64/release/bundle/libapp.so')
++        ..createSync(recursive: true)
++        ..writeAsBytesSync(List<int>.filled(10000, 0));
++
++      await createTestCommandRunner(
++        command,
++      ).run(const <String>['build', 'linux', '--no-pub', '--analyze-size']);
++
++      // check if libapp.so of "build/linux/ppc64/release" directory can be referenced.
++      expect(testLogger.statusText, contains('libapp.so (Dart AOT)'));
++      expect(fakeAnalytics.sentEvents, contains(Event.codeSizeAnalysis(platform: 'linux')));
++    },
++    overrides: <Type, Generator>{
++      FileSystem: () => fileSystem,
++      ProcessManager: () => processManager,
++      Platform: () => linuxPlatform,
++      FeatureFlags: () => TestFeatureFlags(isLinuxEnabled: true),
++      OperatingSystemUtils: () =>
++          CustomFakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++      Analytics: () => fakeAnalytics,
++    },
++  );
+ }
+ 
+ class CustomFakeOperatingSystemUtils extends Fake implements OperatingSystemUtils {
+diff --git a/packages/flutter_tools/test/general.shard/artifacts_test.dart b/packages/flutter_tools/test/general.shard/artifacts_test.dart
+index 46cacd14..8e0c5802 100644
+--- a/packages/flutter_tools/test/general.shard/artifacts_test.dart
++++ b/packages/flutter_tools/test/general.shard/artifacts_test.dart
+@@ -151,6 +151,42 @@ void main() {
+           'flutter_tester',
+         ),
+       );
++      expect(
++        artifacts.getArtifactPath(Artifact.flutterTester, platform: TargetPlatform.linux_ppc64),
++        fileSystem.path.join(
++          'root',
++          'bin',
++          'cache',
++          'artifacts',
++          'engine',
++          'linux-ppc64',
++          'flutter_tester',
++        ),
++      );
++      expect(
++        artifacts.getArtifactPath(
++          Artifact.genSnapshot,
++          platform: TargetPlatform.linux_ppc64,
++          mode: BuildMode.release,
++        ),
++        fileSystem.path.join(
++          'root',
++          'bin',
++          'cache',
++          'artifacts',
++          'engine',
++          'linux-ppc64-release',
++          'gen_snapshot',
++        ),
++      );
++      expect(
++        artifacts.getArtifactPath(
++          Artifact.linuxDesktopPath,
++          platform: TargetPlatform.linux_ppc64,
++          mode: BuildMode.profile,
++        ),
++        fileSystem.path.join('root', 'bin', 'cache', 'artifacts', 'engine', 'linux-ppc64-profile'),
++      );
+       expect(
+         artifacts.getArtifactPath(Artifact.frontendServerSnapshotForEngineDartSdk),
+         fileSystem.path.join(
+diff --git a/packages/flutter_tools/test/general.shard/base/os_test.dart b/packages/flutter_tools/test/general.shard/base/os_test.dart
+index b97a0a4d..65b1583c 100644
+--- a/packages/flutter_tools/test/general.shard/base/os_test.dart
++++ b/packages/flutter_tools/test/general.shard/base/os_test.dart
+@@ -157,6 +157,63 @@ void main() {
+       expect(fakeProcessManager.hasRemainingExpectations, isTrue);
+     });
+ 
++    testWithoutContext('Linux PPC64', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(),
++        currentAbiName: 'linux_ppc64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_ppc64);
++      expect(utils.hostPlatform.platformName, 'ppc64');
++      expect(getNameForHostPlatform(utils.hostPlatform), 'linux-ppc64');
++    });
++
++    testWithoutContext('Linux PPC64 under an arm64 translator that reports aarch64', () async {
++      // The emulated arm64 Dart VM on a POWER host: its uname children say
++      // aarch64 and its ABI is linux_arm64, so it is an arm64 host. Only the
++      // native ppc64 VM, whose ABI is linux_ppc64, is a ppc64 host.
++      fakeProcessManager = FakeProcessManager.list(<FakeCommand>[
++        const FakeCommand(command: <String>['uname', '-m'], stdout: 'ppc64le'),
++      ]);
++      expect(
++        createOSUtils(FakePlatform(), currentAbiName: 'linux_arm64').hostPlatform,
++        HostPlatform.linux_arm64,
++      );
++      expect(
++        createOSUtils(FakePlatform(), currentAbiName: 'linux_ppc64').hostPlatform,
++        HostPlatform.linux_ppc64,
++      );
++      expect(fakeProcessManager.hasRemainingExpectations, isTrue);
++    });
++
++    testWithoutContext('FLUTTER_HOST_ARCH=ppc64 selects linux_ppc64', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(environment: <String, String>{'FLUTTER_HOST_ARCH': 'ppc64'}),
++        currentAbiName: 'linux_arm64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_ppc64);
++    });
++
++    testWithoutContext('FLUTTER_HOST_ARCH uses the Dart name ppc64, not ppc64le', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(environment: <String, String>{'FLUTTER_HOST_ARCH': 'ppc64le'}),
++        currentAbiName: 'linux_arm64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_arm64);
++    });
++
++    testWithoutContext('FLUTTER_HOST_ARCH=ppc64 is Linux only', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(
++          operatingSystem: 'windows',
++          environment: <String, String>{'FLUTTER_HOST_ARCH': 'ppc64'},
++        ),
++        currentAbiName: 'windows_x64',
++      );
++      expect(HostPlatform.fromOsAndArch('windows', 'ppc64'), isNull);
++      expect(HostPlatform.fromOsAndArch('macos', 'ppc64'), isNull);
++      expect(utils.hostPlatform, isNot(HostPlatform.linux_ppc64));
++    });
++
+     testWithoutContext('Linux with an unsupported ABI throws', () async {
+       final OperatingSystemUtils utils = createOSUtils(
+         FakePlatform(),
+diff --git a/packages/flutter_tools/test/general.shard/build_info_test.dart b/packages/flutter_tools/test/general.shard/build_info_test.dart
+index f744f3cd..16a377c4 100644
+--- a/packages/flutter_tools/test/general.shard/build_info_test.dart
++++ b/packages/flutter_tools/test/general.shard/build_info_test.dart
+@@ -7,10 +7,12 @@ import 'package:file/memory.dart';
+ import 'package:flutter_tools/src/artifacts.dart';
+ import 'package:flutter_tools/src/base/file_system.dart';
+ import 'package:flutter_tools/src/base/logger.dart';
++import 'package:flutter_tools/src/base/os.dart';
+ import 'package:flutter_tools/src/build_info.dart';
+ 
+ import '../src/common.dart';
+ import '../src/context.dart';
++import '../src/fakes.dart';
+ import '../src/test_build_system.dart';
+ 
+ void main() {
+@@ -106,6 +108,26 @@ void main() {
+     expect(DarwinArch.x86_64.name, 'x86_64');
+   });
+ 
++  testWithoutContext('linux_ppc64 names', () {
++    expect(getNameForTargetPlatform(TargetPlatform.linux_ppc64), 'linux-ppc64');
++    expect(getTargetPlatformForName('linux-ppc64'), TargetPlatform.linux_ppc64);
++    expect(TargetPlatform.linux_ppc64.osName, 'linux');
++    expect(TargetPlatform.linux_ppc64.simpleName, 'ppc64');
++    expect(() => TargetPlatform.linux_ppc64.fuchsiaArchForTargetPlatform, throwsUnsupportedError);
++  });
++
++  testUsingContext(
++    'getLinuxBuildDirectory puts linux_ppc64 under linux/ppc64',
++    () {
++      expect(getLinuxBuildDirectory(TargetPlatform.linux_ppc64), 'build/linux/ppc64');
++      // With no target platform it follows the host.
++      expect(getLinuxBuildDirectory(), 'build/linux/ppc64');
++    },
++    overrides: <Type, Generator>{
++      OperatingSystemUtils: () => FakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++    },
++  );
++
+   testWithoutContext('getNameForTargetPlatform on Darwin arches', () {
+     expect(getNameForTargetPlatform(TargetPlatform.ios, darwinArch: DarwinArch.arm64), 'ios-arm64');
+     expect(getNameForTargetPlatform(TargetPlatform.ios, darwinArch: DarwinArch.armv7), 'ios-armv7');
+diff --git a/packages/flutter_tools/test/general.shard/build_system/targets/dart_plugin_registrant_test.dart b/packages/flutter_tools/test/general.shard/build_system/targets/dart_plugin_registrant_test.dart
+index b625816f..ade10060 100644
+--- a/packages/flutter_tools/test/general.shard/build_system/targets/dart_plugin_registrant_test.dart
++++ b/packages/flutter_tools/test/general.shard/build_system/targets/dart_plugin_registrant_test.dart
+@@ -90,6 +90,7 @@ void main() {
+         'darwin-x64': false,
+         'linux-x64': false,
+         'linux-arm64': false,
++        'linux-ppc64': false,
+         'windows-x64': false,
+         'web-javascript': true,
+         'ios': false,
+diff --git a/packages/flutter_tools/test/general.shard/build_system/targets/linux_test.dart b/packages/flutter_tools/test/general.shard/build_system/targets/linux_test.dart
+index 2eae63fd..14a9202c 100644
+--- a/packages/flutter_tools/test/general.shard/build_system/targets/linux_test.dart
++++ b/packages/flutter_tools/test/general.shard/build_system/targets/linux_test.dart
+@@ -170,6 +170,18 @@ void main() {
+       const DebugBundleLinuxAssets(TargetPlatform.linux_arm64).name,
+       'debug_bundle_linux-arm64_assets',
+     );
++    expect(
++      const DebugBundleLinuxAssets(TargetPlatform.linux_ppc64).name,
++      'debug_bundle_linux-ppc64_assets',
++    );
++    expect(
++      const ProfileBundleLinuxAssets(TargetPlatform.linux_ppc64).name,
++      'profile_bundle_linux-ppc64_assets',
++    );
++    expect(
++      const ReleaseBundleLinuxAssets(TargetPlatform.linux_ppc64).name,
++      'release_bundle_linux-ppc64_assets',
++    );
+   });
+ 
+   testUsingContext(
+diff --git a/packages/flutter_tools/test/general.shard/cache_test.dart b/packages/flutter_tools/test/general.shard/cache_test.dart
+index f2730355..7e6af574 100644
+--- a/packages/flutter_tools/test/general.shard/cache_test.dart
++++ b/packages/flutter_tools/test/general.shard/cache_test.dart
+@@ -604,6 +604,28 @@ void main() {
+     ]);
+   });
+ 
++  testWithoutContext('FontSubset artifacts on ppc64 linux', () {
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_ppc64');
++    final artifacts = FontSubsetArtifacts(cache, platform: FakePlatform());
++    cache.includeAllPlatforms = false;
++
++    expect(artifacts.getBinaryDirs(), <List<String>>[
++      <String>['linux-ppc64', 'linux-ppc64/font-subset.zip'],
++    ]);
++  });
++
++  testWithoutContext('FlutterSdk artifacts on ppc64 linux', () {
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_ppc64');
++    final artifacts = FlutterSdk(cache, platform: FakePlatform());
++    cache.includeAllPlatforms = false;
++
++    expect(artifacts.getBinaryDirs(), <List<String>>[
++      <String>['common', 'flutter_patched_sdk.zip'],
++      <String>['common', 'flutter_patched_sdk_product.zip'],
++      <String>['linux-ppc64', 'linux-ppc64/artifacts.zip'],
++    ]);
++  });
++
+   testWithoutContext('FontSubset artifacts on windows', () {
+     final Cache cache = createCache(FakePlatform(operatingSystem: 'windows'));
+     final artifacts = FontSubsetArtifacts(
+@@ -766,6 +788,17 @@ void main() {
+     ]);
+   });
+ 
++  testWithoutContext('Linux desktop artifacts for ppc64 include profile and release artifacts', () {
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_ppc64');
++    final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform());
++
++    expect(artifacts.getBinaryDirs(), <List<String>>[
++      <String>['linux-ppc64', 'linux-ppc64-debug/linux-ppc64-flutter-gtk.zip'],
++      <String>['linux-ppc64-profile', 'linux-ppc64-profile/linux-ppc64-flutter-gtk.zip'],
++      <String>['linux-ppc64-release', 'linux-ppc64-release/linux-ppc64-flutter-gtk.zip'],
++    ]);
++  });
++
+   testWithoutContext('Cache can delete stampfiles of artifacts', () {
+     final FileSystem fileSystem = MemoryFileSystem.test();
+     final artifactSet = FakeIosUsbArtifacts();
+diff --git a/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart b/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart
+index 23cdffc7..c63db49b 100644
+--- a/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart
++++ b/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart
+@@ -15,6 +15,8 @@ import 'package:flutter_tools/src/build_system/build_system.dart';
+ import 'package:flutter_tools/src/globals.dart' as globals;
+ import 'package:flutter_tools/src/isolated/native_assets/linux/native_assets.dart';
+ import 'package:flutter_tools/src/isolated/native_assets/native_assets.dart';
++import 'package:flutter_tools/src/isolated/native_assets/targets.dart';
++import 'package:hooks/hooks.dart';
+ 
+ import '../../../src/common.dart';
+ import '../../../src/context.dart';
+@@ -45,6 +47,40 @@ void main() {
+     projectUri = environment.projectDir.uri;
+   });
+ 
++  testWithoutContext('linux_ppc64 builds hooks for Linux on ppc64', () {
++    expect(getNativeOSFromTargetPlatform(TargetPlatform.linux_ppc64), OS.linux);
++    expect(OS.linux.architectures, contains(Architecture.ppc64));
++
++    final List<AssetBuildTarget> targets = AssetBuildTarget.targetsFor(
++      targetPlatform: TargetPlatform.linux_ppc64,
++      environmentDefines: <String, String>{},
++      fileSystem: fileSystem,
++      supportedAssetTypes: SupportedAssetTypes.values,
++    );
++    final target = targets.single as LinuxAssetTarget;
++    expect(target.architecture, Architecture.ppc64);
++    expect(target.os, OS.linux);
++    expect(target.targetString, 'linux_ppc64');
++
++    // The hook input names the architecture 'ppc64', and reads back.
++    target.cCompilerConfigSync = null;
++    final inputBuilder = BuildInputBuilder()
++      ..setupShared(
++        packageName: 'my_package',
++        packageRoot: Uri.directory('/my_package/'),
++        outputDirectoryShared: Uri.directory('/out_shared/'),
++        outputFile: Uri.file('/out/output.json'),
++      )
++      ..config.setupBuild(linkingEnabled: false)
++      ..setupBuildInput();
++    target.codeAssetExtensions.single.setupBuildInput(inputBuilder);
++    final Object? codeAssetsConfig =
++        ((inputBuilder.json['config']! as Map<String, Object?>)['extensions']!
++            as Map<String, Object?>)['code_assets'];
++    expect((codeAssetsConfig! as Map<String, Object?>)['target_architecture'], 'ppc64');
++    expect(Architecture.fromString('ppc64'), Architecture.ppc64);
++  });
++
+   testUsingContext(
+     'does not throw if clang not present but no native assets present',
+     overrides: <Type, Generator>{ProcessManager: () => FakeProcessManager.empty()},
+diff --git a/packages/flutter_tools/test/general.shard/linux/linux_device_test.dart b/packages/flutter_tools/test/general.shard/linux/linux_device_test.dart
+index acce88f2..c4dc0459 100644
+--- a/packages/flutter_tools/test/general.shard/linux/linux_device_test.dart
++++ b/packages/flutter_tools/test/general.shard/linux/linux_device_test.dart
+@@ -56,6 +56,16 @@ void main() {
+     expect(await deviceArm64Host.targetPlatform, TargetPlatform.linux_arm64);
+   });
+ 
++  testWithoutContext('LinuxDevice on ppc64 hosts is ppc64', () async {
++    final devicePpc64Host = LinuxDevice(
++      processManager: FakeProcessManager.any(),
++      logger: BufferLogger.test(),
++      fileSystem: MemoryFileSystem.test(),
++      operatingSystemUtils: FakeOperatingSystemUtils(hostPlatform: HostPlatform.linux_ppc64),
++    );
++    expect(await devicePpc64Host.targetPlatform, TargetPlatform.linux_ppc64);
++  });
++
+   testWithoutContext('LinuxDevice: no devices listed if platform unsupported', () async {
+     expect(
+       await LinuxDevices(

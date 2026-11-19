@@ -1,0 +1,588 @@
+From 7e32724a856e597a37175287e2538c5c060b9854 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:01:04 -0600
+Subject: [PATCH 1/9] [flutter_tools] Take the Linux host architecture from the
+ Dart ABI, not uname
+
+Class: upstreamable fix (backport). Upstream made the same change for
+3.50 in #185369 (hostPlatform from Abi.current()) and #190480
+(FLUTTER_HOST_ARCH); neither is in 3.41.9.
+
+On Linux the tool ran `uname -m`, matched only `x86_64`, and called every
+other answer arm64. On a ppc64le host that picks the linux-arm64
+artifacts. Under a binary translator (qemu-user, FEX, POWERarm) `uname`
+reports whichever machine the `uname` binary it finds belongs to, which
+need not be the architecture of the VM that runs the tool.
+
+Now:
+* Linux, and other non-macOS POSIX hosts, map the name of the running
+  VM's ABI (`Abi.current().toString()`, e.g. `linux_x64`) through
+  `HostPlatform.fromAbiName`, and throw UnsupportedError for an ABI with
+  no host platform instead of guessing arm64. The name is matched, not
+  the Abi constant, so that an ABI the compiling SDK does not declare
+  (Abi.linuxPpc64 exists only in the ppc64 SDK port) can still be mapped.
+* `FLUTTER_HOST_ARCH=<x64|arm64|...>` overrides the architecture on every
+  OS, through `HostPlatform.fromOsAndArch`, as in upstream 3.50.
+  Unknown values are ignored.
+* macOS keeps its sysctl probe and Windows its Abi check, now as
+  `defaultHostPlatform`.
+* `OperatingSystemUtils()` and `Cache.test()` take `currentAbiName` so
+  tests can fake the host; the uname FakeCommands in os_test and
+  cache_test become ABI names.
+
+Tests: os_test.dart, cache_test.dart (99 pass, 2 skipped), on Dart
+3.11.5 linux_arm64.
+---
+ packages/flutter_tools/lib/src/base/os.dart   | 118 +++++++++++++-----
+ packages/flutter_tools/lib/src/cache.dart     |   2 +
+ .../test/general.shard/base/os_test.dart      | 111 +++++++++++++---
+ .../test/general.shard/cache_test.dart        |  53 ++++----
+ 4 files changed, 210 insertions(+), 74 deletions(-)
+
+diff --git a/packages/flutter_tools/lib/src/base/os.dart b/packages/flutter_tools/lib/src/base/os.dart
+index 5b499fef..74704174 100644
+--- a/packages/flutter_tools/lib/src/base/os.dart
++++ b/packages/flutter_tools/lib/src/base/os.dart
+@@ -17,18 +17,26 @@ import 'platform.dart';
+ import 'process.dart';
+ 
+ abstract class OperatingSystemUtils {
++  /// Creates the utilities for the host operating system.
++  ///
++  /// [currentAbiName] is the name of the [Abi] of the Dart VM that runs the
++  /// tool, as [Abi.toString] spells it (`linux_x64`, `linux_arm64`, ...). It
++  /// defaults to `Abi.current().toString()`; tests pass it to fake a host.
+   factory OperatingSystemUtils({
+     required FileSystem fileSystem,
+     required Logger logger,
+     required Platform platform,
+     required ProcessManager processManager,
++    String? currentAbiName,
+   }) {
++    final String resolvedAbiName = currentAbiName ?? Abi.current().toString();
+     if (platform.isWindows) {
+       return _WindowsUtils(
+         fileSystem: fileSystem,
+         logger: logger,
+         platform: platform,
+         processManager: processManager,
++        currentAbiName: resolvedAbiName,
+       );
+     } else if (platform.isMacOS) {
+       return _MacOSUtils(
+@@ -36,6 +44,7 @@ abstract class OperatingSystemUtils {
+         logger: logger,
+         platform: platform,
+         processManager: processManager,
++        currentAbiName: resolvedAbiName,
+       );
+     } else if (platform.isLinux) {
+       return _LinuxUtils(
+@@ -43,6 +52,7 @@ abstract class OperatingSystemUtils {
+         logger: logger,
+         platform: platform,
+         processManager: processManager,
++        currentAbiName: resolvedAbiName,
+       );
+     } else {
+       return _PosixUtils(
+@@ -50,6 +60,7 @@ abstract class OperatingSystemUtils {
+         logger: logger,
+         platform: platform,
+         processManager: processManager,
++        currentAbiName: resolvedAbiName,
+       );
+     }
+   }
+@@ -59,10 +70,12 @@ abstract class OperatingSystemUtils {
+     required Logger logger,
+     required Platform platform,
+     required ProcessManager processManager,
++    required String currentAbiName,
+   }) : _fileSystem = fileSystem,
+        _logger = logger,
+        _platform = platform,
+        _processManager = processManager,
++       _currentAbiName = currentAbiName,
+        _processUtils = ProcessUtils(logger: logger, processManager: processManager);
+ 
+   @visibleForTesting
+@@ -73,6 +86,7 @@ abstract class OperatingSystemUtils {
+   final Platform _platform;
+   final ProcessManager _processManager;
+   final ProcessUtils _processUtils;
++  final String _currentAbiName;
+ 
+   /// Make the given file executable. This may be a no-op on some platforms.
+   void makeExecutable(File file);
+@@ -132,7 +146,28 @@ abstract class OperatingSystemUtils {
+     return osNames[osName] ?? osName;
+   }
+ 
+-  HostPlatform get hostPlatform;
++  /// The platform of the host machine that runs the Flutter tool.
++  ///
++  /// The `FLUTTER_HOST_ARCH` environment variable overrides the architecture
++  /// when it names one that [HostPlatform.fromOsAndArch] knows for this
++  /// operating system, for example `FLUTTER_HOST_ARCH=arm64`. Otherwise this
++  /// is [defaultHostPlatform].
++  HostPlatform get hostPlatform {
++    if (_platform.environment['FLUTTER_HOST_ARCH'] case final String overrideArch) {
++      final HostPlatform? overridePlatform = HostPlatform.fromOsAndArch(
++        _platform.operatingSystem,
++        overrideArch,
++      );
++      if (overridePlatform != null) {
++        return overridePlatform;
++      }
++    }
++    return defaultHostPlatform;
++  }
++
++  /// The host platform when `FLUTTER_HOST_ARCH` does not override it.
++  @protected
++  HostPlatform get defaultHostPlatform;
+ 
+   List<File> _which(String execName, {bool all = false});
+ 
+@@ -178,6 +213,7 @@ class _PosixUtils extends OperatingSystemUtils {
+     required super.logger,
+     required super.platform,
+     required super.processManager,
++    required super.currentAbiName,
+   }) : super._private();
+ 
+   @override
+@@ -260,32 +296,19 @@ class _PosixUtils extends OperatingSystemUtils {
+   @override
+   String get pathVarSeparator => ':';
+ 
+-  HostPlatform? _hostPlatform;
+-
++  // The host is the architecture the Dart VM running the tool was built for.
++  // `uname -m` is not used: under a binary translator (qemu-user, FEX,
++  // POWERarm) it names the emulated machine or the real one depending on
++  // which `uname` is found, and its unknown answers used to fall back to
++  // arm64 silently. The VM's ABI is also what decides which host artifacts
++  // the tool can run.
+   @override
+-  HostPlatform get hostPlatform {
+-    if (_hostPlatform == null) {
+-      final RunResult hostPlatformCheck = _processUtils.runSync(<String>['uname', '-m']);
+-      // On x64 stdout is "uname -m: x86_64"
+-      // On arm64 stdout is "uname -m: aarch64, arm64_v8a"
+-      if (hostPlatformCheck.exitCode != 0) {
+-        _hostPlatform = HostPlatform.linux_x64;
+-        _logger.printError(
+-          'Encountered an error trying to run "uname -m":\n'
+-          '  exit code: ${hostPlatformCheck.exitCode}\n'
+-          '  stdout: ${hostPlatformCheck.stdout.trimRight()}\n'
+-          '  stderr: ${hostPlatformCheck.stderr.trimRight()}\n'
+-          'Assuming host platform is ${getNameForHostPlatform(_hostPlatform!)}.',
+-        );
+-      } else if (hostPlatformCheck.stdout.trim().endsWith('x86_64')) {
+-        _hostPlatform = HostPlatform.linux_x64;
+-      } else {
+-        // We default to ARM if it's not x86_64 and we did not get an error.
+-        _hostPlatform = HostPlatform.linux_arm64;
+-      }
+-    }
+-    return _hostPlatform!;
+-  }
++  late final HostPlatform defaultHostPlatform =
++      HostPlatform.fromAbiName(_currentAbiName) ??
++      (throw UnsupportedError(
++        'Unsupported host platform: $_currentAbiName. '
++        'Set FLUTTER_HOST_ARCH to choose the host artifacts.',
++      ));
+ }
+ 
+ class _LinuxUtils extends _PosixUtils {
+@@ -294,6 +317,7 @@ class _LinuxUtils extends _PosixUtils {
+     required super.logger,
+     required super.platform,
+     required super.processManager,
++    required super.currentAbiName,
+   });
+ 
+   String? _name;
+@@ -361,8 +385,11 @@ class _MacOSUtils extends _PosixUtils {
+     required super.logger,
+     required super.platform,
+     required super.processManager,
++    required super.currentAbiName,
+   });
+ 
++  HostPlatform? _hostPlatform;
++
+   String? _name;
+ 
+   @override
+@@ -390,7 +417,7 @@ class _MacOSUtils extends _PosixUtils {
+ 
+   // On ARM returns arm64, even when this process is running in Rosetta.
+   @override
+-  HostPlatform get hostPlatform {
++  HostPlatform get defaultHostPlatform {
+     if (_hostPlatform == null) {
+       String? sysctlPath;
+       if (which('sysctl') == null) {
+@@ -470,12 +497,13 @@ class _WindowsUtils extends OperatingSystemUtils {
+     required super.logger,
+     required super.platform,
+     required super.processManager,
++    required super.currentAbiName,
+   }) : super._private();
+ 
+   HostPlatform? _hostPlatform;
+ 
+   @override
+-  HostPlatform get hostPlatform {
++  HostPlatform get defaultHostPlatform {
+     if (_hostPlatform == null) {
+       final abi = Abi.current();
+       _hostPlatform = (abi == Abi.windowsArm64)
+@@ -622,6 +650,40 @@ enum HostPlatform {
+     HostPlatform.windows_x64 => 'x64',
+     HostPlatform.windows_arm64 => 'arm64',
+   };
++
++  /// Returns the host platform for an operating system and an architecture.
++  ///
++  /// [os] is a [Platform.operatingSystem] name, and [arch] a [platformName]
++  /// in any case. Returns null if there is no such host platform.
++  static HostPlatform? fromOsAndArch(String os, String arch) {
++    return switch ((os, arch.toLowerCase())) {
++      ('macos', 'x64') => darwin_x64,
++      ('macos', 'arm64') => darwin_arm64,
++      ('linux', 'x64') => linux_x64,
++      ('linux', 'arm64') => linux_arm64,
++      ('windows', 'x64') => windows_x64,
++      ('windows', 'arm64') => windows_arm64,
++      _ => null,
++    };
++  }
++
++  /// Returns the host platform for the name of a Dart [Abi], as
++  /// [Abi.toString] spells it, or null if there is none.
++  ///
++  /// The name is matched rather than the [Abi] constant, so that this
++  /// compiles against Dart SDKs that do not declare every ABI a host can
++  /// have.
++  static HostPlatform? fromAbiName(String abiName) {
++    return switch (abiName) {
++      'macos_x64' => darwin_x64,
++      'macos_arm64' => darwin_arm64,
++      'linux_x64' => linux_x64,
++      'linux_arm64' => linux_arm64,
++      'windows_x64' => windows_x64,
++      'windows_arm64' => windows_arm64,
++      _ => null,
++    };
++  }
+ }
+ 
+ String getNameForHostPlatform(HostPlatform platform) {
+diff --git a/packages/flutter_tools/lib/src/cache.dart b/packages/flutter_tools/lib/src/cache.dart
+index 275fb098..06f90124 100644
+--- a/packages/flutter_tools/lib/src/cache.dart
++++ b/packages/flutter_tools/lib/src/cache.dart
+@@ -173,6 +173,7 @@ class Cache {
+     FileSystem? fileSystem,
+     Platform? platform,
+     required ProcessManager processManager,
++    String? currentAbiName,
+   }) {
+     if (rootOverride?.fileSystem != null &&
+         fileSystem != null &&
+@@ -197,6 +198,7 @@ class Cache {
+         logger: logger,
+         platform: platform,
+         processManager: processManager,
++        currentAbiName: currentAbiName,
+       ),
+     );
+   }
+diff --git a/packages/flutter_tools/test/general.shard/base/os_test.dart b/packages/flutter_tools/test/general.shard/base/os_test.dart
+index 6266dba4..b97a0a4d 100644
+--- a/packages/flutter_tools/test/general.shard/base/os_test.dart
++++ b/packages/flutter_tools/test/general.shard/base/os_test.dart
+@@ -2,6 +2,8 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++import 'dart:ffi' show Abi;
++
+ import 'package:archive/archive.dart';
+ import 'package:file/file.dart';
+ import 'package:file/memory.dart';
+@@ -25,12 +27,13 @@ void main() {
+     fakeProcessManager = FakeProcessManager.empty();
+   });
+ 
+-  OperatingSystemUtils createOSUtils(Platform platform) {
++  OperatingSystemUtils createOSUtils(Platform platform, {String? currentAbiName}) {
+     return OperatingSystemUtils(
+       fileSystem: MemoryFileSystem.test(),
+       logger: BufferLogger.test(),
+       platform: platform,
+       processManager: fakeProcessManager,
++      currentAbiName: currentAbiName,
+     );
+   }
+ 
+@@ -110,12 +113,11 @@ void main() {
+   });
+ 
+   group('host platform', () {
+-    testWithoutContext('unknown defaults to Linux', () async {
+-      fakeProcessManager.addCommand(
+-        const FakeCommand(command: <String>['uname', '-m'], stdout: 'x86_64'),
++    testWithoutContext('unknown OS uses the ABI of the Dart VM', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(operatingSystem: 'fuchsia'),
++        currentAbiName: 'linux_x64',
+       );
+-
+-      final OperatingSystemUtils utils = createOSUtils(FakePlatform(operatingSystem: 'fuchsia'));
+       expect(utils.hostPlatform, HostPlatform.linux_x64);
+     });
+ 
+@@ -125,23 +127,100 @@ void main() {
+     });
+ 
+     testWithoutContext('Linux x64', () async {
+-      fakeProcessManager.addCommand(
+-        const FakeCommand(command: <String>['uname', '-m'], stdout: 'x86_64'),
+-      );
+-
+-      final OperatingSystemUtils utils = createOSUtils(FakePlatform());
++      final OperatingSystemUtils utils = createOSUtils(FakePlatform(), currentAbiName: 'linux_x64');
+       expect(utils.hostPlatform, HostPlatform.linux_x64);
+     });
+ 
+-    testWithoutContext('Linux ARM', () async {
+-      fakeProcessManager.addCommand(
+-        const FakeCommand(command: <String>['uname', '-m'], stdout: 'aarch64'),
++    testWithoutContext('Linux ARM64', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(),
++        currentAbiName: 'linux_arm64',
+       );
+-
+-      final OperatingSystemUtils utils = createOSUtils(FakePlatform());
+       expect(utils.hostPlatform, HostPlatform.linux_arm64);
+     });
+ 
++    testWithoutContext('Linux defaults to Abi.current()', () async {
++      final OperatingSystemUtils utils = createOSUtils(FakePlatform());
++      expect(utils.hostPlatform, HostPlatform.fromAbiName(Abi.current().toString()));
++    });
++
++    testWithoutContext('Linux does not ask uname -m', () async {
++      // Under a binary translator `uname -m` and the VM disagree; the VM wins.
++      fakeProcessManager = FakeProcessManager.list(<FakeCommand>[
++        const FakeCommand(command: <String>['uname', '-m'], stdout: 'x86_64'),
++      ]);
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(),
++        currentAbiName: 'linux_arm64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_arm64);
++      expect(fakeProcessManager.hasRemainingExpectations, isTrue);
++    });
++
++    testWithoutContext('Linux with an unsupported ABI throws', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(),
++        currentAbiName: 'linux_ia32',
++      );
++      expect(() => utils.hostPlatform, throwsUnsupportedError);
++    });
++
++    testWithoutContext('Linux x64 with FLUTTER_HOST_ARCH=arm64 override', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(environment: <String, String>{'FLUTTER_HOST_ARCH': 'arm64'}),
++        currentAbiName: 'linux_x64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_arm64);
++    });
++
++    testWithoutContext('FLUTTER_HOST_ARCH override is case-insensitive', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(environment: <String, String>{'FLUTTER_HOST_ARCH': 'ARM64'}),
++        currentAbiName: 'linux_x64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_arm64);
++    });
++
++    testWithoutContext('unrecognized FLUTTER_HOST_ARCH override is ignored', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(environment: <String, String>{'FLUTTER_HOST_ARCH': 'sparc'}),
++        currentAbiName: 'linux_x64',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_x64);
++    });
++
++    testWithoutContext('FLUTTER_HOST_ARCH rescues an unsupported ABI', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(environment: <String, String>{'FLUTTER_HOST_ARCH': 'x64'}),
++        currentAbiName: 'linux_ia32',
++      );
++      expect(utils.hostPlatform, HostPlatform.linux_x64);
++    });
++
++    testWithoutContext('macOS ARM64 with FLUTTER_HOST_ARCH=x64 skips sysctl', () async {
++      final OperatingSystemUtils utils = createOSUtils(
++        FakePlatform(
++          operatingSystem: 'macos',
++          environment: <String, String>{'FLUTTER_HOST_ARCH': 'x64'},
++        ),
++        currentAbiName: 'macos_arm64',
++      );
++      expect(utils.hostPlatform, HostPlatform.darwin_x64);
++    });
++
++    testWithoutContext('HostPlatform.fromOsAndArch and fromAbiName round-trip', () async {
++      for (final HostPlatform platform in HostPlatform.values) {
++        final String os = switch (getNameForHostPlatform(platform).split('-').first) {
++          'darwin' => 'macos',
++          final String other => other,
++        };
++        expect(HostPlatform.fromOsAndArch(os, platform.platformName), platform);
++        expect(HostPlatform.fromAbiName('${os}_${platform.platformName}'), platform);
++      }
++      expect(HostPlatform.fromOsAndArch('linux', 'sparc'), isNull);
++      expect(HostPlatform.fromAbiName('linux_sparc'), isNull);
++    });
++
+     testWithoutContext('macOS ARM', () async {
+       fakeProcessManager.addCommands(<FakeCommand>[
+         const FakeCommand(command: <String>['which', 'sysctl']),
+diff --git a/packages/flutter_tools/test/general.shard/cache_test.dart b/packages/flutter_tools/test/general.shard/cache_test.dart
+index 4a615296..f2730355 100644
+--- a/packages/flutter_tools/test/general.shard/cache_test.dart
++++ b/packages/flutter_tools/test/general.shard/cache_test.dart
+@@ -23,10 +23,6 @@ import '../src/common.dart';
+ import '../src/context.dart';
+ import '../src/fakes.dart';
+ 
+-const unameCommandForX64 = FakeCommand(command: <String>['uname', '-m'], stdout: 'x86_64');
+-
+-const unameCommandForArm64 = FakeCommand(command: <String>['uname', '-m'], stdout: 'aarch64');
+-
+ void main() {
+   late FakeProcessManager fakeProcessManager;
+ 
+@@ -34,8 +30,12 @@ void main() {
+     fakeProcessManager = FakeProcessManager.empty();
+   });
+ 
+-  Cache createCache(Platform platform) {
+-    return Cache.test(platform: platform, processManager: fakeProcessManager);
++  Cache createCache(Platform platform, {String? currentAbiName}) {
++    return Cache.test(
++      platform: platform,
++      processManager: fakeProcessManager,
++      currentAbiName: currentAbiName,
++    );
+   }
+ 
+   group('Cache.checkLockAcquired', () {
+@@ -585,9 +585,7 @@ void main() {
+   });
+ 
+   testWithoutContext('FontSubset artifacts on x64 linux', () {
+-    fakeProcessManager.addCommand(unameCommandForX64);
+-
+-    final Cache cache = createCache(FakePlatform());
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_x64');
+     final artifacts = FontSubsetArtifacts(cache, platform: FakePlatform());
+     cache.includeAllPlatforms = false;
+ 
+@@ -597,9 +595,7 @@ void main() {
+   });
+ 
+   testWithoutContext('FontSubset artifacts on arm64 linux', () {
+-    fakeProcessManager.addCommand(unameCommandForArm64);
+-
+-    final Cache cache = createCache(FakePlatform());
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_arm64');
+     final artifacts = FontSubsetArtifacts(cache, platform: FakePlatform());
+     cache.includeAllPlatforms = false;
+ 
+@@ -640,9 +636,10 @@ void main() {
+   });
+ 
+   testWithoutContext('FontSubset artifacts on fuchsia', () {
+-    fakeProcessManager.addCommand(unameCommandForX64);
+-
+-    final Cache cache = createCache(FakePlatform(operatingSystem: 'fuchsia'));
++    final Cache cache = createCache(
++      FakePlatform(operatingSystem: 'fuchsia'),
++      currentAbiName: 'linux_x64',
++    );
+     final artifacts = FontSubsetArtifacts(
+       cache,
+       platform: FakePlatform(operatingSystem: 'fuchsia'),
+@@ -656,9 +653,10 @@ void main() {
+   });
+ 
+   testWithoutContext('FontSubset artifacts for all platforms on x64 hosts', () {
+-    fakeProcessManager.addCommand(unameCommandForX64);
+-
+-    final Cache cache = createCache(FakePlatform(operatingSystem: 'fuchsia'));
++    final Cache cache = createCache(
++      FakePlatform(operatingSystem: 'fuchsia'),
++      currentAbiName: 'linux_x64',
++    );
+     final artifacts = FontSubsetArtifacts(
+       cache,
+       platform: FakePlatform(operatingSystem: 'fuchsia'),
+@@ -673,9 +671,10 @@ void main() {
+   });
+ 
+   testWithoutContext('FontSubset artifacts for all platforms on arm64 hosts', () {
+-    fakeProcessManager.addCommand(unameCommandForArm64);
+-
+-    final Cache cache = createCache(FakePlatform(operatingSystem: 'fuchsia'));
++    final Cache cache = createCache(
++      FakePlatform(operatingSystem: 'fuchsia'),
++      currentAbiName: 'linux_arm64',
++    );
+     final artifacts = FontSubsetArtifacts(
+       cache,
+       platform: FakePlatform(operatingSystem: 'fuchsia'),
+@@ -737,9 +736,7 @@ void main() {
+   });
+ 
+   testWithoutContext('Linux desktop artifacts ignore filtering when requested', () {
+-    fakeProcessManager.addCommand(unameCommandForX64);
+-
+-    final Cache cache = createCache(FakePlatform());
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_x64');
+     final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform(operatingSystem: 'macos'));
+     cache.includeAllPlatforms = false;
+     cache.platformOverrideArtifacts = <String>{'linux'};
+@@ -748,9 +745,7 @@ void main() {
+   });
+ 
+   testWithoutContext('Linux desktop artifacts for x64 include profile and release artifacts', () {
+-    fakeProcessManager.addCommand(unameCommandForX64);
+-
+-    final Cache cache = createCache(FakePlatform());
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_x64');
+     final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform());
+ 
+     expect(artifacts.getBinaryDirs(), <List<String>>[
+@@ -761,9 +756,7 @@ void main() {
+   });
+ 
+   testWithoutContext('Linux desktop artifacts for arm64 include profile and release artifacts', () {
+-    fakeProcessManager.addCommand(unameCommandForArm64);
+-
+-    final Cache cache = createCache(FakePlatform());
++    final Cache cache = createCache(FakePlatform(), currentAbiName: 'linux_arm64');
+     final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform());
+ 
+     expect(artifacts.getBinaryDirs(), <List<String>>[

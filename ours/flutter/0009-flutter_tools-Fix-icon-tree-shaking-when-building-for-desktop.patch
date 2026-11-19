@@ -1,0 +1,51 @@
+From 128dc992e299881b1234f7a9c426a9ece07e4e91 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 11:59:02 -0600
+Subject: [PATCH 9/9] [flutter_tools] Fix icon tree shaking when building for
+ desktop (backport)
+
+Class: upstreamable fix, already upstream: cherry-pick of the
+tool_backend.dart half of flutter #184249 (2f461fe90711, merged
+2026-04-14, after 3.41 branched).
+
+tool_backend.dart passed `-dTreeShakeIcons="true"` with the quotes as
+part of the value (Process.start has no shell to strip them), so
+IconTreeShaker saw `"true"` != `true` and never ran for Linux (or
+Windows) desktop builds: a release bundle shipped the full 1.6 MB
+MaterialIcons font, and const_finder and font-subset were never used.
+The upstream change also routes macOS to its bundle target; kept as is.
+
+Not taken: upstream's new permeable icon_tree_shaker_test.dart, which
+needs a populated engine cache and hard-codes linux-x64/arm64 targets.
+Verified instead with the managed ppc64 SDK (REPORT-M7): a release build
+of the counter app now runs const_finder and font-subset from the
+linux-ppc64 engine artifacts and bundles a subset MaterialIcons font.
+---
+ packages/flutter_tools/bin/tool_backend.dart | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/packages/flutter_tools/bin/tool_backend.dart b/packages/flutter_tools/bin/tool_backend.dart
+index 3d73b249..84536d00 100644
+--- a/packages/flutter_tools/bin/tool_backend.dart
++++ b/packages/flutter_tools/bin/tool_backend.dart
+@@ -76,8 +76,9 @@ or
+     'bin',
+     if (Platform.isWindows) 'flutter.bat' else 'flutter',
+   ]);
+-  final bundlePlatform = targetPlatform;
+-  final target = '${buildMode}_bundle_${bundlePlatform}_assets';
++  final target = targetPlatform.startsWith('darwin')
++      ? '${buildMode}_macos_bundle_flutter_assets'
++      : '${buildMode}_bundle_${targetPlatform}_assets';
+   final Process assembleProcess = await Process.start(flutterExecutable, <String>[
+     if (verbose) '--verbose',
+     if (prefixedErrors) '--prefixed-errors',
+@@ -91,7 +92,7 @@ or
+     '-dTrackWidgetCreation=$trackWidgetCreation',
+     '-dBuildMode=$buildMode',
+     '-dTargetFile=$flutterTarget',
+-    '-dTreeShakeIcons="$treeShakeIcons"',
++    '-dTreeShakeIcons=$treeShakeIcons',
+     '-dDartObfuscation=$dartObfuscation',
+     if (codeSizeDirectory != null) '-dCodeSizeDirectory=$codeSizeDirectory',
+     if (splitDebugInfo != null) '-dSplitDebugInfo=$splitDebugInfo',

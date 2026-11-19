@@ -1,0 +1,195 @@
+From 348c068ce4cdc4fbfe197fb2de0465707c8cdd11 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:12:25 -0600
+Subject: [PATCH 5/9] [flutter_tools] Resolve a hook's Target only when it has
+ code assets
+
+Class: upstreamable fix (small, no behaviour change upstream); for this
+port, a defensive local workaround.
+
+_runDartHooks built the hooks_runner Target for every code-asset target
+before filtering the hook output, even when the output held no code
+asset. Target is keyed on a dart:ffi Abi, and the linux_ppc64 Target
+only exists on a Dart SDK whose Abi.values has linux_ppc64 (see the
+vendored hooks_runner change). So on any other SDK, `flutter build
+linux` for linux_ppc64 failed with "Unsupported combination of OS and
+architecture: 'linux_ppc64'" as soon as any package had a build hook,
+whether or not the hook produced anything. LocalSend is that case:
+objective_c 9.5.0's hook builds nothing on Linux.
+
+Now the Target is resolved lazily, once per hook result, on the first
+code asset. On the ppc64 Dart SDK nothing changes; elsewhere a ppc64
+build only fails when a hook really produces a ppc64 code asset.
+
+Tests (linux/native_assets_test.dart): a linux_ppc64 build whose hook
+produces no code assets succeeds; one that produces a code asset gets
+Target.linuxPpc64 on an SDK that has it and throws ArgumentError on one
+that does not. Control: with this change reverted, the first test fails
+on Dart 3.11.5 with exactly that ArgumentError.
+---
+ .../isolated/native_assets/native_assets.dart | 42 ++++++-----
+ .../isolated/linux/native_assets_test.dart    | 71 +++++++++++++++++++
+ 2 files changed, 95 insertions(+), 18 deletions(-)
+
+diff --git a/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart b/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart
+index 491e082b..1bee09d0 100644
+--- a/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart
++++ b/packages/flutter_tools/lib/src/isolated/native_assets/native_assets.dart
+@@ -537,23 +537,13 @@ Future<DartHooksResult> _runDartHooks({
+     if (linkingEnabled) {
+       linkResult = await _link(buildRunner, extensions, buildResult);
+       if (target is CodeAssetTarget) {
+-        codeAssets.addAll(
+-          _filterCodeAssets(
+-            linkResult.encodedAssets,
+-            Target.fromArchitectureAndOS(target.architecture, target.os),
+-          ),
+-        );
++        codeAssets.addAll(_filterCodeAssets(linkResult.encodedAssets, target));
+       }
+       dataAssets.addAll(_filterDataAssets(linkResult.encodedAssets));
+       dependencies.addAll(linkResult.dependencies);
+     }
+     if (target is CodeAssetTarget) {
+-      codeAssets.addAll(
+-        _filterCodeAssets(
+-          buildResult.encodedAssets,
+-          Target.fromArchitectureAndOS(target.architecture, target.os),
+-        ),
+-      );
++      codeAssets.addAll(_filterCodeAssets(buildResult.encodedAssets, target));
+     }
+     dataAssets.addAll(_filterDataAssets(buildResult.encodedAssets));
+     dependencies.addAll(buildResult.dependencies);
+@@ -589,12 +579,28 @@ Future<DartHooksResult> _runDartHooks({
+   );
+ }
+ 
+-Iterable<FlutterCodeAsset> _filterCodeAssets(Iterable<EncodedAsset> assets, Target target) => assets
+-    .where((EncodedAsset asset) => asset.isCodeAsset)
+-    .map<FlutterCodeAsset>(
+-      (EncodedAsset encodedAsset) =>
+-          FlutterCodeAsset(codeAsset: encodedAsset.asCodeAsset, target: target),
+-    );
++Iterable<FlutterCodeAsset> _filterCodeAssets(
++  Iterable<EncodedAsset> assets,
++  CodeAssetTarget codeAssetTarget,
++) {
++  // The hooks_runner [Target] is resolved only once there is a code asset to
++  // attach it to. A hook that produces no code assets for this target (the
++  // usual case on Linux) then needs no [Target] for it, which matters when the
++  // running Dart SDK has no ABI for the target, such as linux_ppc64 on a
++  // stock SDK.
++  Target? target;
++  return assets
++      .where((EncodedAsset asset) => asset.isCodeAsset)
++      .map<FlutterCodeAsset>(
++        (EncodedAsset encodedAsset) => FlutterCodeAsset(
++          codeAsset: encodedAsset.asCodeAsset,
++          target: target ??= Target.fromArchitectureAndOS(
++            codeAssetTarget.architecture,
++            codeAssetTarget.os,
++          ),
++        ),
++      );
++}
+ 
+ Iterable<DataAsset> _filterDataAssets(Iterable<EncodedAsset> assets) =>
+     assets.where((EncodedAsset asset) => asset.isDataAsset).map<DataAsset>(DataAsset.fromEncoded);
+diff --git a/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart b/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart
+index c63db49b..6643f646 100644
+--- a/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart
++++ b/packages/flutter_tools/test/general.shard/isolated/linux/native_assets_test.dart
+@@ -12,14 +12,18 @@ import 'package:flutter_tools/src/base/logger.dart';
+ import 'package:flutter_tools/src/base/platform.dart';
+ import 'package:flutter_tools/src/build_info.dart';
+ import 'package:flutter_tools/src/build_system/build_system.dart';
++import 'package:flutter_tools/src/features.dart';
+ import 'package:flutter_tools/src/globals.dart' as globals;
++import 'package:flutter_tools/src/isolated/native_assets/dart_hook_result.dart';
+ import 'package:flutter_tools/src/isolated/native_assets/linux/native_assets.dart';
+ import 'package:flutter_tools/src/isolated/native_assets/native_assets.dart';
+ import 'package:flutter_tools/src/isolated/native_assets/targets.dart';
+ import 'package:hooks/hooks.dart';
++import 'package:hooks_runner/hooks_runner.dart' as hooks_runner;
+ 
+ import '../../../src/common.dart';
+ import '../../../src/context.dart';
++import '../../../src/fakes.dart';
+ import '../fake_native_assets_build_runner.dart';
+ 
+ void main() {
+@@ -81,6 +85,73 @@ void main() {
+     expect(Architecture.fromString('ppc64'), Architecture.ppc64);
+   });
+ 
++  testUsingContext(
++    'linux_ppc64 hooks that produce no code assets need no ppc64 Target',
++    overrides: <Type, Generator>{
++      FeatureFlags: () => TestFeatureFlags(isNativeAssetsEnabled: true),
++      ProcessManager: () => FakeProcessManager.empty(),
++    },
++    () async {
++      final File packageConfig = environment.projectDir.childFile('.dart_tool/package_config.json');
++      await packageConfig.create(recursive: true);
++      final buildRunner = FakeFlutterNativeAssetsBuildRunner(
++        packagesWithNativeAssetsResult: <String>['objective_c'],
++        buildResult: FakeFlutterNativeAssetsBuilderResult.fromAssets(),
++      );
++
++      final DartHooksResult result = await runFlutterSpecificHooks(
++        environmentDefines: <String, String>{kBuildMode: BuildMode.release.cliName},
++        targetPlatform: TargetPlatform.linux_ppc64,
++        projectUri: projectUri,
++        fileSystem: fileSystem,
++        buildRunner: buildRunner,
++      );
++      expect(buildRunner.buildInvocations, 1);
++      expect(result.codeAssets, isEmpty);
++    },
++  );
++
++  testUsingContext(
++    'linux_ppc64 code assets get the linux_ppc64 Target when the SDK has one',
++    overrides: <Type, Generator>{
++      FeatureFlags: () => TestFeatureFlags(isNativeAssetsEnabled: true),
++      ProcessManager: () => FakeProcessManager.empty(),
++    },
++    () async {
++      final File packageConfig = environment.projectDir.childFile('.dart_tool/package_config.json');
++      await packageConfig.create(recursive: true);
++      final buildRunner = FakeFlutterNativeAssetsBuildRunner(
++        packagesWithNativeAssetsResult: <String>['bar'],
++        buildResult: FakeFlutterNativeAssetsBuilderResult.fromAssets(
++          codeAssets: <CodeAsset>[
++            CodeAsset(
++              package: 'bar',
++              name: 'bar.dart',
++              linkMode: DynamicLoadingBundled(),
++              file: Uri.file('/build/libbar.so'),
++            ),
++          ],
++        ),
++      );
++      Future<DartHooksResult> run() => runFlutterSpecificHooks(
++        environmentDefines: <String, String>{kBuildMode: BuildMode.release.cliName},
++        targetPlatform: TargetPlatform.linux_ppc64,
++        projectUri: projectUri,
++        fileSystem: fileSystem,
++        buildRunner: buildRunner,
++      );
++
++      // Only the ppc64 port of the Dart SDK has the linux_ppc64 ABI.
++      final hooks_runner.Target? linuxPpc64 = hooks_runner.Target.linuxPpc64;
++      if (linuxPpc64 == null) {
++        await expectLater(run(), throwsArgumentError);
++      } else {
++        final DartHooksResult result = await run();
++        expect(result.codeAssets.single.target, same(linuxPpc64));
++      }
++    },
++  );
++
+   testUsingContext(
+     'does not throw if clang not present but no native assets present',
+     overrides: <Type, Generator>{ProcessManager: () => FakeProcessManager.empty()},

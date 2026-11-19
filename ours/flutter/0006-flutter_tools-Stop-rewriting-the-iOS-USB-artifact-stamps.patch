@@ -1,0 +1,97 @@
+From 1ba0fd6a2c4b36ee42267ea76daa2d253376d6ec Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:13:28 -0600
+Subject: [PATCH 6/9] [flutter_tools] Stop rewriting the iOS USB artifact
+ stamps on non-macOS hosts
+
+Class: upstreamable fix.
+
+IosUsbArtifacts (libimobiledevice, libusbmuxd, libplist, openssl,
+libimobiledeviceglue, ios-deploy) are universal artifacts, but their
+update downloads nothing unless the host is macOS. Their up-to-date
+check did not have that filter, and for libimobiledevice and libusbmuxd
+it also wants executables that never appear on other hosts. So on Linux
+they were stale on every run: every flutter command recreated
+bin/cache/artifacts/<name>/ and rewrote bin/cache/<name>.stamp.
+
+That is a write under FLUTTER_ROOT on every command, which fails on a
+read-only install (a distribution package; the next commit) and churns
+mtimes in a normal checkout.
+
+isUpToDate now returns true on non-macOS hosts unless platform
+filtering is switched off (`flutter precache --ios` and friends), the
+same condition updateInner uses.
+
+Tests (cache_test.dart): all six are up to date on Linux without a
+download, and stale again with includeAllPlatforms; Cache.updateAll on
+Linux writes none of their stamps or directories. Control: without the
+fix both tests fail (isUpToDate false; the stamp file is written).
+---
+ .../flutter_tools/lib/src/flutter_cache.dart  | 12 ++++++++
+ .../test/general.shard/cache_test.dart        | 30 +++++++++++++++++++
+ 2 files changed, 42 insertions(+)
+
+diff --git a/packages/flutter_tools/lib/src/flutter_cache.dart b/packages/flutter_tools/lib/src/flutter_cache.dart
+index 31f5fbc8..50ac60e8 100644
+--- a/packages/flutter_tools/lib/src/flutter_cache.dart
++++ b/packages/flutter_tools/lib/src/flutter_cache.dart
+@@ -796,6 +796,18 @@ class IosUsbArtifacts extends CachedArtifact {
+     'DYLD_LIBRARY_PATH': cache.getArtifactDirectory(name).path,
+   };
+ 
++  // These are macOS artifacts, and [updateInner] does nothing on other hosts.
++  // Checking them there anyway found them stale on every run, because the
++  // executables below never appear, so every command on Linux reran that
++  // no-op update and rewrote the artifact's stamp file under FLUTTER_ROOT.
++  @override
++  Future<bool> isUpToDate(FileSystem fileSystem) async {
++    if (!_platform.isMacOS && !ignorePlatformFiltering) {
++      return true;
++    }
++    return super.isUpToDate(fileSystem);
++  }
++
+   @override
+   bool isUpToDateInner(FileSystem fileSystem) {
+     final List<String>? executables = _kExecutables[name];
+diff --git a/packages/flutter_tools/test/general.shard/cache_test.dart b/packages/flutter_tools/test/general.shard/cache_test.dart
+index 7e6af574..8774259f 100644
+--- a/packages/flutter_tools/test/general.shard/cache_test.dart
++++ b/packages/flutter_tools/test/general.shard/cache_test.dart
+@@ -529,6 +529,36 @@ void main() {
+     },
+   );
+ 
++  testWithoutContext('IosUsbArtifacts are up to date on Linux without a download', () async {
++    final FileSystem fileSystem = MemoryFileSystem.test();
++    final cache = Cache.test(fileSystem: fileSystem, processManager: FakeProcessManager.any());
++    for (final String name in IosUsbArtifacts.artifactNames) {
++      final iosUsbArtifacts = IosUsbArtifacts(name, cache, platform: FakePlatform());
++      expect(iosUsbArtifacts.location.existsSync(), isFalse);
++      expect(await iosUsbArtifacts.isUpToDate(fileSystem), isTrue, reason: name);
++    }
++
++    // Unless all platforms are requested, as by `flutter precache --ios`.
++    cache.includeAllPlatforms = true;
++    final iosUsbArtifacts = IosUsbArtifacts('libimobiledevice', cache, platform: FakePlatform());
++    expect(await iosUsbArtifacts.isUpToDate(fileSystem), isFalse);
++  });
++
++  testWithoutContext('Cache.updateAll writes no iOS USB stamps on Linux', () async {
++    final FileSystem fileSystem = MemoryFileSystem.test();
++    final cache = Cache.test(fileSystem: fileSystem, processManager: FakeProcessManager.any());
++    for (final String name in IosUsbArtifacts.artifactNames) {
++      cache.registerArtifact(IosUsbArtifacts(name, cache, platform: FakePlatform()));
++    }
++
++    await cache.updateAll(<DevelopmentArtifact>{DevelopmentArtifact.universal});
++
++    for (final String name in IosUsbArtifacts.artifactNames) {
++      expect(cache.getStampFileFor(name).existsSync(), isFalse, reason: name);
++      expect(cache.getArtifactDirectory(name).existsSync(), isFalse, reason: name);
++    }
++  });
++
+   testWithoutContext('IosUsbArtifacts uses unsigned when specified', () async {
+     final cache = Cache.test(processManager: FakeProcessManager.any());
+     cache.useUnsignedMacBinaries = true;

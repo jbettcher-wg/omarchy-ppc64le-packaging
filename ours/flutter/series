@@ -1,0 +1,9 @@
+0001-flutter_tools-Take-the-Linux-host-architecture-from-the-Dart-ABI.patch
+0002-flutter_tools-Vendor-code_assets-1.0.0-and-hooks_runner-1.0.1.patch
+0003-third_party-pkg-Add-Architecture.ppc64-and-the-linux_ppc64-target.patch
+0004-flutter_tools-Add-the-linux_ppc64-host-and-target-platform.patch
+0005-flutter_tools-Resolve-a-hook-s-Target-only-when-it-has-code-assets.patch
+0006-flutter_tools-Stop-rewriting-the-iOS-USB-artifact-stamps.patch
+0007-flutter_tools-Add-a-managed-read-only-SDK-mode.patch
+0008-flutter_tools-doctor-accept-the-dart-that-bin-cache-dart-sdk-links-to.patch
+0009-flutter_tools-Fix-icon-tree-shaking-when-building-for-desktop.patch

@@ -1,0 +1,158 @@
+From f17741d06a0e3d7d4ab799144557e43b247c8f72 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:20:31 -0600
+Subject: [PATCH 8/9] [flutter_tools] doctor: accept the dart that
+ bin/cache/dart-sdk links to
+
+Class: local workaround (packaging layout); small enough to offer
+upstream.
+
+FlutterValidator warns when `flutter` or `dart` on the PATH resolves
+outside FLUTTER_ROOT, and the warning makes the Flutter section of
+`flutter doctor` partial. A distribution package links
+bin/cache/dart-sdk to the system Dart SDK (here /usr/lib/flutter/bin/
+cache/dart-sdk -> /usr/lib/dart), so /usr/bin/dart resolves to
+/usr/lib/dart/bin/dart: the very SDK this Flutter runs on, yet outside
+FLUTTER_ROOT. Alpine and the AUR delete the check instead.
+
+`dart` is now also accepted when it resolves inside the target of the
+bin/cache/dart-sdk link. A `dart` from any other SDK still warns.
+
+Tests (flutter_validator_test.dart): no warning for /usr/bin/dart ->
+/usr/lib/dart/bin/dart with the link in place; still a warning for
+/opt/dart-sdk/bin/dart. Control: without the change the first test
+fails with exactly that warning.
+---
+ packages/flutter_tools/lib/src/doctor.dart    | 16 +++-
+ .../general.shard/flutter_validator_test.dart | 84 +++++++++++++++++++
+ 2 files changed, 99 insertions(+), 1 deletion(-)
+
+diff --git a/packages/flutter_tools/lib/src/doctor.dart b/packages/flutter_tools/lib/src/doctor.dart
+index e9f99ee8..4d6ef8bf 100644
+--- a/packages/flutter_tools/lib/src/doctor.dart
++++ b/packages/flutter_tools/lib/src/doctor.dart
+@@ -667,7 +667,8 @@ class FlutterValidator extends DoctorValidator {
+       );
+     }
+     final String resolvedFlutterPath = flutterBin.resolveSymbolicLinksSync();
+-    if (!_filePathContainsDirPath(flutterRoot, resolvedFlutterPath)) {
++    if (!_filePathContainsDirPath(flutterRoot, resolvedFlutterPath) &&
++        !(binary == 'dart' && _isInLinkedDartSdk(flutterRoot, resolvedFlutterPath))) {
+       final hint =
+           'Warning: `$binary` on your path resolves to '
+           '$resolvedFlutterPath, which is not inside your current Flutter '
+@@ -678,6 +679,19 @@ class FlutterValidator extends DoctorValidator {
+     return null;
+   }
+ 
++  /// Whether [file] is inside the Dart SDK that `bin/cache/dart-sdk` links
++  /// to. A distribution package links it to the system Dart SDK (for example
++  /// /usr/lib/dart), so the `dart` on the path is the SDK's own `dart`.
++  bool _isInLinkedDartSdk(String flutterRoot, String file) {
++    final Link dartSdkLink = _fileSystem.link(
++      _fileSystem.path.join(flutterRoot, 'bin', 'cache', 'dart-sdk'),
++    );
++    if (!dartSdkLink.existsSync()) {
++      return false;
++    }
++    return _filePathContainsDirPath(dartSdkLink.resolveSymbolicLinksSync(), file);
++  }
++
+   bool _filePathContainsDirPath(String directory, String file) {
+     // calling .canonicalize() will normalize for alphabetic case and path
+     // separators
+diff --git a/packages/flutter_tools/test/general.shard/flutter_validator_test.dart b/packages/flutter_tools/test/general.shard/flutter_validator_test.dart
+index 050bd3d6..dff09bda 100644
+--- a/packages/flutter_tools/test/general.shard/flutter_validator_test.dart
++++ b/packages/flutter_tools/test/general.shard/flutter_validator_test.dart
+@@ -698,6 +698,90 @@ void main() {
+     );
+   });
+ 
++  testWithoutContext(
++    'no warning if dart is in the Dart SDK that bin/cache/dart-sdk links to',
++    () async {
++      final FileSystem fs = MemoryFileSystem.test();
++      fs.file('/usr/lib/dart/bin/dart').createSync(recursive: true);
++      fs.link('/usr/bin/dart').createSync('/usr/lib/dart/bin/dart', recursive: true);
++      fs.link('/usr/lib/flutter/bin/cache/dart-sdk').createSync('/usr/lib/dart', recursive: true);
++      final flutterValidator = FlutterValidator(
++        platform: FakePlatform(localeName: 'en_US.UTF-8'),
++        flutterVersion: () => FakeFlutterVersion(frameworkVersion: '1.0.0', branch: 'beta'),
++        devToolsVersion: () => '2.8.0',
++        userMessages: UserMessages(),
++        artifacts: Artifacts.test(),
++        fileSystem: fs,
++        processManager: FakeProcessManager.any(),
++        operatingSystemUtils: FakeOperatingSystemUtils(
++          name: 'Linux',
++          whichLookup: <String, File>{
++            'flutter': fs.file('/usr/lib/flutter/bin/flutter')..createSync(recursive: true),
++            'dart': fs.file('/usr/bin/dart'),
++          },
++        ),
++        flutterRoot: () => '/usr/lib/flutter',
++        featureFlags: TestFeatureFlags(),
++      );
++
++      expect(
++        await flutterValidator.validate(),
++        _matchDoctorValidation(
++          validationType: ValidationType.success,
++          statusInfo: 'Channel beta, 1.0.0, on Linux, locale en_US.UTF-8',
++          messages: isNot(
++            contains(
++              isA<ValidationMessage>().having(
++                (ValidationMessage message) => message.message,
++                'message',
++                contains('on your path resolves to'),
++              ),
++            ),
++          ),
++        ),
++      );
++    },
++  );
++
++  testWithoutContext('still warns about a dart outside the linked Dart SDK', () async {
++    final FileSystem fs = MemoryFileSystem.test();
++    fs.file('/usr/lib/dart/bin/dart').createSync(recursive: true);
++    fs.link('/usr/lib/flutter/bin/cache/dart-sdk').createSync('/usr/lib/dart', recursive: true);
++    final flutterValidator = FlutterValidator(
++      platform: FakePlatform(localeName: 'en_US.UTF-8'),
++      flutterVersion: () => FakeFlutterVersion(frameworkVersion: '1.0.0', branch: 'beta'),
++      devToolsVersion: () => '2.8.0',
++      userMessages: UserMessages(),
++      artifacts: Artifacts.test(),
++      fileSystem: fs,
++      processManager: FakeProcessManager.any(),
++      operatingSystemUtils: FakeOperatingSystemUtils(
++        name: 'Linux',
++        whichLookup: <String, File>{
++          'flutter': fs.file('/usr/lib/flutter/bin/flutter')..createSync(recursive: true),
++          'dart': fs.file('/opt/dart-sdk/bin/dart')..createSync(recursive: true),
++        },
++      ),
++      flutterRoot: () => '/usr/lib/flutter',
++      featureFlags: TestFeatureFlags(),
++    );
++
++    expect(
++      await flutterValidator.validate(),
++      _matchDoctorValidation(
++        validationType: ValidationType.partial,
++        statusInfo: 'Channel beta, 1.0.0, on Linux, locale en_US.UTF-8',
++        messages: contains(
++          const ValidationMessage.hint(
++            'Warning: `dart` on your path resolves to /opt/dart-sdk/bin/dart, which '
++            'is not inside your current Flutter SDK checkout at /usr/lib/flutter. '
++            'Consider adding /usr/lib/flutter/bin to the front of your path.',
++          ),
++        ),
++      ),
++    );
++  });
++
+   testWithoutContext('no warnings if flutter & dart binaries are inside the Flutter SDK', () async {
+     final FileSystem fs = MemoryFileSystem.test();
+     final flutterValidator = FlutterValidator(
