@@ -1,0 +1,301 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:02:06 -0600
+Subject: [PATCH] [engine] Backport: add support for riscv64 desktop linux
+ engine
+
+Backport of flutter/flutter#178712 (merged 2026-11-07, first released
+after 3.41.9), unchanged. It is the template the ppc64 enablement that
+follows mirrors: --linux-cpu=riscv64 is treated as a host build, and
+build/config/compiler passes --target for the Linux CPU.
+
+Class: upstream backport.
+---
+ engine/src/build/config/compiler/BUILD.gn     |   3 +
+ .../ci/builders/linux_riscv_host_engine.json  | 154 ++++++++++++++++++
+ .../lib/src/commands/run_command.dart         |   6 +-
+ .../flutter_tool_interop/target_platform.dart |   4 +
+ .../engine_tool/test/run_target_test.dart     |   4 +
+ engine/src/flutter/tools/gn                   |  12 +-
+ 6 files changed, 176 insertions(+), 7 deletions(-)
+ create mode 100644 engine/src/flutter/ci/builders/linux_riscv_host_engine.json
+
+diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn
+index 2d5e0e0c..ef82cc3e 100644
+--- a/engine/src/build/config/compiler/BUILD.gn
++++ b/engine/src/build/config/compiler/BUILD.gn
+@@ -401,6 +401,9 @@ config("compiler") {
+       cflags += [ "--target=aarch64-linux-gnu" ]
+       ldflags += [ "--target=aarch64-linux-gnu" ]
+       cflags += [ "-DBORINGSSL_CLANG_SUPPORTS_DOT_ARCH" ]
++    } else if (current_cpu == "riscv64") {
++      cflags += [ "--target=riscv64-linux-gnu" ]
++      ldflags += [ "--target=riscv64-linux-gnu" ]
+     }
+   }
+ 
+diff --git a/engine/src/flutter/ci/builders/linux_riscv_host_engine.json b/engine/src/flutter/ci/builders/linux_riscv_host_engine.json
+new file mode 100644
+index 00000000..89540621
+--- /dev/null
++++ b/engine/src/flutter/ci/builders/linux_riscv_host_engine.json
+@@ -0,0 +1,154 @@
++{
++    "_comment": [
++        "The builds defined in this file should not contain tests, ",
++        "and the file should not contain builds that are essentially tests. ",
++        "The only builds in this file should be the builds necessary to produce ",
++        "release artifacts. ",
++        "Tests to run on linux hosts should go in one of the other linux_ build ",
++        "definition files."
++    ],
++    "luci_flags": {
++      "upload_content_hash": true
++    },
++    "builds": [
++        {
++            "archives": [
++                {
++                    "name": "ci/linux_profile_riscv64",
++                    "type": "gcs",
++                    "base_path": "out/ci/linux_profile_riscv64/zip_archives/",
++                    "include_paths": [
++                        "out/ci/linux_profile_riscv64/zip_archives/linux-riscv64-profile/linux-riscv64-flutter-gtk.zip"
++                    ],
++                    "realm": "production"
++                }
++            ],
++            "drone_dimensions": [
++                "device_type=none",
++                "os=Linux"
++            ],
++            "gclient_variables": {
++                "download_android_deps": false,
++                "download_jdk": false,
++                "use_rbe": true
++            },
++            "gn": [
++                "--target-dir",
++                "ci/linux_profile_riscv64",
++                "--runtime-mode",
++                "profile",
++                "--target-os=linux",
++                "--linux-cpu=riscv64",
++                "--enable-fontconfig",
++                "--no-prebuilt-dart-sdk",
++                "--no-lto",
++                "--rbe",
++                "--no-goma"
++            ],
++            "name": "ci/linux_profile_riscv64",
++            "description": "Produces profile mode artifacts to target riscv64 Linux from a Linux host.",
++            "ninja": {
++                "config": "ci/linux_profile_riscv64",
++                "targets": [
++                    "flutter/shell/platform/linux:flutter_gtk"
++                ]
++            }
++        },
++        {
++            "archives": [
++                {
++                    "name": "ci/linux_debug_riscv64",
++                    "type": "gcs",
++                    "base_path": "out/ci/linux_debug_riscv64/zip_archives/",
++                    "include_paths": [
++                        "out/ci/linux_debug_riscv64/zip_archives/linux-riscv64/artifacts.zip",
++                        "out/ci/linux_debug_riscv64/zip_archives/linux-riscv64/impeller_sdk.zip",
++                        "out/ci/linux_debug_riscv64/zip_archives/linux-riscv64/linux-riscv64-embedder.zip",
++                        "out/ci/linux_debug_riscv64/zip_archives/linux-riscv64/font-subset.zip",
++                        "out/ci/linux_debug_riscv64/zip_archives/linux-riscv64-debug/linux-riscv64-flutter-gtk.zip",
++                        "out/ci/linux_debug_riscv64/zip_archives/dart-sdk-linux-riscv64.zip"
++                    ],
++                    "realm": "production"
++                }
++            ],
++            "drone_dimensions": [
++                "device_type=none",
++                "os=Linux"
++            ],
++            "gclient_variables": {
++                "download_android_deps": false,
++                "download_jdk": false,
++                "use_rbe": true
++            },
++            "gn": [
++                "--target-dir",
++                "ci/linux_debug_riscv64",
++                "--runtime-mode",
++                "debug",
++                "--target-os=linux",
++                "--linux-cpu=riscv64",
++                "--enable-fontconfig",
++                "--no-prebuilt-dart-sdk",
++                "--no-lto",
++                "--rbe",
++                "--no-goma"
++            ],
++            "name": "ci/linux_debug_riscv64",
++            "description": "Produces debug mode artifacts to target riscv64 Linux from a Linux host.",
++            "ninja": {
++                "config": "ci/linux_debug_riscv64",
++                "targets": [
++                    "flutter/build/archives:artifacts",
++                    "flutter/build/archives:dart_sdk_archive",
++                    "flutter/tools/font_subset",
++                    "flutter/shell/platform/linux:flutter_gtk",
++                    "flutter/impeller/toolkit/interop:sdk",
++                    "flutter/build/archives:embedder"
++                ]
++            }
++        },
++        {
++            "archives": [
++                {
++                    "name": "ci/linux_release_riscv64",
++                    "type": "gcs",
++                    "base_path": "out/ci/linux_release_riscv64/zip_archives/",
++                    "include_paths": [
++                        "out/ci/linux_release_riscv64/zip_archives/linux-riscv64-release/linux-riscv64-flutter-gtk.zip"
++                    ],
++                    "realm": "production"
++                }
++            ],
++            "drone_dimensions": [
++                "device_type=none",
++                "os=Linux"
++            ],
++            "gclient_variables": {
++                "download_android_deps": false,
++                "download_jdk": false,
++                "use_rbe": true
++            },
++            "gn": [
++                "--target-dir",
++                "ci/linux_release_riscv64",
++                "--runtime-mode",
++                "release",
++                "--target-os=linux",
++                "--linux-cpu=riscv64",
++                "--enable-fontconfig",
++                "--no-prebuilt-dart-sdk",
++                "--no-lto",
++                "--rbe",
++                "--no-goma"
++            ],
++            "name": "ci/linux_release_riscv64",
++            "description": "Produces release mode artifacts to target riscv64 Linux from a Linux host.",
++            "ninja": {
++                "config": "ci/linux_release_riscv64",
++                "targets": [
++                    "flutter/shell/platform/linux:flutter_gtk"
++                ]
++            }
++        }
++    ]
++}
+diff --git a/engine/src/flutter/tools/engine_tool/lib/src/commands/run_command.dart b/engine/src/flutter/tools/engine_tool/lib/src/commands/run_command.dart
+index d61bb593..a6a28e5b 100644
+--- a/engine/src/flutter/tools/engine_tool/lib/src/commands/run_command.dart
++++ b/engine/src/flutter/tools/engine_tool/lib/src/commands/run_command.dart
+@@ -247,6 +247,10 @@ final class RunTarget {
+       TargetPlatform.linuxArm64 ||
+       TargetPlatform.windowsArm64 => 'host_${mode}_arm64',
+ 
++      // RISCV64 Desktop (Linux)
++      // Here, we support cross-build
++      TargetPlatform.linuxRiscv64 => 'ci/linux_${mode}_riscv64',
++
+       // WEB
+       TargetPlatform.webJavascript => 'chrome_$mode',
+ 
+@@ -308,7 +312,7 @@ final class RunTarget {
+         [Label.parseGn('//flutter/shell/platform/darwin/macos:flutter_framework')],
+ 
+       // Desktop (Linux).
+-      TargetPlatform.linuxX64 || TargetPlatform.linuxArm64 => [
++      TargetPlatform.linuxX64 || TargetPlatform.linuxArm64 || TargetPlatform.linuxRiscv64 => [
+         Label.parseGn('//flutter/shell/platform/linux:flutter_linux_gtk'),
+       ],
+ 
+diff --git a/engine/src/flutter/tools/engine_tool/lib/src/flutter_tool_interop/target_platform.dart b/engine/src/flutter/tools/engine_tool/lib/src/flutter_tool_interop/target_platform.dart
+index a34a51b3..bd9c99dc 100644
+--- a/engine/src/flutter/tools/engine_tool/lib/src/flutter_tool_interop/target_platform.dart
++++ b/engine/src/flutter/tools/engine_tool/lib/src/flutter_tool_interop/target_platform.dart
+@@ -35,6 +35,9 @@ final class TargetPlatform {
+   /// Linux ARM64.
+   static const linuxArm64 = TargetPlatform._('linux-arm64');
+ 
++  /// Linux RISCV64.
++  static const linuxRiscv64 = TargetPlatform._('linux-riscv64');
++
+   /// Linux x64.
+   static const linuxX64 = TargetPlatform._('linux-x64');
+ 
+@@ -94,6 +97,7 @@ final class TargetPlatform {
+     androidX64,
+     androidX86,
+     linuxArm64,
++    linuxRiscv64,
+     linuxX64,
+     windowsArm64,
+     windowsX64,
+diff --git a/engine/src/flutter/tools/engine_tool/test/run_target_test.dart b/engine/src/flutter/tools/engine_tool/test/run_target_test.dart
+index 858db37a..8f3edc7e 100644
+--- a/engine/src/flutter/tools/engine_tool/test/run_target_test.dart
++++ b/engine/src/flutter/tools/engine_tool/test/run_target_test.dart
+@@ -69,6 +69,7 @@ void main() {
+       TargetPlatform.darwinArm64: 'host_debug_arm64',
+       TargetPlatform.linuxX64: 'host_debug',
+       TargetPlatform.linuxArm64: 'host_debug_arm64',
++      TargetPlatform.linuxRiscv64: 'ci/linux_debug_riscv64',
+       TargetPlatform.windowsX64: 'host_debug',
+       TargetPlatform.windowsArm64: 'host_debug_arm64',
+       TargetPlatform.webJavascript: 'chrome_debug',
+@@ -126,6 +127,9 @@ void main() {
+       TargetPlatform.linuxArm64: [
+         Label.parseGn('//flutter/shell/platform/linux:flutter_linux_gtk'),
+       ],
++      TargetPlatform.linuxRiscv64: [
++        Label.parseGn('//flutter/shell/platform/linux:flutter_linux_gtk'),
++      ],
+       TargetPlatform.windowsX64: [Label.parseGn('//flutter/shell/platform/windows')],
+       TargetPlatform.windowsArm64: [Label.parseGn('//flutter/shell/platform/windows')],
+       TargetPlatform.webJavascript: [Label.parseGn('//flutter/web_sdk:flutter_web_sdk_archive')],
+diff --git a/engine/src/flutter/tools/gn b/engine/src/flutter/tools/gn
+index 06a3e289..d3b629d7 100755
+--- a/engine/src/flutter/tools/gn
++++ b/engine/src/flutter/tools/gn
+@@ -92,9 +92,9 @@ def is_host_build(args):
+   # If target_os == None, then this is a host build.
+   if args.target_os is None:
+     return True
+-  # For linux arm64 builds, we cross compile from x64 hosts, so the
+-  # target_os='linux' and linux-cpu='arm64'
+-  if args.target_os == 'linux' and args.linux_cpu == 'arm64':
++  # For linux arm64/riscv64 builds, we cross compile from x64 hosts, so the
++  # target_os='linux' and linux-cpu='arm64' or 'riscv64'
++  if args.target_os == 'linux' and args.linux_cpu in ['arm64', 'riscv64']:
+     return True
+   # The Mac and host targets are redundant. Again, necessary to disambiguate
+   # during cross-compilation.
+@@ -718,8 +718,8 @@ def to_gn_args(args):
+     # it doesn't build properly with our gn configuration.
+     gn_args['dart_include_wasm_opt'] = False
+ 
+-    # dart_platform_sdk is only defined for host builds, linux arm host builds
+-    # specify target_os=linux.
++    # dart_platform_sdk is only defined for host builds, linux arm/riscv64 host
++    # builds specify target_os=linux.
+     # dart_platform_sdk=True means exclude web-related files, e.g. dart2js,
+     # dartdevc, web SDK kernel and source files.
+     gn_args['dart_platform_sdk'] = not args.full_dart_sdk
+@@ -988,7 +988,7 @@ def parse_args(args):
+   parser.add_argument('--web', action='store_true', default=False)
+   parser.add_argument('--windows', dest='target_os', action='store_const', const='win')
+ 
+-  parser.add_argument('--linux-cpu', type=str, choices=['x64', 'x86', 'arm64', 'arm'])
++  parser.add_argument('--linux-cpu', type=str, choices=['x64', 'x86', 'arm64', 'arm', 'riscv64'])
+   parser.add_argument('--fuchsia-cpu', type=str, choices=['x64', 'arm64'], default='x64')
+   parser.add_argument('--windows-cpu', type=str, choices=['x64', 'arm64', 'x86'], default='x64')
+   parser.add_argument('--simulator-cpu', type=str, choices=['x64', 'arm64'], default='x64')

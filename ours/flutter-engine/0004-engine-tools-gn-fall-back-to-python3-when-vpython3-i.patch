@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:06:00 -0600
+Subject: [PATCH] [engine] tools/gn: fall back to python3 when vpython3 is not
+ on PATH
+
+//.gn sets script_executable = "vpython3", which exists only where
+depot_tools is installed. Without it every exec_script() (pkg-config,
+host byte order, version stamps) fails with exit 127 at `gn gen`. When
+vpython3 is not found, pass --script-executable=python3; nothing the
+build's scripts import needs vpython's virtualenv.
+
+Class: upstreamable fix (no change where depot_tools is present).
+---
+ engine/src/flutter/tools/gn | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/engine/src/flutter/tools/gn b/engine/src/flutter/tools/gn
+index 8bd184e3..69a34180 100755
+--- a/engine/src/flutter/tools/gn
++++ b/engine/src/flutter/tools/gn
+@@ -13,6 +13,7 @@ import multiprocessing
+ import os
+ import platform
+ import re
++import shutil
+ import subprocess
+ import sys
+ 
+@@ -1372,6 +1373,12 @@ def main(argv):
+ 
+   command.append('--export-compile-commands=default')
+ 
++  # //.gn sets script_executable = "vpython3", which only exists where
++  # depot_tools is on PATH. Fall back to plain python3 elsewhere (distro
++  # builds); the build's scripts need nothing vpython provides.
++  if not shutil.which('vpython3'):
++    command.append('--script-executable=%s' % (shutil.which('python3') or sys.executable))
++
+   gn_args = to_command_line(to_gn_args(args))
+   gn_args.extend(args.gn_args or [])
+   out_dir = get_out_dir(args)

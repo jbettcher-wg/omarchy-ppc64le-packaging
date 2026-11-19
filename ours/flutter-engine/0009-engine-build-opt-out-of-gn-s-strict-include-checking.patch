@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 00:13:32 -0600
+Subject: [PATCH] [engine] build: opt out of gn's strict include checking (gn
+ >= 2591)
+
+gn 52629546 (position 2591, 2026-10-07) made check_includes_strict default
+to true for any target with headers. Its commit message says downstream
+projects must disable it explicitly in BUILDCONFIG.gn. gn 9fe99e26 (2587)
+then stops forwarding private hard_deps on strict targets. Together these
+mean that with a current gn (the distro's 0.2595):
+  - gn gen --check reports 10 strict-include errors in Flutter's tree;
+  - compile steps lose their order-only deps on generated headers, so a
+    from-scratch build races: 48 Impeller compiles failed with "file not
+    found" while the headers were still being generated.
+
+Set check_includes_strict = false in the defaults for executable,
+static_library, shared_library and source_set (component and test
+templates expand to these). Measured with system gn 2595: gen --check
+clean (0 errors; unpatched tree: 10), and a from-scratch -j64 build of
+impeller_unittests, display_list_*, txt_unittests, geometry_unittests and
+impellerc has 0 failures, with the same test results as the pinned gn.
+
+Requires gn >= 2489 (bc381971), where the variable was introduced. The
+DEPS-pinned gn 81b24e01 (2286) rejects the assignment. gn_version is not
+visible in BUILDCONFIG, so the setting cannot be gated on it.
+
+Class: local workaround (upstream Flutter will need the same change when
+it rolls gn past 2591; it hasn't yet as of main 2026-11-19).
+---
+ engine/src/build/config/BUILDCONFIG.gn | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/engine/src/build/config/BUILDCONFIG.gn b/engine/src/build/config/BUILDCONFIG.gn
+index 2b0d94e1..305c0957 100644
+--- a/engine/src/build/config/BUILDCONFIG.gn
++++ b/engine/src/build/config/BUILDCONFIG.gn
+@@ -496,13 +496,21 @@ if (is_win) {
+     _executable_configs += [ "//build/config/android:executable_config" ]
+   }
+ }
++# gn >= 2591 (52629546) defaults check_includes_strict to true, and strict
++# targets stop forwarding private hard_deps (9fe99e26), which drops the
++# order-only deps on generated headers. Opt out on every native target type.
++# Requires gn >= 2489, where the variable was introduced (bc381971); older gn
++# rejects the assignment. gn_version is not visible in BUILDCONFIG to gate it.
++
+ set_defaults("executable") {
+   configs = _executable_configs
++  check_includes_strict = false
+ }
+ 
+ # Static library defaults.
+ set_defaults("static_library") {
+   configs = _native_compiler_configs
++  check_includes_strict = false
+ }
+ 
+ # Shared library defaults (also for components in component mode).
+@@ -515,6 +523,7 @@ if (is_win) {
+ }
+ set_defaults("shared_library") {
+   configs = _shared_library_configs
++  check_includes_strict = false
+ }
+ if (is_component_build) {
+   set_defaults("component") {
+@@ -525,6 +534,7 @@ if (is_component_build) {
+ # Source set defaults (also for components in non-component mode).
+ set_defaults("source_set") {
+   configs = _native_compiler_configs
++  check_includes_strict = false
+ }
+ if (!is_component_build) {
+   set_defaults("component") {

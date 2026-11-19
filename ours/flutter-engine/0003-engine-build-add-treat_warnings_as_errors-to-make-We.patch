@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:03:11 -0600
+Subject: [PATCH] [engine] build: add treat_warnings_as_errors to make -Werror
+ optional
+
+-Werror is unconditional for every non-QNX, non-Windows target. That is
+right with the pinned CIPD clang, but a distro build with the system
+clang (newer or older, different warning set) then fails on warnings
+the pinned compiler never emits. Add a treat_warnings_as_errors GN arg,
+default true, with the same name Chromium's build uses.
+
+Class: upstreamable fix (default behaviour unchanged).
+---
+ engine/src/build/config/compiler/BUILD.gn | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn
+index c8e36242..ef10e9c4 100644
+--- a/engine/src/build/config/compiler/BUILD.gn
++++ b/engine/src/build/config/compiler/BUILD.gn
+@@ -46,6 +46,11 @@ declare_args() {
+   # leaves the compiler default, which for a ppc64le clang is POWER8 (ISA
+   # 2.07). GN ignores $CFLAGS, so a distro's ISA policy has to come in here.
+   ppc64_cpu = ""
++
++  # Turn compiler warnings into errors. Builds with a compiler other than the
++  # pinned prebuilt clang (e.g. a distro's system clang, which is newer or
++  # older and has a different warning set) set this to false.
++  treat_warnings_as_errors = true
+ }
+ 
+ # default_include_dirs ---------------------------------------------------------
+@@ -758,7 +763,7 @@ if (is_win) {
+     "-Wno-unused-parameter",  # Unused function parameters.
+   ]
+ 
+-  if (!is_qnx) {
++  if (!is_qnx && treat_warnings_as_errors) {
+     default_warning_flags += [
+       "-Werror",  # Warnings as errors.
+     ]

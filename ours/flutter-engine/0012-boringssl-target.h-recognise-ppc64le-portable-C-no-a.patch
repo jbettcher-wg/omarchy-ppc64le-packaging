@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:42:47 -0600
+Subject: [PATCH] [boringssl] target.h: recognise ppc64le (portable C, no
+ assembly)
+
+include/openssl/target.h ends in #error "Unknown target CPU" for any
+CPU it does not list, and BoringSSL at 9f138d05 lists no PowerPC: its
+ppc64le assembly was removed upstream. Every BoringSSL translation
+unit (and, through it, dart:io's TLS in the engine) fails on ppc64le.
+
+Add a little-endian ppc64 arm that defines OPENSSL_64_BIT and the
+OPENSSL_PPC64LE label. No source tests OPENSSL_PPC64LE any more, and
+the GAS assembly files are wrapped in per-CPU checks, so this builds
+the portable C implementations (all 438 objects of
+//flutter/third_party/boringssl build with system clang 22).
+
+Minimal alternative to Debian chromium's
+0001-Add-PPC64-support-for-boringssl.patch, which restores the PPC64
+assembly. The standalone Dart SDK carries its own BoringSSL checkout and
+needs the same one-hunk change (an M1 item for the Dart track).
+
+Class: upstreamable fix in spirit (BoringSSL's comment invites local
+patches for unlisted CPUs); carried locally.
+
+Byte-identical to the Dart ppc64 series' BoringSSL patch (0032 in
+work/dart-sdk-patches-next), so the engine's BoringSSL tree equals the
+Dart tree's (a67ee71b) and one patch serves both.
+---
+ include/openssl/target.h | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/engine/src/flutter/third_party/boringssl/src/include/openssl/target.h b/engine/src/flutter/third_party/boringssl/src/include/openssl/target.h
+index 8d4763d..3eccaf0 100644
+--- a/engine/src/flutter/third_party/boringssl/src/include/openssl/target.h
++++ b/engine/src/flutter/third_party/boringssl/src/include/openssl/target.h
+@@ -45,6 +45,10 @@
+ #define OPENSSL_RISCV64
+ #elif defined(__riscv) && __SIZEOF_POINTER__ == 4
+ #define OPENSSL_32_BIT
++#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
++// ppc64le (ELFv2). No assembly: the generic C implementations are used.
++#define OPENSSL_64_BIT
++#define OPENSSL_PPC64LE
+ #elif defined(__pnacl__)
+ #define OPENSSL_32_BIT
+ #define OPENSSL_PNACL

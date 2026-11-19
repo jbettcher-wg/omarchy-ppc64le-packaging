@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:21:31 -0600
+Subject: [PATCH] [libpng] BUILD.gn: use the portable filters on ppc64
+
+pngpriv.h defines PNG_POWERPC_VSX_OPT=2 whenever __PPC64__, __ALTIVEC__
+and __VSX__ are defined, which clang does by default for ppc64le. Then
+png_read_filter_row() references png_init_filter_functions_vsx() from
+powerpc/powerpc_init.c, which BUILD.gn never compiles, and every binary
+linking Skia fails:
+
+  pngrutil.c: undefined reference to `png_init_filter_functions_vsx'
+
+Define PNG_POWERPC_VSX_OPT=0 on ppc64 (the portable C filters, as for
+x86 here). Compiling powerpc/*.c instead would enable libpng's VSX
+filters; left for later, measured against the portable path.
+
+Class: upstreamable fix (to flutter's libpng BUILD.gn).
+---
+ BUILD.gn | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/engine/src/flutter/third_party/libpng/BUILD.gn b/engine/src/flutter/third_party/libpng/BUILD.gn
+index 3448491..e4d8c94 100644
+--- a/engine/src/flutter/third_party/libpng/BUILD.gn
++++ b/engine/src/flutter/third_party/libpng/BUILD.gn
+@@ -43,6 +43,15 @@ source_set("libpng") {
+     cflags_c += [ "-Wno-sign-compare" ]
+   }
+ 
++  if (current_cpu == "ppc64") {
++    # pngpriv.h turns on PNG_POWERPC_VSX_OPT=2 whenever the compiler defines
++    # __PPC64__/__ALTIVEC__/__VSX__ (clang does by default on ppc64le), which
++    # makes png_read_filter_row() call png_init_filter_functions_vsx() from
++    # powerpc/powerpc_init.c -- a file this build does not compile. Use the
++    # portable filters, as on every other non-ARM CPU here.
++    defines += [ "PNG_POWERPC_VSX_OPT=0" ]
++  }
++
+   if (is_win) {
+     cflags_c += [ "-Wno-tautological-constant-out-of-range-compare" ]
+   }

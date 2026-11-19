@@ -1,0 +1,260 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:02:58 -0600
+Subject: [PATCH] [engine] Add ppc64 (little-endian ELFv2) desktop Linux host
+ support
+
+Mirrors the riscv64 enablement (flutter/flutter#178712) for ppc64le,
+spelled "ppc64" as GN, Dart and Chromium already spell it:
+
+- tools/gn: --linux-cpu=ppc64 is a host build; new --host-cpu argument
+  that wins over platform.machine() (which is wrong under binary
+  translators such as Rosetta, FEX or POWERarm); platform.machine()
+  values riscv64 and ppc64le are recognised as a fallback.
+- build/toolchain/linux: a clang_ppc64 toolchain, and a clang_base_path
+  argument so the Linux clang toolchains can use a system LLVM ("/usr")
+  instead of the CIPD prebuilt, which does not exist for ppc64le. With
+  clang_base_path set, links pass -fuse-ld=lld: the prebuilt clang
+  defaults to lld, a distro clang usually to GNU ld. The path is kept
+  absolute so command lines do not depend on the build directory.
+- build/config/compiler: --target=powerpc64le-linux-gnu, plus a
+  ppc64_cpu argument for -mcpu/-mtune (GN ignores $CFLAGS; empty keeps
+  the compiler default, POWER8 / ISA 2.07).
+
+Native build, no sysroot:
+  flutter/tools/gn --target-os linux --linux-cpu ppc64 --host-cpu ppc64 \
+    --no-default-linux-sysroot --gn-args 'clang_base_path="/usr"' ...
+
+Class: upstreamable in form (same shape as #178712), but pointless
+upstream without a Dart ppc64 backend; carried locally.
+---
+ engine/src/build/config/compiler/BUILD.gn | 15 ++++++++
+ engine/src/build/toolchain/linux/BUILD.gn | 45 +++++++++++++++++++----
+ engine/src/flutter/tools/gn               | 34 ++++++++++++++---
+ 3 files changed, 82 insertions(+), 12 deletions(-)
+
+diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn
+index ef82cc3e..c8e36242 100644
+--- a/engine/src/build/config/compiler/BUILD.gn
++++ b/engine/src/build/config/compiler/BUILD.gn
+@@ -41,6 +41,11 @@ declare_args() {
+ 
+   # Prefer size over speed when compiling to wasm
+   wasm_prioritize_size = false
++
++  # ppc64: the -mcpu/-mtune to compile for (e.g. "power8", "power9"). Empty
++  # leaves the compiler default, which for a ppc64le clang is POWER8 (ISA
++  # 2.07). GN ignores $CFLAGS, so a distro's ISA policy has to come in here.
++  ppc64_cpu = ""
+ }
+ 
+ # default_include_dirs ---------------------------------------------------------
+@@ -404,6 +409,16 @@ config("compiler") {
+     } else if (current_cpu == "riscv64") {
+       cflags += [ "--target=riscv64-linux-gnu" ]
+       ldflags += [ "--target=riscv64-linux-gnu" ]
++    } else if (current_cpu == "ppc64") {
++      # Little-endian ELFv2 only.
++      cflags += [ "--target=powerpc64le-linux-gnu" ]
++      ldflags += [ "--target=powerpc64le-linux-gnu" ]
++      if (ppc64_cpu != "") {
++        cflags += [
++          "-mcpu=$ppc64_cpu",
++          "-mtune=$ppc64_cpu",
++        ]
++      }
+     }
+   }
+ 
+diff --git a/engine/src/build/toolchain/linux/BUILD.gn b/engine/src/build/toolchain/linux/BUILD.gn
+index b6db422f..9557b857 100644
+--- a/engine/src/build/toolchain/linux/BUILD.gn
++++ b/engine/src/build/toolchain/linux/BUILD.gn
+@@ -10,6 +10,11 @@ import("//build/toolchain/toolchain.gni")
+ 
+ declare_args() {
+   toolchain_prefix = ""
++
++  # Directory containing bin/clang, bin/clang++ and the llvm-* binutils. When
++  # empty, the prebuilt (CIPD) clang under $buildtools_path is used. Distro
++  # builds with a system LLVM set this to "/usr".
++  clang_base_path = ""
+ }
+ 
+ if (use_rbe) {
+@@ -33,7 +38,16 @@ if (use_rbe) {
+   link_prefix = ""
+ }
+ 
+-if (host_cpu == "arm64") {
++# The prebuilt clang defaults to lld; a system clang usually defaults to the
++# platform linker (GNU ld), so ask for lld explicitly.
++clang_ld_flags = ""
++
++if (clang_base_path != "") {
++  # Kept absolute (not rebased) so command lines name /usr/bin/clang and do
++  # not depend on where the build directory lives.
++  rebased_clang_dir = "$clang_base_path/bin"
++  clang_ld_flags = " -fuse-ld=lld"
++} else if (host_cpu == "arm64") {
+   rebased_clang_dir =
+       rebase_path("$buildtools_path/linux-arm64/clang/bin", root_build_dir)
+ } else {
+@@ -71,7 +85,7 @@ gcc_toolchain("clang_arm") {
+   readelf = "${prefix}/llvm-readelf"
+   nm = "${prefix}/llvm-nm"
+   ar = "${prefix}/llvm-ar"
+-  ld = "${link_prefix}${prefix}/clang++"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
+   llvm_objcopy = "${prefix}/llvm-objcopy"
+ 
+   toolchain_cpu = "arm"
+@@ -109,7 +123,7 @@ gcc_toolchain("clang_arm64") {
+   readelf = "readelf"
+   nm = "${prefix}/llvm-nm"
+   ar = "${prefix}/llvm-ar"
+-  ld = "${link_prefix}${prefix}/clang++"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
+   llvm_objcopy = "${prefix}/llvm-objcopy"
+ 
+   toolchain_cpu = "arm64"
+@@ -126,7 +140,7 @@ gcc_toolchain("clang_x86") {
+   readelf = "${prefix}/llvm-readelf"
+   nm = "${prefix}/llvm-nm"
+   ar = "${prefix}/llvm-ar"
+-  ld = "${link_prefix}${prefix}/clang++"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
+   llvm_objcopy = "${prefix}/llvm-objcopy"
+ 
+   toolchain_cpu = "x86"
+@@ -143,7 +157,7 @@ gcc_toolchain("clang_x64") {
+   readelf = "${prefix}/llvm-readelf"
+   nm = "${prefix}/llvm-nm"
+   ar = "${prefix}/llvm-ar"
+-  ld = "${link_prefix}${prefix}/clang++"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
+   llvm_objcopy = "${prefix}/llvm-objcopy"
+ 
+   toolchain_cpu = "x64"
+@@ -198,7 +212,7 @@ gcc_toolchain("clang_riscv32") {
+   readelf = "readelf"
+   nm = "${prefix}/llvm-nm"
+   ar = "${prefix}/llvm-ar"
+-  ld = "${link_prefix}${prefix}/clang++"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
+   llvm_objcopy = "${prefix}/llvm-objcopy"
+ 
+   toolchain_cpu = "riscv32"
+@@ -236,10 +250,27 @@ gcc_toolchain("clang_riscv64") {
+   readelf = "readelf"
+   nm = "${prefix}/llvm-nm"
+   ar = "${prefix}/llvm-ar"
+-  ld = "${link_prefix}${prefix}/clang++"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
+   llvm_objcopy = "${prefix}/llvm-objcopy"
+ 
+   toolchain_cpu = "riscv64"
+   toolchain_os = "linux"
+   is_clang = true
+ }
++
++gcc_toolchain("clang_ppc64") {
++  prefix = rebased_clang_dir
++  asm = "${prefix}/clang"
++  cc = "${compiler_prefix}${prefix}/clang"
++  cxx = "${compiler_prefix}${prefix}/clang++"
++
++  readelf = "${prefix}/llvm-readelf"
++  nm = "${prefix}/llvm-nm"
++  ar = "${prefix}/llvm-ar"
++  ld = "${link_prefix}${prefix}/clang++${clang_ld_flags}"
++  llvm_objcopy = "${prefix}/llvm-objcopy"
++
++  toolchain_cpu = "ppc64"
++  toolchain_os = "linux"
++  is_clang = true
++}
+diff --git a/engine/src/flutter/tools/gn b/engine/src/flutter/tools/gn
+index d3b629d7..8bd184e3 100755
+--- a/engine/src/flutter/tools/gn
++++ b/engine/src/flutter/tools/gn
+@@ -93,8 +93,9 @@ def is_host_build(args):
+   if args.target_os is None:
+     return True
+   # For linux arm64/riscv64 builds, we cross compile from x64 hosts, so the
+-  # target_os='linux' and linux-cpu='arm64' or 'riscv64'
+-  if args.target_os == 'linux' and args.linux_cpu in ['arm64', 'riscv64']:
++  # target_os='linux' and linux-cpu='arm64' or 'riscv64'. ppc64 is built
++  # natively on a ppc64le host and uses the same spelling.
++  if args.target_os == 'linux' and args.linux_cpu in ['arm64', 'riscv64', 'ppc64']:
+     return True
+   # The Mac and host targets are redundant. Again, necessary to disambiguate
+   # during cross-compilation.
+@@ -150,8 +151,16 @@ def is_rosetta():
+   return False
+ 
+ 
++# Set from --host-cpu. Wins over every probe below: uname/platform.machine()
++# lies under binary translators (Rosetta, FEX, POWERarm), so packaging builds
++# should always pass it.
++HOST_CPU_OVERRIDE = None
++
++
+ # Returns the host machine CPU architecture.
+ def get_host_cpu():
++  if HOST_CPU_OVERRIDE:
++    return HOST_CPU_OVERRIDE
+   # If gn itself is running under Rosetta on an arm64 Mac, platform.machine()
+   # will return x86_64; instead return the underlying host architecture.
+   if is_rosetta():
+@@ -163,6 +172,10 @@ def get_host_cpu():
+     return 'x64'
+   if machine in ['i686', 'i386', 'x86']:
+     return 'x86'
++  if machine in ['riscv64']:
++    return 'riscv64'
++  if machine in ['ppc64le']:
++    return 'ppc64'
+   raise Exception('Unknown CPU architecture: %s' % machine)
+ 
+ 
+@@ -718,8 +731,8 @@ def to_gn_args(args):
+     # it doesn't build properly with our gn configuration.
+     gn_args['dart_include_wasm_opt'] = False
+ 
+-    # dart_platform_sdk is only defined for host builds, linux arm/riscv64 host
+-    # builds specify target_os=linux.
++    # dart_platform_sdk is only defined for host builds, linux arm/riscv64/ppc64
++    # host builds specify target_os=linux.
+     # dart_platform_sdk=True means exclude web-related files, e.g. dart2js,
+     # dartdevc, web SDK kernel and source files.
+     gn_args['dart_platform_sdk'] = not args.full_dart_sdk
+@@ -988,7 +1001,16 @@ def parse_args(args):
+   parser.add_argument('--web', action='store_true', default=False)
+   parser.add_argument('--windows', dest='target_os', action='store_const', const='win')
+ 
+-  parser.add_argument('--linux-cpu', type=str, choices=['x64', 'x86', 'arm64', 'arm', 'riscv64'])
++  parser.add_argument(
++      '--linux-cpu', type=str, choices=['x64', 'x86', 'arm64', 'arm', 'riscv64', 'ppc64']
++  )
++  parser.add_argument(
++      '--host-cpu',
++      type=str,
++      choices=['x64', 'x86', 'arm64', 'riscv64', 'ppc64'],
++      help='The CPU of the build host. Overrides detection from platform.machine(), '
++      'which is wrong under binary translation.'
++  )
+   parser.add_argument('--fuchsia-cpu', type=str, choices=['x64', 'arm64'], default='x64')
+   parser.add_argument('--windows-cpu', type=str, choices=['x64', 'arm64', 'x86'], default='x64')
+   parser.add_argument('--simulator-cpu', type=str, choices=['x64', 'arm64'], default='x64')
+@@ -1321,8 +1343,10 @@ def validate_args(args):
+ 
+ 
+ def main(argv):
++  global HOST_CPU_OVERRIDE  # pylint: disable=global-statement
+   args = parse_args(argv)
+   validate_args(args)
++  HOST_CPU_OVERRIDE = args.host_cpu
+ 
+   exe = '.exe' if sys.platform.startswith(('cygwin', 'win')) else ''
+ 

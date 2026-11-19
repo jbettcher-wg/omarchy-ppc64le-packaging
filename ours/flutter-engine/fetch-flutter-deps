@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+# fetch-flutter-deps -- resolve the flutter/flutter monorepo DEPS file without
+# gclient, depot_tools or CIPD, and fetch the git dependencies a Linux desktop
+# engine build needs at their pinned commits.
+#
+# Why: gclient/CIPD know nothing about ppc64le (CIPD has no linux-ppc64le
+# packages for clang, gn, ninja, the Dart SDK, ...) and in a Claude/POWERarm
+# sleeve they misdetect the host as aarch64. Everything CIPD would provide is
+# replaced by system packages (see --list-cipd), so only the git deps matter.
+#
+# Usage (run from anywhere; ROOT is the monorepo checkout holding DEPS):
+#   fetch-flutter-deps ROOT                 # fetch/update all selected git deps
+#   fetch-flutter-deps ROOT --list          # print path, url, commit (TSV)
+#   fetch-flutter-deps ROOT --list-cipd     # print the CIPD deps that are skipped
+#   fetch-flutter-deps ROOT --makepkg       # print makepkg source=() entries and
+#                                           # the matching prepare() placement
+#   options: --host-cpu ppc64 (DEPS conditions only; never probed from uname)
+#            --jobs N, --exclude REGEX (repeatable), --no-default-excludes,
+#            --full (non-shallow fetch)
+#
+# Fetch method: `git init; git fetch --depth 1 origin <sha>; checkout`. All the
+# *.googlesource.com hosts allow fetching a reachable commit by id. A dep that
+# is already checked out at its pinned commit is left alone, so the tool is
+# idempotent and safe to rerun after a DEPS bump. recursedeps (vulkan-deps) are
+# resolved from the fetched sub-DEPS with use_relative_paths honoured.
+#
+# Hooks are NOT run here; the flutter-engine recipe's prepare() runs the three
+# that a Linux desktop build needs.
+#
+# This copy lives beside the flutter-engine PKGBUILD (its durable home, as
+# chromium's fetch-chromium-release lives beside chromium's). It differs from
+# flutter-port work/engine/fetch-flutter-deps in two ways: --no-cipd (the
+# recipe takes the two CIPD zips as checksummed source=() entries instead),
+# and --makepkg no longer prints a gn source (the system gn is used since
+# 2026-11-19, with the engine series' strict-include opt-out).
+
+import argparse
+import concurrent.futures
+import os
+import re
+import subprocess
+import sys
+
+# Deps a Linux desktop engine build never touches. Each has a reason.
+DEFAULT_EXCLUDES = {
+    r'^engine/src/flutter/third_party/depot_tools$': 'gclient itself; not used by gn/ninja',
+    r'^engine/src/flutter/third_party/ocmock$': 'iOS/macOS unit tests only',
+    r'^engine/src/flutter/prebuilts/emsdk$': 'web (CanvasKit) only',
+}
+
+
+class DepsFile:
+
+  def __init__(self, path, builtin_vars, parent_vars=None):
+    self.path = path
+    with open(path) as f:
+      src = f.read()
+    self.vars = {}
+    scope = {}
+
+    def Var(name):
+      if name in builtin_vars:
+        return builtin_vars[name]
+      if name in self.vars:
+        return self.vars[name]
+      if name in scope.get('vars', {}):
+        return scope['vars'][name]
+      if parent_vars and name in parent_vars:
+        return parent_vars[name]
+      raise KeyError(name)
+
+    def Str(s):
+      return s
+
+    glb = {'Var': Var, 'Str': Str, '__builtins__': {}}
+    exec(compile(src, path, 'exec'), glb, scope)
+    raw_vars = dict(scope.get('vars', {}))
+    # Expand variable references that are themselves conditions.
+    self.vars.update(builtin_vars)
+    for k, v in raw_vars.items():
+      if k not in builtin_vars:
+        self.vars[k] = v
+    self.deps = scope.get('deps', {})
+    self.recursedeps = scope.get('recursedeps', [])
+    self.use_relative_paths = scope.get('use_relative_paths', False)
+    self.hooks = scope.get('hooks', [])
+    self.gclient_gn_args_file = scope.get('gclient_gn_args_file')
+    self.gclient_gn_args = scope.get('gclient_gn_args', [])
+
+  def evaluate(self, cond):
+    if cond is None or cond is True:
+      return True
+    if cond is False:
+      return False
+    env = {}
+    for k, v in self.vars.items():
+      env[k] = v
+    # Variables may themselves hold condition strings (e.g. download_linux_deps).
+    for _ in range(4):
+      changed = False
+      for k, v in list(env.items()):
+        if isinstance(v, str) and re.search(r'==|!=|\band\b|\bor\b|\bnot\b', v):
+          try:
+            env[k] = eval(v, {'__builtins__': {}}, env)
+            changed = True
+          except Exception:
+            pass
+      if not changed:
+        break
+    try:
+      return bool(eval(cond, {'__builtins__': {}}, env))
+    except NameError:
+      # Unknown variable (e.g. checkout_* in a sub-DEPS): gclient treats unset
+      # checkout_ vars as True for the default platform.
+      names = re.findall(r'[A-Za-z_][A-Za-z0-9_]*', cond)
+      for n in names:
+        if n not in env and n not in ('and', 'or', 'not', 'True', 'False'):
+          env[n] = True
+      return bool(eval(cond, {'__builtins__': {}}, env))
+
+
+def builtin_vars(host_cpu):
+  return {
+      'host_os': 'linux',
+      'host_cpu': host_cpu,
+      'checkout_linux': True,
+      'checkout_android': False,
+      'checkout_mac': False,
+      'checkout_ios': False,
+      'checkout_win': False,
+      'checkout_fuchsia': False,
+      'checkout_x64': host_cpu == 'x64',
+      'checkout_arm64': host_cpu == 'arm64',
+      'checkout_ppc64': host_cpu == 'ppc64',
+  }
+
+
+def collect(root, host_cpu, excludes):
+  """Returns (git_deps, cipd_deps, skipped) for DEPS at root, incl. recursedeps."""
+  git_deps, cipd_deps, skipped = [], [], []
+  bv = builtin_vars(host_cpu)
+
+  def walk(deps_path, prefix, parent_vars, fetch_missing_cb):
+    d = DepsFile(deps_path, bv, parent_vars)
+    for path, spec in d.deps.items():
+      full = os.path.normpath(os.path.join(prefix, path)) if d.use_relative_paths else path
+      cond = None
+      url = None
+      if isinstance(spec, str):
+        url = spec
+      elif isinstance(spec, dict):
+        cond = spec.get('condition')
+        if spec.get('dep_type') == 'cipd':
+          cipd_deps.append((full, spec.get('packages', []), cond, d.evaluate(cond)))
+          continue
+        url = spec.get('url')
+      if url is None:
+        skipped.append((full, 'no url (%r)' % (spec,)))
+        continue
+      # gclient also expands '{var}' inside strings (vulkan-deps uses it).
+      url = re.sub(r'\{(\w+)\}',
+                   lambda m: str(d.vars.get(m.group(1), (parent_vars or {}).get(m.group(1)))),
+                   url)
+      if not d.evaluate(cond):
+        skipped.append((full, 'condition false: %s' % cond))
+        continue
+      reason = None
+      for rx, why in excludes.items():
+        if re.search(rx, full):
+          reason = why
+      if reason:
+        skipped.append((full, 'excluded: ' + reason))
+        continue
+      if '@' not in url:
+        skipped.append((full, 'unpinned url ' + url))
+        continue
+      repo, rev = url.rsplit('@', 1)
+      git_deps.append((full, repo, rev))
+    return d
+
+  top = walk(os.path.join(root, 'DEPS'), '', None, None)
+  for rd in top.recursedeps:
+    rd_path = rd if isinstance(rd, str) else rd[0]
+    sub = os.path.join(root, rd_path, 'DEPS')
+    if not os.path.exists(sub):
+      skipped.append((rd_path + '/DEPS', 'recursedep not fetched yet; rerun after fetch'))
+      continue
+    walk(sub, rd_path, top.vars, None)
+  return git_deps, cipd_deps, skipped
+
+
+def write_gclient_gn_args(root, host_cpu):
+  """gclient writes DEPS' gclient_gn_args into a .gni; do the same."""
+  d = DepsFile(os.path.join(root, 'DEPS'), builtin_vars(host_cpu))
+  if not d.gclient_gn_args_file:
+    return
+  out = os.path.join(root, d.gclient_gn_args_file)
+  lines = ['# Generated by fetch-flutter-deps (stands in for gclient).']
+  for name in d.gclient_gn_args:
+    v = d.vars[name]
+    if isinstance(v, bool):
+      v = 'true' if v else 'false'
+    else:
+      v = '"%s"' % v
+    lines.append('%s = %s' % (name, v))
+  os.makedirs(os.path.dirname(out), exist_ok=True)
+  with open(out, 'w') as f:
+    f.write('\n'.join(lines) + '\n')
+  print('%-75s wrote %s' % (d.gclient_gn_args_file, ', '.join(lines[1:])))
+
+
+def git(args, cwd, check=True):
+  return subprocess.run(['git'] + args, cwd=cwd, check=check,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
+def fetch_one(root, path, repo, rev, full):
+  dest = os.path.join(root, path)
+  os.makedirs(dest, exist_ok=True)
+  if os.path.isdir(os.path.join(dest, '.git')):
+    r = git(['rev-parse', 'HEAD'], dest, check=False)
+    if r.returncode == 0 and r.stdout.strip() == rev:
+      return (path, 'ok (already at %s)' % rev[:12])
+  else:
+    git(['init', '-q'], dest)
+    git(['remote', 'add', 'origin', repo], dest, check=False)
+  git(['remote', 'set-url', 'origin', repo], dest)
+  depth = [] if full else ['--depth', '1']
+  r = git(['fetch', '-q', '--no-tags'] + depth + ['origin', rev], dest, check=False)
+  if r.returncode != 0:
+    # Fallback: full fetch, then look for the commit.
+    r2 = git(['fetch', '-q', '--no-tags', 'origin'], dest, check=False)
+    if r2.returncode != 0:
+      return (path, 'FAILED fetch: ' + (r.stdout + r2.stdout).strip()[-400:])
+    r = git(['rev-parse', '--verify', rev + '^{commit}'], dest, check=False)
+    if r.returncode != 0:
+      return (path, 'FAILED: %s not found after full fetch' % rev)
+    target = rev
+  else:
+    target = 'FETCH_HEAD'
+  r = git(['-c', 'advice.detachedHead=false', 'checkout', '-q', '--force', target], dest, check=False)
+  if r.returncode != 0:
+    return (path, 'FAILED checkout: ' + r.stdout.strip()[-400:])
+  head = git(['rev-parse', 'HEAD'], dest).stdout.strip()
+  if head != rev:
+    return (path, 'FAILED: HEAD %s != pinned %s' % (head, rev))
+  return (path, 'fetched %s' % rev[:12])
+
+
+def fetch_all(root, deps, jobs, full):
+  failed = []
+  with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
+    futs = [ex.submit(fetch_one, root, p, u, r, full) for (p, u, r) in deps]
+    for f in concurrent.futures.as_completed(futs):
+      path, status = f.result()
+      print('%-75s %s' % (path, status), flush=True)
+      if status.startswith('FAILED'):
+        failed.append(path)
+  return failed
+
+
+# Architecture-independent CIPD packages that the build or the unit tests read.
+# These are fetched over plain HTTPS from the CIPD backend's /dl/ endpoint
+# (a zip of the instance), so no cipd client is needed. Everything else in
+# CIPD is a host binary and is replaced by a system package (see REPORT.md).
+CIPD_NOARCH = {
+    'dart/third_party/flutter/devtools': 'Dart: generate_package_config needs devtools_shared',
+    'flutter/flutter_font_fallbacks': 'engine unit tests (txt/skparagraph) fonts',
+}
+CIPD_DL = 'https://chrome-infra-packages.appspot.com/dl/%s/+/%s'
+
+
+def fetch_cipd_noarch(root, cipd_deps):
+  import io
+  import urllib.request
+  import zipfile
+  failed = []
+  for path, pkgs, cond, active in cipd_deps:
+    if not active or len(pkgs) != 1 or pkgs[0]['package'] not in CIPD_NOARCH:
+      continue
+    pkg, ver = pkgs[0]['package'], pkgs[0]['version']
+    dest = os.path.join(root, path)
+    stamp = os.path.join(dest, '.fetch-flutter-deps.cipd')
+    want = '%s@%s' % (pkg, ver)
+    if os.path.exists(stamp) and open(stamp).read().strip() == want:
+      print('%-75s ok (cipd %s)' % (path, ver[:24]))
+      continue
+    try:
+      with urllib.request.urlopen(CIPD_DL % (pkg, ver), timeout=300) as r:
+        data = r.read()
+      # Extract over the directory; do not delete it, some hold tracked
+      # files of the parent repo (dart's third_party/devtools/README.md).
+      os.makedirs(dest, exist_ok=True)
+      with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for m in z.infolist():
+          if m.filename.startswith('.cipdpkg/'):
+            continue
+          z.extract(m, dest)
+          # zip from CIPD keeps the exec bit in external_attr
+          mode = (m.external_attr >> 16) & 0o777
+          if mode:
+            os.chmod(os.path.join(dest, m.filename), mode)
+      with open(stamp, 'w') as f:
+        f.write(want + '\n')
+      print('%-75s fetched cipd %s (%d bytes)' % (path, ver[:24], len(data)))
+    except Exception as e:  # pylint: disable=broad-except
+      print('%-75s FAILED cipd: %s' % (path, e))
+      failed.append(path)
+  return failed
+
+
+def makepkg_name(path):
+  return 'fd-' + re.sub(r'[^A-Za-z0-9._-]+', '_', path.replace('engine/src/', ''))
+
+
+def main():
+  ap = argparse.ArgumentParser()
+  ap.add_argument('root')
+  ap.add_argument('--host-cpu', default='ppc64')
+  ap.add_argument('--jobs', type=int, default=8)
+  ap.add_argument('--exclude', action='append', default=[])
+  ap.add_argument('--no-default-excludes', action='store_true')
+  ap.add_argument('--full', action='store_true')
+  ap.add_argument('--no-cipd', action='store_true',
+                  help='do not fetch the architecture-independent CIPD zips')
+  ap.add_argument('--list', action='store_true')
+  ap.add_argument('--list-cipd', action='store_true')
+  ap.add_argument('--list-skipped', action='store_true')
+  ap.add_argument('--makepkg', action='store_true')
+  a = ap.parse_args()
+
+  excludes = {} if a.no_default_excludes else dict(DEFAULT_EXCLUDES)
+  for x in a.exclude:
+    excludes[x] = 'command line'
+
+  root = os.path.abspath(a.root)
+  git_deps, cipd_deps, skipped = collect(root, a.host_cpu, excludes)
+
+  if a.list:
+    for p, u, r in git_deps:
+      print('%s\t%s\t%s' % (p, u, r))
+    return 0
+  if a.list_cipd:
+    for p, pkgs, cond, active in cipd_deps:
+      names = ','.join('%s@%s' % (x['package'], x['version']) for x in pkgs)
+      print('%s\t%s\t%s\t%s' % (p, 'active' if active else 'inactive', cond or '-', names))
+    return 0
+  if a.list_skipped:
+    for p, why in skipped:
+      print('%s\t%s' % (p, why))
+    return 0
+  if a.makepkg:
+    print('# --- source=() entries (generated by fetch-flutter-deps from DEPS) ---')
+    for p, u, r in git_deps:
+      print('  "%s::git+%s#commit=%s"' % (makepkg_name(p), u, r))
+    print('# --- prepare(): place each dep where DEPS expects it ---')
+    print('_place_deps() {')
+    print('  local _n _p')
+    print('  while read -r _n _p; do')
+    print('    mkdir -p "$srcdir/flutter/$(dirname "$_p")"')
+    print('    rm -rf "$srcdir/flutter/$_p"; ln -s "$srcdir/$_n" "$srcdir/flutter/$_p"')
+    print('  done <<EOF')
+    for p, u, r in git_deps:
+      print('%s %s' % (makepkg_name(p), p))
+    print('EOF')
+    print('}')
+    print('# --- architecture-independent CIPD packages (plain HTTPS, no cipd client) ---')
+    for p, pkgs, cond, active in cipd_deps:
+      if active and len(pkgs) == 1 and pkgs[0]['package'] in CIPD_NOARCH:
+        print('  "%s.zip::%s"  # -> %s' % (makepkg_name(p), CIPD_DL % (pkgs[0]['package'],
+                                                                    pkgs[0]['version']), p))
+    return 0
+
+  failed = fetch_all(root, git_deps, a.jobs, a.full)
+  # A second pass picks up recursedeps whose DEPS only exist after the first.
+  git_deps2, _, _ = collect(root, a.host_cpu, excludes)
+  extra = [d for d in git_deps2 if d not in git_deps]
+  if extra:
+    print('--- recursedeps: %d more ---' % len(extra), flush=True)
+    failed += fetch_all(root, extra, a.jobs, a.full)
+  if not a.no_cipd:
+    failed += fetch_cipd_noarch(root, cipd_deps)
+  write_gclient_gn_args(root, a.host_cpu)
+  if failed:
+    print('FAILED: %d deps:\n  %s' % (len(failed), '\n  '.join(failed)), file=sys.stderr)
+    return 1
+  print('all %d git deps at their pinned commits' % (len(git_deps) + len(extra)))
+  return 0
+
+
+if __name__ == '__main__':
+  sys.exit(main())

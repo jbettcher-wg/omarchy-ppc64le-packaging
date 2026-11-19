@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 01:30:00 -0600
+Subject: [PATCH] [engine] build: pin -faltivec-src-compat=mixed for ppc64
+
+clang decides how AltiVec/VSX vector code is typed with
+-faltivec-src-compat: whether a vector compare yields a vector mask or a
+scalar, and how a scalar converts to a vector. Its default is "mixed",
+and clang's -Wdeprecated-altivec-src-compat warning (188 of them in
+Skia, engine track REPORT.md section 8.4) says the default will become
+"xl". Measured with clang 22.1.8 on ppc64le, 2026-11-19:
+
+  mode     probe: (int4)(a < b),           skcms_TransformBaseline.cc
+           a={1,2,3,4} b={2,2,2,2}         (Skia, the portable path)
+  mixed    {-1,0,0,0}  correct             compiles (17 warnings)
+  gcc      {-1,0,0,0}  correct             2 errors: invalid conversion
+                                           between vector types
+  xl       {0,0,0,0}   silently scalar     5 errors: static_assert
+                                           sizeof(bool) == sizeof(v)
+
+So the only mode in which this tree both compiles and computes vector
+masks is today's default. Pin it, so that the day clang flips its default
+the build either keeps today's semantics or, where code needs another
+mode, fails here rather than in a pixel. The engine track's suggestion to
+pin "gcc" does not compile skcms.
+
+It is a GN arg so a by-hand build can show that the pin is what holds:
+ppc64_altivec_src_compat="" leaves the compiler default. The
+flutter-engine recipe asserts that -faltivec-src-compat=mixed reaches
+every ppc64 compile and that no other mode appears anywhere.
+
+Class: upstreamable fix (a portability guard: pins the vector semantics
+the code is written for; no effect while clang's default stays mixed).
+---
+ engine/src/build/config/compiler/BUILD.gn | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+--- a/engine/src/build/config/compiler/BUILD.gn
++++ b/engine/src/build/config/compiler/BUILD.gn
+@@ -47,6 +47,14 @@
+   # 2.07). GN ignores $CFLAGS, so a distro's ISA policy has to come in here.
+   ppc64_cpu = ""
+ 
++  # ppc64: clang's -faltivec-src-compat mode, pinned to "mixed", today's
++  # default and the only mode in which Skia's skcms both compiles and gets
++  # vector masks from vector compares ("gcc" and "xl" fail to compile
++  # skcms; "xl" also turns vector compares scalar). clang says its default
++  # will change to "xl". Empty leaves the compiler default (for testing
++  # that the pin is what holds).
++  ppc64_altivec_src_compat = "mixed"
++
+   # Turn compiler warnings into errors. Builds with a compiler other than the
+   # pinned prebuilt clang (e.g. a distro's system clang, which is newer or
+   # older and has a different warning set) set this to false.
+@@ -424,6 +432,9 @@
+           "-mtune=$ppc64_cpu",
+         ]
+       }
++      if (is_clang && ppc64_altivec_src_compat != "") {
++        cflags += [ "-faltivec-src-compat=$ppc64_altivec_src_compat" ]
++      }
+     }
+   }
+ 

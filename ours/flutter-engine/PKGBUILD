@@ -1,0 +1,1130 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# The Flutter engine for Linux desktop on ppc64le (POWER8+, little-endian,
+# ELFv2, glibc): libflutter_linux_gtk.so, gen_snapshot and the host tools for
+# the debug, profile and release runtime modes, installed where the flutter
+# tool looks for them (package `flutter`). It is built from the flutter/flutter
+# monorepo at the release tag, with its own copy of the Dart VM, which carries
+# the ppc64 port.
+#
+# With the native ppc64 Dart backend (JIT and AOT), 2026-11-19: debug,
+# profile and release build and run natively, no simulator. The engine
+# track's report (flutter-port work/engine/REPORT-NATIVE.md) has the
+# measurements this recipe reproduces: the engine unit tests and the
+# engine's testing/dart suite under flutter_tester match the simarm64
+# reference, and a release libapp.so runs through the GTK embedder.
+#
+# Class: local workaround (distribution packaging: system toolchain and
+# libraries, no gclient, CIPD client or sysroot). The ppc64 enablement it
+# carries is classified patch by patch, in each patch's Class: line.
+#
+# Seven things about this build are worth knowing before changing it.
+#
+# 1. SOURCES ARE FETCHED IN prepare(), SHALLOW, BY COMMIT ID. The monorepo is
+#    fetched at $_commit and the 81 git DEPS (71 top level + 10 from
+#    vulkan-deps) by fetch-flutter-deps, which lives beside this file (as
+#    chromium's fetch-chromium-release does): one `git fetch --depth 1 <url>
+#    <sha>` each, then checked against its pin. Measured 2026-11-19: all of
+#    prepare() (fetch, patches, gates, hooks) takes 78-85 s, and the shallow
+#    .git directories total 0.6 GiB. The other way is one makepkg
+#    `name::git+url#commit=` source per repo, which is makepkg's
+#    `git clone --mirror` (source/git.sh): full history and every ref, kept
+#    in SRCDEST. Measured for the 8 biggest of the 82 repos alone: 18.6 GiB
+#    and 26 min (8 clones in parallel) against 0.41 GiB shallow: dart 5.2 GiB
+#    (382,690 refs), skia 4.2 GiB (370,287 refs), swiftshader 4.0 GiB, the
+#    monorepo 2.8 GiB, icu 1.3 GiB, boringssl 0.7 GiB, angle and
+#    flutter_packages 0.2 GiB each. What git+ would buy: no network on a
+#    rebuild once SRCDEST is warm (bq deletes its work tree after a build, so
+#    this recipe refetches 0.6 GiB each time), and a complete
+#    `makepkg --allsource`. A side effect to know about: content_aware_hash.sh
+#    treats a non-shallow detached checkout as a development branch and
+#    hashes at the merge-base with origin/master (harmless; that hash is only
+#    used for Android).
+#    Either way the engine's tools/gn needs real git checkouts: it runs
+#    `git rev-parse HEAD` in engine/src/flutter, third_party/skia and
+#    third_party/dart for engine_version, skia_version, dart_version and
+#    the Dart SDK hash. A tag tarball would not do.
+#    bq shares the host's network namespace (flutter-port R15), so fetching
+#    in prepare() works under bq. The two CIPD packages are ordinary
+#    checksummed source=() entries, taken from CIPD's plain /dl/ endpoint.
+#
+# 2. TWO PATCH SERIES, BOTH FLAT, BOTH GATED.
+#    - The engine series (NNNN-*.patch beside this file, applied with
+#      `patch -p1` at the monorepo root, so a patch can reach a DEPS
+#      checkout such as libpng with ordinary paths). The series' durable
+#      home is this directory.
+#    - The Dart port series (dart-NNNN-*.patch). These are SYMLINKS into the
+#      `dart` recipe's directory, made by ./sync-dart-series. The series has
+#      one home, beside dart's PKGBUILD. The engine applies it to
+#      engine/src/flutter/third_party/dart, which is the same commit as
+#      dart's tag (c70f78e7). One kind of Dart patch is skipped: a patch
+#      that touches only a Dart DEPS checkout which the engine supplies at a
+#      different path, matched by path, never by number. Today that is
+#      BoringSSL (dart's target.h patch); engine 0012 is the same change,
+#      hunk for hunk.
+#    The Dart series is applied UNCOMMITTED, on the tag: third_party/dart's
+#    HEAD stays at c70f78e7. tools/make_version.py bakes `git rev-parse
+#    --short=10 HEAD` into the VM as its SDK hash, so a commit there would
+#    give a hash the `dart` package does not have, and the flutter tool fails
+#    with "Unexpected Kernel SDK Version" (engine REPORT-NATIVE 2). The GN
+#    arg dart_sdk_verification_hash pins the kernel tools' side too, and
+#    build() gates that every staged .dill header, every engine binary and
+#    the dart package agree on c70f78e7d6 (and verify_sdk_hash stays on).
+#    Gates, in the dart recipe's style. Each one hashes a tree with git
+#    (`add -A -f; write-tree`), with every DEPS path excluded:
+#      gate 1  the monorepo is the tag (_base_tree)
+#      gate D  third_party/dart after the Dart series == _dart_tree, which is
+#              `dart`'s _tree. This proves the engine embeds the same Dart
+#              source as the dart package (BoringSSL aside, see above).
+#      gate 2  the monorepo after the engine series == _tree
+#      deps    each DEPS checkout the series touches == _dep_trees[path]
+#
+# 3. TOOLCHAIN: SYSTEM ONLY. clang/lld/llvm through clang_base_path="/usr"
+#    (engine 0002), the pool's gn (>= 2489; 0.2595 in the pool, the one
+#    chromium uses, with engine 0009's strict-include opt-out), the system
+#    ninja and python, no sysroot (--no-default-linux-sysroot, system gtk3,
+#    glib2 and pango). No CIPD, no depot_tools, no prebuilt clang.
+#    -faltivec-src-compat=mixed is pinned through engine 0014 and asserted on
+#    every ppc64 compile: clang warns that its default will become "xl", which
+#    makes vector compares scalar (engine REPORT 8.4). Measured 2026-11-19:
+#    mixed, today's default, is the only mode in which Skia's skcms compiles
+#    at all; "gcc", which the engine track suggested, and "xl" both fail.
+#
+# 4. THE PREBUILT DART IS THE POOL'S `dart` PACKAGE, AS A LEAF. The engine's
+#    GN graph runs third_party/dart/tools/sdks/dart-sdk/bin/dart from
+#    build/gn_run_binary.py, and so do the DEPS hooks. That runs the
+#    front end (compile_platform, kernel compiles, sdk_rewriter), never
+#    machine-code generation: snapshots are made by the gen_snapshot this
+#    build compiles. tools/sdks/dart-sdk is a symlink to /usr/lib/dart
+#    (_driver=system, the default: 1.8x faster than the emulated bootstrap at
+#    the same kernel compile, REPORT-NATIVE 8.6); _driver=bootstrap uses
+#    /usr/lib/dart-bootstrap. The CONTROL checks refuse anything that is not
+#    a native linux_ppc64 Dart from the right pool, and refuse a build graph
+#    that runs an out-of-tree binary or names an upstream or bootstrap SDK
+#    path. The `dart` package is a makedepend either way: its PRODUCT
+#    frontend_server_aot.dart.snapshot replaces the engine-built one in
+#    linux-ppc64/, as upstream ships it. The engine's is built by its own
+#    non-product gen_snapshot, and a product runtime refuses it
+#    ("dedup_instructions is false in snapshot", REPORT-NATIVE 6).
+#
+# 5. CODEGEN IS POWER8 IN BOTH POOLS, C++ IS PER POOL. Dart's backend has no
+#    ISA 3.0 emitter, so gen_snapshot output (every app's libapp.so) is ISA
+#    2.07 whichever pool built it. _power8_compat selects only the C/C++
+#    -mcpu/-mtune of the engine itself, through the GN arg ppc64_cpu (GN
+#    never reads CFLAGS, so makepkg.conf.d/00-power8.conf cannot reach this
+#    build). build() asserts that -mcpu=<want> -mtune=<want> reach every
+#    C/C++ compile and that no other -mcpu/-mtune is named anywhere in the
+#    graph. ISA policy, as in the dart recipe: AOT outputs (the staged
+#    frontend_server_aot snapshot and a libapp.so that build() compiles with
+#    the release gen_snapshot) carry 0 ISA 3.0 instructions in BOTH pools,
+#    scanned over the whole .text with objdump -D -z -j .text, a coverage
+#    floor and a mid-.text control (isa30-text-scan.py; a stripped libapp.so
+#    defeats plain -d, NOTES item 17). Native ELFs are counted in the POWER9
+#    pool; in the baseline pool any ISA 3.0 instruction must lie in libgcc's
+#    IFUNC'd IEEE-128 *_hw routines (isa30-attribute.py, shared with dart),
+#    and the engine links libgcc_s dynamically, so 0 is what to expect.
+#
+# 6. bq RUNS makepkg --nocheck. Every gate is in prepare() or build(); check()
+#    only runs in a native by-hand build, where it builds and runs the
+#    engine's own test suites (see check()). Inside bq, /usr is a read-only
+#    overlay and $HOME is the real home, so prepare() and build() point HOME,
+#    PUB_CACHE and XDG_CONFIG_HOME into $srcdir. package() runs under
+#    fakeroot and only copies files. It never runs a Dart, and never an
+#    emulated binary of any kind: POWERarm cannot reach its server as uid 0.
+#
+# 7. BUILD THIS NATIVELY: through bq / tools/build-ppc64le.sh, or makepkg in a
+#    native shell. Never build it from inside the POWERarm aarch64 sleeve that
+#    Claude sessions run in. There fakeroot half-works and produces
+#    -rw------- packages owned by the builder. An agent reaches the native
+#    shell with: ssh -n -i ~/.ssh/id_claude_omarchy -o BatchMode=yes localhost
+#    Put the build root on /mnt/arch (BQ_BUILDROOT): the tree is ~5 GiB before
+#    the three out/ directories.
+#
+# PKGREL RULE. Bump pkgrel whenever the Dart series changes at the same
+# pkgver (the engine embeds that VM), and whenever this recipe's own patches
+# or gates change. Bump localsend after any engine change: its bundle copies
+# libflutter_linux_gtk.so.
+#
+# THE ENGINE SERIES (the Dart series' classes are in the dart recipe's
+# header; its files are the dart-NNNN-* symlinks here). 0001-0013 are the
+# engine track's patches-native (work/engine, tools/verify-series reproduces
+# their trees); 0014 is this recipe's.
+#   0001 [engine] Backport: riscv64 desktop linux engine     -- upstream backport
+#   0002 [engine] ppc64 (LE ELFv2) desktop Linux host        -- upstreamable in form; local
+#   0003 [engine] build: treat_warnings_as_errors arg        -- upstreamable fix
+#   0004 [engine] tools/gn: python3 when no vpython3         -- upstreamable fix
+#   0005 [engine] build: the missing get_host_byteorder.py   -- upstreamable fix
+#   0006 [engine] fml/tonic/assets: ppc64le CPU tables       -- upstreamable in form; local
+#   0007 [engine] Backport: GTK embedder on Pango 1.58.0     -- upstream backport
+#   0008 [engine] linux: glib.h before extern "C" ATK        -- upstreamable fix
+#   0009 [engine] build: opt out of strict include checking  -- local workaround (gn >= 2591)
+#   0010 [engine] lib/snapshot: gen_snapshot, analyze_snapshot for ppc64
+#                                                            -- upstreamable in form; local
+#   0011 [libpng] BUILD.gn: portable filters on ppc64        -- upstreamable fix
+#   0012 [boringssl] target.h: ppc64le, portable C           -- upstreamable fix in spirit;
+#                                                               local (== dart's patch)
+#   0013 [swiftshader] MC XCOFF base classes for LLVM PPC    -- upstreamable fix
+#   0014 [engine] build: pin -faltivec-src-compat=mixed      -- upstreamable fix (guard)
+
+pkgname=flutter-engine
+pkgver=3.41.9
+pkgrel=1
+pkgdesc='Flutter engine for Linux desktop: libflutter_linux_gtk.so, gen_snapshot and host tools, debug/profile/release (ppc64le port)'
+arch=('powerpc64le')
+url='https://flutter.dev'
+license=('BSD-3-Clause')
+
+_url=https://github.com/flutter/flutter.git
+_commit=00b0c91f06209d9e4a41f71b7a512d6eb3b9c694       # tag 3.41.9
+_commit_time='Wed Apr 29 17:03:19 2026 +0000'           # git log -1 --format=%cd 3.41.9
+# The tag's tree: git rev-parse 3.41.9^{tree}.
+_base_tree=77bb2e2312ad0f9cdf8e44d868396dc3751b1ed8
+# bin/internal/engine.version at the tag: the content-aware hash the flutter
+# tool keys its engine stamps on. Recorded in .pkginfo for the tool package.
+_engine_revision=42d3d75a56efe1a2e9902f52dc8006099c45d937
+# The Dart inside: DEPS dart_revision, which is dart's tag 3.11.5.
+_dart_pkgver=3.11.5
+_dart_commit=c70f78e7d682c158c15ca0c26c729b3ccb932284
+
+# Gate 2: the monorepo after the engine series, DEPS paths excluded, measured
+# by this recipe's prepare() from a fresh fetch, 2026-11-19. Without 0014 the
+# same tree is cf4a819f, the engine track's patches-native monorepo tree
+# (tools/verify-series), so 0001-0013 are exactly the engine track's.
+_tree=2178c90b4fbad37a605aff2414dc5cc30e183736
+# Gate D: third_party/dart after the Dart series, DEPS paths excluded. It must
+# equal the dart recipe's _tree (sync-dart-series keeps them equal): C's
+# ppc64-backend tree, which the engine track's import also reproduced.
+_dart_tree=c5aba92a8a98e5187a38d8942ffac4b1f186d428
+# DEPS checkouts the engine series patches, after patching, by path. -g:
+# makepkg sources this file inside a function.
+declare -gA _dep_trees=(
+  [engine/src/flutter/third_party/libpng]=b29bb83c3d49aa8e312a26e240c7ac351caba15d        # 0011
+  [engine/src/flutter/third_party/boringssl/src]=a67ee71bb8c93180b9f6c516bcc92702db6b5b7a # 0012 (== dart's)
+  [engine/src/flutter/third_party/swiftshader]=007aa2a50d0c3eaff8b56027e42cc8de56bebb78   # 0013
+  # dart-lang/native inside the engine's Dart (same pin, 9a115379, as the
+  # dart recipe's): the Dart series patches it (Architecture.ppc64, ABI-SPEC
+  # A2). Gate D excludes it as a DEPS path, so it is gated here, against the
+  # dart recipe's _dep_trees[third_party/pkg/native]. The interim engine 0013
+  # and its third_party/dart entry are gone (2026-11-19): the full Dart series
+  # carries the TARGET_ARCH_PPC64 GN wiring and analyze_snapshot itself.
+  [engine/src/flutter/third_party/dart/third_party/pkg/native]=6b5e0cd25a6572ab51fb683632a2995c3dad5db1
+)
+
+# Dart patches whose every path lies under one of these Dart DEPS paths are
+# skipped here: the engine's DEPS supplies that checkout elsewhere and the
+# engine series carries the change (BoringSSL -> engine 0012, the same hunks;
+# its tree equals the dart recipe's BoringSSL gate). A Dart patch that mixes such a path with others is an
+# error.
+_dart_relocated=('third_party/boringssl/src')
+
+_devtools_rev=9be2c887e3982e519cf58f185d5f7b008a4606e9
+_fonts_iid=44bd38be0bc8c189a397ca6dd6f737746a9e0c6117b96a8f84f1edf6acd1206b
+
+# Measured DT_NEEDED of the native build's staged ELFs (all three modes,
+# 2026-11-19): libflutter_linux_gtk.so needs gtk-3, gdk-3, pangocairo, atk,
+# pango, cairo, gio/gobject/glib, epoxy, fontconfig, libgcc_s and glibc;
+# flutter_tester fontconfig, libgcc_s, glibc; impellerc libgcc_s, glibc;
+# gen_snapshot, font-subset, libpath_ops.so, libtessellator.so glibc only.
+depends=('gtk3' 'pango' 'at-spi2-core' 'cairo' 'glib2' 'libepoxy' 'fontconfig' 'libgcc' 'glibc')
+# Present on the host 2026-11-19: gn 0.2595, clang/lld 22.1.8, llvm 22.1.8,
+# ninja 1.13.2, python 3.14.7, git 2.55, gtk3 3.24.52. The linux embedder's
+# pkg-config set is gtk+-3.0, epoxy, egl and x11
+# (shell/platform/linux/config/BUILD.gn).
+makedepends=('gn>=0.2595' 'clang' 'lld' 'llvm' 'ninja' 'python' 'git' 'patch'
+             'file' 'binutils' 'gtk3' 'libepoxy' 'libglvnd' 'libx11' 'fontconfig'
+             "dart=$_dart_pkgver")
+# check() only: GTK on broadway inside a private D-Bus with the AT-SPI bus,
+# Xvfb + Mesa for the GLES backend of impeller_unittests, cc for the nodump
+# preload.
+checkdepends=('dbus' 'at-spi2-core' 'gtk3' 'xorg-server-xvfb' 'xorg-xauth' 'mesa' 'gcc')
+# !strip: the build already strips what upstream ships stripped, and
+# frontend_server_aot.dart.snapshot is an ELF written by Dart's own ELF writer
+# that strip would treat as a library. !lto: GN ignores makepkg's flags.
+options=('!strip' '!debug' '!lto')
+
+# --- POWER8 / POWER9 ---------------------------------------------------------
+# Set by tools/build-ppc64le.sh for the baseline pool. Selects ppc64_cpu (the
+# engine's C/C++ -mcpu) and which pool's dart-bootstrap the CONTROL accepts.
+_power8_compat=${_power8_compat:-0}
+
+# --- which Dart runs the front-end actions -----------------------------------
+#   system     /usr/lib/dart, the pool's own dart package (default)
+#   bootstrap  /usr/lib/dart-bootstrap
+_driver=${_driver:-system}
+case $_driver in
+  system)    _driver_sdk=/usr/lib/dart ;;
+  bootstrap) _driver_sdk=/usr/lib/dart-bootstrap; makedepends+=("dart-bootstrap=$_dart_pkgver") ;;
+  *)         _driver_sdk= ;;   # prepare() refuses
+esac
+# The dart package itself: its product frontend_server snapshot is staged, and
+# its SDK hash is the one every engine artifact must carry.
+_dart_sdk=/usr/lib/dart
+_dart_sdk_hash=c70f78e7d6   # dart 3.11.5's tag, git rev-parse --short=10
+
+# The engine series, in order: the engine track's patches-native 0001-0013
+# (its 0014-0046 are the Dart series, consumed here as dart-NNNN-*), then
+# this recipe's 0014.
+_patches=(
+  0001-engine-Backport-add-support-for-riscv64-desktop-linu.patch
+  0002-engine-Add-ppc64-little-endian-ELFv2-desktop-Linux-h.patch
+  0003-engine-build-add-treat_warnings_as_errors-to-make-We.patch
+  0004-engine-tools-gn-fall-back-to-python3-when-vpython3-i.patch
+  0005-engine-build-add-the-missing-get_host_byteorder.py.patch
+  0006-engine-fml-tonic-assets-recognise-ppc64le-ELFv2-in-t.patch
+  0007-engine-Backport-fix-building-the-GTK-embedder-on-Pan.patch
+  0008-engine-linux-include-glib.h-before-the-extern-C-ATK-.patch
+  0009-engine-build-opt-out-of-gn-s-strict-include-checking.patch
+  0010-engine-lib-snapshot-build-gen_snapshot-and-analyze_s.patch
+  0011-libpng-BUILD.gn-use-the-portable-filters-on-ppc64.patch
+  0012-boringssl-target.h-recognise-ppc64le-portable-C-no-a.patch
+  0013-swiftshader-Add-the-MC-XCOFF-base-classes-to-the-bun.patch
+  0014-engine-build-pin-faltivec-src-compat-mixed-for-ppc64.patch
+)
+_patch_sums=(
+  'ff5bfa67354fd96d668bca3d89769ad4499906c7e38db5184222a62f615742bf'
+  '59ce332a099dc814fc7fad83d558d598bc0334dc3872263fdb636e0653b842e6'
+  'e9e69ebc0dfbe943c8565f024aa536db772fda66a3339a22bef82dd8020fba33'
+  '91d5e93874436b2934df3352341039d30b04e53b0b1e93f7d5e1337d0b672add'
+  '5008c2f5f55c235b3dbba111af652dbb7d8cc04bd338b6f0f543a12e08047097'
+  '8c04dafe5830760691237dc997dad963ded22a662b5a51bd6aa36617f3469427'
+  '81031c37b1015a2125beb4a18607cfaa2c68d590cca7de17515c7bac107a16c7'
+  '0c304584b67d6ee01218aa11dae214041449760b0b6cbfc63772a255b3de922c'
+  '20a03a1900f90f053bb2a9d422d376a4a91c938baa9650ecac22584ad92396d3'
+  '43ce0afdf5683e46d533354959db650a368491319a5c312b8c97e83562a7d171'
+  '0af9196cf5623988734c54ee99c22266008dfa026a87b37b0554d6826b443ee8'
+  'b090390c8d38a7778a54c617c806042446e8003b98ab2bea63d241d99f1fecef'
+  '927d64e9ac165f97931df6aa681671e3db771a52a5892934b2d66b3cd2ca4efb'
+  '5d17d259161adb84d1c35a39b922987aa18c3faf7687f04117f7ada720d499df'
+)
+
+# The Dart port series: symlinks into the dart recipe's directory. Do not
+# edit by hand; run ./sync-dart-series after the series is re-exported.
+# BEGIN generated: sync-dart-series
+_dart_patches=(
+  'dart-0001-ppc64-tools-accept-a-ppc64le-host-take-the-host-arch.patch'
+  'dart-0002-ppc64-runtime-HOST_ARCH_PPC64-host-plumbing.patch'
+  'dart-0003-ppc64-smith-add-the-ppc64-architecture-map-a-ppc64le.patch'
+  'dart-0004-ppc64-build-add-the-ppc64-cpu-to-the-GN-build.patch'
+  'dart-0005-ppc64-build-system-clang-lld-and-no-Debian-sysroot-w.patch'
+  'dart-0006-ppc64-runtime-64-KiB-page-constants-for-Linux-PPC64-.patch'
+  'dart-0007-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0008-ppc64-runtime-TARGET_ARCH_PPC64-arms-GN-wiring-code-.patch'
+  'dart-0009-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0010-ppc64-runtime-offsets-for-TARGET_ARCH_PPC64.patch'
+  'dart-0011-ppc64-runtime-DWARF-CFI-for-ppc64.patch'
+  'dart-0012-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0013-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0014-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0015-ppc64-runtime-BareSwitchableCallPattern-for-the-AOT-.patch'
+  'dart-0016-ppc64-runtime-object_ppc64_test.cc.patch'
+  'dart-0017-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0018-ppc64-runtime-list-stub_code_ppc64_test.cc-in-vm_sou.patch'
+  'dart-0019-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0020-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0021-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0022-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0023-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0024-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0025-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0026-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0027-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0028-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0029-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0030-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0031-ppc64-runtime-build-analyze_snapshot-for-ppc64.patch'
+  'dart-0032-ppc64-sync-the-backend-components-into-the-tree.patch'
+  'dart-0033-ppc64-Add-a-ppc64le-target-generic-C-no-assembly.patch'
+  'dart-0034-ppc64-sync-the-backend-components-into-third_party-p.patch'
+)
+_dart_patch_sums=(
+  '123bff3c53f75db7c8225bf163953435a48d3a815e5718d8b5750e19fca24473'
+  '38a93eab9f91b50cc70c81d5c2a747ca86eb28fa95035e02504f14334c32bc82'
+  'd1fc899b6d9455752b581ee3e2bad82354c8e35b6f05618bf2ea85928769a215'
+  'cf64f249a1cb942fc9762c69e610255475a6289f338f386f27ae620b6d61c546'
+  '318fc6468eb33d99f27ad04fed330f0f77fe469d0cf23d442773cb2548639b12'
+  '6a47d495a49f2b0d14d51bdfb702076b17e1d347b17c6feb0e9feff9895fb850'
+  'b84ef6279240d78dc02fdf14429c2dfe07b082e9dd230c18708306f9f7a443fd'
+  '27b7525aa5bc66965c0521d86276a36a3c1d71474012487d0ba2ade92125c257'
+  '2557a33c080581125d248915b7d990f0e430b138fb1fdc59bf201ef6c80c554c'
+  '417ff0bdc9a85c5cef528fc8f62ec20b32f46a59044a03122b7b4900c6bd6a2e'
+  '8da995c006b9addd6696542b0ff92aa343985701fe2608cf14f2f0863e0a893a'
+  'cea221389b0750c3f74aea5b1e2f8daa5a6b80fded8b862e1e11ced4313cd64c'
+  '947c8c6c007182d887d847628703763ac45ba6c85613ebebecd0970e4cb259f6'
+  '03cc9b767e1d02a6cb266f720e0837d153e38c3987da5fd085ec29acaa29261b'
+  '39698357c8d96b17a2d245b4da4bf0e96355be2a77d305787118f6a80bdf4b6a'
+  '9189d0b3eb920e84d7b342cf7a0108066a9bb85cb8d932c4d7a1c7345f67e966'
+  'bcc1edcce3bc4545ad43da4b5b10a09282c08a28b767f922f05a8106465cdd88'
+  'e5e0fe46133ed94f7a90b6c6c8f3af6510648810e3dbe59683b472686247a58c'
+  '8135a29ec887dd967a9231a2f3191be4e8e2ba44213fc7a0d71c2581331924ec'
+  '27bfd94cf1b75031ff4c236df8d656dc122a72dd47d959c11de9cc15687b3ff5'
+  'e6d1e873c6d9b659bdacf7ea79cae087512c0a75a50a6237c2e036832ca614a6'
+  '04cfc9e0be4caf7a77757489cbd68af8110ec7bf6cff4ca64b980629e2d0e54f'
+  'd957bc71f23ccbfb07e61a124c52e67ece8daab5da1e7317637bfa0d532d4578'
+  '6c9577ac76098957ea5188e044fd30e3aa93dd269c38181f2c869964fa74f132'
+  'db264ce4d3042a8f89dfdf859bc01d6e2c44d01a8f90b48ddfaf0d8751c7bf4a'
+  '4aef0e294db59315b4130babddde1e23274de2005efdb5c56009b9b77cf33a6b'
+  'ab85b19b768dc10bb13940be0aa86758e8ff991c8ff86228a1cbeb5196a0b240'
+  'b798c7eb3349633f4903b7b2b4446f15e9073becdd4be0f640db30a796c151c0'
+  '72bb09d43cc7cde5dbd73eec363833a35109e357358fcae8499e8fb1b43f4ee1'
+  'b407ad3ec228490fbd83f3d035e539b1c7ecdf3c566ca80d1c20839a5beb6221'
+  '6ba30f855cd963384a5a1149464c1a45c0dd3e6413460d6d8e8e6c727b8f18e5'
+  '9cc930e5dd76db3082d9a8d0e308fadb96d4760761ff1513718d6348dbb0afdc'
+  'ba142923a296afc0558f217c9906b4e0a8e3e338ba93f46eadc8b884ceadd729'
+  'a1a3e4cd0b11ba659ac4f6a388424ecf1a3026079278b27311a911716367fc5f'
+)
+# END generated
+
+source=(
+  'fetch-flutter-deps'
+  'isa30-text-scan.py'
+  'isa30-attribute.py'
+  'run-dart-tests.py'
+  "devtools-$_devtools_rev.zip::https://chrome-infra-packages.appspot.com/dl/dart/third_party/flutter/devtools/+/git_revision:$_devtools_rev"
+  "flutter_font_fallbacks-$_fonts_iid.zip::https://chrome-infra-packages.appspot.com/dl/flutter/flutter_font_fallbacks/+/$_fonts_iid"
+  "${_patches[@]}"
+  "${_dart_patches[@]}"
+)
+sha256sums=(
+  'a9be7fbbde849f6af0c6b46714552e593ef94896c0ec0fdc968208f0f15a2568'
+  '628fb623a1ba59e0710f342cdb21f48cdc4f784c0e7179dc0508dfad3ff1b30e'
+  'f38059bccfcca8c4d0a1a747b518015702ef5b16ecf835b029ecf7f2b1fd4d4e'
+  'cd24d7607f6bd3a372ac5048d05744c06916ca24b86b162591d236297d013d57'
+  'bd823b80fd88fa9cfadfbbafce06eb99f9df3c66f94ea04d494768d0344263be'
+  '7dfb35718596d45cf31b442bc33e313fde4987a2037d6765405170782e0da83c'
+  "${_patch_sums[@]}"
+  "${_dart_patch_sums[@]}"
+)
+# Unpacked by prepare() into the DEPS paths they belong to.
+noextract=("devtools-$_devtools_rev.zip" "flutter_font_fallbacks-$_fonts_iid.zip")
+
+_modes=(debug profile release)
+_out() { printf 'out/host_%s_ppc64' "$1"; }
+
+# What each mode builds: upstream's own CI targets for a Linux desktop host
+# (engine/src/flutter/ci/builders/linux_host_engine.json,
+# linux_host_desktop_engine.json, linux_arm_host_engine.json), minus the
+# archives the flutter tool never reads on Linux (dart_sdk_archive: the SDK
+# is the `dart` package; impeller interop sdk; the embedder zip).
+# flutter/sky/packages/sky_engine is not an upstream Linux target (CI zips it
+# from the Android build) but is how bin/cache/pkg/sky_engine is produced.
+declare -gA _targets=(
+  [debug]='flutter/build/archives:artifacts flutter/build/archives:flutter_patched_sdk flutter/tools/font_subset flutter/shell/platform/linux:flutter_gtk flutter/sky/packages/sky_engine'
+  [profile]='flutter/shell/platform/linux:flutter_gtk'
+  [release]='flutter/shell/platform/linux:flutter_gtk flutter/build/archives:flutter_patched_sdk'
+)
+# The zips those targets write, and where the flutter tool unpacks each one
+# under bin/cache/artifacts/engine (packages/flutter_tools/lib/src/
+# flutter_cache.dart: FlutterSdk, LinuxEngineArtifacts, FontSubsetArtifacts).
+# mode:zip-path-under-out:dest-dir
+_zips=(
+  'debug:zip_archives/linux-ppc64/artifacts.zip:linux-ppc64'
+  'debug:zip_archives/linux-ppc64-debug/linux-ppc64-flutter-gtk.zip:linux-ppc64'
+  'debug:zip_archives/linux-ppc64/font-subset.zip:linux-ppc64'
+  'debug:zip_archives/flutter_patched_sdk.zip:common'
+  'profile:zip_archives/linux-ppc64-profile/linux-ppc64-flutter-gtk.zip:linux-ppc64-profile'
+  'release:zip_archives/linux-ppc64-release/linux-ppc64-flutter-gtk.zip:linux-ppc64-release'
+  'release:zip_archives/flutter_patched_sdk_product.zip:common'
+)
+
+# check() builds and runs these on top (the engine track's native test set,
+# REPORT-NATIVE 3/4): the gtest binaries in debug and release (release runs
+# the AOT fixtures), the testing/dart suite under the debug flutter_tester,
+# and impeller_unittests (release) under Xvfb.
+_gtests='fml_unittests runtime_unittests ui_unittests shell_unittests embedder_unittests embedder_a11y_unittests embedder_proctable_unittests tonic_unittests flutter_linux_unittests'
+declare -gA _test_targets=(
+  [debug]="$_gtests flutter_tester flutter/testing/dart:dart smoke_test_failure"
+  [release]="$_gtests impeller_unittests flutter/lib/snapshot:generate_snapshot_bins"
+)
+# Known failures, all independent of the Dart backend and identical on the
+# simarm64 reference (REPORT-NATIVE 4): 9 exact-match embedder goldens off by
+# +-1 LSB in at most 27 pixels (Skia/SwiftShader numerics against x86-64
+# goldens), and testing/dart codec_test (28 of 10^6 pixel bytes differ by 1,
+# byte for byte the simulator's). Anything else that fails, fails check().
+_known_failures=(
+  'EmbedderTest.CanRenderGradientWithoutCompositorWithXform'
+  'EmbedderTest.CanRenderGradientWithCompositorWithXform'
+  'EmbedderTest.CanRenderGradientWithCompositorOnNonRootLayerWithXform'
+  'EmbedderTest.CompositorMustBeAbleToRenderKnownScenePixelRatioOnSurfaceWithRootSurfaceXformation'
+  'EmbedderTest.VerifyB143464703WithSoftwareBackend'
+  'EmbedderTestGlVk/EmbedderTestMultiBackend.CanRenderGradientWithoutCompositor/1'
+  'EmbedderTestGlVk/EmbedderTestMultiBackend.CanRenderGradientWithCompositor/1'
+  'EmbedderTestGlVk/EmbedderTestMultiBackend.CanRenderGradientWithCompositorOnNonRootLayer/1'
+  'EmbedderTestGlVk/EmbedderTestMultiBackend.CompositorMustBeAbleToRenderKnownScenePixelRatioOnSurface/1'
+  'codec_test.dart[st,skia]' 'codec_test.dart[st,impeller]' 'codec_test.dart[mt,skia]' 'codec_test.dart[mt,impeller]'
+)
+
+# The prebuilt Dart may only run as a leaf of these build steps, identified
+# by the Dart script each one runs. Measured 2026-11-19 from
+# `ninja -t commands` of the targets above: debug runs all five, profile
+# none, release compile_platform.dart only. All five are front-end work
+# (kernel, platform dill, sdk rewriting); none generates machine code.
+_leaf_scripts='compile_platform.dart frontend_server_starter.dart gen_kernel.dart kernel_service.dart sdk_rewriter.dart'
+
+_env() {
+  # bq's $HOME is the real home: keep pub, dart and the flutter scripts out
+  # of it. Fine for a native driver; an emulated one (only ever in a test
+  # harness) also needs POWERARM_ROOTFS, see dart-bootstrap's header.
+  export HOME="$srcdir/home" XDG_CONFIG_HOME="$srcdir/home/.config"
+  export PUB_CACHE="$srcdir/pub-cache" DART_SUPPRESS_ANALYTICS=true
+  mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$PUB_CACHE"
+}
+
+# All DEPS paths of the monorepo: the 81 git deps and the CIPD paths, so the
+# gates hash the monorepo's own files and nothing a fetch put there.
+_dep_paths() {
+  python3 "$srcdir/fetch-flutter-deps" "$srcdir/flutter" --host-cpu ppc64 --list | cut -f1
+  python3 "$srcdir/fetch-flutter-deps" "$srcdir/flutter" --host-cpu ppc64 --list-cipd | cut -f1
+}
+
+# _tree_of <repo dir> <pathspec excludes...>: the tree git would commit.
+_tree_of() {
+  local d=$1; shift
+  git -C "$d" add -A -f -- . "$@"
+  git -C "$d" write-tree
+}
+
+# Paths a patch touches (both sides, /dev/null dropped).
+_patch_paths() {
+  sed -n -E 's#^(---|\+\+\+) [ab]/([^[:space:]]+).*#\2#p' "$1" | sort -u
+}
+
+prepare() {
+  _env
+  [[ -n $_driver_sdk ]] || { echo "ERROR: no driver SDK for _driver=$_driver" >&2; return 1; }
+  local root=$srcdir/flutter dart=engine/src/flutter/third_party/dart got p
+
+  # Fresh every time: a tree left from an earlier run fails the gates,
+  # correctly but uselessly.
+  rm -rf "$root"
+  mkdir "$root"
+  git -C "$root" init -q
+  git -C "$root" remote add origin "$_url"
+  git -C "$root" fetch -q --depth 1 --no-tags origin "$_commit"
+  git -C "$root" -c advice.detachedHead=false checkout -q FETCH_HEAD
+  cd "$root"
+
+  # Gate 1: the tag, in git's own terms.
+  [[ $(git rev-parse HEAD) == "$_commit" ]] \
+    || { echo "ERROR: monorepo HEAD is $(git rev-parse HEAD), not $_commit" >&2; return 1; }
+  got=$(git rev-parse 'HEAD^{tree}')
+  [[ $got == "$_base_tree" ]] \
+    || { printf 'ERROR: tag tree is %s, expected %s\n' "$got" "$_base_tree" >&2; return 1; }
+  printf 'base tree %s = tag %s\n' "$got" "$pkgver"
+
+  # DEPS: 81 git deps, shallow, each checked against its pin by the tool
+  # (it fails on any mismatch). Also writes DEPS' gclient_args.gni.
+  python3 "$srcdir/fetch-flutter-deps" "$root" --host-cpu ppc64 --jobs 10 --no-cipd
+  [[ $(git -C "$dart" rev-parse HEAD) == "$_dart_commit" ]] \
+    || { echo "ERROR: third_party/dart is not dart $_dart_pkgver ($_dart_commit)" >&2; return 1; }
+
+  # The two architecture-independent CIPD packages (checksummed sources).
+  # Extract over the directory: dart's third_party/devtools holds a tracked
+  # README.md.
+  mkdir -p "$dart/third_party/devtools" engine/src/flutter/third_party/google_fonts_for_unit_tests
+  bsdtar -xf "$srcdir/devtools-$_devtools_rev.zip" -C "$dart/third_party/devtools"
+  bsdtar -xf "$srcdir/flutter_font_fallbacks-$_fonts_iid.zip" \
+    -C engine/src/flutter/third_party/google_fonts_for_unit_tests
+
+  local -a deps excl dexcl
+  mapfile -t deps < <(_dep_paths)
+  for p in "${deps[@]}"; do
+    excl+=(":(exclude)$p")
+    [[ $p == "$dart"/* ]] && dexcl+=(":(exclude)${p#"$dart"/}")
+  done
+  # gclient_gn_args_file (DEPS) is written inside the dart checkout.
+  dexcl+=(':(exclude)build/config/gclient_args.gni')
+
+  # The Dart port series, applied to the engine's Dart (gate D). Applied from
+  # the Dart root, as in the dart recipe.
+  local -a rel applied=() skipped=()
+  for p in "${_dart_patches[@]}"; do
+    mapfile -t rel < <(_patch_paths "$srcdir/$p")
+    local r n_rel=0 pre
+    for r in "${rel[@]}"; do
+      for pre in "${_dart_relocated[@]}"; do
+        [[ $r == "$pre"/* ]] && { n_rel=$((n_rel + 1)); break; }
+      done
+    done
+    if (( n_rel == ${#rel[@]} )); then
+      printf 'Skipping %s (only %s, which the engine supplies and patches itself)\n' "$p" "${rel[*]}"
+      skipped+=("$p")
+      continue
+    elif (( n_rel )); then
+      echo "ERROR: $p mixes relocated Dart DEPS paths with others: ${rel[*]}" >&2; return 1
+    fi
+    printf 'Applying %s to %s\n' "$p" "$dart"
+    patch -d "$dart" -Np1 -F0 --no-backup-if-mismatch -s -i "$srcdir/$p"
+    applied+=("$p")
+  done
+  got=$(_tree_of "$dart" "${dexcl[@]}")
+  [[ $_dart_tree != TODO ]] || { echo "ERROR: _dart_tree is unset" >&2; return 1; }
+  [[ $got == "$_dart_tree" ]] \
+    || { printf 'ERROR: third_party/dart after the Dart series is %s, expected %s (the dart recipe'"'"'s _tree)\n' "$got" "$_dart_tree" >&2; return 1; }
+  printf 'Dart tree %s matches the dart package\n' "$got"
+  printf 'dart-patches: %d applied, %d skipped (%s)\n' "${#applied[@]}" "${#skipped[@]}" \
+    "${skipped[*]:-none}" > "$srcdir/dart-series.info"
+
+  # The engine series, from the monorepo root.
+  for p in "${_patches[@]}"; do
+    printf 'Applying %s\n' "$p"
+    patch -Np1 -F0 --no-backup-if-mismatch -s -i "$srcdir/$p"
+  done
+
+  # Gate 2 and the DEPS gates.
+  got=$(_tree_of . "${excl[@]}")
+  [[ $_tree != TODO ]] || { echo "ERROR: _tree is unset but the series is not empty (got $got)" >&2; return 1; }
+  [[ $got == "$_tree" ]] \
+    || { printf 'ERROR: patched monorepo tree is %s, expected %s\n' "$got" "$_tree" >&2; return 1; }
+  printf 'patched tree %s matches\n' "$got"
+  for p in "${!_dep_trees[@]}"; do
+    if [[ $p == "$dart" ]]; then
+      got=$(_tree_of "$p" "${dexcl[@]}")
+    else
+      got=$(_tree_of "$p")
+    fi
+    [[ $got == "${_dep_trees[$p]}" ]] \
+      || { printf 'ERROR: %s patched tree is %s, expected %s\n' "$p" "$got" "${_dep_trees[$p]}" >&2; return 1; }
+    printf '%s tree %s matches\n' "$p" "$got"
+  done
+
+  # What gclient's CIPD step would have installed, replaced by system tools
+  # and the chosen driver. Everything below is AFTER the gates on purpose.
+  local gnpos
+  gnpos=$(gn --version | awk '{print $1}')
+  [[ $gnpos =~ ^[0-9]+$ ]] && (( gnpos >= 2489 )) \
+    || { echo "ERROR: need gn >= 2489 (check_includes_strict, engine 0009); gn reports '$gnpos'" >&2; return 1; }
+  mkdir -p engine/src/flutter/third_party/gn
+  ln -sfn /usr/bin/gn engine/src/flutter/third_party/gn/gn
+  mkdir -p "$dart/tools/sdks"
+  ln -sfn "$_driver_sdk" "$dart/tools/sdks/dart-sdk"
+
+  # The driver runs in the hooks below, so check what it is now, before it
+  # runs (build() checks it again together with the build graph).
+  _control_driver_identity
+
+  # The three DEPS hooks a Linux desktop build needs; the others are
+  # Windows/Fuchsia/emsdk/githooks/macOS or sysroot downloads. Each runs the
+  # driver Dart as a leaf.
+  python3 "$dart/tools/generate_package_config.py"
+  python3 "$dart/tools/generate_sdk_version_file.py"
+  python3 engine/src/flutter/tools/pub_get_offline.py
+}
+
+build() {
+  _env
+  cd flutter/engine/src
+
+  local jobs="${NINJAFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs="${MAKEFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs=48
+
+  local mode
+  for mode in "${_modes[@]}"; do
+    _gn_gen "$mode"
+    _control_mcpu "$(_out "$mode")"
+    _control_altivec "$(_out "$mode")"
+    _control_graph "$(_out "$mode")" "$mode"
+  done
+  _control_driver_identity
+
+  for mode in "${_modes[@]}"; do
+    # shellcheck disable=SC2086  # the target lists are word lists
+    ninja -C "$(_out "$mode")" -j"$jobs" ${_targets[$mode]}
+  done
+
+  _stage "$srcdir/stage"
+  _gate_elves "$srcdir/stage"
+  _gate_gen_snapshot "$srcdir/stage"
+  _gate_sdk_hash "$srcdir/stage"
+  _gate_aot_smoke "$srcdir/stage"
+  _gate_isa30 "$srcdir/stage"
+}
+
+# gn gen (tools/gn runs `gn gen --check`) for one runtime mode, into
+# out/host_<mode>_ppc64. --host-cpu so nothing probes uname (under POWERarm
+# uname says aarch64). --enable-unittests, as the engine track built: the
+# graph then also has check()'s test targets, which build() does not build
+# (bq runs --nocheck), and the staged artifacts are the ones it measured.
+# dart_sdk_verification_hash pins the kernel tools' SDK hash (see 2.).
+_gn_gen() {
+  local mode=$1 mcpu=power9
+  (( _power8_compat )) && mcpu=power8
+  python3 flutter/tools/gn --target-os linux --linux-cpu ppc64 --host-cpu ppc64 \
+    --runtime-mode "$mode" --no-prebuilt-dart-sdk --no-default-linux-sysroot \
+    --no-lto --enable-fontconfig --no-rbe --no-goma --enable-unittests \
+    --target-dir "host_${mode}_ppc64" \
+    --gn-args 'clang_base_path="/usr"' \
+    --gn-args "dart_sdk_verification_hash=\"$_dart_sdk_hash\"" \
+    --gn-args 'treat_warnings_as_errors=false' \
+    --gn-args "ppc64_cpu=\"$mcpu\"" \
+    --gn-args 'ppc64_altivec_src_compat="mixed"'
+}
+
+# The installed layout, assembled from the zips upstream's own targets wrote,
+# unpacked where the flutter tool unpacks upstream's. build() gates this tree
+# and package() copies it verbatim.
+_stage() {
+  local st=$1 z mode zip dest
+  rm -rf "$st"
+  mkdir -p "$st/artifacts/engine" "$st/pkg"
+  for z in "${_zips[@]}"; do
+    IFS=: read -r mode zip dest <<< "$z"
+    [[ -f $(_out "$mode")/$zip ]] || { echo "ERROR: $(_out "$mode")/$zip was not built" >&2; return 1; }
+    mkdir -p "$st/artifacts/engine/$dest"
+    bsdtar -xf "$(_out "$mode")/$zip" -C "$st/artifacts/engine/$dest"
+  done
+  # bin/cache/pkg: what sky_engine.zip and flutter_gpu.zip hold upstream
+  # (sky/dist/BUILD.gn and lib/gpu/dist/BUILD.gn; the tool's FlutterSdk
+  # artifact unpacks them into pkg/).
+  python3 flutter/sky/tools/dist_dart_pkg.py \
+    --source "$(_out debug)/gen/dart-pkg/sky_engine" --dest "$st/pkg/sky_engine"
+  cp -a flutter/lib/gpu "$st/pkg/flutter_gpu"
+  # The dart package's PRODUCT frontend_server snapshot, as upstream ships it
+  # (see 4.); the engine-built one is non-product and a product runtime
+  # refuses it.
+  install -m644 "$_dart_sdk/bin/snapshots/frontend_server_aot.dart.snapshot" \
+    "$st/artifacts/engine/linux-ppc64/frontend_server_aot.dart.snapshot"
+}
+
+# Every ELF about to be installed is a 64-bit little-endian PowerPC one.
+_gate_elves() {
+  local f bad=0 n=0
+  while IFS= read -r -d '' f; do
+    [[ $(od -An -tx1 -N4 "$f") == " 7f 45 4c 46" ]] || continue
+    n=$((n + 1))
+    file -b "$f" | grep -q '64-bit LSB .*PowerPC' \
+      || { echo "GATE FAILED: not a ppc64le ELF: ${f#"$1"/} ($(file -b "$f" | cut -d, -f1-2))" >&2; bad=1; }
+  done < <(find "$1" -type f -print0)
+  (( n > 0 )) || { echo "GATE FAILED: no ELF files in $1" >&2; return 1; }
+  (( ! bad )) || return 1
+  printf 'all %d ELF files are ppc64le\n' "$n"
+}
+
+# The gen_snapshot shipped for each mode must target ppc64 itself. A
+# simulator build (simarm64 hosted on ppc64) is also a PowerPC ELF, and says
+# "linux_simarm64".
+_gate_gen_snapshot() {
+  local d v
+  for d in linux-ppc64 linux-ppc64-profile linux-ppc64-release; do
+    v=$("$1/artifacts/engine/$d/gen_snapshot" --version 2>&1) || true
+    [[ $v == *"$_dart_pkgver"*'"linux_ppc64"'* ]] \
+      || { echo "GATE FAILED: $d/gen_snapshot reports: $v" >&2; return 1; }
+  done
+  echo "gen_snapshot: $v"
+}
+
+# ISA 3.0 count of a native ELF (objdump -M power8 vs power9, the method of
+# omarchy-ppc64le tools/isa30-pkgscan.sh); its symbols drive -d, and the
+# staged native ELFs are unstripped (decoded at >= 99%, REPORT-NATIVE 6).
+_isa30_count() {
+  local n8 n9
+  n8=$(objdump -d --no-show-raw-insn -M power8 "$1" 2>/dev/null | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  n9=$(objdump -d --no-show-raw-insn -M power9 "$1" 2>/dev/null | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  echo $((n8 - n9))
+}
+
+# AOT ELFs (Dart snapshots, the smoke libapp.so): 0 in both pools, scanned
+# by isa30-text-scan.py over the whole .text with a coverage floor and a
+# mid-.text control. Native ELFs: counted in the POWER9 pool; in the baseline
+# pool every ISA 3.0 word must be in libgcc's IFUNC'd IEEE-128 *_hw routines
+# (isa30-attribute.py on the unstripped ELF; the engine links libgcc_s
+# dynamically, so expect 0).
+_gate_isa30() {
+  local st=$1 f n bad=0 libgcc
+  : > "$srcdir/isa30.info"
+  (( _power8_compat )) && libgcc=$(clang --target=powerpc64le-linux-gnu -print-libgcc-file-name)
+  while IFS= read -r -d '' f; do
+    [[ $(od -An -tx1 -N4 "$f") == " 7f 45 4c 46" ]] || continue
+    if readelf -sW --dyn-syms "$f" 2>/dev/null | grep -q '_kDart\(Vm\|Isolate\)SnapshotInstructions'; then
+      if python3 "$srcdir/isa30-text-scan.py" "$f" > "$srcdir/isa30-text.txt" 2>&1; then
+        printf 'isa30 %8d  aot-elf  %s (whole .text, %s)\n' 0 "${f#"$st"/}" \
+          "$(grep -o 'coverage [0-9.]*%' "$srcdir/isa30-text.txt" | head -1)" | tee -a "$srcdir/isa30.info"
+      else
+        cat "$srcdir/isa30-text.txt" >&2
+        echo "GATE FAILED: ${f#"$st"/}: an AOT ELF must carry 0 ISA 3.0 instructions" >&2; bad=1
+      fi
+      continue
+    fi
+    n=$(_isa30_count "$f")
+    printf 'isa30 %8d  native   %s\n' "$n" "${f#"$st"/}" | tee -a "$srcdir/isa30.info"
+    if (( _power8_compat && n != 0 )); then
+      if python3 "$srcdir/isa30-attribute.py" --libgcc "$libgcc" "$f" > "$srcdir/isa30-attr.txt" 2>&1 \
+         && [[ $(sed -n 's/^RESULT ok //p' "$srcdir/isa30-attr.txt") == "$n" ]]; then
+        printf 'isa30-allowed-total %s %d (libgcc IFUNC float128 hardware routines only)\n' "${f#"$st"/}" "$n" \
+          | tee -a "$srcdir/isa30.info"
+      else
+        cat "$srcdir/isa30-attr.txt" >&2
+        echo "GATE FAILED: ${f#"$st"/}: ISA 3.0 outside libgcc's IFUNC'd float128 routines (baseline pool)" >&2; bad=1
+      fi
+    fi
+  done < <(find "$st" -type f -print0 | sort -z)
+  (( ! bad ))
+}
+
+# Kernel headers: magic 0x90abcdef, format version, then the 10-byte SDK hash.
+_dill_hash() { python3 -I -c 'import sys; b=open(sys.argv[1],"rb").read(18); print(b[8:18].decode("latin1") if b[:4]==bytes.fromhex("90abcdef") else "not-a-dill")' "$1"; }
+
+# Every staged .dill, every engine binary and the dart package agree on the
+# SDK hash (see 2.), and the staged gen_snapshots print exactly the dart
+# package's version string. Then the real consumer: a kernel compiled by the
+# staged (dart package) frontend_server against the staged
+# flutter_patched_sdk loads and runs in the staged flutter_tester.
+_gate_sdk_hash() {
+  local st=$1 a=$1/artifacts/engine f h bad=0 dv v
+  h=$(_dill_hash "$_dart_sdk/lib/_internal/vm_platform_strong.dill")
+  [[ $h == "$_dart_sdk_hash" ]] \
+    || { echo "GATE FAILED: the dart package's kernels carry SDK hash '$h', not $_dart_sdk_hash" >&2; return 1; }
+  while IFS= read -r -d '' f; do
+    h=$(_dill_hash "$f")
+    [[ $h == "$_dart_sdk_hash" ]] || { echo "GATE FAILED: ${f#"$st"/} has SDK hash '$h'" >&2; bad=1; }
+  done < <(find "$st" -name '*.dill' -print0)
+  for f in "$a"/linux-ppc64*/gen_snapshot "$a"/linux-ppc64*/libflutter_linux_gtk.so "$a"/linux-ppc64/flutter_tester; do
+    LC_ALL=C grep -qaF "$_dart_sdk_hash" "$f" \
+      || { echo "GATE FAILED: ${f#"$st"/} does not carry SDK hash $_dart_sdk_hash" >&2; bad=1; }
+  done
+  dv=$("$_dart_sdk/bin/dart" --version 2>&1)
+  for f in "$a"/linux-ppc64*/gen_snapshot; do
+    v=$("$f" --version 2>&1)
+    [[ $v == "$dv" ]] || { echo "GATE FAILED: ${f#"$st"/} says '$v', the dart package '$dv'" >&2; bad=1; }
+  done
+  (( ! bad )) || return 1
+  local d=$srcdir/smoke-tester
+  rm -rf "$d"; mkdir -p "$d"
+  printf '%s\n' "import 'dart:ffi' show Abi;" "import 'dart:io' show Platform;" "import 'dart:ui' as ui;" \
+    "void main() { print('TESTER-OK \${Abi.current()} \${ui.PlatformDispatcher.instance.views.length >= 0}'); }" > "$d/hello.dart"
+  "$_dart_sdk/bin/dartaotruntime" "$a/linux-ppc64/frontend_server_aot.dart.snapshot" \
+    --sdk-root "$a/common/flutter_patched_sdk/" --target=flutter \
+    --output-dill "$d/hello.dill" "$d/hello.dart" > "$d/fs.log" 2>&1 \
+    || { cat "$d/fs.log" >&2; echo "GATE FAILED: the staged frontend_server did not compile" >&2; return 1; }
+  h=$(_dill_hash "$d/hello.dill")
+  [[ $h == "$_dart_sdk_hash" ]] || { echo "GATE FAILED: the staged frontend_server writes SDK hash '$h'" >&2; return 1; }
+  LD_LIBRARY_PATH=$a/linux-ppc64 timeout 300 "$a/linux-ppc64/flutter_tester" --disable-vm-service \
+    --icu-data-file-path="$a/linux-ppc64/icudtl.dat" --non-interactive --use-test-fonts \
+    --disable-asset-fonts --enable-software-rendering "$d/hello.dill" > "$d/tester.log" 2>&1 || true
+  grep -q 'TESTER-OK linux_ppc64 true' "$d/tester.log" \
+    || { cat "$d/tester.log" >&2; echo "GATE FAILED: the staged flutter_tester did not run the kernel" >&2; return 1; }
+  printf 'SDK hash: %s in every staged .dill, engine binary and the dart package; gen_snapshot --version == dart --version; frontend_server -> flutter_tester ok\n' "$_dart_sdk_hash"
+}
+
+# AOT end to end on the release path, minus the GUI: an AOT/TFA product
+# kernel of a small program, compiled by the staged frontend_server against
+# flutter_patched_sdk_product, made into libapp.so by the staged RELEASE
+# gen_snapshot. It must be an ELFv2 ppc64 shared object with 64 KiB LOADs;
+# _gate_isa30 then scans it with the AOT ELFs (copied into the stage list
+# below only for the scan, never installed).
+_gate_aot_smoke() {
+  local st=$1 a=$1/artifacts/engine d=$srcdir/smoke-aot al
+  rm -rf "$d"; mkdir -p "$d"
+  printf '%s\n' "import 'dart:ui' as ui;" "int fib(int n) => n < 2 ? n : fib(n - 1) + fib(n - 2);" \
+    "void main() { ui.PlatformDispatcher.instance.onBeginFrame = (_) {}; print('libapp \${fib(20)}'); }" > "$d/main.dart"
+  "$_dart_sdk/bin/dartaotruntime" "$a/linux-ppc64/frontend_server_aot.dart.snapshot" \
+    --sdk-root "$a/common/flutter_patched_sdk_product/" --target=flutter --aot --tfa \
+    -Ddart.vm.product=true -Ddart.vm.profile=false \
+    --output-dill "$d/app.dill" "$d/main.dart" > "$d/fs.log" 2>&1 \
+    || { cat "$d/fs.log" >&2; echo "GATE FAILED: AOT kernel compile" >&2; return 1; }
+  "$a/linux-ppc64-release/gen_snapshot" --deterministic --snapshot_kind=app-aot-elf \
+    --elf="$d/libapp.so" "$d/app.dill" > "$d/gs.log" 2>&1 \
+    || { cat "$d/gs.log" >&2; echo "GATE FAILED: release gen_snapshot" >&2; return 1; }
+  file -b "$d/libapp.so" | grep -q '64-bit LSB shared object, 64-bit PowerPC' \
+    || { echo "GATE FAILED: libapp.so is $(file -b "$d/libapp.so" | cut -d, -f1-2)" >&2; return 1; }
+  readelf -hW "$d/libapp.so" | grep -q 'Flags: *0x2' \
+    || { echo "GATE FAILED: libapp.so is not ELFv2 (abiv2)" >&2; return 1; }
+  al=$(readelf -lW "$d/libapp.so" | awk '$1 == "LOAD" { print $NF }' | sort -u | tr '\n' ' ')
+  [[ $al == '0x10000 ' ]] || { echo "GATE FAILED: libapp.so LOAD alignment '$al'" >&2; return 1; }
+  python3 "$srcdir/isa30-text-scan.py" "$d/libapp.so" | tee "$d/isa30.txt"
+  grep -q '^RESULT ok' "$d/isa30.txt" || { echo "GATE FAILED: libapp.so ISA scan" >&2; return 1; }
+  printf 'AOT smoke: libapp.so %d bytes, ELFv2 PPC64, LOADs 0x10000, ISA 3.0 0 over the whole .text\n' \
+    "$(stat -c %s "$d/libapp.so")"
+}
+
+# CONTROL, after gn gen and before the expensive part.
+#
+# _compiles_with <out> <ERE>: "<C/C++ compile statements> <how many of them
+# get cflags matching ERE>". GN writes one `cflags = ` line per target
+# file, and every cc/cxx statement in that file uses it (rule cxx: clang++
+# ... ${cflags} ${cflags_cc}). Measured 2026-11-19: 14,082 compile
+# statements in 667 target files per out dir.
+_compiles_with() {
+  local out=$1 re=$2 f n tot=0 hit=0
+  while IFS= read -r -d '' f; do
+    n=$(grep -cE '^build [^:]+\.o: (cc|cxx|objc|objcxx) ' "$f" || true)
+    (( n )) || continue
+    tot=$((tot + n))
+    if grep -qE -- "^cflags = (.* )?$re( |\$)" "$f"; then hit=$((hit + n)); fi
+  done < <(find "$out" -name '*.ninja' -print0)
+  echo "$tot $hit"
+}
+
+# -mcpu: GN ignores CFLAGS, so assert the -mcpu/-mtune that reaches the
+# compiler, on every compile, and that no other CPU is named anywhere in the
+# graph. Bun's 0013 is the cautionary tale: the env said power8, a table in
+# the build said power9, and 349,172 ISA 3.0 instructions shipped to the
+# baseline pool.
+_control_mcpu() {
+  local out=$1 want=power9 tot hit seen
+  (( _power8_compat )) && want=power8
+  read -r tot hit < <(_compiles_with "$out" "--target=powerpc64le-linux-gnu .*-mcpu=$want -mtune=$want")
+  (( tot > 0 )) || { echo "CONTROL FAILED: no compile statements in $out" >&2; return 1; }
+  (( hit == tot )) \
+    || { echo "CONTROL FAILED: -mcpu=$want -mtune=$want reaches $hit of $tot compiles in $out" >&2; return 1; }
+  seen=$(grep -rhoE --include='*.ninja' -- '-m(cpu|tune)=[^ ]+' "$out" | sort -u | tr '\n' ' ')
+  [[ $seen == "-mcpu=$want -mtune=$want " ]] \
+    || { echo "CONTROL FAILED: $out names other CPUs: $seen" >&2; return 1; }
+  printf 'CONTROL: -mcpu=%s -mtune=%s on all %d compiles in %s, no other CPU\n' "$want" "$want" "$tot" "$out"
+}
+
+# -faltivec-src-compat=mixed on every compile, no other mode anywhere
+# (engine 0014: gcc and xl do not compile skcms; xl also makes vector
+# compares scalar).
+_control_altivec() {
+  local out=$1 tot hit seen
+  read -r tot hit < <(_compiles_with "$out" '-faltivec-src-compat=mixed')
+  (( tot > 0 && hit == tot )) \
+    || { echo "CONTROL FAILED: -faltivec-src-compat=mixed reaches $hit of $tot compiles in $out" >&2; return 1; }
+  seen=$(grep -rhoE --include='*.ninja' -- '-faltivec-src-compat=[^ ]+' "$out" | sort -u | tr '\n' ' ')
+  [[ $seen == '-faltivec-src-compat=mixed ' ]] \
+    || { echo "CONTROL FAILED: other altivec modes in $out: $seen" >&2; return 1; }
+  printf 'CONTROL: -faltivec-src-compat=mixed on all %d compiles in %s\n' "$tot" "$out"
+}
+
+# The build graph runs the prebuilt Dart only as a leaf of the expected
+# steps, runs no binary from outside the tree, and names no upstream or
+# bootstrap SDK path. The driver is taken from what ninja will run
+# (build/gn_run_binary.py compiled_action <binary>), not from what we hope.
+_control_graph() {
+  local out=$1 mode=$2 d r prebuilt=0
+  local pre=../../flutter/third_party/dart/tools/sdks/dart-sdk/bin/dart
+  local root; root=$(realpath "$srcdir/flutter")
+  local -a drivers
+  mapfile -t drivers < <(grep -rhoE --include='*.ninja' 'gn_run_binary\.py compiled_action [^ ]+' "$out" \
+                           | awk '{print $3}' | sort -u)
+  # Measured 2026-11-19 (release graph): the prebuilt (135 actions),
+  # gen_snapshot, gen_snapshot_product and dartvm built here, and two in-tree
+  # scripts named by absolute path (create_debian_package.py, emcc).
+  for d in "${drivers[@]}"; do
+    if [[ $d == "$pre" ]]; then prebuilt=1; continue; fi
+    [[ $d == */* ]] || continue      # built by this build, run from the out dir
+    r=$(cd "$out" && realpath -m -- "$d")
+    [[ $r == "$root"/* ]] \
+      || { echo "CONTROL FAILED: ninja runs a binary from outside the tree: $d -> $r" >&2; return 1; }
+  done
+  (( prebuilt )) || { echo "CONTROL FAILED: no prebuilt-Dart action in $out" >&2; return 1; }
+  if grep -rlqsE 'bootstrap-arm64|dart-bootstrap|dartsdk-linux|linux-arm64/dart-sdk|prebuilts/linux-' \
+       "$out" --include='*.ninja' --include=args.gn; then
+    echo "CONTROL FAILED: an upstream or bootstrap SDK path is baked into $out:" >&2
+    grep -rlsE 'bootstrap-arm64|dart-bootstrap|dartsdk-linux|linux-arm64/dart-sdk|prebuilts/linux-' \
+      "$out" --include='*.ninja' --include=args.gn | head -5 >&2
+    return 1
+  fi
+  # Which steps of the packaged targets run the prebuilt, by Dart script.
+  local scripts
+  # shellcheck disable=SC2086
+  scripts=$(ninja -C "$out" -t commands ${_targets[$mode]} | grep -F " compiled_action $pre " \
+              | awk -v pre="$pre" '{ for (i = 1; i < NF; i++) if ($i == pre) {
+                    for (j = i + 1; j <= NF; j++) if ($j ~ /\.dart$/) { n = split($j, a, "/"); print a[n]; break }
+                    break } }' | sort -u | tr '\n' ' ')
+  if [[ $_leaf_scripts != TODO ]]; then
+    local s
+    for s in $scripts; do
+      [[ " $_leaf_scripts " == *" $s "* ]] \
+        || { echo "CONTROL FAILED: the prebuilt Dart runs $s in $out (not an expected leaf step)" >&2; return 1; }
+    done
+  fi
+  printf 'CONTROL: %s runs the prebuilt Dart only as a leaf of: %s\n' "$out" "${scripts:-nothing}"
+}
+
+# The driver itself: a native linux_ppc64 Dart from this pool, at the path
+# the recipe chose. Without this a missing native bootstrap fails OPEN: an
+# arm64 dart at the same path executes fine through binfmt_misc (R15, also
+# inside bq's bwrap), and the build silently depends on POWERarm.
+_control_driver_identity() {
+  local link=$srcdir/flutter/engine/src/flutter/third_party/dart/tools/sdks/dart-sdk
+  [[ -x $link/bin/dart ]] \
+    || { echo "CONTROL FAILED: no prebuilt Dart at tools/sdks/dart-sdk -> $(readlink "$link") (is $_driver installed?)" >&2; return 1; }
+  local driver; driver=$(readlink -f "$link/bin/dart")
+  file -L "$driver" | grep -q '64-bit LSB .*PowerPC' \
+    || { echo "CONTROL FAILED: the prebuilt Dart is not a ppc64le binary ($(file -bL "$driver" | cut -d, -f1-2))" >&2; return 1; }
+  [[ $driver == "$_driver_sdk/bin/dart" ]] \
+    || { echo "CONTROL FAILED: the prebuilt Dart is $driver, not $_driver_sdk/bin/dart" >&2; return 1; }
+  local v; v=$("$driver" --version 2>&1)
+  # A simarm64 VM hosted on ppc64 (Dart milestone M1) is also a PowerPC ELF;
+  # it says linux_simarm64. Only the real port says linux_ppc64.
+  [[ $v == *'"linux_ppc64"'* ]] \
+    || { echo "CONTROL FAILED: the prebuilt Dart reports $v" >&2; return 1; }
+  local want=power9 have
+  (( _power8_compat )) && want=baseline
+  have=$(sed -n 's/^pool: //p' "$_driver_sdk/.pkginfo" 2>/dev/null)
+  [[ $have == "$want" ]] \
+    || { echo "CONTROL FAILED: the prebuilt Dart is from pool '${have:-?}', this build is $want" >&2; return 1; }
+  printf 'driver: %s %s (%s, pool %s)\ndriver sha256: %s\n' "$_driver" "$driver" "$v" "$have" \
+    "$(sha256sum < "$driver" | cut -d' ' -f1)" | tee "$srcdir/driver.info"
+}
+
+check() {
+  # Native by-hand makepkg only (bq passes --nocheck). The engine track's
+  # native test set (REPORT-NATIVE 3/4), in its environment (8.3):
+  #   * flutter/testing/run_tests.py's: cwd = the src root, the unstripped
+  #     binary, LD_LIBRARY_PATH = the out dir, VK_DRIVER_FILES = the out dir's
+  #     SwiftShader ICD (never the host GPU), FLUTTER_BUILD_DIRECTORY;
+  #   * a nodump LD_PRELOAD (PR_SET_DUMPABLE 0), inherited by gtest
+  #     death-test re-execs, so nothing reaches systemd-coredump (RLIMIT_CORE
+  #     alone does not stop the pipe helper on this kernel);
+  #   * GTK suites on broadway inside a private D-Bus whose ONLY activatable
+  #     service is the AT-SPI bus launcher (no portal, no gvfs: otherwise
+  #     fl_engine_start reads portal settings and FlView joins AT-SPI over the
+  #     live session bus), GSETTINGS_BACKEND=memory, GIO_USE_VFS=local
+  #     (NOTES item 14; NO_AT_BRIDGE=1 breaks FlView's AtkSocket);
+  #   * impeller_unittests under Xvfb -extension MIT-SHM (Mesa swrast GLES).
+  # Every failure must be one of _known_failures.
+  _env
+  cd flutter/engine/src
+  local jobs="${NINJAFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs="${MAKEFLAGS##*-j}"
+  [[ $jobs =~ ^[0-9]+$ ]] || jobs=48
+  local mode
+  for mode in debug release; do
+    # shellcheck disable=SC2086
+    ninja -C "$(_out "$mode")" -j"$jobs" ${_test_targets[$mode]}
+  done
+
+  local T=$srcdir/check bus
+  rm -rf "$T"; mkdir -p "$T/logs" "$T/dbus/services"
+  # The bus socket lives in a short private dir: a unix socket path is at
+  # most 107 bytes and $srcdir is deeper than that allows.
+  bus=$(mktemp -d /tmp/fe-check-dbus.XXXXXX)
+  printf '#include <sys/prctl.h>\n__attribute__((constructor)) static void nodump(void) { prctl(PR_SET_DUMPABLE, 0, 0, 0, 0); }\n' > "$T/nodump.c"
+  cc -O2 -shared -fPIC -o "$T/nodump.so" "$T/nodump.c"
+  printf '[D-BUS Service]\nName=org.a11y.Bus\nExec=/usr/lib/at-spi-bus-launcher\n' > "$T/dbus/services/org.a11y.Bus.service"
+  cat > "$T/dbus/session.conf" <<-CONF
+	<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+	 "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+	<busconfig>
+	  <type>session</type>
+	  <keep_umask/>
+	  <listen>unix:dir=$bus</listen>
+	  <auth>EXTERNAL</auth>
+	  <servicedir>$T/dbus/services</servicedir>
+	  <policy context="default">
+	    <allow send_destination="*" eavesdrop="true"/>
+	    <allow eavesdrop="true"/>
+	    <allow own="*"/>
+	  </policy>
+	</busconfig>
+	CONF
+  ulimit -c 0
+
+  # gtest binaries, debug and release, in parallel; flutter_linux on broadway.
+  local name out pids=() disp=$(( 100 + $$ % 400 ))
+  for mode in debug release; do
+    out=$PWD/$(_out "$mode")
+    [[ -e $out/exe.unstripped/libvulkan.so.1 ]] || ln -s ../libvulkan.so.1 "$out/exe.unstripped/libvulkan.so.1"
+    for name in $_gtests; do
+      (
+        export LD_LIBRARY_PATH=$out VK_DRIVER_FILES=$out/vk_swiftshader_icd.json FLUTTER_BUILD_DIRECTORY=$out
+        export LD_PRELOAD=$T/nodump.so
+        if [[ $name == flutter_linux_unittests ]]; then
+          # A private XDG_RUNTIME_DIR per run: broadwayd's socket and the
+          # AT-SPI bus launcher's fixed $XDG_RUNTIME_DIR/at-spi/bus would
+          # otherwise collide between the debug and release runs, and sit
+          # where the live desktop's accessibility bus lives.
+          local rt
+          rt=$(mktemp -d /tmp/fe-check-rt.XXXXXX)
+          export XDG_RUNTIME_DIR=$rt
+          disp=$(( disp + ${#mode} ))
+          broadwayd ":$disp" > "$T/logs/broadwayd-$mode.log" 2>&1 &
+          local bpid=$!
+          sleep 2
+          unset DISPLAY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS
+          export GDK_BACKEND=broadway BROADWAY_DISPLAY=":$disp" G_DEBUG=fatal-criticals
+          export GSETTINGS_BACKEND=memory GIO_USE_VFS=local
+          # The verdict comes from the logs below; here only clean up, which
+          # errexit would skip after a failing (or killed) child.
+          dbus-run-session --config-file="$T/dbus/session.conf" -- \
+            timeout -k 30 7200 "$out/exe.unstripped/$name" --timeout=900 > "$T/logs/$name.$mode.log" 2>&1 || true
+          kill "$bpid" 2>/dev/null || true
+          wait "$bpid" 2>/dev/null || true
+          rm -rf "$rt"
+        else
+          timeout -k 30 7200 "$out/exe.unstripped/$name" --timeout=900 > "$T/logs/$name.$mode.log" 2>&1 || true
+        fi
+      ) &
+      pids+=($!)
+    done
+  done
+  wait "${pids[@]}" || true
+
+  # testing/dart under the debug flutter_tester.
+  python3 "$srcdir/run-dart-tests.py" "$PWD/$(_out debug)" "$T/logs/testing_dart" 12 "$T/nodump.so" \
+    > "$T/logs/testing_dart.log" 2>&1
+
+  # impeller_unittests (release) under Xvfb, Vulkan on SwiftShader, GLES on
+  # Mesa llvmpipe.
+  out=$PWD/$(_out release)
+  ( export LD_LIBRARY_PATH=$out VK_DRIVER_FILES=$out/vk_swiftshader_icd.json FLUTTER_BUILD_DIRECTORY=$out
+    export LD_PRELOAD=$T/nodump.so LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+    unset WAYLAND_DISPLAY DISPLAY DBUS_SESSION_BUS_ADDRESS
+    timeout -k 30 7200 xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp -extension MIT-SHM" \
+      "$out/exe.unstripped/impeller_unittests" --timeout=900 > "$T/logs/impeller_unittests.release.log" 2>&1 ) || true
+
+  # Verdict: per binary ok/skip/fail, then every failure against the allowlist.
+  local f bad=0 unexpected=() fails
+  for f in "$T"/logs/*_unittests.*.log; do
+    printf 'check %-48s ok %4d  skipped %3d  failed %2d\n' "${f##*/}" \
+      "$(grep -cE '^\[       OK \] .* \([0-9]+ ms\)$' "$f" || true)" \
+      "$(grep -cE '^\[  SKIPPED \] .* \([0-9]+ ms\)$' "$f" || true)" \
+      "$(grep -cE '^\[  FAILED  \] .* \([0-9]+ ms\)$' "$f" || true)"
+    grep -q '^\[  PASSED  \]' "$f" || { echo "CHECK: ${f##*/} did not finish (no PASSED line)" >&2; bad=1; }
+    # "[  FAILED  ] Suite.Name (12 ms)", parameterised tests
+    # "[  FAILED  ] Inst/Suite.Name/1, where GetParam() = ... (12 ms)".
+    mapfile -t fails < <(sed -nE 's/^\[  FAILED  \] ([^ ,]+)(, where .*)? \([0-9]+ ms\)$/\1/p' "$f")
+    for name in "${fails[@]}"; do
+      [[ " ${_known_failures[*]} " == *" $name "* ]] || unexpected+=("${f##*/}: $name")
+    done
+  done
+  grep '^SUMMARY' "$T/logs/testing_dart.log" | sed 's/^/check testing\/dart under flutter_tester: /' || true
+  mapfile -t fails < <(sed -n 's/^FAILED //p' "$T/logs/testing_dart.log")
+  for name in "${fails[@]}"; do
+    [[ " ${_known_failures[*]} " == *" $name "* ]] || unexpected+=("testing/dart: $name")
+  done
+  grep -q '^SUMMARY' "$T/logs/testing_dart.log" || { echo "CHECK: testing/dart did not finish" >&2; bad=1; }
+  rm -rf "$bus"
+  if (( ${#unexpected[@]} )); then
+    printf 'CHECK FAILED: %s\n' "${unexpected[@]}" >&2; bad=1
+  fi
+  (( ! bad )) && echo "check: every failure is a known Dart-independent golden (see _known_failures)"
+  (( ! bad ))
+}
+
+package() {
+  # Files only: no Dart, nothing emulated (package() runs under fakeroot).
+  local cache=$pkgdir/usr/lib/flutter/bin/cache
+  install -d "$cache"
+  cp -a "$srcdir/stage/." "$cache/"
+  install -Dm644 flutter/engine/src/flutter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  local pool=power9
+  (( _power8_compat )) && pool=baseline
+  local p dep_trees=
+  for p in "${!_dep_trees[@]}"; do dep_trees+="${p#engine/src/flutter/third_party/}=${_dep_trees[$p]} "; done
+  install -Dm644 /dev/stdin "$cache/artifacts/engine/.pkginfo" <<-INFO
+	version: $pkgver
+	base-commit: $_commit ($_commit_time)
+	base-tree: $_base_tree
+	patched-tree: $_tree
+	engine-patches: ${#_patches[@]}
+	engine-revision: $_engine_revision
+	dart-version: $_dart_pkgver ($_dart_commit)
+	dart-tree: $_dart_tree
+	$(cat "$srcdir/dart-series.info")
+	dep-trees: $dep_trees
+	pool: $pool
+	cxx-mcpu: $( (( _power8_compat )) && echo power8 || echo power9 )
+	altivec-src-compat: mixed
+	codegen: ISA 2.07 (POWER8) in both pools
+	dart-sdk-hash: $_dart_sdk_hash (every .dill, engine binary and the dart package)
+	frontend_server_aot.dart.snapshot: the dart package's product snapshot ($(sha256sum < "$srcdir/stage/artifacts/engine/linux-ppc64/frontend_server_aot.dart.snapshot" | cut -c1-16))
+	$(cat "$srcdir/driver.info")
+	# ISA 3.0 instructions per staged ELF:
+	$(cat "$srcdir/isa30.info")
+	INFO
+}

@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Thu, 19 Nov 2026 09:04:44 -0600
+Subject: [PATCH] [engine] lib/snapshot: build gen_snapshot and
+ analyze_snapshot for ppc64
+
+generate_snapshot_bins builds the host gen_snapshot directly, and
+analyze_snapshot for 64-bit targets, only for arm, arm64, x64 and riscv64
+target CPUs, so a ppc64 host build with the Dart ppc64 backend
+(dart_target_arch "ppc64") produced neither artifact. ppc64 joins both
+lists, the same shape as the riscv64 desktop enablement (flutter#178712).
+analyze_snapshot needs the Dart series' build_analyze_snapshot arm for
+ppc64 (runtime_args.gni).
+
+Class: upstreamable in form (same class as the riscv64 enablement); local
+until the Dart ppc64 backend is.
+---
+ engine/src/flutter/lib/snapshot/BUILD.gn | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/engine/src/flutter/lib/snapshot/BUILD.gn b/engine/src/flutter/lib/snapshot/BUILD.gn
+index e4b52cac..fb3b5bf9 100644
+--- a/engine/src/flutter/lib/snapshot/BUILD.gn
++++ b/engine/src/flutter/lib/snapshot/BUILD.gn
+@@ -41,14 +41,16 @@ group("generate_snapshot_bins") {
+     # For iOS, Android target builds: all AOT target CPUs are arm/arm64.
+     public_deps += [ ":create_arm_gen_snapshot" ]
+   } else if (target_cpu == "arm" || target_cpu == "arm64" ||
+-             target_cpu == "x64" || target_cpu == "riscv64") {
++             target_cpu == "x64" || target_cpu == "riscv64" ||
++             target_cpu == "ppc64") {
+     # For other host OSes, build gen_snapshot directly.
+     public_deps = [ "$dart_src/runtime/bin:gen_snapshot($host_toolchain)" ]
+   }
+ 
+   # Build analyze_snapshot for 64-bit target CPUs.
+-  if (host_os == "linux" && (target_cpu == "x64" || target_cpu == "arm64" ||
+-                             target_cpu == "riscv64")) {
++  if (host_os == "linux" &&
++      (target_cpu == "x64" || target_cpu == "arm64" ||
++       target_cpu == "riscv64" || target_cpu == "ppc64")) {
+     public_deps += [ "$dart_src/runtime/bin:analyze_snapshot($host_toolchain)" ]
+   }
+ }

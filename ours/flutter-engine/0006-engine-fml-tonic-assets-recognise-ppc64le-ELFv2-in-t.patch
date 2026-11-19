@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:07:33 -0600
+Subject: [PATCH] [engine] fml, tonic, assets: recognise ppc64le (ELFv2) in the
+ CPU tables
+
+fml/build_config.h and third_party/tonic/common/build_config.h #error on
+any CPU they do not know, which stops nearly every engine translation
+unit on ppc64le. Add FML_ARCH_CPU_PPC64(_FAMILY) / ARCH_CPU_PPC64 for
+little-endian ELFv2 only; big-endian ppc64 still hits the #error.
+
+assets/native_assets.cc maps the CPU to the native-assets architecture
+name used in NativeAssetsManifest.json keys; use "ppc64" ("linux_ppc64"),
+the spelling Dart and the flutter tool use for this target. The unit
+test's manifest lists every host the test runs on, so it gains a
+"linux_ppc64" entry (without it NativeAssetsManifestParsing fails on
+ppc64le, which is the control that the key is right).
+
+Class: upstreamable in form (same as the riscv64 entries); local until
+a Dart ppc64 backend exists.
+---
+ engine/src/flutter/assets/native_assets.cc                 | 2 ++
+ engine/src/flutter/assets/native_assets_unittests.cc       | 6 ++++++
+ engine/src/flutter/fml/build_config.h                      | 7 +++++++
+ engine/src/flutter/third_party/tonic/common/build_config.h | 6 ++++++
+ 4 files changed, 21 insertions(+)
+
+diff --git a/engine/src/flutter/assets/native_assets.cc b/engine/src/flutter/assets/native_assets.cc
+index 28865f34..deedb82f 100644
+--- a/engine/src/flutter/assets/native_assets.cc
++++ b/engine/src/flutter/assets/native_assets.cc
+@@ -21,6 +21,8 @@ namespace flutter {
+ #define kTargetArchitectureName "riscv32"
+ #elif defined(FML_ARCH_CPU_RISCV64)
+ #define kTargetArchitectureName "riscv64"
++#elif defined(FML_ARCH_CPU_PPC64)
++#define kTargetArchitectureName "ppc64"
+ #else
+ #error Target architecture detection failed.
+ #endif
+diff --git a/engine/src/flutter/assets/native_assets_unittests.cc b/engine/src/flutter/assets/native_assets_unittests.cc
+index 1d33b22d..21f7fcc0 100644
+--- a/engine/src/flutter/assets/native_assets_unittests.cc
++++ b/engine/src/flutter/assets/native_assets_unittests.cc
+@@ -32,6 +32,12 @@ const char* kTestManifest = R"({
+                 "libmy_package.so"
+             ]
+         },
++        "linux_ppc64": {
++            "package:my_package/my_package_bindings_generated.dart": [
++                "absolute",
++                "libmy_package.so"
++            ]
++        },
+         "fuchsia_arm64": {
+             "package:my_package/my_package_bindings_generated.dart": [
+                 "absolute",
+diff --git a/engine/src/flutter/fml/build_config.h b/engine/src/flutter/fml/build_config.h
+index aa2f0d7b..ea0d60cb 100644
+--- a/engine/src/flutter/fml/build_config.h
++++ b/engine/src/flutter/fml/build_config.h
+@@ -105,6 +105,13 @@
+ #define FML_ARCH_CPU_RISCV64 1
+ #define FML_ARCH_CPU_64_BITS 1
+ #define FML_ARCH_CPU_LITTLE_ENDIAN 1
++#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__) && \
++    defined(_CALL_ELF) && _CALL_ELF == 2
++// ppc64le, ELFv2 ABI only (big-endian ppc64 falls through to the #error).
++#define FML_ARCH_CPU_PPC64_FAMILY 1
++#define FML_ARCH_CPU_PPC64 1
++#define FML_ARCH_CPU_64_BITS 1
++#define FML_ARCH_CPU_LITTLE_ENDIAN 1
+ #elif defined(__pnacl__)
+ #define FML_ARCH_CPU_32_BITS 1
+ #define FML_ARCH_CPU_LITTLE_ENDIAN 1
+diff --git a/engine/src/flutter/third_party/tonic/common/build_config.h b/engine/src/flutter/third_party/tonic/common/build_config.h
+index 7174b618..be3aa1c8 100644
+--- a/engine/src/flutter/third_party/tonic/common/build_config.h
++++ b/engine/src/flutter/third_party/tonic/common/build_config.h
+@@ -98,6 +98,12 @@
+ #define ARCH_CPU_RISCV64 1
+ #define ARCH_CPU_64_BITS 1
+ #define ARCH_CPU_LITTLE_ENDIAN 1
++#elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__) && \
++    defined(_CALL_ELF) && _CALL_ELF == 2
++#define ARCH_CPU_PPC64_FAMILY 1
++#define ARCH_CPU_PPC64 1
++#define ARCH_CPU_64_BITS 1
++#define ARCH_CPU_LITTLE_ENDIAN 1
+ #elif defined(__pnacl__)
+ #define ARCH_CPU_32_BITS 1
+ #define ARCH_CPU_LITTLE_ENDIAN 1

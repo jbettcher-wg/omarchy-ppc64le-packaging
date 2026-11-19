@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:34:20 -0600
+Subject: [PATCH] [swiftshader] Add the MC XCOFF base classes to the bundled
+ LLVM PPC target
+
+swiftshader_llvm_ppc compiles PPCXCOFFObjectWriter.cpp and
+PPCMCAsmInfo.cpp, which subclass MCXCOFFObjectTargetWriter and
+MCAsmInfoXCOFF, but the .cpp files defining those base classes are not
+in any source set (MCXCOFFObjectTargetWriter.cpp only under
+is_ubsan_vptr). libvk_swiftshader.so then fails to link on ppc64le:
+
+  ld.lld: error: undefined symbol: llvm::MCAsmInfoXCOFF::MCAsmInfoXCOFF()
+  ld.lld: error: undefined symbol:
+    llvm::MCXCOFFObjectTargetWriter::MCXCOFFObjectTargetWriter(bool)
+
+Add both sources to swiftshader_llvm_ppc. Linux ppc64le is ELF, so the
+XCOFF code is dead, but its vtables must resolve. Same change as the
+omarchy chromium recipe's swiftshader-ppc-xcoff-baseclasses.patch, which
+fixes the identical source set in Chromium's SwiftShader.
+
+SwiftShader is the Vulkan ICD the engine's unit tests run on in CI; it
+is not part of libflutter_linux_gtk.so.
+
+Class: upstreamable fix (to SwiftShader).
+---
+ third_party/llvm-10.0/BUILD.gn | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/engine/src/flutter/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn b/engine/src/flutter/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn
+index f99abba..1ba08db 100644
+--- a/engine/src/flutter/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn
++++ b/engine/src/flutter/third_party/swiftshader/third_party/llvm-10.0/BUILD.gn
+@@ -1214,6 +1214,8 @@ swiftshader_llvm_source_set("swiftshader_llvm_mips") {
+ 
+ swiftshader_llvm_source_set("swiftshader_llvm_ppc") {
+   sources = [
++    "llvm/lib/MC/MCAsmInfoXCOFF.cpp",
++    "llvm/lib/MC/MCXCOFFObjectTargetWriter.cpp",
+     "llvm/lib/Target/PowerPC/AsmParser/PPCAsmParser.cpp",
+     "llvm/lib/Target/PowerPC/Disassembler/PPCDisassembler.cpp",
+     "llvm/lib/Target/PowerPC/MCTargetDesc/PPCAsmBackend.cpp",

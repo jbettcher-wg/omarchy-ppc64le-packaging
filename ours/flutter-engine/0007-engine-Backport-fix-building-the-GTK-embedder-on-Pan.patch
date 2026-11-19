@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:20:41 -0600
+Subject: [PATCH] [engine] Backport: fix building the GTK embedder on Pango
+ 1.58.0
+
+Backport of flutter/flutter#193119 (commit 7e5619891ad4, 2026-10-21),
+unchanged. Pango 1.58.0 defines the g_autoptr cleanup for PangoContext
+itself, so fl_accessible_text_field.cc's own
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(PangoContext, ...) is a redefinition with
+the distro's pango (1.58.0 here). Not ppc64-specific; Flutter's CI uses
+an older Debian sysroot and never sees it.
+
+Class: upstream backport.
+---
+ .../flutter/shell/platform/linux/fl_accessible_text_field.cc  | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc b/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc
+index 17d0a0d7..c5077396 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_accessible_text_field.cc
+@@ -6,7 +6,11 @@
+ #include "flutter/shell/platform/linux/public/flutter_linux/fl_standard_message_codec.h"
+ #include "flutter/shell/platform/linux/public/flutter_linux/fl_value.h"
+ 
++// PangoContext g_autoptr macro weren't added until 1.58.0. Add them manually.
++// https://gitlab.gnome.org/GNOME/pango/-/commit/223b147
++#if !PANGO_VERSION_CHECK(1, 58, 0)
+ G_DEFINE_AUTOPTR_CLEANUP_FUNC(PangoContext, g_object_unref)
++#endif
+ // PangoLayout g_autoptr macro weren't added until 1.49.4. Add them manually.
+ // https://gitlab.gnome.org/GNOME/pango/-/commit/0b84e14
+ #if !PANGO_VERSION_CHECK(1, 49, 4)

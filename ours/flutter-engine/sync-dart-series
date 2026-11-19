@@ -1,0 +1,84 @@
+#!/bin/bash
+# sync-dart-series [DART_SERIES_DIR]
+#
+# Points this recipe at the Dart port's patch series without copying it.
+# The series has exactly one home: the `dart` recipe's directory, where it
+# lives flat beside dart's PKGBUILD. The engine builds its own copy of the
+# Dart VM from engine/src/flutter/third_party/dart, so it must apply the
+# same series. This script, run whenever that series is re-exported:
+#
+#   1. replaces the dart-NNNN-*.patch symlinks here with one per patch,
+#      named dart-<original name> so they cannot collide with the engine's
+#      own NNNN-*.patch series in this flat directory;
+#   2. rewrites the generated _dart_patches / _dart_patch_sums block in
+#      PKGBUILD (between the BEGIN/END markers);
+#   3. copies the dart recipe's _tree into _dart_tree when it is set there,
+#      and refuses when the two recipes disagree.
+#
+# Symlinks are safe under both builders: makepkg resolves local sources by
+# basename in the recipe directory and follows the link, and bq's
+# DirSource.materialise copies each file with shutil.copy2, which follows
+# symlinks too, so the build tree gets real files (tools/bq.py, the
+# materialise() loop). Relative links survive a git clone of the packaging
+# repository as long as both recipes move together.
+#
+# DART_SERIES_DIR (default ../dart, the steady-state layout under ours/)
+# holds either a `series` file or a dart PKGBUILD whose _patches array lists
+# the series in order. Today the series is exported to flutter-port
+# work/dart-sdk-patches (dart-sdk-export-patches.sh), so run:
+#   ./sync-dart-series ../../dart-sdk-patches
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+dir=${1:-../dart}
+cd "$here"
+[[ -d $dir ]] || { echo "no such directory: $dir" >&2; exit 1; }
+
+if [[ -f $dir/series ]]; then
+  mapfile -t names < <(grep -v '^\s*\(#\|$\)' "$dir/series")
+elif [[ -f $dir/PKGBUILD ]]; then
+  mapfile -t names < <(cd "$dir" && bash -c 'srcdir=/nonexistent; source ./PKGBUILD >/dev/null 2>&1; printf "%s\n" "${_patches[@]}"')
+else
+  echo "$dir has neither a series file nor a PKGBUILD" >&2; exit 1
+fi
+(( ${#names[@]} )) || { echo "the Dart series in $dir is empty" >&2; exit 1; }
+
+find . -maxdepth 1 -name 'dart-[0-9][0-9][0-9][0-9]-*.patch' -type l -delete
+links=() sums=()
+for n in "${names[@]}"; do
+  [[ -f $dir/$n ]] || { echo "missing: $dir/$n" >&2; exit 1; }
+  ln -s "$dir/$n" "dart-$n"
+  links+=("dart-$n")
+  sums+=("$(sha256sum < "dart-$n" | cut -d' ' -f1)")
+done
+
+want_tree=
+if [[ -f $dir/PKGBUILD ]]; then
+  want_tree=$(sed -n "s/^_tree=\([0-9a-f]\{40\}\).*/\1/p" "$dir/PKGBUILD")
+fi
+have_tree=$(sed -n "s/^_dart_tree=\([0-9a-f]\{40\}\|TODO\).*/\1/p" PKGBUILD)
+if [[ -n $want_tree && $have_tree != "$want_tree" ]]; then
+  sed -i "s/^_dart_tree=[0-9a-fTOD]*/_dart_tree=$want_tree/" PKGBUILD
+  echo "_dart_tree: $have_tree -> $want_tree (from $dir/PKGBUILD)"
+fi
+
+block=$(
+  echo '# BEGIN generated: sync-dart-series'
+  echo '_dart_patches=('
+  printf "  '%s'\n" "${links[@]}"
+  echo ')'
+  echo '_dart_patch_sums=('
+  printf "  '%s'\n" "${sums[@]}"
+  echo ')'
+  echo '# END generated'
+)
+python3 -I - "$block" <<'EOF'
+import re, sys
+p = 'PKGBUILD'
+s = open(p).read()
+new, n = re.subn(r'# BEGIN generated: sync-dart-series\n.*?# END generated',
+                 lambda m: sys.argv[1], s, count=1, flags=re.S)
+if n != 1:
+    sys.exit('PKGBUILD has no sync-dart-series block')
+open(p, 'w').write(new)
+EOF
+echo "linked ${#links[@]} Dart patches from $dir"

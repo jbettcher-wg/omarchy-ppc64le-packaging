@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Wed, 18 Nov 2026 23:21:07 -0600
+Subject: [PATCH] [engine] linux: include glib.h before the extern "C" ATK
+ include
+
+fl_view_accessible.cc and fl_accessibility_handler_test.cc wrap
+<atk/atk.h> in extern "C" (a workaround for old ATK headers). With
+glib >= 2.68 and C++11, glib-typeof.h includes <type_traits>, and
+libc++'s templates inside extern "C" fail with "templates must have C++
+linkage" (distro glib 2.88.3 here; Flutter's Debian bullseye sysroot
+has 2.66, so upstream CI never sees it). Include <glib.h> first so the
+nested include from atk.h is a no-op under its include guard.
+
+Class: upstreamable fix (not ppc64-specific).
+---
+ .../shell/platform/linux/fl_accessibility_handler_test.cc     | 4 ++++
+ engine/src/flutter/shell/platform/linux/fl_view_accessible.cc | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/engine/src/flutter/shell/platform/linux/fl_accessibility_handler_test.cc b/engine/src/flutter/shell/platform/linux/fl_accessibility_handler_test.cc
+index fe527b5b..3589f4dc 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_accessibility_handler_test.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_accessibility_handler_test.cc
+@@ -4,6 +4,10 @@
+ 
+ // Workaround missing C code compatibility in ATK header.
+ // Fixed in https://gitlab.gnome.org/GNOME/at-spi2-core/-/merge_requests/219
++// glib >= 2.68 pulls in <type_traits> from glib-typeof.h under C++11, which
++// must not happen inside extern "C"; include glib first so that the include
++// guard makes the nested include from atk.h a no-op.
++#include <glib.h>
+ extern "C" {
+ #include <atk/atk.h>
+ }
+diff --git a/engine/src/flutter/shell/platform/linux/fl_view_accessible.cc b/engine/src/flutter/shell/platform/linux/fl_view_accessible.cc
+index df3a986a..19b69e36 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_view_accessible.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_view_accessible.cc
+@@ -4,6 +4,10 @@
+ 
+ // Workaround missing C code compatibility in ATK header.
+ // Fixed in https://gitlab.gnome.org/GNOME/at-spi2-core/-/merge_requests/219
++// glib >= 2.68 pulls in <type_traits> from glib-typeof.h under C++11, which
++// must not happen inside extern "C"; include glib first so that the include
++// guard makes the nested include from atk.h a no-op.
++#include <glib.h>
+ extern "C" {
+ #include <atk/atk.h>
+ }
