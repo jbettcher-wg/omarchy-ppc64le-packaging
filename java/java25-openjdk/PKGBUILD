@@ -176,7 +176,13 @@ build() {
   # hook, and the host's other JDKs are visible under /usr/lib/jvm too.
   local _ppc64le_opts=()
   if [[ ${CARCH} = powerpc64le ]]; then
-    _ppc64le_opts=(--with-boot-jdk=/usr/lib/jvm/java-26-openjdk)
+    # Booting from a newer JDK, the interim javac sees 26's class files and
+    # warns about preview features 25 does not know (Feature.LAZY_CONSTANTS);
+    # with Java warnings as errors, the default, that stops the build.
+    _ppc64le_opts=(
+      --with-boot-jdk=/usr/lib/jvm/java-26-openjdk
+      --disable-java-warnings-as-errors
+    )
     [[ -n ${MAKEFLAG_J} ]] && _ppc64le_opts+=(--with-jobs="${MAKEFLAG_J}")
     # configure refuses a compiler that is a ccache symlink, which is how bq
     # provides ccache; take it off PATH and use OpenJDK's own ccache support,
