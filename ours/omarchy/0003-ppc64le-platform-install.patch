@@ -11,8 +11,9 @@ ppc64le platform", 296d4d7ee "Refuse an unsupported CPU instead of calling
 it x86", 9d077ad8d "Skip a platform's unavailable packages in
 omarchy-pkg-add", a6cc8fc83 "Install base's disktree-bin on POWER",
 8f89ed9d4 "Install POWERarm on every POWER platform", 53bfb9e91 "Run agent
-CLIs with no POWER build as their arm64 builds" and 5187c8230 "Install
-sleeve on POWER") with:
+CLIs with no POWER build as their arm64 builds", 5187c8230 "Install
+sleeve on POWER", 63b58bfc5 "Install Superwhisper on POWER" and bf3ec9bb5
+"Install fcitx5-mozc on POWER") with:
 
     git diff v4.5.0..ppc64le-platform -- install/ migrations/
 
@@ -79,10 +80,10 @@ index 000000000..a88564046
 +omarchy-nx-gzip
 diff --git a/install/omarchy-ppc64le-unavailable.packages b/install/omarchy-ppc64le-unavailable.packages
 new file mode 100644
-index 000000000..83b4a8462
+index 000000000..4984efa2d
 --- /dev/null
 +++ b/install/omarchy-ppc64le-unavailable.packages
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,17 @@
 +# Packages with no ppc64le build: they build for x86_64 and aarch64 but not for
 +# POWER. omarchy-pkg-defaults leaves them out of every ppc64le platform's set,
 +# and omarchy-pkg-add skips them with a notice, so a migration that installs one
@@ -98,16 +99,8 @@ index 000000000..83b4a8462
 +# transitional package that installs disktree built from source.
 +mise-bin
 +
-+# Closed source, published for x86_64 and aarch64 only.
-+superwhisper-bin
-+
 +# Flutter: the Dart VM has no ppc64le back end.
 +localsend
-+
-+# Mozc builds with Bazel through bazelisk, which fetches a Bazel release, and
-+# pulls prebuilt python-build-standalone and protoc, all published for x86_64
-+# and aarch64 only. The other input-method engines build here.
-+fcitx5-mozc
 diff --git a/install/omarchy-ppc64le.packages b/install/omarchy-ppc64le.packages
 new file mode 100644
 index 000000000..58ec0c6fc
