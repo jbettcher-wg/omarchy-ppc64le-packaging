@@ -1,0 +1,221 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# A native ppc64le Dart SDK, prebuilt, whose only job is to build `dart` (and
+# the Dart inside flutter-engine).
+#
+# Class: local workaround (self-hosting bootstrap for a distribution build).
+#
+# Dart is SELF-HOSTING: its front end (pkg/front_end, the CFE) is written in
+# Dart, and the SDK build runs a prebuilt Dart from tools/sdks/dart-sdk to
+# turn the tree's own pkg/ sources into kernel files, JS and generated Dart
+# (build/dart/dart_action.gni, prebuilt_dart_action()). Building dart
+# therefore needs a dart that already runs on this architecture. That is the
+# cycle this package breaks. It is a *makedepends* of `dart` and
+# flutter-engine and nothing else -- do not install it to use Dart, install
+# `dart`. The prebuilt is never asked for machine code: every snapshot that
+# holds code is made by the gen_snapshot/dartvm the build compiles, and
+# dart's CONTROL refuses a graph that asks otherwise.
+#
+# PROVENANCE: how the first native SDK came to exist, which nobody can redo
+# from this file alone. No native ppc64le Dart existed anywhere, so the
+# upstream arm64 SDK was run under POWERarm (the user's aarch64-on-POWER
+# translator, registered with binfmt_misc) ON POWER9 HARDWARE as the
+# prebuilt of the first native build. No arm64 machine was involved. Then
+# the SDK built itself, twice. All of it ran on .24 (omarchy-power9, POWER9
+# DD2.3, kernel 7.3.5-64k), in flutter-port work/ (M5, 2026-11-19).
+#
+#   stage 0  https://storage.googleapis.com/dart-archive/channels/stable/release/3.11.5/sdk/dartsdk-linux-arm64-release.zip
+#            sha256 50e9aba58f8717943854778a73074e63a80c42054355d35e2732a0cc0824a2fb,
+#            revision c70f78e7d682 ("3.11.5 (stable) ... on linux_arm64"),
+#            under powerarm 0.20.1-1 (/usr/bin/POWERarm, binfmt entry
+#            POWERarm-aarch64, flags POCF; the pinned inode was checked to be
+#            the installed one), guest rootfs ArchLinuxARM-m2. It ran only as
+#            a leaf of native ninja/python.
+#   SDK1     the port tree built natively, `create_sdk`, with stage 0 as
+#            tools/sdks/dart-sdk.
+#   SDK2     SDK1 as the prebuilt: work/dart-ppc64-aot-sdk2 (rev 8109e517).
+#   SDK3     SDK2 as the prebuilt: work/dart-ppc64-aot-self/out.
+#   fixpoint SDK2 vs SDK3: 997 of 1,000 files byte-identical -- every AOT
+#            snapshot, every .dill and every binary. The 3 that differ are
+#            the app-jit snapshots (analysis_server, dartdevc,
+#            kernel-service), which come from a timed JIT training run.
+#            SDK1 vs SDK2: 986 of 1,000 identical, every platform .dill
+#            included, so the native front end emits the same kernel as the
+#            emulated one; the 14 that differ embed the build tree's path.
+#
+# THE POWER9 TARBALL is M5's final SDK1: `create_sdk` of work/dart-ppc64-aot
+# at m5-aot 93aab1e2 (tree 02044b44: the port series as of ppc64-backend
+# da836df7, minus two vm/dart test files), clang 22.1.8, ppc64_cpu unset,
+# driven by stage 0, built 2026-11-19 08:12-08:20 CST. It was chosen over
+# SDK2/SDK3, which are older trees (8109e517), because it carries every
+# backend fix up to the export (the linear-scan SpillAfter fix among them),
+# and the fixpoint above shows that being driven by stage 0 changes nothing
+# a native driver would not have produced. It reports
+#   Dart SDK version: 3.11.5 (stable) (Thu Nov 19 08:12:02 2026 -0600) on "linux_ppc64"
+# and it drove a complete native build of the `dart` package (flutter-port
+# work/packaging/pkgtest, 2026-11-19). dart-bootstrap-3.11.5-powerpc64le.tar.zst.provenance
+# has the per-binary sha256 and the ISA scan; make-bootstrap-tarball.sh made
+# it, reproducibly (two runs, one sha256), with modes normalised (the M5 SDK
+# carried DevTools files 0600 from the CIPD zip).
+#
+# THE BASELINE TARBALL is not a second emulated bootstrap. It is the baseline
+# pool's own `dart` (built with _power8_compat=1) repackaged, so it carries
+# exactly the POWER8 safety of the dart that pool ships. The first baseline
+# `dart` has no baseline bootstrap to use: it is built once on the POWER9
+# host with this POWER9 bootstrap (dart's _cross_pool_bootstrap=1, recorded
+# in its .pkginfo), then
+#   make-bootstrap-tarball.sh <that package's /usr/lib/dart> baseline
+# and its sha256 goes below. The script refuses an SDK with any ISA 3.0
+# instruction for the baseline pool.
+#
+# ISA. Dart codegen is ISA 2.07 in both pools: every AOT snapshot in either
+# tarball scans 0 ISA 3.0 instructions, and build() refuses one that does
+# not. The POWER9 tarball's native binaries (dart, dartvm, dartaotruntime,
+# gen_snapshot) carry 1,197 ISA 3.0 instructions each, all from the POWER9
+# pool's statically linked libstdc++/libsupc++/libgcc (wasm-opt 1,400); Dart's
+# own C++ was built at the compiler default (POWER8). That is right for the
+# POWER9 pool and is why the baseline pool needs its own tarball.
+#
+# Running stage 0 again, on a machine with no native Dart at all: build the
+# `dart` recipe natively with the arm64 SDK as its driver -- a harness
+# override of _driver_sdk, as flutter-engine's PKGBUILD.harness does, since
+# dart's driver CONTROL refuses an emulated Dart by design -- then run
+# make-bootstrap-tarball.sh on the result. What R15 measured about the
+# emulated SDK (flutter-port work/packaging/REPORT.md): it runs inside bq's
+# bwrap, both pools, -j slots and makepkg build(), with byte-identical output,
+# provided (1) binfmt_misc has the F flag (the sandbox inherits the host's
+# instance), (2) POWERarm's own loader and libraries resolve in the sandbox
+# (the pool's copies, under bq), (3) $HOME has the POWERarm config and rootfs
+# or POWERARM_ROOTFS names it -- dart's prepare() points HOME into $srcdir, so
+# set POWERARM_ROOTFS -- and (4) the apparent uid is the real one: POWERarm
+# names its server socket after getuid(), so it fails under fakeroot
+# (package()) and in a uid-0 sandbox.
+#
+# BUILD THIS NATIVELY (bq / tools/build-ppc64le.sh, or makepkg in a native
+# shell). Never from inside the POWERarm aarch64 sleeve that Claude sessions
+# run in: fakeroot's faked uses SysV IPC, which does not work through the
+# binfmt layer, so it half-intercepts and mangles modes instead of failing --
+# a package whose files are -rw------- and owned by the builder's uid, with
+# `semop(2): Invalid argument` and `fakeroot internal error #43` in the log.
+# An agent reaches the native shell with:
+#   ssh -n -i ~/.ssh/id_claude_omarchy -o BatchMode=yes localhost '...'
+#
+# PKGREL RULE. pacman compares versions, not contents, so a same-version
+# rebuild is never delivered to a machine that already has it. Bump pkgrel
+# whenever either pool's tarball changes at the same pkgver (a refreshed
+# SDK, a superseded bad build, a provenance change). pkgver is the Dart
+# version *inside* the tarball. A newer Dart is needed only when an N -> N+1
+# hop of `dart` no longer builds with the previous `dart` as its driver
+# (dart's _driver=system); then pkgver moves and pkgrel resets to 1.
+
+pkgname=dart-bootstrap
+pkgdesc='Prebuilt native ppc64le Dart SDK, used only to build dart (self-hosting bootstrap)'
+pkgver=3.11.5
+pkgrel=1
+
+_power8_compat=${_power8_compat:-0}
+if (( _power8_compat )); then
+  _pool=baseline
+  _provenance='TODO(M9): the baseline pool dart 3.11.5-N (_power8_compat=1), repackaged by make-bootstrap-tarball.sh'
+  _tarball="dart-bootstrap-$pkgver-power8-powerpc64le.tar.zst"
+  _tarsum='TODO'
+else
+  _pool=power9
+  _provenance='M5 SDK1-final: dart 3.11.5 + ppc64 port (m5-aot 93aab1e2), built natively on POWER9 driven by the upstream arm64 SDK under POWERarm 0.20.1-1; self-hosting fixpoint SDK2 == SDK3'
+  _tarball="dart-bootstrap-$pkgver-powerpc64le.tar.zst"
+  _tarsum='81ac8200fd055d893e08a0ed48312ffba13a1755294a300a069ea810deb68b2e'
+fi
+arch=('powerpc64le')
+url='https://dart.dev'
+license=('BSD-3-Clause')
+# Measured DT_NEEDED of bin/dart, dartvm, dartaotruntime, utils/gen_snapshot
+# and wasm-opt: libc.so.6, libm.so.6, ld64.so.2. The C++ runtime is static.
+depends=('glibc')
+makedepends=('file' 'binutils')
+provides=("dart-bootstrap=$pkgver")
+# No 'conflicts' with dart: this lives at a private path and installs nothing
+# under /usr/bin. `dart` and flutter-engine pick it up by absolute path
+# (tools/sdks/dart-sdk -> /usr/lib/dart-bootstrap), never from PATH.
+#
+# !strip: the tarball's sha256 and the bin/dart sha256 in .pkginfo are the
+# provenance, and strip would change both. bin/snapshots/*_aot.* are ELF
+# files written by Dart's own ELF writer, not binutils, and create_sdk
+# already installs stripped binaries, so strip gains nothing anyway.
+options=('!strip' '!debug')
+
+# The tarballs live on the distribution's R2 bucket, which is WRITE-ONCE: a
+# changed tarball must get a new file name (and pkgrel), never replace one.
+# name::URL, so a copy beside this PKGBUILD (where make-bootstrap-tarball.sh
+# writes it) or in SRCDEST is used without downloading; the sha256 decides
+# either way. The tarballs are not committed (the repository's .gitignore
+# ignores *.tar.zst). Each archive holds
+# one top-level directory, dart-sdk/, laid out as create_sdk writes it, plus
+# a .provenance and .sha256 beside it, which are committed.
+_r2=https://omappc64le.download/bootstrap
+source=("$_tarball::$_r2/$_tarball")
+sha256sums=("$_tarsum")
+
+_isa30_count() {
+  local n8 n9
+  n8=$(objdump -d --no-show-raw-insn -M power8 "$1" 2>/dev/null | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  n9=$(objdump -d --no-show-raw-insn -M power9 "$1" 2>/dev/null | grep -cP '^\s+[0-9a-f]+:\s+\.long\b' || true)
+  echo $((n8 - n9))
+}
+
+# Not a build: a fail-closed check that the tarball is what this package
+# claims, here because bq passes --nocheck and would skip a check().
+build() {
+  local sdk=dart-sdk b v
+  for b in dart dartaotruntime; do
+    file -b "$sdk/bin/$b" | grep -q '64-bit LSB .*PowerPC' \
+      || { echo "ERROR: bin/$b is not a ppc64le ELF: $(file -b "$sdk/bin/$b" | cut -d, -f1-2)" >&2; return 1; }
+    # A simarm64-on-ppc64 VM (milestone M1) is also a PowerPC ELF; its
+    # version string says "linux_simarm64". Only the real port says linux_ppc64.
+    v=$("$sdk/bin/$b" --version 2>&1)
+    [[ $v == *"$pkgver (stable)"*'"linux_ppc64"'* ]] \
+      || { echo "ERROR: bin/$b reports: $v" >&2; return 1; }
+  done
+  [[ $(< "$sdk/version") == "$pkgver" ]] \
+    || { echo "ERROR: the SDK is $(< "$sdk/version"), not $pkgver" >&2; return 1; }
+  local badmode
+  badmode=$(find "$sdk" \( -type f \( ! -perm -0444 -o -perm /0022 \) \) -o \
+                        \( -type d \( ! -perm -0555 -o -perm /0022 \) \) | head -3)
+  [[ -z $badmode ]] || { echo "ERROR: bad modes in the tarball, e.g. $badmode" >&2; return 1; }
+
+  # Same rule as dart's build() and make-bootstrap-tarball.sh: AOT snapshots
+  # 0 ISA 3.0 in both pools, every ELF 0 in the baseline pool.
+  local n f bad=0
+  export -f _isa30_count
+  : > "$srcdir/isa30.info"
+  while read -r n f; do
+    printf 'isa30 %8d  %s\n' "$n" "$f" | tee -a "$srcdir/isa30.info"
+    if (( n )) && [[ $f == bin/snapshots/* ]]; then
+      echo "ERROR: $n ISA 3.0 instructions in AOT snapshot $f" >&2; bad=1
+    elif (( n && _power8_compat )); then
+      echo "ERROR: $n ISA 3.0 instructions in $f (baseline pool)" >&2; bad=1
+    fi
+  done < <(cd "$sdk" && find . -type f -print0 \
+             | xargs -0 -n1 -P 16 bash -c '[[ $(od -An -tx1 -N4 "$1") == " 7f 45 4c 46" ]] || exit 0
+                                           printf "%s %s\n" "$(_isa30_count "$1")" "${1#./}"' _ \
+             | sort -k2)
+  (( ! bad ))
+}
+
+package() {
+  install -d "$pkgdir/usr/lib/dart-bootstrap"
+  cp -a dart-sdk/. "$pkgdir/usr/lib/dart-bootstrap/"
+
+  # dart's and flutter-engine's CONTROL read `pool:` and refuse a bootstrap
+  # from the other pool unless told it is the one-time cross-pool step.
+  install -Dm644 /dev/stdin "$pkgdir/usr/lib/dart-bootstrap/.pkginfo" <<-INFO
+	version: $(< dart-sdk/version)
+	revision: $(< dart-sdk/revision)
+	pool: $_pool
+	tarball: $_tarball
+	tarball sha256: $_tarsum
+	bin/dart sha256: $(sha256sum < dart-sdk/bin/dart | cut -d' ' -f1)
+	built-by: $_provenance
+	purpose: makedepends of dart and flutter-engine only
+	$(cat "$srcdir/isa30.info")
+	INFO
+}

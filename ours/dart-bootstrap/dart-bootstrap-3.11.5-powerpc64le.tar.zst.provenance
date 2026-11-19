@@ -1,0 +1,31 @@
+tarball: dart-bootstrap-3.11.5-powerpc64le.tar.zst
+sha256: 81ac8200fd055d893e08a0ed48312ffba13a1755294a300a069ea810deb68b2e
+size: 154893991 bytes
+pool: power9
+made: 2026-11-19T15:43:48Z on omarchy-power9 (ppc64le, kernel 7.3.5-64k)
+from: /mnt/arch/home/jbettcher/Development/flutter-port/work/dart-ppc64-aot/out/ReleasePPC64/dart-sdk
+version: Dart SDK version: 3.11.5 (stable) (Thu Nov 19 08:12:02 2026 -0600) on "linux_ppc64"
+revision: 93aab1e2d46175b900bedd33a6dd37af115fd9ea
+bin/dart sha256: 995909f7cc59588651c95eab43e5c3f359ce41bf4d7ae2384530953315c6874f
+bin/dartvm sha256: c6144f54438d4ced97a2a6d83d703901f67c21c17e6cd4d69092de4c16f73ca3
+bin/dartaotruntime sha256: 116caddaad213dac8eedc5a0ff0464eb70def4d2ef6c3781c7b3849645c9a970
+bin/utils/gen_snapshot sha256: 59b13b64e1708df71d9572b45c72a2241123c5e9216889aec0d97d9abe332561
+files: 1000
+provenance: M5 SDK1-final: create_sdk of work/dart-ppc64-aot m5-aot 93aab1e2 (tree 02044b44 = port series at ppc64-backend da836df7 minus two vm/dart test files), clang 22.1.8, ppc64_cpu unset (compiler default), driven by the upstream arm64 3.11.5 SDK under POWERarm 0.20.1-1 (stage 0), built 2026-11-19 08:12-08:20 CST
+# ISA 3.0 instructions per ELF (objdump -M power8 vs -M power9):
+isa30 1197 bin/dart
+isa30 1197 bin/dartaotruntime
+isa30 1197 bin/dartvm
+isa30 0 bin/snapshots/analysis_server_aot.dart.snapshot
+isa30 0 bin/snapshots/dart2js_aot.dart.snapshot
+isa30 0 bin/snapshots/dart2wasm_product.snapshot
+isa30 0 bin/snapshots/dart_mcp_server_aot.dart.snapshot
+isa30 0 bin/snapshots/dart_tooling_daemon_aot.dart.snapshot
+isa30 0 bin/snapshots/dartdev_aot.dart.snapshot
+isa30 0 bin/snapshots/dartdevc_aot.dart.snapshot
+isa30 0 bin/snapshots/dds_aot.dart.snapshot
+isa30 0 bin/snapshots/frontend_server_aot.dart.snapshot
+isa30 0 bin/snapshots/gen_kernel_aot.dart.snapshot
+isa30 0 bin/snapshots/kernel_worker_aot.dart.snapshot
+isa30 1197 bin/utils/gen_snapshot
+isa30 1400 bin/utils/wasm-opt
