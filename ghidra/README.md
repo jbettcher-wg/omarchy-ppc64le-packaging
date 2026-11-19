@@ -1,23 +1,26 @@
 # `ghidra`
 
-Arch's recipe, ported to ppc64le. Two changes carry the port.
+Arch's recipe, ported to ppc64le. One patch carries the port; the toolchain
+is the same as x86's.
 
-## Gradle 9.9.1 is pinned as a source
+## The x86 toolchain: JDK 25 and the system Gradle
 
 Ghidra 12.2 needs JDK >= 25 and Gradle >= 9.1 (`Ghidra/application.properties`).
-Arch POWER has no JDK 25, only 26, and its `gradle` is 8.14.2. Gradle 8.14.2
-cannot run on JDK 26 and fails with `Unsupported class file major version 70`.
-Gradle can run on JDK 26 from 9.4.0, so the official `gradle-9.9.1-bin.zip` is a
-pinned source, and `build()` runs its `bin/gradle`. The system `gradle` is not
-a makedepend.
+Arch x86 builds it with `java-environment=25` and its `gradle` 9.9, and so do
+we. Arch POWER has neither, so both are ours: `java/java25-openjdk` (booted from
+JDK 26) and `java/gradle` 9.9.0. 12.2-1.1 had pinned `gradle-9.9.1-bin.zip` and
+built on JDK 26 instead; 12.2-1.2 retired both.
 
-Each call passes `--no-daemon`. A Gradle daemon outlives makepkg and keeps the
-`/usr` of the sandbox that started it. The next build would reuse it, for
-example the other pool's ghidra, and compile against the wrong pool's
+`build()` checks that the `gradle` it runs is 9.1 or newer and runs on JDK 25,
+and passes `--no-daemon` to every call. A Gradle daemon outlives makepkg and
+keeps the `/usr` of the sandbox that started it. The next build would reuse it,
+for example the other pool's ghidra, and compile against the wrong pool's
 toolchain.
 
-Packaging Gradle 9 properly, as `java/gradle` built from source, is the
-follow-up that would retire the zip.
+The package depends on `java-environment>=25`, as on x86, so Ghidra runs on the
+system's default JDK. To run it on 25 while 26 is the default, set
+`JAVA_HOME_OVERRIDE` in `/opt/ghidra/support/launch.properties`, or
+`archlinux-java set java-25-openjdk`.
 
 ## `ghidra-linux-ppc64le.patch`
 
@@ -63,10 +66,11 @@ SymbolicSummaryZ3 extension carries `libz3.so` and `libz3java.so`.
 The Z3 libraries are copied from the build's own staged `z3`/`z3-java`, which
 are ours (`packaging/z3`). Land z3 in a pool before building ghidra there.
 
-## yajsw is pinned
+## Checksums
 
-Arch's recipe has `SKIP` for `yajsw-stable-13.18.zip`. A SourceForge download
-here came back 229,376 bytes too long and failed every checksum. Gradle then
-stopped at `Cannot expand ZIP` in `:GhidraServer:yajswDevUnpack`. The recipe
-now pins the sha512 of the file that matches the sha256 Ghidra itself expects
-(`50b34e98…` in `gradle/support/fetchDependencies.gradle`).
+Every source is pinned, as in Arch's current recipe, including the
+`ghidra-data` git tag. A SourceForge download of `yajsw-stable-13.18.zip` once
+came back 229,376 bytes too long, and Gradle then stopped at `Cannot expand
+ZIP` in `:GhidraServer:yajswDevUnpack`; the pinned sha512 is the file that
+matches the sha256 Ghidra itself expects (`50b34e98…` in
+`gradle/support/fetchDependencies.gradle`).
