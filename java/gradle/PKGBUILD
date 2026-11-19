@@ -38,6 +38,13 @@ makedepends=(
   'java-environment=17'
   'java-environment=25'
   'xmlto'
+  # ppc64le: bq's stage-deps drops version constraints, so each virtual
+  # java-environment=N above is met by whatever JDK is at hand; name them.
+  # 8 and 11 come from Arch POWER, 25 from our pool.
+  'jdk8-openjdk'
+  'jdk11-openjdk'
+  'jdk17-openjdk'
+  'jdk25-openjdk'
 )
 source=(https://services.gradle.org/distributions/${pkgbase}-${pkgver}-src.zip
         https://services.gradle.org/distributions/${pkgbase}-${pkgver}-all.zip
