@@ -371,11 +371,13 @@ _patch_sums=(
 
 source=(
   'dart-sdk-fetch.sh'
+  'isa30-attribute.py'
   "devtools-$_devtools_rev.zip::https://chrome-infra-packages.appspot.com/dl/dart/third_party/flutter/devtools/+/git_revision:$_devtools_rev"
   "${_patches[@]}"
 )
 sha256sums=(
   'cad2179f9bab2899613d6713c591b1be75b2290b38633a3b87af9fc7d89238a3'
+  'f38059bccfcca8c4d0a1a747b518015702ef5b16ecf835b029ecf7f2b1fd4d4e'
   'bd823b80fd88fa9cfadfbbafce06eb99f9df3c66f94ea04d494768d0344263be'
   "${_patch_sums[@]}"
 )
@@ -522,7 +524,7 @@ build() {
   _gate_elves "$stage/dart-sdk"
   _gate_modes "$stage/dart-sdk"
   _smoke "$stage/dart-sdk"
-  _gate_isa30 "$stage/dart-sdk"
+  _gate_isa30 "$stage/dart-sdk" "$_out"
 }
 
 # Every ELF about to be installed is a 64-bit little-endian PowerPC one whose
@@ -582,20 +584,64 @@ _isa30_selftest() {
   printf 'isa30 scanner self-test: %d -> %d with one injected xscvhpdp\n' "$base" "$got"
 }
 
+# Installed native ELF -> the unstripped binary in $_out that create_sdk
+# stripped it from (sdk/BUILD.gn's *_stripped_binary args, as args.gn shows:
+# exe.stripped/dart, dartvm, dartaotruntime_product, gen_snapshot_product,
+# wasm-opt). isa30-attribute.py proves each pairing: identical .text.
+declare -gA _unstripped=(
+  [bin/dart]=dart
+  [bin/dartvm]=dartvm
+  [bin/dartaotruntime]=dartaotruntime_product
+  [bin/utils/gen_snapshot]=gen_snapshot_product
+  [bin/utils/wasm-opt]=wasm-opt
+)
+
 # AOT snapshots (the SDK's tools and the smoke snapshot) are generated code:
-# 0 ISA 3.0 instructions in both pools. Every other ELF: 0 in the baseline
-# pool, counted only in the POWER9 pool.
+# 0 ISA 3.0 instructions in both pools. Native binaries are counted only in
+# the POWER9 pool. In the baseline pool a native binary may carry ISA 3.0
+# only inside libgcc's IFUNC'd IEEE-128 hardware routines (-static-libgcc:
+# _divkc3-hw.o, _mulkc3-hw.o, _powikf2-hw.o, float128-hw.o, float128-p10.o),
+# which the pool's policy lists as benign (omarchy-ppc64le CLAUDE.local.md,
+# the 2026-09-23 sweep: "the IFUNC'd float128 hardware objects from libgcc,
+# the same 253 the fixed libgcc.a keeps"). isa30-attribute.py proves it per
+# function on the unstripped binary -- every word in such a routine, each
+# routine reached only through its IFUNC resolver -- and the installed
+# (stripped) count must equal the attributed total. Measured 2026-11-19 on
+# the baseline lane: 253 words per binary, all of them there.
 _gate_isa30() {
-  local sdk=$1 f n bad=0 kind
+  local sdk=$1 out=${2:-} f n bad=0 kind libgcc attr total
   export -f _isa30_count
   : > "$srcdir/isa30.info"
+  if (( _power8_compat )); then
+    libgcc=$(clang --target=powerpc64le-linux-gnu -print-libgcc-file-name)
+    [[ -f $libgcc ]] || { echo "GATE FAILED: no libgcc.a ($libgcc)" >&2; return 1; }
+  fi
   while read -r n f; do
     if [[ $f == bin/snapshots/* ]]; then kind=aot-snapshot; else kind=native; fi
     printf 'isa30 %8d  %-13s %s\n' "$n" "$kind" "$f" | tee -a "$srcdir/isa30.info"
     if (( n != 0 )) && [[ $kind == aot-snapshot ]]; then
       echo "GATE FAILED: $n ISA 3.0 instructions in AOT snapshot $f (Dart codegen is ISA 2.07)" >&2; bad=1
     elif (( n != 0 && _power8_compat )); then
-      echo "GATE FAILED: $n ISA 3.0 instructions in $f (baseline pool)" >&2; bad=1
+      if [[ -z $out || -z ${_unstripped[$f]:-} ]]; then
+        echo "GATE FAILED: $n ISA 3.0 instructions in $f, and no unstripped binary to attribute them (baseline pool)" >&2
+        bad=1; continue
+      fi
+      attr=$srcdir/isa30-attr-${f//\//_}.txt
+      if ! python3 "$srcdir/isa30-attribute.py" --libgcc "$libgcc" --installed "$sdk/$f" \
+             "$out/${_unstripped[$f]}" > "$attr" 2>&1; then
+        cat "$attr" >&2
+        echo "GATE FAILED: $f: ISA 3.0 attribution failed (baseline pool: only libgcc's IFUNC'd float128 routines are allowed; reasons above)" >&2
+        bad=1; continue
+      fi
+      total=$(sed -n 's/^RESULT ok //p' "$attr")
+      if [[ $total != "$n" ]]; then
+        echo "GATE FAILED: $f has $n ISA 3.0 instructions installed, $total attributed in ${_unstripped[$f]}" >&2
+        bad=1; continue
+      fi
+      sed -n 's/^  allowed *\([0-9]*\)  \([^ ]*\).*/isa30-allowed \2 \1/p' "$attr" | sed "s#^#  $f: #" \
+        | tee -a "$srcdir/isa30.info"
+      printf 'isa30-allowed-total %s %d (libgcc IFUNC float128 hardware routines only)\n' "$f" "$n" \
+        | tee -a "$srcdir/isa30.info"
     fi
   done < <(cd "$sdk" && find . -type f -print0 \
              | xargs -0 -n1 -P 16 bash -c '[[ $(od -An -tx1 -N4 "$1") == " 7f 45 4c 46" ]] || exit 0
