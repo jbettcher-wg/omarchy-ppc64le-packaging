@@ -48,12 +48,34 @@ _bazel_deps=(
     https://github.com/protocolbuffers/protobuf/releases/download/v34.1/protoc-34.1-linux-x86_64.zip
 )
 
+# ppc64le: bazelisk fetches three build-time tools for the host it runs on, and
+# _bazel_deps above carries them for x86_64 and aarch64 only. None of them is
+# shipped, and each has a ppc64le route:
+#  - bazel, the build driver: our own package (packaging/bazel), built from
+#    its dist zip at the release src/.bazeliskrc names. It takes bazelisk's
+#    place in makedepends.
+#  - python-build-standalone, the interpreter rules_python runs mozc's
+#    generator scripts with: published for ppc64le, added below.
+#  - protoc: built from source by bazel, through protobuf's own
+#    prefer_prebuilt_protoc flag, rather than the prebuilt
+#    protoc-*-linux-ppcle_64.zip, so no downloaded compiler runs in the build.
+# prepare() checks each value below against the source that sets it, through
+# ppc64le-pins.py; for a bump, `./ppc64le-pins.py <_mozc_commit>` prints them.
+# See README.md.
+_bazel_version=9.0.2    # USE_BAZEL_VERSION in mozc's src/.bazeliskrc
+_protobuf_version=34.1  # the protobuf bazel_dep in mozc's src/MODULE.bazel
+_pbs_python=3.11.14     # rules_python's MINOR_MAPPING for its python.defaults()
+_pbs_release=20251031   # the release rules_python's versions.bzl names for it
+_bazel_deps_powerpc64le=(
+    https://github.com/astral-sh/python-build-standalone/releases/download/${_pbs_release}/cpython-${_pbs_python}+${_pbs_release}-ppc64le-unknown-linux-gnu-install_only.tar.gz
+)
+
 _pkgbase=mozc
 pkgname=fcitx5-mozc
 pkgdesc="Fcitx5 Module of A Japanese Input Method for Chromium OS, Windows, Mac and Linux (the Open Source Edition of Google Japanese Input)"
 pkgver=3.35.6354.2
-pkgrel=1
-arch=('x86_64')
+pkgrel=1.1
+arch=('x86_64' 'powerpc64le')
 url="https://github.com/google/mozc"
 license=('BSD-3-Clause' 'Apache-2.0' 'LGPL-2.0-or-later' 'LicenseRef-Unicode-DFS-2015' 'LicenseRef-NAIST-2003')
 depends=(
@@ -65,6 +87,11 @@ depends=(
   'glibc'
 )
 makedepends=('git' 'bazelisk' 'python')
+if [[ $CARCH == powerpc64le ]]; then
+  # ppc64le: bazelisk has no bazel to download for ppc64le. Build with our
+  # bazel, at the release .bazeliskrc asks for; its JDK comes with it.
+  makedepends=("${makedepends[@]/#bazelisk/bazel=$_bazel_version}")
+fi
 replaces=('mozc-fcitx')
 conflicts=('mozc' 'mozc-server' 'mozc-utils-gui' 'mozc-fcitx' 'fcitx-mozc')
 source=(git+https://github.com/fcitx/mozc.git#commit=${_mozc_commit}
@@ -80,6 +107,8 @@ for _bazel_dep in "${_bazel_deps[@]}"; do
     noextract+=("${_bazel_dep##*/}")
   fi
 done
+source_powerpc64le=("${_bazel_deps_powerpc64le[@]}" ppc64le-pins.py rules_python-ppc64le-cpu.patch)
+noextract+=("${_bazel_deps_powerpc64le[@]##*/}")
 
 sha512sums=('8a301ed40ad041a37cfbf916c659aa1d3a62faa167a6dc0aaff5a12c64ab8802c2a4842c6595bba3dc1b9c6fdc8e1a6197ae6c2831f8a4881261fc52b33ad093'
             'ed7cd6082f6ca62e4d6564881d383009a8f6f3dd2cf7c0b6bb4733d4b18325d995187fa1539e3dc75a6605577e2a8258a31574d54ac950e4a7a3b5127b188366'
@@ -114,14 +143,107 @@ sha512sums=('8a301ed40ad041a37cfbf916c659aa1d3a62faa167a6dc0aaff5a12c64ab8802c2a
             '42d290c8ce0c093266e9f302115ff416702d32e1149af857e7e1aadfcc9b5097883b4e80d78697517236d83aa4d6742b810cc91836f10f897adbfc15160f0626'
             'b85337903ee031ae5ea2c9b1ac51d45bd9a9d7dde6572c2e7a1c41f5554206fad06e7e43f6e1b861d8f97405670ca32f954a42f4245f5ba1c4ec7ff5af4a9945'
             'cd3ab7d29756750de7599c89787ad8bf3d51d6a2112f9608186c6e0c40e9a14148c88cde80e676c9e972695c02b5482111ab6f7ea034cfdd2625d7576e9a8802')
+sha512sums_powerpc64le=('8fe9b77864f261aee8e5966c39ee62bd4cff09fa3517156dbc88a30da9a81306f5cff6ca51e6997092b1f995d899607bac9ba11b726b240a678db92440abff20'
+                        '54d10d75abc8f8ed9bb3aee1604e5834acc405cf818e52cb8efc81cf22ce55aa7ab0165c7acc7c751f33b499fe97c4b62fafda52b27fa2b29aea942867fcd51a'
+                        'a5c6c5a3d9311abdf6380e451433959451fa6e52dc802355357cac04583c3fa7b0b9507078c173c4a036cbed6bea574fcdaf5f618fa1945c237bf3daeffdd3d8')
 validpgpkeys=('2CC8A0609AD2A479C65B6D5C8E8B898CBF2412F9')  # Weng Xuetian
 
+# ppc64le: what a bq build needs that Arch's clean chroot gives for free. Sets
+# _bazel_startup and _bazel_args, which pkgver() and build() splice into their
+# bazel calls; both stay empty elsewhere.
+_ppc64le_setup() {
+  _bazel_startup=() _bazel_args=()
+  [[ $CARCH == powerpc64le ]] || return 0
+  # bazel's server runs on JAVA_HOME, else on the default java, and a bq host's
+  # default need not be the 21 our bazel depends on.
+  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+  [[ -x $JAVA_HOME/bin/java ]] || { echo "ppc64le: no JDK 21 at $JAVA_HOME" >&2; return 1; }
+  # bazel caches its own actions; give cc_configure the compiler itself, not
+  # the ccache shim bq can put first in PATH.
+  export CC=/usr/bin/gcc
+  # The output and install base in the build tree, not ~/.cache/bazel, and no
+  # server outliving a failed build by hours.
+  _bazel_startup=(--output_user_root="$srcdir/bazel-user-root" --max_idle_secs=300)
+  # Nothing comes from the network: a file missing from source=() fails the
+  # build instead of being fetched. Every http(s) URL is rewritten to a closed
+  # local port, keeping its path, so the --distdir lookup (by basename) still
+  # matches and anything else is refused at once. The obvious flags do not
+  # work: --repository_disable_download also refuses the file:// patches the
+  # local registry carries, and a "block *" config makes bazel give up before
+  # it looks in the distdir.
+  printf '%s\n' 'rewrite (.*) 127.0.0.1:9/fcitx5-mozc-builds-offline/$1' \
+    > "$srcdir/ppc64le-offline.cfg"
+  _bazel_args=(
+    # pkgver() resolves modules too, so it needs the local registry and the
+    # distdir as much as build() does.
+    --distdir="$srcdir" --registry="file://$srcdir/bazel-central-registry"
+    --downloader_config="$srcdir/ppc64le-offline.cfg"
+    # protoc built from source, not protoc-*-linux-ppcle_64.zip.
+    --@com_google_protobuf//bazel/flags:prefer_prebuilt_protoc=false
+  )
+  # bazel ignores MAKEFLAGS and takes every core; carry makepkg's -j over.
+  local _j
+  _j=$(grep -oE '(^| )-j *[0-9]+' <<<" ${MAKEFLAGS:-}" | grep -oE '[0-9]+' | tail -n1)
+  [[ -n $_j ]] && _bazel_args+=(--jobs="$_j" --local_resources=cpu="$_j")
+  return 0
+}
+
+# ppc64le: bazel compiles with its own toolchain's flags, and makepkg's reach it
+# only through the --conlyopt/--cxxopt in build(). Read bazel's execution log of
+# the build that just ran (every spawn it executed, with its argv) and require
+# makepkg's -mcpu (power8 in the baseline pool) as the last -mcpu of every C/C++
+# compile in the target configuration. Exec-configuration tools, protoc among
+# them, are build-time only and do not ship. An aquery cannot do this: run
+# after the build it reports nothing (--skyframe_state), and the after-build
+# dump leaves out command lines.
+_ppc64le_assert_mcpu() {
+  local _mcpu _log=$srcdir/ppc64le-exec.json
+  _mcpu=$(grep -oE -- '-mcpu=[^ ]+' <<<"$CFLAGS" | tail -n1)
+  [[ -n $_mcpu ]] || { echo "ppc64le: CFLAGS names no -mcpu" >&2; return 1; }
+  python -I -c '
+import collections, json, sys
+want, path = sys.argv[1:3]
+s = open(path).read()
+dec, i = json.JSONDecoder(), 0
+cc, bad, runners, exec_cc = 0, [], collections.Counter(), 0
+while True:
+    while i < len(s) and s[i].isspace():
+        i += 1
+    if i >= len(s):
+        break
+    r, i = dec.raw_decode(s, i)
+    if r.get("mnemonic") != "CppCompile":
+        continue
+    out = (r.get("listedOutputs") or ["?/?"])[0]
+    out = out.get("path", "?/?") if isinstance(out, dict) else out
+    if "-exec" in out.split("/")[1]:
+        exec_cc += 1
+        continue
+    cc += 1
+    runners[r.get("runner")] += 1
+    if [a for a in r.get("commandArgs", []) if a.startswith("-mcpu=")][-1:] != [want]:
+        bad.append(r)
+print("ppc64le: %d target C/C++ compiles ran (%s), %d without %s as their last -mcpu;"
+      " %d exec-config compiles not checked"
+      % (cc, ", ".join("%s %d" % kv for kv in runners.items()), len(bad), want, exec_cc))
+for r in bad[:5]:
+    print("  " + " ".join(r.get("commandArgs", []))[:400])
+sys.exit(1 if bad or not cc else 0)' "$_mcpu" "$_log" || return 1
+  rm -f "$_log"  # some 260 MB; kept when the check fails
+}
+
 pkgver(){
+  _ppc64le_setup
   cd mozc/src
   # https://github.com/google/mozc/discussions/1429
   # REVISION in mozc_version_template.bzl is no longer used by Bazel builds.
   # REVISION will be probably removed once GYP builds are completely removed.
-  bazel build --config oss_linux --config stable_channel --config release_build --config no_sframe base:mozc_version_txt >/dev/null 2>&1
+  bazel "${_bazel_startup[@]}" build "${_bazel_args[@]}" --config oss_linux --config stable_channel --config release_build --config no_sframe base:mozc_version_txt >/dev/null 2>&1
+  if [[ $CARCH == powerpc64le && ! -s bazel-bin/base/mozc_version.txt ]]; then
+    # ppc64le: otherwise the version silently comes out as "...".
+    echo "ppc64le: bazel did not produce base/mozc_version.txt" >&2
+    return 1
+  fi
   source <(grep -E '^(MAJOR|MINOR|BUILD_OSS|REVISION)\s*=' bazel-bin/base/mozc_version.txt)
    _bzr_ver="$MAJOR.$MINOR.$BUILD_OSS.$REVISION"
   printf "%s" "${_bzr_ver}"
@@ -131,15 +253,44 @@ prepare() {
   # Bazel's distdir lookup uses the original URL basenames.
   ln -sf abseil-py-2.1.0.tar.gz "$srcdir/v2.1.0.tar.gz"
   ln -sf bats-core-1.10.0.tar.gz "$srcdir/v1.10.0.tar.gz"
+  if [[ $CARCH == powerpc64le ]]; then
+    # ppc64le: fail here, not deep inside bazel, when a bump moves something
+    # the pins at the top of this file name.
+    python -I "$srcdir/ppc64le-pins.py" --check "$srcdir" \
+      _bazel_version="$_bazel_version" _protobuf_version="$_protobuf_version" \
+      _pbs_python="$_pbs_python" _pbs_release="$_pbs_release"
+    local _have
+    _have=$(bazel --version)
+    [[ $_have == "bazel $_bazel_version" ]] || {
+      echo "ppc64le: $_have is installed; src/.bazeliskrc wants $_bazel_version" >&2; return 1; }
+    # ppc64le: rules_python's ppc64le interpreter says cpu:ppc, the host is
+    # cpu:ppc64le, and no python toolchain matches. See the patch's header.
+    # Applied the way mozc patches rules_cc: a single_version_override, so the
+    # BCR's own patch for rules_python still applies underneath.
+    cp "$srcdir/rules_python-ppc64le-cpu.patch" mozc/src/bazel/
+    grep -q 'rules_python-ppc64le-cpu.patch' mozc/src/MODULE.bazel ||
+      printf '%s\n' '' \
+        '# ppc64le: added by fcitx5-mozc'"'"'s PKGBUILD.' \
+        'single_version_override(' \
+        '    module_name = "rules_python",' \
+        '    patch_strip = 1,' \
+        '    patches = ["bazel/rules_python-ppc64le-cpu.patch"],' \
+        ')' >> mozc/src/MODULE.bazel
+  fi
 }
 
 build() {
   cd mozc/src
+  _ppc64le_setup
+  if [[ $CARCH == powerpc64le ]]; then
+    # ppc64le: log every spawn, for _ppc64le_assert_mcpu.
+    _bazel_args+=(--execution_log_json_file="$srcdir/ppc64le-exec.json" --execution_log_sort=false)
+  fi
 
   # Use srcdir for pre-download files and override registry with local mirror.
   # bazel only respects CC from environment, not CXXFLAGS and LDFLAGS.
   # Pass them with --cxxopt, and --linkopt.
-  bazel build \
+  bazel "${_bazel_startup[@]}" build "${_bazel_args[@]}" \
       --config oss_linux \
       --config stable_channel \
       --config release_build \
@@ -157,6 +308,10 @@ build() {
       unix/fcitx5:fcitx5-mozc.so \
       server:mozc_server \
       gui/tool:mozc_tool
+  if [[ $CARCH == powerpc64le ]]; then
+    _ppc64le_assert_mcpu
+    bazel "${_bazel_startup[@]}" shutdown
+  fi
 }
 
 package() {

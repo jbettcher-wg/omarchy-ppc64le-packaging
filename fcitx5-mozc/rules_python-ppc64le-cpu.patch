@@ -1,0 +1,26 @@
+rules_python: match the ppc64le python-build-standalone toolchain to a ppc64le host
+
+Portability fix, worth sending upstream (still present on rules_python main,
+checked 2026-11-18).
+
+versions.bzl declares the ppc64le-unknown-linux-gnu interpreter
+compatible_with "@platforms//cpu:ppc". The platforms module (1.0.0, which
+mozc pins) detects a ppc64le host as "@platforms//cpu:ppc64le", so the
+toolchain never matches and every py_binary fails with "No matching toolchains
+found for types: @@bazel_tools//tools/python:toolchain_type". The platforms
+module's host detection gives "ppc" to ppc and ppc64 (big-endian) hosts only.
+
+Applied by fcitx5-mozc's prepare() on ppc64le through a single_version_override
+appended to mozc's MODULE.bazel, on top of the BCR's own patch for 1.9.0.
+
+--- a/python/versions.bzl	2026-11-18 23:44:35.419779298 -0600
++++ b/python/versions.bzl	2026-11-18 23:44:35.444214525 -0600
+@@ -1160,7 +1160,7 @@
+         "ppc64le-unknown-linux-gnu": platform_info(
+             compatible_with = [
+                 "@platforms//os:linux",
+-                "@platforms//cpu:ppc",
++                "@platforms//cpu:ppc64le",
+             ],
+             target_settings = [
+                 is_libc_glibc,
