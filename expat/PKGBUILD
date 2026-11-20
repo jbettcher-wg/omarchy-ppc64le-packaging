@@ -1,14 +1,13 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
 # Contributor: Allan McRae <allan@archlinux.org>
 # Contributor: Judd Vinet <jvinet@zeroflux.org>
 
 pkgname=expat
-pkgver=2.8.2
+pkgver=2.10.0
 pkgrel=1
 pkgdesc="An XML parser library"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(x86_64 powerpc64le)
 url="https://libexpat.github.io/"
 _url="https://github.com/libexpat/libexpat"
 license=(MIT)
@@ -19,8 +18,8 @@ makedepends=(
 )
 provides=(libexpat.so)
 source=($pkgname::git+$_url?signed#tag=R_${pkgver//./_})
-sha512sums=('0dac8ca1c054b69865d06887d3550d97c95833a24cd4a8aefa197491588cdab5564fa2a07a5b2321a8a663ac665e2c6cc6b8def501b549c799e370d372a8c00d')
-b2sums=('d2a75cc55f39fac7265d72595d051381144d4916fdc0ee11c61243c21dfa001b1d82ca5d6769cc014f0b8eba50a8986c0da5d32e0b9b034824f9fbac2828ea33')
+sha512sums=('13078e3a7e97a7c276926cb56dfa7c9c678dc66c9e8557607b350da9fcb45e10006c96624fda3c20df9d13ba332441134b36464450c672a0a5671068b73f8d4d')
+b2sums=('ad3b03449595c450b7814ae9c2f38991e1560fdf6fdd076585647fd0469657140902bad472eae0a3346d93122d718ce7bed0a36f2d393ee0a88e02bd5fd59fa8')
 validpgpkeys=(3176EF7DB2367F1FCA4F306B1F9B0E909AF37285) # Sebastian Pipping
 
 build() {

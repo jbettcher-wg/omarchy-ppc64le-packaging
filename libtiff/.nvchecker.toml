@@ -1,5 +1,0 @@
-[libtiff]
-source = "git"
-git = "https://gitlab.com/libtiff/libtiff.git"
-prefix = "v"
-exclude_regex = ".*(pre|alpha|beta|rc|RC).*"

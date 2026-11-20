@@ -1,30 +1,37 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
-# Maintainer: Morten Linderud <foxboron@archlinux.org>
 # Maintainer: Frederik Schwan <freswa at archlinux dot org>
+# Maintainer: Robin Candau <antiz@archlinux.org>
+# Contributor: Morten Linderud <foxboron@archlinux.org>
 # Contributor: Sébastien "Seblu" Luttringer
 
 pkgname=runc
-pkgver=1.4.2
+pkgver=1.5.3
 pkgrel=1
 pkgdesc='CLI tool for managing OCI compliant containers'
-arch=(x86_64 powerpc64le powerpc64)
+arch=(x86_64 powerpc64le)
 url='https://runc.io/'
-license=(Apache)
+license=('Apache-2.0')
 provides=('oci-runtime')
-depends=(libseccomp)
-makedepends=(git go go-md2man)
+depends=(
+  libpathrs
+  libseccomp
+)
+makedepends=(
+  git
+  go
+  go-md2man
+)
 optdepends=(
   'criu: checkpoint support'
 )
 options=(!lto)
-source=("${pkgname}-${pkgver}.tar.xz::https://github.com/opencontainers/runc/releases/download/v${pkgver}/runc.tar.xz"
-        "${pkgname}-${pkgver}.tar.xz.sig::https://github.com/opencontainers/runc/releases/download/v${pkgver}/runc.tar.xz.asc")
+source=("${pkgname}-${pkgver}.tar.xz::https://github.com/opencontainers/runc/releases/download/v${pkgver}/runc-${pkgver}.tar.xz"
+        "${pkgname}-${pkgver}.tar.xz.sig::https://github.com/opencontainers/runc/releases/download/v${pkgver}/runc-${pkgver}.tar.xz.asc")
 validpgpkeys=(
   "5F36C6C61B5460124A75F5A69E18AA267DDB8DB4"
   "C9C370B246B09F6DBCFC744C34401015D1D2D386"
   "C2428CD75720FACDCF76B6EA17DE5ECB75A1100E"
 )
-sha256sums=('cc7b4630a2940cc844f01da81765a3fe6713ceb7f0dbf287f6b20fd89f55d05f'
+sha256sums=('b46692550bfd6a6d69e15068d153446dfd401810809eecb767481fba90561b59'
             'SKIP')
 
 prepare() {

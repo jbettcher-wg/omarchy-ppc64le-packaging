@@ -1,3 +1,0 @@
-[tmux]
-source = "git"
-git = "https://github.com/tmux/tmux.git"

@@ -5,8 +5,8 @@
 # Contributor: Paul Mattal <paul@archlinux.org>
 
 pkgname=ffmpeg
-pkgver=9.0.1
-pkgrel=2
+pkgver=9.1
+pkgrel=1
 epoch=2
 pkgdesc='Complete solution to record, convert and stream audio and video'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
@@ -129,9 +129,9 @@ source=(
   0001-Add-av_stream_get_first_dts-for-Chromium.patch
   powerpc-disable-ppc4xx.patch
 )
-b2sums=('e22f57e76d587eecfdfe3ba0fbfaa37c6c95b43d4fc60da9d4feb11a2c87dcaf7ac891fbaa649289bec4ef40378743d61c77128b7127e8dc42d95f95a60aee69'
+b2sums=('e1aaa1362a3c5bdc4db84bae74d5df76c30f78cfe2be44bd210f0891deb5816a25be1fe9b2a945dfa46b7776d943a544930b3831fd2bc3505d8f69673ecd5349'
         'e5f7b79f7731be9ee5a7280a9221fb531ac5a2d9820fc5870b68b0eabea667dfbe8f39f41c1e1763a4c84982896afaa54c81ff57847d203b70afafd726689e5d'
-        '90cb6bf3c96c4acc3e82190539be8e7fb5db5322190b7a04deb764e0d76f87c1398bf3a79b364126eba65988c20c5474cd04e239dc2a98fd815781dc75fec6f7')
+        '3951d6bf2743ad976fc263467f9e9972880031d5b456e2668e6cf8ed5610fd1eb862b1df37d1b4fbc1f78db78413dc20c19702edbeaf042ffc41fa9d24562893')
 validpgpkeys=(DD1EC9E8DE085C629B3E1846B18E8928B3948D64) # Michael Niedermayer <michael@niedermayer.cc>
 
 prepare() {
@@ -232,7 +232,6 @@ build() {
     --enable-libzimg \
     --enable-libzmq \
     --enable-opencl \
-    --enable-opengl \
     --enable-shared \
     --enable-vapoursynth \
     --enable-version3 \
@@ -246,14 +245,14 @@ build() {
 package() {
   depends+=(
     libass.so
-    libbluray.so
+#   libbluray.so
     libbs2b.so
     libdav1d.so
     libfreetype.so
     libharfbuzz.so
 #   libjxl.so
     libopenmpt.so
-    libplacebo.so
+#    libplacebo.so
     librav1e.so
     librsvg-2.so
     librubberband.so

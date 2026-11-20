@@ -1,7 +1,0 @@
-[docker]
-source = "github"
-github = "moby/moby"
-prefix = "docker-v"
-use_max_release = true
-include_regex = "docker-v.*"
-exclude_regex = ".*(rc|alpha|beta).*"

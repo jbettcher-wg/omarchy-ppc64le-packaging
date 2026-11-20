@@ -1,13 +1,12 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Christian Hesse <mail@eworm.de>
 # Maintainer: T.J. Townsend <blakkheim@archlinux.org>
 
 pkgname=tmux
-pkgver=3.6_a
+pkgver=3.8
 pkgrel=1
 pkgdesc='Terminal multiplexer'
 url='https://github.com/tmux/tmux/wiki'
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=('x86_64' powerpc64le)
 license=('BSD')
 depends=('libevent' 'libevent_core-2.1.so'
          'libutempter'
@@ -15,7 +14,7 @@ depends=('libevent' 'libevent_core-2.1.so'
          'systemd-libs' 'libsystemd.so')
 makedepends=('git' 'systemd')
 source=("git+https://github.com/tmux/tmux.git#tag=${pkgver/_/}")
-sha256sums=('4889f3cdd14c538fa199e788e78ed4d0bc46f16d70d79b525d58e96d931ca47a')
+sha256sums=('6df84c0faed9cd8a7a234757ef8424b6aaec2786cc8e84d6284c16b254910895')
 
 prepare() {
 	cd "$pkgname"

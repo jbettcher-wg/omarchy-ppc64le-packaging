@@ -9,10 +9,10 @@ Subject: [PATCH] gdesktopappinfo: Add more known terminals
  2 files changed, 12 insertions(+)
 
 diff --git a/gio/gdesktopappinfo.c b/gio/gdesktopappinfo.c
-index 80906f5ef829..b39a876012b8 100644
+index 608de9c73b56..6ade6cac76b8 100644
 --- a/gio/gdesktopappinfo.c
 +++ b/gio/gdesktopappinfo.c
-@@ -2752,6 +2752,9 @@ prepend_terminal_to_vector (int          *argc,
+@@ -2764,6 +2764,9 @@ prepend_terminal_to_vector (int          *argc,
      const char *exec_arg;
    } known_terminals[] = {
      { "xdg-terminal-exec", NULL },
@@ -23,7 +23,7 @@ index 80906f5ef829..b39a876012b8 100644
      { "gnome-terminal", "--" },
      { "mate-terminal", "-x" },
 diff --git a/gio/tests/desktop-app-info.c b/gio/tests/desktop-app-info.c
-index e0f2fd201812..fea19201205f 100644
+index 8f602ecfef66..0823bc82e11e 100644
 --- a/gio/tests/desktop-app-info.c
 +++ b/gio/tests/desktop-app-info.c
 @@ -1522,6 +1522,12 @@ get_terminal_divider (const char *terminal_name)

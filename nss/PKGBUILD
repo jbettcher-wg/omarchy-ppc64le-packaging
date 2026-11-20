@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 # Contributor: Jan de Groot <jgc@archlinux.org>
 
@@ -7,19 +6,20 @@ pkgname=(
   nss
   ca-certificates-mozilla
 )
-pkgver=3.128
+pkgver=3.134
 pkgrel=1
 pkgdesc="Network Security Services"
 url="https://firefox-source-docs.mozilla.org/security/nss/index.html"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(x86_64 powerpc64le)
 license=(MPL-2.0)
 depends=(
   glibc
+  libgcc
+  libstdc++
   nspr
   p11-kit
   sh
   sqlite
-  zlib
 )
 makedepends=(
   gyp
@@ -31,58 +31,26 @@ source=(
   "hg+https://hg.mozilla.org/projects/nss#tag=NSS_${pkgver//./_}_RTM"
   bundle.sh
   certdata2pem.py
-  0001-Enable-hardware-GHASH-on-big-endian-PPC64-in-NSS-fre.patch
-  0002-hotfix-ppc-not-power8.diff
 )
-b2sums=('d048dc65cd46364fd4f1af473d0384872e25206d212877fd58ee345c570d6c755861c31b2c2da0fa5a02c8838babac07ddf1cb603c8e447ca1f5814764964093'
+b2sums=('83a82d2ddb3275859e32128c085ef12a94c1de28b293ca38961c8e68fdbc1df82abc5a22ab45b7d29e4bf30c29d3f5c5cbed2c4de46cfe795c270c8cc2ce7bff'
         '4be5dd836c844fdd7b63302a6994d62149082c3bc81eef70f373f416fed80a61a923960e4390d1c391b81ab01b409370d788818a30ffdd3a4ed467b670f990f6'
-        '6bb59dcc9289916dcbf8fb6d73db0c0cd7582dc12a3aa4e8be19ec62c9ede65fdd9470a2d92ec5a114506b78d2d21b8ae0a1b45a17dc1f90f7d75434a93da510'
-        'a77348061ffdf10357ca7a148f12079be4cfb6e92c6027e07f759958d835f14ec4e12a4e4a2c2b995ba9d8bfb43ee1de6585e50ee794fa85acbac5dc33331523'
-        '39fde7f9d3d0c2b143acb2c51b644df03e72e9e3e3f032db9737ab7c8d70bebbc911579575e76df2c78c336f9550ea70f7351a29e3d0c476999f1536575a3aab')
+        '6bb59dcc9289916dcbf8fb6d73db0c0cd7582dc12a3aa4e8be19ec62c9ede65fdd9470a2d92ec5a114506b78d2d21b8ae0a1b45a17dc1f90f7d75434a93da510')
 
 prepare() {
   mkdir -p certs
   ln -srft certs nss/lib/ckfw/builtins/{certdata.txt,nssckbi.h}
 
-  cd ${srcdir}/nss
-  patch -Np3 -i ${srcdir}/0001-Enable-hardware-GHASH-on-big-endian-PPC64-in-NSS-fre.patch
-  patch -Np1 -i ${srcdir}/0002-hotfix-ppc-not-power8.diff
+  cd nss
 }
 
 build() {
-  case "${CARCH}" in
-    powerpc)
-      export NSS_DISABLE_ALTIVEC=1
-      export NSS_DISABLE_CRYPTO_VSX=1
-    ;;
-    powerpc64)
-      export NSS_DISABLE_ALTIVEC=1
-      export NSS_DISABLE_CRYPTO_VSX=1
-      export USE_64=1
-    ;;
-    *)
-      export USE_64=1
-    ;;
-
-  esac
-
-  export NSS_ALLOW_SSLKEYLOGFILE=1
-  export NSS_ENABLE_WERROR=0 #567158
-  export BUILD_OPT=1
-  export NSS_USE_SYSTEM_SQLITE=1
-  export NSDISTMODE=copy
-  export FREEBL_NO_DEPEND=1
-  export FREEBL_LOWHASH=1
-  export NSS_SEED_ONLY_DEV_URANDOM=1
-  export USE_SYSTEM_ZLIB=1
-  export ZLIB_LIBS=-lz
-  export ASFLAGS=""
-  export NSS_DISABLE_GTESTS=1
-
-  export NSPR_INCLUDE_DIR=/usr/include/nspr
-  export USE_SYSTEM_ZLIB=1
-  export ZLIB_LIBS=-lz
-  export NSS_USE_SYSTEM_SQLITE=1
+  local buildsh_options=(
+    --disable-tests
+    --enable-libpkix
+    --opt
+    --system-nspr
+    --system-sqlite
+  )
 
   cd certs
   ../certdata2pem.py
@@ -91,7 +59,7 @@ build() {
   ./bundle.sh
 
   cd nss
-  make
+  ./build.sh "${buildsh_options[@]}"
 }
 
 package_nss() {
@@ -109,7 +77,7 @@ package_nss() {
 
   ln -s nss.pc "$pkgdir$libdir/pkgconfig/mozilla-nss.pc"
 
-  install -Dt "$pkgdir$libdir" dist/Linux*/lib/*.so
+  install -Dt "$pkgdir$libdir" dist/Release/lib/*.so
 
   local vmajor vminor vpatch
   { read vmajor; read vminor; read vpatch; } \
@@ -126,12 +94,12 @@ package_nss() {
     install -D /dev/stdin "$pkgdir/usr/bin/nss-config"
 
   install -Dt "$pkgdir/usr/bin" \
-    dist/Linux*/bin/{*util,shlibsign,signtool,signver,ssltap}
+    dist/Release/bin/{*util,nss,shlibsign,signver,ssltap}
 
   install -Dt "$pkgdir$includedir" -m644 dist/public/nss/*.h
 
   install -Dt "$pkgdir/usr/share/man/man1" -m644 \
-    nss/doc/nroff/{*util,signtool,signver,ssltap}.1
+    nss/doc/nroff/{*util,signver,ssltap}.1
 
   # Replace built-in trust with p11-kit connection
   ln -sf pkcs11/p11-kit-trust.so "$pkgdir$libdir/libnssckbi.so"
@@ -146,4 +114,3 @@ package_ca-certificates-mozilla() {
 }
 
 # vim:set sw=2 sts=-1 et:
-
