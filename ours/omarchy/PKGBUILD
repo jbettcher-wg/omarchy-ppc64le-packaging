@@ -49,7 +49,7 @@ pkgname=omarchy
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=10
+pkgrel=11
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -137,8 +137,8 @@ noextract=("${_srcpkg}")
 sha256sums=('bfe75d086c8b5c919280372afdd72e8cc7b0f66745f052d826b5a588fdad33eb'
             '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
             '4dbcc6e5b77bd530d5493bc7523ef346a8c4d3653c5e2c93581bae43afbc2a8b'
-            '0779d35dd682ab88c4cadf79f067e5432ab08d2334aa0d374376498757d7e835'
-            'd749e3b41b8ffeae9183ff5396ac612799f647e3e7239d7c2cd2c59943f73d3d')
+            '8fe65ac865a37c8070790d2fde1117e26e8507b550b62f61b65980dd33528916'
+            '55d2972ab07d793be773d82b426d85f7ef7fc9380fad5c375e03a6508bebe8a1')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -279,6 +279,10 @@ package() {
   # ppc64le). A patch regenerated from a stale branch must not hide it again.
   ! grep -qx 'localsend' "${pkgdir}/usr/share/omarchy/install/omarchy-ppc64le-unavailable.packages" ||
     { echo "omarchy: localsend is listed unavailable on POWER, but it is in both pools" >&2; return 1; }
+  # qemu-user-static-binfmt's handlers would register after FEX's and
+  # POWERarm's and take x86 and aarch64 from them (4.5.0-11).
+  grep -qx 'qemu-user-static-binfmt' "${pkgdir}/usr/share/omarchy/install/omarchy-ppc64le-unavailable.packages" ||
+    { echo "omarchy: qemu-user-static-binfmt is not kept off POWER" >&2; return 1; }
   local _f
   for _f in usr/bin/omarchy-hw-platform usr/bin/omarchy-hw-ppc64le \
             usr/bin/omarchy-hw-ppc64le-power9 usr/bin/omarchy-pkg-defaults \

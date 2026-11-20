@@ -13,8 +13,8 @@ omarchy-pkg-add", a6cc8fc83 "Install base's disktree-bin on POWER",
 8f89ed9d4 "Install POWERarm on every POWER platform", 53bfb9e91 "Run agent
 CLIs with no POWER build as their arm64 builds", 5187c8230 "Install
 sleeve on POWER", 63b58bfc5 "Install Superwhisper on POWER", bf3ec9bb5
-"Install fcitx5-mozc on POWER" and dca5f5d7b "Install LocalSend on POWER")
-with:
+"Install fcitx5-mozc on POWER", dca5f5d7b "Install LocalSend on POWER" and
+b936c463e "Keep qemu-user-static-binfmt off POWER") with:
 
     git diff v4.5.0..ppc64le-platform -- install/ migrations/
 
@@ -81,15 +81,16 @@ index 000000000..a88564046
 +omarchy-nx-gzip
 diff --git a/install/omarchy-ppc64le-unavailable.packages b/install/omarchy-ppc64le-unavailable.packages
 new file mode 100644
-index 000000000..df2d0302d
+index 000000000..0511c8407
 --- /dev/null
 +++ b/install/omarchy-ppc64le-unavailable.packages
-@@ -0,0 +1,14 @@
-+# Packages with no ppc64le build: they build for x86_64 and aarch64 but not for
-+# POWER. omarchy-pkg-defaults leaves them out of every ppc64le platform's set,
-+# and omarchy-pkg-add skips them with a notice, so a migration that installs one
-+# alongside others still runs. Each says why, and what takes its place where
-+# something does.
+@@ -0,0 +1,24 @@
++# Packages a POWER system does not get. Most have no ppc64le build: they build
++# for x86_64 and aarch64 but not for POWER. One, at the end, has a build but
++# would break the platform. omarchy-pkg-defaults leaves them all out of every
++# ppc64le platform's set, and omarchy-pkg-add skips them with a notice, so a
++# migration that installs one alongside others still runs. Each says why, and
++# what takes its place where something does.
 +
 +# Packages of prebuilt x86_64 and aarch64 binaries. The programs themselves
 +# build for ppc64le from source and come from omarchy-ppc64le.packages; a
@@ -99,6 +100,15 @@ index 000000000..df2d0302d
 +# it would leave no disk usage tool at all. On POWER that name is a
 +# transitional package that installs disktree built from source.
 +mise-bin
++
++# Has a ppc64le build, but must not be installed here. Its binfmt.d files
++# register qemu for aarch64, x86_64 and i386 (and 30 other targets), and
++# systemd-binfmt loads them by file name, after FEX-*.conf and
++# POWERarm-aarch64.conf. binfmt_misc tries the newest registration first, so
++# qemu would take x86 binaries from FEX and aarch64 ones from POWERarm.
++# qemu-user-static on its own, with a handler registered by hand, still works
++# for the architectures neither covers.
++qemu-user-static-binfmt
 diff --git a/install/omarchy-ppc64le.packages b/install/omarchy-ppc64le.packages
 new file mode 100644
 index 000000000..58ec0c6fc
