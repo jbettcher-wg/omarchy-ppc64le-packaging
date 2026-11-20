@@ -1,0 +1,83 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] HttpServerService.start: time out startServer after 5 s and
+ retry, up to 3 attempts
+
+Class:   LOCAL WORKAROUND (ppc64le port), not upstream material.
+Fixes:   about 1 launch in 480 under parallel load, tokio never runs the Rust
+         start_server task (cause unknown; see flutter-port work/localsend/hang/)
+         and the app stays "Offline". Time startServer out after 5 s (a normal
+         start takes milliseconds) and retry, at most 3 attempts.
+---
+diff --git a/packages/localsend_isolates/lib/src/task/server/http_server.dart b/packages/localsend_isolates/lib/src/task/server/http_server.dart
+index e0cdbf9..63c65d7 100644
+--- a/packages/localsend_isolates/lib/src/task/server/http_server.dart
++++ b/packages/localsend_isolates/lib/src/task/server/http_server.dart
+@@ -1,9 +1,19 @@
++import 'dart:async';
++
+ import 'package:localsend_isolates/rust/api/model.dart';
+ import 'package:localsend_isolates/rust/api/server.dart';
++import 'package:logging/logging.dart';
+ import 'package:refena_flutter/refena_flutter.dart';
+ 
++final _logger = Logger('HttpServer');
++
+ final httpServerProvider = Provider((ref) => HttpServerService());
+ 
++/// How long one [startServer] call may take before it is retried, and how
++/// many calls are made. A normal start completes in milliseconds.
++const _startTimeout = Duration(seconds: 5);
++const _startAttempts = 3;
++
+ /// Wraps the Rust HTTP server.
+ /// Only one server can run at a time.
+ class HttpServerService {
+@@ -30,19 +40,35 @@ class HttpServerService {
+       throw StateError('Server already running');
+     }
+ 
+-    final server = await startServer(
+-      port: port,
+-      tls: tls,
+-      alias: alias,
+-      version: version,
+-      deviceModel: deviceModel,
+-      deviceType: deviceType,
+-      fingerprint: fingerprint,
+-      pin: pin,
+-      verifyChecksums: verifyChecksums,
+-      web: web,
+-      showToken: showToken,
+-    );
++    // ppc64le port workaround: the Rust start_server task is occasionally never
++    // run by its tokio runtime, so no reply ever comes. Time the call out and
++    // try again; Rust start_server stops any instance a late first call left
++    // behind before it binds.
++    RsHttpServer server;
++    for (var attempt = 1;; attempt++) {
++      try {
++        server = await startServer(
++          port: port,
++          tls: tls,
++          alias: alias,
++          version: version,
++          deviceModel: deviceModel,
++          deviceType: deviceType,
++          fingerprint: fingerprint,
++          pin: pin,
++          verifyChecksums: verifyChecksums,
++          web: web,
++          showToken: showToken,
++        ).timeout(_startTimeout);
++        break;
++      } on TimeoutException {
++        if (attempt >= _startAttempts) {
++          _logger.severe('startServer did not complete within ${_startTimeout.inSeconds} s (attempt $attempt of $_startAttempts), giving up');
++          rethrow;
++        }
++        _logger.warning('startServer did not complete within ${_startTimeout.inSeconds} s (attempt $attempt of $_startAttempts), retrying');
++      }
++    }
+     _server = server;
+     return server.listen();
+   }

@@ -66,6 +66,11 @@
 #      build libdartjni.so against the build host's libjvm.so and bundle it.
 # 0004-linux-plugins-runpath-origin.patch UPSTREAMABLE FIX (Flutter's Linux
 #      app template): plugin libraries linked with RUNPATH $ORIGIN.
+# 0005-server-start-retry.patch LOCAL WORKAROUND (ppc64le port): about 1
+#      launch in 480 under parallel load, tokio never runs the Rust
+#      start_server task and the app stays "Offline" (cause unknown; flutter-port
+#      work/localsend/hang/). startServer is timed out after 5 s and retried,
+#      at most 3 attempts; each retry is logged.
 # rust-toolchain.toml files are deleted: inert without rustup, and with
 # rustup they would fetch the pinned 1.97.1.
 #
@@ -80,7 +85,7 @@
 
 pkgname=localsend
 pkgver=1.18.2
-pkgrel=1
+pkgrel=2
 pkgdesc='An open source cross-platform alternative to AirDrop'
 arch=('powerpc64le')
 url='https://localsend.org'
@@ -148,11 +153,13 @@ source=("$pkgname-$pkgver.tar.gz::https://github.com/localsend/localsend/archive
         0002-no-cargokit.patch
         0003-linux-do-not-build-jni.patch
         0004-linux-plugins-runpath-origin.patch
+        0005-server-start-retry.patch
         isa30-attribute.py)
 sha256sums=('4425dfcf2e016d6540ea44941deb4ba6568201cc47d7f08753606e6e4b2769cd'
             'b88ec8db6f98252b36a661b5821d9992947e4d555730607cd302ee439841e6a5'
             '5efc6922b10eedd9b071fbfdcd31c4686d1ba8fb61dee61d88033cbfadbc2364'
             '4275eb49b82b4eb10c05d1c482987b3f1e3a31dffbb6c12bce319f67415b7fab'
+            '3b957461577bad2f34849b054776fba1407a42b813783722c22eda51abdd1d5a'
             'f38059bccfcca8c4d0a1a747b518015702ef5b16ecf835b029ecf7f2b1fd4d4e')
 
 _pool() { (( _power8_compat )) && echo baseline || echo power9; }
@@ -201,6 +208,7 @@ prepare() {
   patch -Np1 -F0 --no-backup-if-mismatch -i "$srcdir/0002-no-cargokit.patch"
   patch -Np1 -F0 --no-backup-if-mismatch -i "$srcdir/0003-linux-do-not-build-jni.patch"
   patch -Np1 -F0 --no-backup-if-mismatch -i "$srcdir/0004-linux-plugins-runpath-origin.patch"
+  patch -Np1 -F0 --no-backup-if-mismatch -i "$srcdir/0005-server-start-retry.patch"
   rm -f rust-toolchain.toml packages/localsend_isolates/rust-toolchain.toml
 
   cargo fetch --locked --target "$_triple"
