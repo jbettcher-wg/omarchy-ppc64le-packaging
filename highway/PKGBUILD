@@ -3,7 +3,7 @@
 
 pkgname=highway
 pkgver=1.4.0
-pkgrel=2.1
+pkgrel=2.2
 pkgdesc='A C++ library that provides portable SIMD/vector intrinsics'
 arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
 url='https://github.com/google/highway/'
@@ -15,8 +15,21 @@ depends=(
     'libstdc++')
 makedepends=(
     'cmake')
-source=("https://github.com/google/highway/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz")
-sha256sums=('e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c')
+source=("https://github.com/google/highway/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz"
+        ppc64le-no-ppc10-target.patch)
+sha256sums=('e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c'
+            '71f08ceae247521ce777f53ee44d36439d7986269a266d34de85bd9811852699')
+
+# The PPC10 (POWER10) target leaked: libjxl 0.12.0 in the POWER9 pool ran a
+# POWER10 `pla` on a POWER9 (SIGILL in JxlEncoderProcessOutput), reached
+# without going through dispatch. The patch makes PPC10 a broken target by
+# default in the installed headers, so libhwy, libhwy_contrib and every
+# consumer compiled against them (libjxl, libvips, ...) stop generating it, in
+# both pools. HWY_BROKEN_PPC10=0 restores it. The baseline lane additionally
+# compiles the static target only (its drop-in's HWY_COMPILE_ONLY_STATIC).
+prepare() {
+    patch -d "${pkgname}-${pkgver}" -Np1 -i "${srcdir}/ppc64le-no-ppc10-target.patch"
+}
 
 # check() below skips ctest on powerpc64le, so the test binaries are never
 # run -- but upstream wires every one of them to gtest_discover_tests with

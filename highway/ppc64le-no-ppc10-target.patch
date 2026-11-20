@@ -1,0 +1,19 @@
+--- a/hwy/detect_targets.h	2026-11-20 14:02:54.687400573 -0600
++++ b/hwy/detect_targets.h	2026-11-20 14:02:54.700834529 -0600
+@@ -304,6 +304,16 @@
+ #endif
+ #endif  // HWY_BROKEN_SVE2_128
+ 
++// Omarchy ppc64le: do not compile the PPC10 (POWER10) target by default.
++// Code generated inside its target region was reachable without dispatch:
++// libjxl 0.12.0 built for the POWER9 pool executed a POWER10 `pla` and took
++// SIGILL on a POWER9 in JxlEncoderProcessOutput, the same leak that put
++// POWER9 `lxv` in front of POWER8 callers. Each pool compiles for its own
++// floor instead. Define HWY_BROKEN_PPC10=0 to get the target back.
++#if HWY_ARCH_PPC && !defined(HWY_BROKEN_PPC10)
++#define HWY_BROKEN_PPC10 (HWY_PPC10)
++#endif
++
+ #ifndef HWY_BROKEN_PPC10  // allow override
+ #if (HWY_COMPILER_GCC_ACTUAL && HWY_COMPILER_GCC_ACTUAL < 1100)
+ // GCC 10 supports the -mcpu=power10 option but does not support the PPC10
