@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>features</title><body><pre id=o></pre><script>
+(async()=>{const R={};
+const t=(k,f)=>{try{R[k]=f()}catch(e){R[k]='ERR '+e}};
+t('RTCPeerConnection',()=>typeof RTCPeerConnection);
+t('MediaSource',()=>typeof MediaSource);
+t('ManagedMediaSource',()=>typeof ManagedMediaSource);
+t('EME_requestMediaKeySystemAccess',()=>typeof navigator.requestMediaKeySystemAccess);
+t('WebCodecs_VideoDecoder',()=>typeof VideoDecoder);
+t('WebGPU',()=>typeof navigator.gpu);
+t('WebXR',()=>typeof navigator.xr);
+t('WebAssembly',()=>typeof WebAssembly);
+t('SharedArrayBuffer',()=>typeof SharedArrayBuffer);
+t('crossOriginIsolated',()=>self.crossOriginIsolated);
+t('OffscreenCanvas',()=>typeof OffscreenCanvas);
+t('webgl2',()=>!!document.createElement('canvas').getContext('webgl2'));
+t('mediaDevices',()=>typeof navigator.mediaDevices);
+t('SpeechSynthesis',()=>typeof speechSynthesis);
+t('Notification',()=>typeof Notification);
+t('serviceWorker',()=>typeof navigator.serviceWorker);
+t('PaymentRequest',()=>typeof PaymentRequest);
+t('WebAuthn',()=>typeof PublicKeyCredential);
+t('gamepad',()=>typeof navigator.getGamepads);
+const v=document.createElement('video');
+for (const c of ['video/mp4; codecs="avc1.42E01E"','video/mp4; codecs="hev1.1.6.L93.B0"','video/webm; codecs="vp8"','video/webm; codecs="vp9"','video/mp4; codecs="av01.0.05M.08"','audio/mp4; codecs="mp4a.40.2"','audio/webm; codecs="opus"','audio/mpeg'])
+  { R['canPlay '+c]=v.canPlayType(c); if (self.MediaSource) R['MSE '+c]=MediaSource.isTypeSupported(c); }
+if (navigator.mediaCapabilities) for (const c of ['video/webm; codecs="vp9"','video/mp4; codecs="av01.0.05M.08"','video/mp4; codecs="avc1.640028"']) {
+  try{const r=await navigator.mediaCapabilities.decodingInfo({type:'media-source',video:{contentType:c,width:1920,height:1080,bitrate:5e6,framerate:30}});R['mc '+c]=JSON.stringify(r)}catch(e){R['mc '+c]='ERR '+e}}
+// wasm smoke
+try{const m=new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0,1,7,1,96,2,127,127,1,127,3,2,1,0,7,7,1,3,97,100,100,0,0,10,9,1,7,0,32,0,32,1,106,11]));R.wasm_add=new WebAssembly.Instance(m).exports.add(40,2)}catch(e){R.wasm_add='ERR '+e}
+if (navigator.gpu) { try { const a=await navigator.gpu.requestAdapter(); R.webgpu_adapter = a ? 'yes' : 'null'; } catch(e) { R.webgpu_adapter='ERR '+e } }
+window.__report=R; document.getElementById('o').textContent=JSON.stringify(R,null,1);})();
+</script>

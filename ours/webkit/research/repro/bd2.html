@@ -1,0 +1,9 @@
+<!doctype html><meta charset=utf-8><title>bd2</title><style>
+body{margin:0;background:linear-gradient(45deg,#334,#a3c);height:100vh}
+.root{position:absolute;inset:0;opacity:.99}
+.bg{position:absolute;left:0;top:0;width:900px;height:500px;background:repeating-linear-gradient(90deg,#f00 0 20px,#00f 20px 40px);animation:mv 2s linear infinite;will-change:transform}
+@keyframes mv{to{transform:translateX(40px)}}
+.w,.w2,.w3,.w4{position:absolute;will-change:transform}
+.card{width:130px;height:130px;backdrop-filter:blur(6px);background:rgba(255,255,255,.15);border-radius:12px;color:#fff}
+</style><div class=root><div class=bg></div><div class="w" style="left:20px;top:120px"><div class="w2"><div class="w3"><div class="w4"><div class="card">#0</div></div></div></div></div><div class="w" style="left:170px;top:120px"><div class="w2"><div class="w3"><div class="w4"><div class="card">#1</div></div></div></div></div></div>
+<script>window.__raf=0;(function f(){window.__raf++;requestAnimationFrame(f)})();</script>
