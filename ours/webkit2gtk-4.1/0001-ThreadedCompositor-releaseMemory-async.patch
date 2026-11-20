@@ -1,0 +1,31 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] ThreadedCompositor::releaseMemory: dispatch asynchronously to avoid main-thread stalls
+
+Upstreamable WebKit fix (not POWER-specific; WebKitGTK 2.54.3):
+
+LayerTreeHost::releaseMemory(WTF::Critical) calls
+ThreadedCompositor::releaseMemory(critical) during memory-pressure sweeps
+even when MemoryPressureHandler requests asynchronous release. Because
+ThreadedCompositor::releaseMemory() uses m_workQueue->dispatchSync(), the
+main thread blocks on BinarySemaphore::waitUntil() whenever the compositor
+thread is busy painting a complex frame, turning a slow frame into a main-thread
+hang and WatchDogQueue crashAfter10Seconds() SIGABRT.
+
+releaseMemory() returns void and only invokes
+PlatformDisplay::sharedDisplay().skiaReleaseUnusedResources(critical) on the
+compositor work queue while holding protectedThis = Ref { *this }. Dispatching
+asynchronously via m_workQueue->dispatch() eliminates the main-thread stall
+while preserving work-queue execution order (including before
+ThreadedCompositor::invalidate()'s synchronous drain).
+
+--- a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/ThreadedCompositor.cpp
++++ b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/ThreadedCompositor.cpp
+@@ -877,7 +877,7 @@ void ThreadedCompositor::fillGLInformation(RenderProcessInfo&& info, CompletionH
+ 
+ void ThreadedCompositor::releaseMemory(WTF::Critical critical)
+ {
+-    m_workQueue->dispatchSync([protectedThis = Ref { *this }, critical] {
++    m_workQueue->dispatch([protectedThis = Ref { *this }, critical] {
+         PlatformDisplay::sharedDisplay().skiaReleaseUnusedResources(critical);
+     });
+ }

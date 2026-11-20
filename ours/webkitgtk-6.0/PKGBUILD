@@ -48,8 +48,8 @@ pkgname=(
   webkitgtk-6.0
   webkitgtk-6.0-docs
 )
-pkgver=2.54.1
-pkgrel=4
+pkgver=2.54.3
+pkgrel=1
 pkgdesc="Web content engine for GTK"
 url="https://webkitgtk.org"
 arch=(x86_64 powerpc64le)
@@ -159,6 +159,7 @@ makedepends=(
 )
 source=(
   $url/releases/webkitgtk-$pkgver.tar.xz{,.asc}
+  0001-ThreadedCompositor-releaseMemory-async.patch
   # The ppc64le JIT port, as a checksummed input rather than an ambient
   # directory. Regenerate with ours/webkit2gtk-4.1/make-port-tarball.sh, which
   # writes an identical copy beside every recipe that stages the port -- so
@@ -166,11 +167,13 @@ source=(
   # somebody packed a different port.
   ppc64le-port.tar.gz
 )
-sha256sums=('ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d'
+sha256sums=('2779c1b46f88762e8400650271ba14452dc4e30b37059981552d8b562b7d0862'
             'SKIP'
+            'a75cb31dc80316d4b7618242e427c60ae3ddb7b8091c4612ff6120fb5fde74dc'
             'c4fbf5322a881327a10a1f6b0cc0c43bfae9f2bfe6ad8a2fa2334c2be2b5bb4c')
-b2sums=('79c124b40fce5604c2adc81df7b640d1827b5e44577f1f728da77745f6f9859208d2ff51417d7a752c618ec02d62b3bb6b79f1db8230f83e5aed24b60f899928'
+b2sums=('935595e275c11ef3599fb929a7bc444af2a6f479c02e82a1b3ddaf91f2f703f2535b29d5c2c846ea83bcc6ae737847c4118d524dc9ebcedb9c054c6b999e6410'
         'SKIP'
+        '366d9d1bc782645432aac0e2675394785c31b03f97cf953f67415eebd6243902bc6e30073cd8fa61e58f22f55709aaf2c13dc282c7eb465504dd71cf80a671d9'
         '44a8b2c4fd1d8c0eab1a84dd5000f532b01a91eb7c9bc5928b0506f2cbd6e7ffbda06d0b5fce18e8ec55e7742692830d40589ea97a7f3d8b3fc3333e60b95734')
 case $CARCH in
   # Ship a -debug split package for webkitgtk-6.0 (overriding bq's !debug) so
@@ -187,6 +190,8 @@ validpgpkeys=(
 
 prepare() {
   cd webkitgtk-$pkgver
+
+  patch -p1 -F0 < "$srcdir/0001-ThreadedCompositor-releaseMemory-async.patch"
 
   if [[ $CARCH == powerpc64le ]]; then
     # The ppc64le JavaScriptCore JIT port: LLInt, Baseline, DFG, FTL (so B3
