@@ -49,7 +49,7 @@ pkgname=omarchy
 pkgver=4.5.0
 # pkgrel above upstream's marks this as locally modified: upstream's own build
 # is 4.5.0-3 (_upstream_rel below).
-pkgrel=9
+pkgrel=10
 pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH (ppc64le: limine and update-guard removed)'
 arch=(any)
 url='https://github.com/basecamp/omarchy'
@@ -138,7 +138,7 @@ sha256sums=('bfe75d086c8b5c919280372afdd72e8cc7b0f66745f052d826b5a588fdad33eb'
             '46a884384a9fc4e4cf787e91a4db0c7b5fe691312b5c9ae04690915bc0d7743b'
             '4dbcc6e5b77bd530d5493bc7523ef346a8c4d3653c5e2c93581bae43afbc2a8b'
             '0779d35dd682ab88c4cadf79f067e5432ab08d2334aa0d374376498757d7e835'
-            '7a6b3681448a441f1cadc4b91db25594cd5f1acbf43a3f7fa21ac5a188bb3100')
+            'd749e3b41b8ffeae9183ff5396ac612799f647e3e7239d7c2cd2c59943f73d3d')
 
 _unpack() {
   bsdtar -xf "${srcdir}/${_srcpkg}" -C "$1" \
@@ -272,9 +272,13 @@ package() {
     { echo "omarchy: omarchy-migrate does not refuse a POWERarm guest" >&2; return 1; }
   # Migrations install packages through omarchy-pkg-add, and omarchy-migrate
   # stops at the first that fails; on POWER it must skip what the platform
-  # lists as unavailable (localsend) rather than stop every later migration.
+  # lists as unavailable (mise-bin) rather than stop every later migration.
   grep -qF 'omarchy-ppc64le-unavailable.packages' "${pkgdir}/usr/bin/omarchy-pkg-add" ||
     { echo "omarchy: omarchy-pkg-add does not skip the platform's unavailable packages" >&2; return 1; }
+  # LocalSend has been in both POWER pools since 4.5.0-10 (Dart/Flutter on
+  # ppc64le). A patch regenerated from a stale branch must not hide it again.
+  ! grep -qx 'localsend' "${pkgdir}/usr/share/omarchy/install/omarchy-ppc64le-unavailable.packages" ||
+    { echo "omarchy: localsend is listed unavailable on POWER, but it is in both pools" >&2; return 1; }
   local _f
   for _f in usr/bin/omarchy-hw-platform usr/bin/omarchy-hw-ppc64le \
             usr/bin/omarchy-hw-ppc64le-power9 usr/bin/omarchy-pkg-defaults \
