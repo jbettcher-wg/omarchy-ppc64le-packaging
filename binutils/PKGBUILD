@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Giancarlo Razzolini <grazzolini@archlinux.org>
 # Maintainer: Frederik Schwan <freswa at archlinux dot org>
 # Contributor:  Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
@@ -7,11 +6,11 @@
 # toolchain build order: linux-api-headers->glibc->binutils->gcc->glibc->binutils->gcc
 
 pkgname=binutils
-pkgver=2.46.1+r3+g046eeeef4721
-_commit=046eeeef47216439ea7c7411b9d55ca86dbacac2
-pkgrel=1
+pkgver=2.47
+_commit=6ce87bbc521cf46eaee9a1f7ef61cee2cdfb3e32
+pkgrel=4
 pkgdesc='A set of programs to assemble and manipulate binary and object files'
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(x86_64 powerpc64le)
 url='https://www.gnu.org/software/binutils/'
 license=(GPL-2.0-or-later GPL-3.0-or-later LGPL-2.0-or-later LGPL-3.0-or-later GFDL-1.3 FSFAP)
 depends=(
@@ -43,11 +42,9 @@ replaces=(
 )
 provides=(
   libctf.so
-  libgprofng.so
-)
-provides_x86_64=(
   libsframe.so
 )
+provides_x86_64=(libgprofng.so)
 backup=(
   'etc/gprofng.rc'
 )
@@ -57,13 +54,13 @@ options=(
   !ccache
 )
 source=(
-  git+https://sourceware.org/git/binutils-gdb.git#commit=${_commit}
+  binutils-gdb::git+https://forge.sourceware.org/binutils-gdb/binutils-gdb-mirror#commit=${_commit}
   gold-warn-unsupported.patch
-  0001_ld_bootstrap_testsuite.patch
+  0001-strip-Don-t-treat-fat-IR-objects-as-plugin-object.patch
 )
-sha256sums=('5716044baca34cd50f5d60e9782dee4324c7f7bfe03413b18b6aa3f7b16aea22'
+sha256sums=('79e580da50b1914cf02f0dd1f293ffdb3d4ee81311d6146ddb17092764b1a3c6'
             '2d430b66f84a19c154725ec535280c493be1d34f1a90f95208dce02fecd0e4e4'
-            '00ddb7dacdbbec6f6c75ea94d5b3b61da4b1b8cbe746cc0f29b64099d648fb0a')
+            'cd1816becb0e992ebc09f2ff66050e4b92fad33f0b7acc833cf513f4e4791d1a')
 validpgpkeys=(3A24BC1E8FB409FA9F14371813FCEF89DD9E3C4F)
 
 pkgver() {
@@ -85,25 +82,21 @@ prepare() {
   # unsupported targets.  This allows the binutils to be built with
   # BPF support enabled.
   patch -Np1 < ../gold-warn-unsupported.patch
-
-  patch -Np1 < ../0001_ld_bootstrap_testsuite.patch
 }
 
 build() {
-  cd binutils-build
+  # Extra BFD targets are x86-specific (PE for EFI, BPF). On POWER build the
+  # native target only.
+  local _targets=(--enable-targets=no)
+  [[ ${CARCH} == x86_64 ]] && _targets=(--enable-targets=x86_64-pep,bpf-unknown-none)
 
-  case "${CARCH}" in
-    powerpc) _configure_flags=(--enable-64-bit-bfd --enable-targets=no) ;;
-    powerpc64) _configure_flags=(--enable-targets=no) ;;
-    powerpc64le) _configure_flags=(--enable-targets=no) ;;
-    x86_64) _configure_flags=(--enable-targets=x86_64-pep,bpf-unknown-none) ;;
-  esac
+  cd binutils-build
 
   "${srcdir}"/binutils-gdb/configure \
     --prefix=/usr \
     --sysconfdir=/etc \
     --with-lib-path=/usr/lib:/usr/local/lib \
-    --with-bugurl=https://github.com/kth5/archpower/issues \
+    --with-bugurl=https://gitlab.archlinux.org/archlinux/packaging/packages/binutils/-/issues \
     --enable-cet \
     --enable-colored-disassembly \
     --enable-default-execstack=no \
@@ -117,6 +110,7 @@ build() {
     --enable-plugins \
     --enable-relro \
     --enable-shared \
+    "${_targets[@]}" \
     --enable-threads \
     --disable-gdb \
     --disable-gdbserver \
@@ -151,14 +145,7 @@ check() {
 
 package() {
   cd binutils-build
-  make prefix="${pkgdir}"/usr tooldir="${pkgdir}"/usr install
-
-  for _bin in bin addr2line ar as c++filt elfedit gprof ld ld.bfd nm objcopy objdump ranlib readelf size strings strip; do
-    ln -s ${_bin} ${pkgdir}/usr/bin/${CHOST}-${_bin}
-    if [[ "${CFLAGS}" == *"mcpu=espresso"* ]]; then
-      ln -s ${_bin} ${pkgdir}/usr/bin/powerpc-espresso-linux-gnu-${_bin}
-    fi
-  done
+  make DESTDIR="${pkgdir}" tooldir=/usr install
 
   # install PIC version of libiberty
   install -m644 libiberty/pic/libiberty.a "${pkgdir}"/usr/lib
@@ -182,4 +169,13 @@ EOS
 
   # install FSF All Permissive License
   install -Dm644 -t "${pkgdir}"/usr/share/licenses/${pkgname}/ FSFAP
+
+  # Target-prefixed names for the tools (powerpc64le-unknown-linux-gnu-objdump
+  # and so on), which builds that ask for ${CHOST}-<tool> expect; our
+  # linux-omarchy recipe is one.
+  [[ ${CARCH} == x86_64 ]] && return 0
+  local _bin
+  for _bin in addr2line ar as c++filt elfedit gprof ld ld.bfd nm objcopy objdump ranlib readelf size strings strip; do
+    if [[ -e "${pkgdir}/usr/bin/${_bin}" ]]; then ln -s "${_bin}" "${pkgdir}/usr/bin/${CHOST}-${_bin}"; fi
+  done
 }
