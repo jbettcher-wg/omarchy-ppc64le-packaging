@@ -1,40 +1,96 @@
-# firefox — Arch POWER (ppc64le) packaging notes
+# firefox — ppc64le packaging notes
 
-Downstream of Arch's [firefox PKGBUILD](https://gitlab.archlinux.org/archlinux/packaging/packages/firefox) with the archpower ppc64le patch stack. Bumped for firefox **153.0.3** in sync with Arch's `153.0.3-2`.
+Downstream of Arch's [firefox PKGBUILD](https://gitlab.archlinux.org/archlinux/packaging/packages/firefox)
+(160.0.1-1), with runlevel5's PowerPC series and our SpiderMonkey JIT
+performance patches on top.
 
-## Changes vs. the 152.0.4-2 archpower baseline
+## Patch stack (applied in `source=()` order)
 
-### Patches added
-- `0002-Bug-2057577-DOM-Media-Add-FFmpeg-63-support.-r-alwu-.patch` — from Arch upstream. Adds firefox 153's FFmpeg 63 header tree so system libavcodec.so.63 loads.
+| Patches | From | What |
+|---|---|---|
+| `0001` | Arch | install under the remoting name |
+| `0002`–`0031` | [runlevel5/firefox-ppc64](https://github.com/runlevel5/firefox-ppc64) | the ppc64 JIT, VSX/AltiVec paths (Skia, libwebp, libyuv, jxl, swizzles, SWGL, text scanning, string search), NSS acceleration gated on the target baseline, the Linux sandbox on ppc64 |
+| `0032`–`0034` | ours | the ppc64 JIT performance series: roughly 2x JavaScript on POWER8 |
+| `hotfix-*`, `sandbox-*`, `xlib-success` | T2 SDE | portability fixes |
+| `power8-jxl-simd-no-power9-tier.diff` | ours | baseline pool only: drop jxl_simd's POWER9 tier (see POWER8 below) |
 
-### Patches removed (obsolete for 153)
-- `ffmpeg-cleanup.patch` — old T2 fix; the new Arch ffmpeg-63 patch supersedes it.
-- `hotfix-tailcalls.patch` — T2 fix for i386/sparc/s390 `clang::musttail`. Firefox 153 rewrote `port_def.inc` to an aarch64/x86_64 **allowlist**, so ppc64le / i386 / sparc / s390 are already excluded upstream. Patch no longer needed.
-- `hotfix-wgpu-atomicu64.patch` — T2 fix swapping `AtomicU64` → `AtomicUsize` for 32-bit ppc. ppc64le has native 64-bit atomics — not needed. Void and Chimera don't carry it.
-- `0001-Add-VSX-instructions-for-SKIA.patch` — runlevel5/firefox-ppc64 VSX SIMD accel for skia. **Dropped for 153 pending rebase** — the skia `opts/` file layout changed enough to break the hunks. Performance-only, not correctness. Void ships firefox 153 on ppc64le without it and works.
+### Where 0002–0031 come from
 
-### mozconfig changes (in the `powerpc64le` case block)
-- `--with-system-nss` removed — firefox 153 requires nss ≥ 3.125; Arch POWER's `nss` (3.124) is short. Falls back to bundled nss (which is newer). **Re-enable when system nss ≥ 3.125 lands.**
-- `--with-system-libevent` removed — firefox 153 uses a new `CHECK_EVENT_SIZEOF(TIME_T, time_t)` static assert that requires `EVENT__SIZEOF_TIME_T` from libevent 2.2.x. Arch POWER has libevent 2.1.13 which pre-dates that define. Falls back to bundled libevent. **Re-enable when system libevent ≥ 2.2 lands.**
+runlevel5 rebases one `ppc64` branch onto each release and does not keep a
+per-release branch. The `FIREFOX_*_RELEASE_PPC64` tags mark Mozilla's release
+commits, not the series. The 160.0.1 series is the branch as pushed on
+2026-11-17, head `108dab0153a3` = `FIREFOX_160_0_1_RELEASE` (`58fed86b1b68`)
++ 30 commits, found through the repository's push events. To refresh for a
+later release, take the branch head that sits on that release's commit and
+`git format-patch` the commits above it.
 
-## POWER8 safety
+### 0032–0034: our JIT performance series
 
-Firefox 153 does NOT hard-drop POWER8. Scanned the source:
-- The only POWER9-tagged flag set is `PPC_VSX3_FLAGS = -mvsx -mcpu=power9` in `build/moz.configure/toolchain.configure`. **Zero consumers** in the source tree — pure infrastructure, no components opt into it.
-- `mozglue/static/lz4/xxhash.h` uses `__POWER9_VECTOR__` as a compile-time gate; on a POWER8 build with `-mcpu=power8` it falls through to a POWER7/8-safe path. No runtime traps.
+Measured by the POWER8 tester on 154: the load64 stanza as patchable
+immediates (no `mflr`/`bcl` round trip per 64-bit constant), short forward
+branches with veneers instead of 10-slot NOP padding (Ion code was 38-56%
+NOPs), and codegen/call-path/bound-branch fixes. runlevel5 has not taken
+them (only our `xsmindp` fix, which is now in their series). Each patch
+carries a note on its rebase to 160. Three 160 changes needed real code, not
+just conflict resolution:
 
-archpower buildbot with POWER8 CFLAGS produces a POWER8-safe firefox binary.
+- trap sites are `FaultingCodeRange`s, so all 28 use `flushPoolForTrapSite()`;
+- 160 renumbered `JSValueType` (BigInt/String/Symbol above Object), so
+  `branchTestPrimitive` is an equality test against the Object tag;
+- the wasm trap-instruction summarizer is no longer debug-only in 160, and it
+  did not know `lwax`, which 0034 emits for zero-offset `load32(BaseIndex)`:
+  it is decoded as a Load32 now. Without that, wasm GC traps would be
+  mishandled in release builds.
 
-## Rustup / rustc
+Verified with the SpiderMonkey jit-test suite on a debug shell of exactly this
+tree: no failures and no timeouts, natively and with `MOZ_PPC64_FORCE_POWER8=1`.
 
-Firefox's mach shells out `rustup which rustc` during configure. On a clean archpower buildbot (no rustup installed) mach falls back to the system rustc on PATH — no intervention needed. If a developer has a rustup shim on PATH that doesn't handle `which` correctly, they can bypass with `env RUSTC=/usr/bin/rustc CARGO=/usr/bin/cargo makepkg -e`.
+## Dropped since 154.0.1-4
+
+- `hotfix-ppc-not-power8.diff`: it stripped NSS's VSX AES/GHASH/SHA paths
+  on every ppc64le build. runlevel5's series gates NSS acceleration on the
+  target baseline properly, so ppc64le gets hardware crypto again.
+- Our `0010` VSX string search: superseded by runlevel5's (a POWER9 fast
+  path under `_ARCH_PWR9`, `vbpermq` on POWER8).
+- `0002-Bug-2053518` (Rust oe-linux targets): upstream in 160.
+- `hotfix-bigendian-no-fading`, `hotfix-be-image-formats`: big-endian only,
+  covered by runlevel5's big-endian rendering work.
+
+## mozconfig (`powerpc64le` case)
+
+- Bundled NSS (`--with-system-nss` is off): runlevel5's NSS acceleration
+  lives in the bundled copy.
+- `--disable-crashreporter`, `--with-wasi-sysroot=/usr/share/wasi-sysroot`.
+- No PGO or LTO on POWER: only x86_64 takes Arch's three-stage PGO build.
+
+## POWER8
+
+The JIT emits POWER8 (ISA 2.07) code unless the CPU reports POWER9; set
+`MOZ_PPC64_FORCE_POWER8=1` to exercise the POWER8 paths on POWER9 hardware
+(also `_POWER9`, `_POWER10`, `_970`). Compiled C++ follows the pool's `-mcpu`.
+
+Not everything follows `-mcpu`, though. `0016` (the jxl_simd VSX backend)
+compiles a second copy of every JPEG XL kernel under
+`#[target_feature(enable = "power9-altivec,power9-vector")]`, and dispatches to
+it when `is_powerpc64_feature_detected!("power9-vector")` reports true. That
+copy is runtime-gated, so it never runs on POWER8. Even so, it put 32,033
+ISA 3.0 instructions into the baseline build's libxul (154.0.1-4 had 214).
+
+The baseline pool ships no POWER9 code at all, so `prepare()` applies
+`power8-jxl-simd-no-power9-tier.diff` when the POWER8 drop-in exports
+`_power8=1`. The diff deletes the Power9 arm of `simd_function_body_vsx!`, so
+no ISA 3.0 instance is ever generated. With it, the baseline package scans
+170, and every one of those is a known artifact:
+
+- libxul and libsoftokn3: quad-precision forms with `v31,v31,v31` /
+  `cr7,vNN,127` operands, which are jump-table data;
+- libmozsqlite3: the same;
+- freebl: 6 mixed forms with impossible operands, which are constant tables.
+
+The POWER9 pool keeps the tier. A distribution that builds a single generic
+ppc64le package probably wants to keep it too.
 
 ## Build
 
-```
-makepkg --noconfirm
-```
-
-## Runtime note (preserved from prior README)
-
-If you don't have a choice and need to run outside a chroot or container, remember to uninstall Firefox prior to its build. It'll otherwise sometimes pull in old SO links from its own installation (libffi).
+Natively, through bq (POWER9 pool) or `tools/build-ppc64le.sh` (baseline).
+Never inside the POWERarm aarch64 sleeve.

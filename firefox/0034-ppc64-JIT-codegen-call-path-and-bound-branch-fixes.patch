@@ -1,3 +1,4 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jordan Bettcher <thebettcher@gmail.com>
 Date: Sun, 04 Oct 2026 21:00:00 -0700
 Subject: [PATCH] ppc64 JIT: codegen, call-path and bound-branch fixes
@@ -49,11 +50,58 @@ Bound-branch fix (MacroAssembler-ppc64.h ma_b):
    jsapi-test (testJitMacroAssembler_ppc64BoundBranchPrefix) that fails
    before and passes after.
 
+Rebased onto Firefox 160.0.1 and runlevel5's 160 series:
+ - Ion and Baseline prologues: PPC64 keeps pushReturnAddressAndFramePointer
+   (one stack adjust); every other target gets 160's
+   pushRegs(LinkRegister, FramePointer) / push(FramePointer) unchanged.
+ - 160 already made unguardedCallPreBarrier public; its comment is kept.
+ - and32(Imm32): this patch's three-operand form. 160 independently fixed
+   the rlwinm re-sign-extension (imm < 0, i.e. mb == 0) but dropped the
+   extsw after the general and; it is kept here.
+ - ma_b on a bound label: the condition prefix is emitted first and the
+   displacement measured from where the bc lands. 160 still computes it
+   before the prefix and only corrects for a cror, which is wrong by 12
+   bytes for a POWER8 Overflow prefix; its long form also re-emitted the
+   prefix (second cror/crandc reads the bit the first rewrote).
+ - The nop after an in-range `b` (jump) and `bc` (ma_b) is dropped, as
+   runlevel5 did in 160. This patch had kept the `b` one after measuring a
+   ~2.5% Richards loss on POWER8 from code layout; re-measured on 160.
+ - 160 API: the indexed-form load/store helpers return FaultingCodeRange
+   (160 renamed FaultingCodeOffset).
+ - 160 renumbered JSValueType: BigInt, String and Symbol now sort above
+   Object, and ValueUpperExclPrimitiveTag is gone. branchTestPrimitive is
+   therefore an equality test against the Object tag, not a "below Object"
+   bound (which would classify strings as objects). The Double
+   (<= MAX_DOUBLE), Number (<= INT32, now type 0x02) and GCThing
+   (>= PRIVATE_GCTHING, now 0x0b) bounds still hold under the new order.
+ - The zero-offset BaseIndex load32 emits lwax (X-form, XO 341), which
+   runlevel5's ppc64 SummarizeTrapInstruction did not know. In 160 the
+   summarizer is no longer debug-only: WasmGC.cpp uses it at run time to
+   find the trapping instruction, so an unidentified lwax trap site would
+   break wasm trap handling in release builds. Debug builds caught it as
+   "Assertion failure: summary.identified()" in 25 wasm GC / multi-value /
+   tail-call jit-test invocations (runlevel5's 160 alone passes them).
+   lwax is now decoded as a Load32; the full jit-test suite passes, native
+   and with MOZ_PPC64_FORCE_POWER8=1.
 ---
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/BaselineCodeGen.cpp js/src/jit/BaselineCodeGen.cpp
---- a/js/src/jit/BaselineCodeGen.cpp	2026-10-04 16:45:30.614474937 -0700
-+++ b/js/src/jit/BaselineCodeGen.cpp	2026-10-04 19:18:21.707617375 -0700
-@@ -6966,13 +6966,18 @@
+ js/src/jit/BaselineCodeGen.cpp               |  15 +-
+ js/src/jit/ppc64/Assembler-ppc64.cpp         |  60 +++-
+ js/src/jit/ppc64/Assembler-ppc64.h           |   3 +-
+ js/src/jit/ppc64/CodeGenerator-ppc64.cpp     |  39 ++-
+ js/src/jit/ppc64/MacroAssembler-ppc64-inl.h  | 215 +++++++-------
+ js/src/jit/ppc64/MacroAssembler-ppc64.cpp    |  29 +-
+ js/src/jit/ppc64/MacroAssembler-ppc64.h      | 279 +++++++++++++++----
+ js/src/jit/ppc64/SharedICHelpers-ppc64.h     |  16 +-
+ js/src/jit/shared/CodeGenerator-shared.cpp   |  25 +-
+ js/src/jsapi-tests/testJitMacroAssembler.cpp | 169 +++++++++++
+ js/src/wasm/WasmSummarizeInsn.cpp            |   3 +-
+ 11 files changed, 675 insertions(+), 178 deletions(-)
+
+diff --git a/js/src/jit/BaselineCodeGen.cpp b/js/src/jit/BaselineCodeGen.cpp
+index 701a199..265e9ca 100644
+--- a/js/src/jit/BaselineCodeGen.cpp
++++ b/js/src/jit/BaselineCodeGen.cpp
+@@ -7073,14 +7073,19 @@ template <typename Handler>
  bool BaselineCodeGen<Handler>::emitPrologue() {
    AutoCreatedBy acb(masm, "BaselineCodeGen<Handler>::emitPrologue");
  
@@ -64,17 +112,19 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
 +#else
 +#  ifdef JS_USE_LINK_REGISTER
    // Push link register from generateEnterJIT()'s BLR.
-   masm.pushReturnAddress();
+   masm.pushRegs(LinkRegister, FramePointer);
+-#else
++#  else
+   masm.push(FramePointer);
 -#endif
 +#  endif
  
-   masm.push(FramePointer);
    masm.moveStackPtrTo(FramePointer);
 +#endif
  
    masm.checkStackAlignment();
  
-@@ -7045,10 +7050,14 @@
+@@ -7162,10 +7167,14 @@ bool BaselineCodeGen<Handler>::emitEpilogue() {
  
    emitProfilerExitFrame();
  
@@ -89,23 +139,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    return true;
  }
  
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/MacroAssembler.h js/src/jit/MacroAssembler.h
---- a/js/src/jit/MacroAssembler.h	2026-10-04 16:45:30.625267359 -0700
-+++ b/js/src/jit/MacroAssembler.h	2026-10-04 19:18:21.708780566 -0700
-@@ -5296,6 +5296,9 @@
-  private:
-   TrampolinePtr preBarrierTrampoline(MIRType type);
- 
-+ public:
-+  // Public so link-register backends can save LR only on the path where the
-+  // barrier is actually needed (see EmitPreBarrier in SharedICHelpers-ppc64.h).
-   template <typename T>
-   void unguardedCallPreBarrier(const T& address, MIRType type) {
-     Label done;
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/Assembler-ppc64.cpp js/src/jit/ppc64/Assembler-ppc64.cpp
---- a/js/src/jit/ppc64/Assembler-ppc64.cpp	2026-10-04 16:45:30.671934029 -0700
-+++ b/js/src/jit/ppc64/Assembler-ppc64.cpp	2026-10-04 19:18:21.709733357 -0700
-@@ -231,13 +231,13 @@
+diff --git a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
+index 2d89d05..e14cfc9 100644
+--- a/js/src/jit/ppc64/Assembler-ppc64.cpp
++++ b/js/src/jit/ppc64/Assembler-ppc64.cpp
+@@ -231,13 +231,13 @@ void Assembler::copyDataRelocationTable(uint8_t* dest) {
  }
  
  void Assembler::executableCopy(void* buffer) {
@@ -121,7 +159,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  size_t Assembler::size() const {
-@@ -3089,6 +3089,62 @@
+@@ -3209,6 +3209,62 @@ static uint8_t Load64StanzaDestReg(Instruction* inst0) {
    return (inst0[2].encode() >> 21) & 0x1f;
  }
  
@@ -184,10 +222,20 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  /* static */
  void Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg,
                                          uint64_t value) {
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/Assembler-ppc64.h js/src/jit/ppc64/Assembler-ppc64.h
---- a/js/src/jit/ppc64/Assembler-ppc64.h	2026-10-04 16:45:30.672720742 -0700
-+++ b/js/src/jit/ppc64/Assembler-ppc64.h	2026-10-04 19:18:21.710353843 -0700
-@@ -2149,6 +2149,7 @@
+diff --git a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
+index 1ce868e..cc756fe 100644
+--- a/js/src/jit/ppc64/Assembler-ppc64.h
++++ b/js/src/jit/ppc64/Assembler-ppc64.h
+@@ -2139,7 +2139,7 @@ class Assembler : public AssemblerShared {
+ 
+  public:
+   void flushBuffer() { m_buffer.flushPool(); }
+-  // Used right before recording a wasm trap site (FaultingCodeOffset): dump
++  // Used right before recording a wasm trap site (FaultingCodeRange): dump
+   // any pending constant pool so no pool body lands between the recorded
+   // offset and the faulting instruction. Unlike flushBuffer(), this does not
+   // turn every pending short-range `bc` into a branch-to-veneer.
+@@ -2172,6 +2172,7 @@ class Assembler : public AssemblerShared {
                                     CompactBufferReader& reader);
  
    void executableCopy(uint8_t* buffer);
@@ -195,10 +243,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  
    static uint32_t PatchWrite_NearCallSize();
    static void PatchWrite_NearCall(CodeLocationLabel start,
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/CodeGenerator-ppc64.cpp js/src/jit/ppc64/CodeGenerator-ppc64.cpp
---- a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp	2026-10-04 16:45:30.673358958 -0700
-+++ b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp	2026-10-04 19:18:21.702000000 -0700
-@@ -345,6 +345,27 @@
+diff --git a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
+index 3329b7a..29b7d4a 100644
+--- a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
++++ b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
+@@ -318,6 +318,27 @@ void CodeGenerator::visitUnbox(LUnbox* unbox) {
  // ===============================================================
  // Visitors: Integer Arithmetic
  
@@ -226,7 +275,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  void CodeGenerator::visitAddI(LAddI* ins) {
    LAllocation* lhs = ins->getOperand(0);
    LAllocation* rhs = ins->getOperand(1);
-@@ -353,9 +374,9 @@
+@@ -326,9 +347,9 @@ void CodeGenerator::visitAddI(LAddI* ins) {
    if (rhs->isConstant()) {
      Imm32 imm(ToInt32(rhs));
      if (ins->snapshot()) {
@@ -238,7 +287,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        bailoutFrom(&overflow, ins->snapshot());
      } else {
        masm.add32(imm, ToRegister(lhs), dest);
-@@ -370,7 +391,8 @@
+@@ -343,7 +364,8 @@ void CodeGenerator::visitAddI(LAddI* ins) {
        Label overflow;
        masm.as_cmpd(dest, SecondScratchReg);
        masm.ma_b(Assembler::NotEqual, &overflow);
@@ -248,7 +297,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        bailoutFrom(&overflow, ins->snapshot());
      } else {
        masm.as_add(dest, ToRegister(lhs), rhsReg);
-@@ -417,10 +439,12 @@
+@@ -391,10 +413,12 @@ void CodeGenerator::visitSubI(LSubI* ins) {
    if (rhs->isConstant()) {
      Imm32 imm(ToInt32(rhs));
      if (ins->snapshot()) {
@@ -263,7 +312,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      } else {
        masm.move32(ToRegister(lhs), dest);
        masm.sub32(imm, dest);
-@@ -435,7 +459,8 @@
+@@ -409,7 +433,8 @@ void CodeGenerator::visitSubI(LSubI* ins) {
        Label overflow;
        masm.as_cmpd(dest, SecondScratchReg);
        masm.ma_b(Assembler::NotEqual, &overflow);
@@ -273,7 +322,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        bailoutFrom(&overflow, ins->snapshot());
      } else {
        masm.as_subf(dest, rhsReg, ToRegister(lhs));
-@@ -573,7 +598,7 @@
+@@ -546,7 +571,7 @@ void CodeGenerator::visitMulI(LMulI* ins) {
      Label overflow;
      masm.as_cmpd(dest, SecondScratchReg);
      masm.ma_b(Assembler::NotEqual, &overflow);
@@ -282,10 +331,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      bailoutFrom(&overflow, ins->snapshot());
    } else {
      masm.as_mullw(dest, lhs, rhsReg);
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
---- a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h	2026-10-04 16:45:30.674209906 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h	2026-10-04 19:18:21.704204253 -0700
-@@ -197,6 +197,10 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
+index 47fd9be..8f66161 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
+@@ -223,6 +223,10 @@ static inline bool IsContigMask64(uint64_t mask, unsigned& lsb,
  }
  
  void MacroAssembler::andPtr(Imm32 imm, Register dest) {
@@ -296,7 +346,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    // andi. handles 16-bit unsigned immediates in 1 insn (sets CR0).
    // For wider positive immediates, IsContigMask32 → rlwinm (1 insn,
    // also sets CR0). NOTE: andPtr sign-extends Imm32 to 64-bit before
-@@ -204,25 +208,27 @@
+@@ -230,25 +234,27 @@ void MacroAssembler::andPtr(Imm32 imm, Register dest) {
    // non-negative (high bit clear) — rlwinm always zeros the high 32.
    uint32_t uimm = uint32_t(imm.value);
    if (is_uintN(uimm, 16)) {
@@ -333,34 +383,45 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
 +  as_and_(dest, src, scratch);
  }
  
- void MacroAssembler::and64(Imm64 imm, Register64 dest) {
-@@ -269,32 +275,36 @@
+ void MacroAssembler::andPtr(Imm32 imm, const Address& dest) {
+@@ -302,33 +308,34 @@ void MacroAssembler::and32(Register src, Register dest) {
  }
  
  void MacroAssembler::and32(Imm32 imm, Register dest) {
-+  and32(imm, dest, dest);
-+}
-+
-+void MacroAssembler::and32(Imm32 imm, Register src, Register dest) {
-   uint32_t uimm = uint32_t(imm.value);
-   if (is_uintN(uimm, 16)) {
+-  uint32_t uimm = uint32_t(imm.value);
+-  if (is_uintN(uimm, 16)) {
 -    as_andi_rc(dest, dest, uimm);
 -  } else {
 -    unsigned mb, me;
 -    if (IsContigMask32(uimm, mb, me)) {
 -      // rlwinm.SH=0 ANDs with the contiguous mask; record form sets CR0
--      // to match the side-effect of the andi. fast path above.
+-      // to match the side-effect of the andi. fast path above. It clears
+-      // the high word, so a mask with bit 31 set needs re-extending.
 -      as_rlwinm_rc(dest, dest, 0, mb, me);
+-      if (imm.value < 0) {
+-        as_extsw(dest, dest);
+-      }
 -    } else {
 -      UseScratchRegisterScope temps(asMasm());
 -      Register scratch = temps.Acquire();
 -      move32(imm, scratch);
 -      as_and_(dest, dest, scratch);
+-    }
+-  }
++  and32(imm, dest, dest);
+ }
+ 
+ void MacroAssembler::and32(Imm32 imm, Register src, Register dest) {
+-  if (src != dest) {
+-    xs_mr(dest, src);
++  uint32_t uimm = uint32_t(imm.value);
++  if (is_uintN(uimm, 16)) {
 +    // andi. zeroes bits 16..63: the result is a non-negative int32 that is
 +    // already canonical (sign-extended), whatever src's high half held.
 +    as_andi_rc(dest, src, uimm);
 +    return;
-+  }
+   }
+-  and32(imm, dest);
 +  unsigned mb, me;
 +  if (IsContigMask32(uimm, mb, me)) {
 +    // rlwinm.SH=0 ANDs with the contiguous mask (IsContigMask32 never
@@ -370,27 +431,18 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
 +    as_rlwinm_rc(dest, src, 0, mb, me);
 +    if (mb == 0) {
 +      as_extsw(dest, dest);
-     }
++    }
 +    return;
-   }
++  }
 +  UseScratchRegisterScope temps(asMasm());
 +  Register scratch = temps.Acquire();
 +  move32(imm, scratch);
 +  as_and_(dest, src, scratch);
-   as_extsw(dest, dest);
++  as_extsw(dest, dest);
  }
  
--void MacroAssembler::and32(Imm32 imm, Register src, Register dest) {
--  if (src != dest) {
--    xs_mr(dest, src);
--  }
--  and32(imm, dest);
--}
--
  void MacroAssembler::and32(Imm32 imm, const Address& dest) {
-   UseScratchRegisterScope temps(asMasm());
-   Register scratch = temps.Acquire();
-@@ -691,9 +701,13 @@
+@@ -736,9 +743,13 @@ void MacroAssembler::add32(Imm32 imm, Register dest) {
  }
  
  void MacroAssembler::add32(Imm32 imm, Register src, Register dest) {
@@ -407,7 +459,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    if (src != dest) {
      as_or_(dest, src, src);
    }
-@@ -1323,7 +1337,11 @@
+@@ -1409,7 +1420,11 @@ void MacroAssembler::rshift32(Imm32 imm, Register dest) {
  
  void MacroAssembler::rshift32(Imm32 imm, Register src, Register dest) {
    x_srwi(dest, src, imm.value & 0x1f);
@@ -420,7 +472,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  void MacroAssembler::flexibleRshift32(Register src, Register dest) {
-@@ -1703,8 +1721,7 @@
+@@ -1860,8 +1875,7 @@ void MacroAssembler::branch32(Condition cond, const AbsoluteAddress& lhs,
                                Register rhs, Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -430,7 +482,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    Condition c = ma_cmp(scratch, rhs, cond, true);
    ma_b(c, label);
  }
-@@ -1713,8 +1730,7 @@
+@@ -1870,8 +1884,7 @@ void MacroAssembler::branch32(Condition cond, const AbsoluteAddress& lhs,
                                Imm32 rhs, Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -440,7 +492,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    Condition c = ma_cmp(scratch, rhs, cond, true);
    ma_b(c, label);
  }
-@@ -1865,8 +1881,7 @@
+@@ -2022,8 +2035,7 @@ void MacroAssembler::branchPtr(Condition cond, const AbsoluteAddress& lhs,
                                 Register rhs, Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -450,7 +502,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    Condition c = ma_cmp(scratch, rhs, cond);
    ma_b(c, label);
  }
-@@ -1875,8 +1890,7 @@
+@@ -2032,8 +2044,7 @@ void MacroAssembler::branchPtr(Condition cond, const AbsoluteAddress& lhs,
                                 ImmWord rhs, Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -460,7 +512,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    Condition c = ma_cmp(scratch, rhs, cond);
    ma_b(c, label);
  }
-@@ -2271,8 +2285,7 @@
+@@ -2429,8 +2440,7 @@ void MacroAssembler::branchTest32(Condition cond, const AbsoluteAddress& lhs,
               cond == NotSigned);
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -470,7 +522,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  void MacroAssembler::branchTestPtr(Condition cond, Register lhs, Register rhs,
-@@ -2381,7 +2394,7 @@
+@@ -2539,7 +2549,7 @@ void MacroAssembler::branchTestUndefined(Condition cond,
                                           Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -479,7 +531,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_UNDEFINED), label);
  }
  
-@@ -2389,7 +2402,7 @@
+@@ -2547,7 +2557,7 @@ void MacroAssembler::branchTestUndefined(Condition cond, const Address& address,
                                           Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -488,7 +540,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_UNDEFINED), label);
  }
  
-@@ -2398,7 +2411,7 @@
+@@ -2556,7 +2566,7 @@ void MacroAssembler::branchTestUndefined(Condition cond,
                                           Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -497,7 +549,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_UNDEFINED), label);
  }
  
-@@ -2413,7 +2426,7 @@
+@@ -2571,7 +2581,7 @@ void MacroAssembler::branchTestInt32(Condition cond, const ValueOperand& value,
                                       Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -506,7 +558,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_INT32), label);
  }
  
-@@ -2421,7 +2434,7 @@
+@@ -2579,7 +2589,7 @@ void MacroAssembler::branchTestInt32(Condition cond, const Address& address,
                                       Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -515,7 +567,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_INT32), label);
  }
  
-@@ -2429,7 +2442,7 @@
+@@ -2587,7 +2597,7 @@ void MacroAssembler::branchTestInt32(Condition cond, const BaseIndex& address,
                                       Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -524,7 +576,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_INT32), label);
  }
  
-@@ -2452,26 +2465,35 @@
+@@ -2610,26 +2620,35 @@ void MacroAssembler::branchTestDouble(Condition cond, Register tag,
  
  void MacroAssembler::branchTestDouble(Condition cond, const ValueOperand& value,
                                        Label* label) {
@@ -566,7 +618,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  void MacroAssembler::branchTestDoubleTruthy(bool b, FloatRegister value,
-@@ -2495,10 +2517,11 @@
+@@ -2653,10 +2672,11 @@ void MacroAssembler::branchTestNumber(Condition cond, Register tag,
  
  void MacroAssembler::branchTestNumber(Condition cond, const ValueOperand& value,
                                        Label* label) {
@@ -580,7 +632,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  void MacroAssembler::branchTestBoolean(Condition cond, Register tag,
-@@ -2513,7 +2536,7 @@
+@@ -2671,7 +2691,7 @@ void MacroAssembler::branchTestBoolean(Condition cond,
                                         Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -589,7 +641,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_BOOLEAN), label);
  }
  
-@@ -2521,7 +2544,7 @@
+@@ -2679,7 +2699,7 @@ void MacroAssembler::branchTestBoolean(Condition cond, const Address& address,
                                         Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -598,7 +650,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_BOOLEAN), label);
  }
  
-@@ -2529,7 +2552,7 @@
+@@ -2687,7 +2707,7 @@ void MacroAssembler::branchTestBoolean(Condition cond, const BaseIndex& address,
                                         Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -607,7 +659,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_BOOLEAN), label);
  }
  
-@@ -2553,7 +2576,7 @@
+@@ -2711,7 +2731,7 @@ void MacroAssembler::branchTestString(Condition cond, const ValueOperand& value,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -616,7 +668,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_STRING), label);
  }
  
-@@ -2561,7 +2584,7 @@
+@@ -2719,7 +2739,7 @@ void MacroAssembler::branchTestString(Condition cond, const Address& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -625,7 +677,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_STRING), label);
  }
  
-@@ -2569,7 +2592,7 @@
+@@ -2727,7 +2747,7 @@ void MacroAssembler::branchTestString(Condition cond, const BaseIndex& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -634,7 +686,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_STRING), label);
  }
  
-@@ -2594,7 +2617,7 @@
+@@ -2752,7 +2772,7 @@ void MacroAssembler::branchTestSymbol(Condition cond, const ValueOperand& value,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -643,7 +695,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_SYMBOL), label);
  }
  
-@@ -2602,7 +2625,7 @@
+@@ -2760,7 +2780,7 @@ void MacroAssembler::branchTestSymbol(Condition cond, const BaseIndex& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -652,7 +704,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_SYMBOL), label);
  }
  
-@@ -2610,7 +2633,7 @@
+@@ -2768,7 +2788,7 @@ void MacroAssembler::branchTestSymbol(Condition cond, const Address& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -661,7 +713,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_SYMBOL), label);
  }
  
-@@ -2625,7 +2648,7 @@
+@@ -2783,7 +2803,7 @@ void MacroAssembler::branchTestBigInt(Condition cond, const ValueOperand& value,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -670,7 +722,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_BIGINT), label);
  }
  
-@@ -2633,7 +2656,7 @@
+@@ -2791,7 +2811,7 @@ void MacroAssembler::branchTestBigInt(Condition cond, const Address& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -679,7 +731,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_BIGINT), label);
  }
  
-@@ -2641,7 +2664,7 @@
+@@ -2799,7 +2819,7 @@ void MacroAssembler::branchTestBigInt(Condition cond, const BaseIndex& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -688,7 +740,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_BIGINT), label);
  }
  
-@@ -2666,7 +2689,7 @@
+@@ -2824,7 +2844,7 @@ void MacroAssembler::branchTestNull(Condition cond, const ValueOperand& value,
                                      Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -697,7 +749,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_NULL), label);
  }
  
-@@ -2674,7 +2697,7 @@
+@@ -2832,7 +2852,7 @@ void MacroAssembler::branchTestNull(Condition cond, const Address& address,
                                      Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -706,7 +758,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_NULL), label);
  }
  
-@@ -2682,7 +2705,7 @@
+@@ -2840,7 +2860,7 @@ void MacroAssembler::branchTestNull(Condition cond, const BaseIndex& address,
                                      Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -715,7 +767,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_NULL), label);
  }
  
-@@ -2697,7 +2720,7 @@
+@@ -2855,7 +2875,7 @@ void MacroAssembler::branchTestObject(Condition cond, const ValueOperand& value,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -724,7 +776,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_OBJECT), label);
  }
  
-@@ -2705,7 +2728,7 @@
+@@ -2863,7 +2883,7 @@ void MacroAssembler::branchTestObject(Condition cond, const Address& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -733,7 +785,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_OBJECT), label);
  }
  
-@@ -2713,17 +2736,18 @@
+@@ -2871,17 +2891,19 @@ void MacroAssembler::branchTestObject(Condition cond, const BaseIndex& address,
                                        Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -745,17 +797,20 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  void MacroAssembler::branchTestPrimitive(Condition cond,
                                           const ValueOperand& value,
                                           Label* label) {
-+  MOZ_ASSERT(cond == Equal || cond == NotEqual);
-   UseScratchRegisterScope temps(asMasm());
-   Register scratch = temps.Acquire();
+-  UseScratchRegisterScope temps(asMasm());
+-  Register scratch = temps.Acquire();
 -  splitTag(value, scratch);
 -  branchTestPrimitive(cond, scratch, label);
-+  branchValueTagBound(cond == Equal ? Below : AboveOrEqual, value.valueReg(),
-+                      JS::detail::ValueUpperExclPrimitiveTag, scratch, label);
++  MOZ_ASSERT(cond == Equal || cond == NotEqual);
++  // Primitive means "not Object". Firefox 160 renumbered JSValueType so that
++  // BigInt, String and Symbol sort above Object (and removed
++  // ValueUpperExclPrimitiveTag), so a "tag below Object" bound would call
++  // every string an object. Test the Object tag for equality instead.
++  branchTestObject(cond == Equal ? NotEqual : Equal, value, label);
  }
  
  void MacroAssembler::branchTestGCThing(Condition cond, const Address& address,
-@@ -2747,12 +2771,16 @@
+@@ -2905,12 +2927,16 @@ void MacroAssembler::branchTestGCThingImpl(Condition cond, const T& address,
                                             Label* label) {
    MOZ_ASSERT(cond == Equal || cond == NotEqual);
    UseScratchRegisterScope temps(asMasm());
@@ -778,7 +833,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  void MacroAssembler::branchTestPrimitive(Condition cond, Register tag,
-@@ -2775,7 +2803,7 @@
+@@ -2932,7 +2958,7 @@ void MacroAssembler::branchTestMagic(Condition cond, const Address& address,
                                       Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -787,7 +842,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_MAGIC), label);
  }
  
-@@ -2783,7 +2811,7 @@
+@@ -2940,7 +2966,7 @@ void MacroAssembler::branchTestMagic(Condition cond, const BaseIndex& address,
                                       Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -796,7 +851,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, tag, ImmTag(JSVAL_TAG_MAGIC), label);
  }
  
-@@ -2791,7 +2819,7 @@
+@@ -2948,7 +2974,7 @@ void MacroAssembler::branchTestMagic(Condition cond, const ValueOperand& value,
                                       Label* label) {
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -805,7 +860,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    branchTestTag(cond, scratch, ImmTag(JSVAL_TAG_MAGIC), label);
  }
  
-@@ -3213,9 +3241,8 @@
+@@ -3370,9 +3396,8 @@ void MacroAssembler::fallibleUnboxPtr(const ValueOperand& src, Register dest,
               type == JSVAL_TYPE_SYMBOL || type == JSVAL_TYPE_BIGINT);
    UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
@@ -817,10 +872,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    unboxNonDouble(src, dest, type);
  }
  
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/MacroAssembler-ppc64.cpp js/src/jit/ppc64/MacroAssembler-ppc64.cpp
---- a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp	2026-10-04 16:45:30.675097970 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp	2026-10-04 19:18:21.710919878 -0700
-@@ -526,8 +526,28 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
+index 92ea37a..7b8accb 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
+@@ -538,8 +538,28 @@ CodeOffset MacroAssembler::call(Register reg) {
    if (reg != CallReg) {
      movePtr(reg, CallReg);
    }
@@ -850,7 +906,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    return CodeOffset(currentOffset());
  }
  CodeOffset MacroAssembler::call(Label* label) {
-@@ -1066,9 +1086,10 @@
+@@ -1137,9 +1157,10 @@ void MacroAssembler::wasmCheckSlowCallsite(Register ra_, Label* notSlow,
  CodeOffset MacroAssembler::wasmMarkedSlowCall(const wasm::CallSiteDesc& desc,
                                                const Register reg) {
    // wasmCheckSlowCallsite reads the instruction at the return address, so
@@ -864,10 +920,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    CodeOffset offset = call(desc, reg);
    wasmMarkCallAsSlow();
    m_buffer.leaveNoPool();
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/MacroAssembler-ppc64.h js/src/jit/ppc64/MacroAssembler-ppc64.h
---- a/js/src/jit/ppc64/MacroAssembler-ppc64.h	2026-10-04 16:45:30.675994005 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64.h	2026-10-04 19:18:21.711546500 -0700
-@@ -307,6 +307,26 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler-ppc64.h
+index 7a0de4e..0675859 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64.h
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64.h
+@@ -340,6 +340,26 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      }
    }
  
@@ -894,7 +951,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    void computeEffectiveAddress(const Address& address, Register dest) {
      if (address.offset == 0) {
        if (dest != address.base) {
-@@ -404,6 +424,13 @@
+@@ -449,6 +469,13 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
        xs_mr(dest, src);
      }
    }
@@ -908,7 +965,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    void movePtr(ImmWord imm, Register dest) {
      if (imm.value == 0) {
        xs_li(dest, 0);
-@@ -423,6 +450,12 @@
+@@ -468,6 +495,12 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
        // 5-insn fallback for values in (33-34)-bit signed range.
        // 8 bytes vs 20 bytes; one slot temp register is no longer needed.
        as_paddi(dest, r0, (int64_t)imm.value, /*R=*/false);
@@ -921,7 +978,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      } else if ((uint32_t)imm.value == 0) {
        // High half only (the shifted-tag shape from Value boxing): build the
        // high 32 bits in the low half, then shift up. The rotate discards any
-@@ -496,6 +529,33 @@
+@@ -546,6 +579,33 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
    // POWER9+ (addpcis + ld, or a single prefixed pld) rather than the 3-5
    // instruction immediate build. Not for patchable or serialized code; the
    // AbsoluteAddress branch helpers are the intended callers.
@@ -955,30 +1012,17 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    void ma_loadAbsAddr(Register dest, const void* addr) {
      if (HasPOWER9() && !m_buffer.poolsInhibited() && !oom()) {
        loadFromPoolGPR64(dest, uint64_t(uintptr_t(addr)));
-@@ -613,6 +673,12 @@
-       int32_t offset = label->offset() - currentOffset();
-       if (JOffImm26::IsInRange(offset)) {
-         as_b(offset);
-+        // Not needed for correctness (a MIPS delay-slot leftover: nothing
-+        // patches or measures this shape; toggledJump/ToggleToCmp rewrite only
-+        // the `b` word). Never executed, but removing it moves every block
-+        // that follows an unconditional jump and measured as a repeatable
-+        // ~2.5% Richards loss on POWER8 (code layout, not work). Keep until
-+        // block/loop-header alignment is handled deliberately.
-         writeInst(NopInst);
-         m_buffer.leaveNoPool();
-         return;
-@@ -671,33 +737,33 @@
+@@ -869,32 +929,30 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
        }
      }
      if (label->bound()) {
 -      // Open the no-pool window BEFORE computing the displacement. Same
 -      // hazard as jump(): enterNoPool may itself flush a pending pool,
 -      // advancing currentOffset(); the bc must emit with a displacement
--      // computed against the post-flush offset. Budget covers max 6
--      // instructions: POWER8 Overflow XER ops (3) + cror (1) + bc (1) +
--      // nop (1) for the worst-case DoubleCondition+Overflow short path.
--      m_buffer.enterNoPool(6);
+-      // computed against the post-flush offset. Budget covers max 5
+-      // instructions: POWER8 Overflow XER ops (3) + cror (1) + bc (1) for
+-      // the worst-case DoubleCondition+Overflow short path.
+-      m_buffer.enterNoPool(5);
 -      // For DoubleCondition, as_bc emits cror/crandc before the bc
 -      // instruction, advancing currentOffset() by 4. Account for this
 -      // in the offset calculation.
@@ -1002,9 +1046,6 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        if (BOffImm16::IsInRange(offset)) {
 -        as_bc((int16_t)offset, cond);
 +        as_bc((int16_t)offset, op);
-+        // Not needed for correctness either (same origin as in jump());
-+        // removing it measured as a wash, so the emitted shape is unchanged.
-         writeInst(NopInst);
          m_buffer.leaveNoPool();
          return;
        }
@@ -1024,7 +1065,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        BufferOffset boLoad =
            emitLoad64Stanza(SecondScratchReg, LabelBase::INVALID_OFFSET);
        xs_mtctr(SecondScratchReg);
-@@ -919,6 +985,14 @@
+@@ -1127,6 +1185,14 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      bool isUnsigned = (cond & ConditionUnsigned) != 0;
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
@@ -1039,7 +1080,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      move32(Imm32(rhs.value), scratch);
      if (isUnsigned) {
        as_cmpld(lhs, scratch);
-@@ -928,14 +1002,13 @@
+@@ -1136,14 +1202,13 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      return base;
    }
  
@@ -1060,7 +1101,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      Condition c = (cond == Equal) ? Equal : NotEqual;
      ma_b(c, label);
    }
-@@ -1026,6 +1099,35 @@
+@@ -1260,6 +1325,35 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      splitTag(value, tag);
    }
  
@@ -1096,7 +1137,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    // PUNBOX64: the int32/boolean payload is the low 32 bits of the 64-bit Value.
    // In memory those bytes are at offset +4 on a big-endian target and +0 on
    // little-endian, so a 32-bit payload load must skip the tag word on BE.
-@@ -1181,15 +1283,19 @@
+@@ -1415,15 +1509,19 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
    }
    void tagValueWithScratch(JSValueType type, Register payload,
                             ValueOperand dest, Register scratch) {
@@ -1120,7 +1161,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        if (payload != dest.valueReg()) {
          movePtr(payload, dest.valueReg());
        }
-@@ -1207,9 +1313,10 @@
+@@ -1441,9 +1539,10 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
                             Register scratch) {
      if (type == JSVAL_TYPE_INT32 || type == JSVAL_TYPE_BOOLEAN ||
          type == JSVAL_TYPE_MAGIC) {
@@ -1134,18 +1175,18 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      } else {
        movePtr(ImmShiftedTag(type), scratch);
        xs_mr(dest, src);
-@@ -1512,6 +1619,9 @@
-   FaultingCodeOffset load32(const BaseIndex& address, Register dest) {
+@@ -1746,6 +1845,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+   FaultingCodeRange load32(const BaseIndex& address, Register dest) {
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
 +    if (Register rb = InvalidReg; xformIndex(address, scratch, &rb)) {
-+      return FaultingCodeOffset(as_lwax(dest, address.base, rb).getOffset());
++      return FaultingCodeRange(as_lwax(dest, address.base, rb).getOffset());
 +    }
      computeScaledAddress(address, scratch);
      if (is_intN(address.offset, 16) && (address.offset & 3) == 0) {
-       return FaultingCodeOffset(
-@@ -1527,8 +1637,7 @@
-     return FaultingCodeOffset(as_lwax(dest, scratch, dest).getOffset());
+       return FaultingCodeRange(
+@@ -1761,8 +1863,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+     return FaultingCodeRange(as_lwax(dest, scratch, dest).getOffset());
    }
    void load32(AbsoluteAddress address, Register dest) {
 -    movePtr(ImmWord((uintptr_t)address.addr), dest);
@@ -1154,18 +1195,18 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    }
    void load32(wasm::SymbolicAddress address, Register dest) {
      movePtr(address, dest);
-@@ -1570,6 +1679,9 @@
-   FaultingCodeOffset loadPtr(const BaseIndex& src, Register dest) {
+@@ -1804,6 +1905,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+   FaultingCodeRange loadPtr(const BaseIndex& src, Register dest) {
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
 +    if (Register rb = InvalidReg; xformIndex(src, scratch, &rb)) {
-+      return FaultingCodeOffset(as_ldx(dest, src.base, rb).getOffset());
++      return FaultingCodeRange(as_ldx(dest, src.base, rb).getOffset());
 +    }
      computeScaledAddress(src, scratch);
      if (is_intN(src.offset, 16) && !(src.offset & 0x3)) {
-       return FaultingCodeOffset(as_ld(dest, scratch, src.offset).getOffset());
-@@ -1579,8 +1691,8 @@
-     return FaultingCodeOffset(as_ldx(dest, scratch, dest).getOffset());
+       return FaultingCodeRange(as_ld(dest, scratch, src.offset).getOffset());
+@@ -1813,8 +1917,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+     return FaultingCodeRange(as_ldx(dest, scratch, dest).getOffset());
    }
    void loadPtr(AbsoluteAddress address, Register dest) {
 -    movePtr(ImmWord((uintptr_t)address.addr), dest);
@@ -1175,17 +1216,17 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    }
    void loadPtr(wasm::SymbolicAddress address, Register dest) {
      movePtr(address, dest);
-@@ -1609,6 +1721,9 @@
-   FaultingCodeOffset loadDouble(const BaseIndex& src, FloatRegister dest) {
+@@ -1843,6 +1947,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+   FaultingCodeRange loadDouble(const BaseIndex& src, FloatRegister dest) {
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
 +    if (Register rb = InvalidReg; xformIndex(src, scratch, &rb)) {
-+      return FaultingCodeOffset(as_lfdx(dest, src.base, rb).getOffset());
++      return FaultingCodeRange(as_lfdx(dest, src.base, rb).getOffset());
 +    }
      computeScaledAddress(src, scratch);
      if (is_intN(src.offset, 16)) {
-       return FaultingCodeOffset(as_lfd(dest, scratch, src.offset).getOffset());
-@@ -1713,6 +1828,38 @@
+       return FaultingCodeRange(as_lfd(dest, scratch, src.offset).getOffset());
+@@ -1952,6 +2059,38 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
    }
    [[nodiscard]] Register extractTag(const BaseIndex& address,
                                      Register scratch) {
@@ -1224,7 +1265,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      if (scratch == r0) {
        // r0 cannot be used as a base register in D-form/X-form loads,
        // so we need a separate temp for the intermediate address.
-@@ -1726,8 +1873,6 @@
+@@ -1965,8 +2104,6 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
        computeScaledAddress(address, scratch);
        loadPtr(Address(scratch, address.offset), scratch);
      }
@@ -1233,7 +1274,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    }
    [[nodiscard]] Register extractTag(const ValueOperand& value,
                                      Register scratch) {
-@@ -1772,10 +1917,8 @@
+@@ -2011,10 +2148,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      {
        UseScratchRegisterScope temps(*this);
        Register tag = temps.Acquire();
@@ -1246,7 +1287,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      }
      ma_cmp_set(dest, cond);
    }
-@@ -1785,11 +1928,8 @@
+@@ -2024,11 +2159,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      {
        UseScratchRegisterScope temps(*this);
        Register tag = temps.Acquire();
@@ -1260,7 +1301,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      }
      ma_cmp_set(dest, cond);
    }
-@@ -1798,10 +1938,8 @@
+@@ -2037,10 +2169,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
      {
        UseScratchRegisterScope temps(*this);
        Register tag = temps.Acquire();
@@ -1273,27 +1314,27 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
      }
      ma_cmp_set(dest, cond);
    }
-@@ -1924,6 +2062,9 @@
-   FaultingCodeOffset store32(Register src, const BaseIndex& address) {
+@@ -2163,6 +2293,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+   FaultingCodeRange store32(Register src, const BaseIndex& address) {
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
 +    if (Register rb = InvalidReg; xformIndex(address, scratch, &rb)) {
-+      return FaultingCodeOffset(as_stwx(src, address.base, rb).getOffset());
++      return FaultingCodeRange(as_stwx(src, address.base, rb).getOffset());
 +    }
      computeScaledAddress(address, scratch);
      if (is_intN(address.offset, 16)) {
-       return FaultingCodeOffset(
-@@ -2022,6 +2163,9 @@
-   FaultingCodeOffset storePtr(Register src, const BaseIndex& address) {
+       return FaultingCodeRange(
+@@ -2261,6 +2394,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+   FaultingCodeRange storePtr(Register src, const BaseIndex& address) {
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
 +    if (Register rb = InvalidReg; xformIndex(address, scratch, &rb)) {
-+      return FaultingCodeOffset(as_stdx(src, address.base, rb).getOffset());
++      return FaultingCodeRange(as_stdx(src, address.base, rb).getOffset());
 +    }
      computeScaledAddress(address, scratch);
      if (is_intN(address.offset, 16) && !(address.offset & 0x3)) {
-       return FaultingCodeOffset(
-@@ -2106,6 +2250,39 @@
+       return FaultingCodeRange(
+@@ -2349,6 +2485,39 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
  
    void abiret() { as_blr(); }
  
@@ -1333,10 +1374,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    void profilerEnterFrame(Register framePtr, Register scratch);
    void profilerExitFrame();
  
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/ppc64/SharedICHelpers-ppc64.h js/src/jit/ppc64/SharedICHelpers-ppc64.h
---- a/js/src/jit/ppc64/SharedICHelpers-ppc64.h	2026-10-04 16:45:30.576516666 -0700
-+++ b/js/src/jit/ppc64/SharedICHelpers-ppc64.h	2026-10-04 19:18:21.712004039 -0700
-@@ -41,8 +41,8 @@
+diff --git a/js/src/jit/ppc64/SharedICHelpers-ppc64.h b/js/src/jit/ppc64/SharedICHelpers-ppc64.h
+index 31ba830..da4315a 100644
+--- a/js/src/jit/ppc64/SharedICHelpers-ppc64.h
++++ b/js/src/jit/ppc64/SharedICHelpers-ppc64.h
+@@ -41,8 +41,8 @@ inline void EmitCallIC(MacroAssembler& masm, CodeOffset* callOffset) {
    // R2 won't be active when we call ICs, so we can use it as scratch.
    masm.loadPtr(Address(ICStubReg, ICStub::offsetOfStubCode()), R2.scratchReg());
  
@@ -1347,7 +1389,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
    masm.call(R2.scratchReg());
    *callOffset = CodeOffset(masm.currentOffset());
  }
-@@ -75,12 +75,20 @@
+@@ -75,12 +75,20 @@ inline void EmitBaselineLeaveStubFrame(MacroAssembler& masm) {
  template <typename AddrType>
  inline void EmitPreBarrier(MacroAssembler& masm, const AddrType& addr,
                             MIRType type) {
@@ -1370,31 +1412,35 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  }
  
  inline void EmitStubGuardFailure(MacroAssembler& masm) {
-diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-154.0.1/js/src/jit/shared/CodeGenerator-shared.cpp js/src/jit/shared/CodeGenerator-shared.cpp
---- a/js/src/jit/shared/CodeGenerator-shared.cpp	2026-10-04 16:45:30.581188703 -0700
-+++ b/js/src/jit/shared/CodeGenerator-shared.cpp	2026-10-04 19:18:21.712266000 -0700
-@@ -142,13 +142,16 @@
+diff --git a/js/src/jit/shared/CodeGenerator-shared.cpp b/js/src/jit/shared/CodeGenerator-shared.cpp
+index b9b9f16..9fa0290 100644
+--- a/js/src/jit/shared/CodeGenerator-shared.cpp
++++ b/js/src/jit/shared/CodeGenerator-shared.cpp
+@@ -144,14 +144,18 @@ bool CodeGeneratorShared::generatePrologue() {
    MOZ_ASSERT(masm.framePushed() == 0);
    MOZ_ASSERT(!gen->compilingWasm());
  
 -#ifdef JS_USE_LINK_REGISTER
--  masm.pushReturnAddress();
--#endif
--
+-  // LR, then FP for frame prologue.
+-  masm.pushRegs(LinkRegister, FramePointer);
+-#else
    // Frame prologue.
 +#if defined(JS_CODEGEN_PPC64)
 +  masm.pushReturnAddressAndFramePointer();
 +#else
 +#  ifdef JS_USE_LINK_REGISTER
-+  masm.pushReturnAddress();
-+#  endif
++  // LR, then FP.
++  masm.pushRegs(LinkRegister, FramePointer);
++#  else
    masm.push(FramePointer);
+-#endif
++#  endif
    masm.moveStackPtrTo(FramePointer);
 +#endif
  
    // Ensure that the Ion frame is properly aligned.
    masm.assertStackAlignment(JitStackAlignment, 0);
-@@ -177,11 +180,16 @@
+@@ -180,11 +184,16 @@ bool CodeGeneratorShared::generateEpilogue() {
    }
  
    MOZ_ASSERT(masm.framePushed() == frameSize());
@@ -1411,7 +1457,7 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
  
    // On systems that use a constant pool, this is a good time to emit.
    masm.flushBuffer();
-@@ -936,7 +944,11 @@
+@@ -1007,7 +1016,11 @@ void CodeGeneratorShared::ensureOsiSpace() {
        Assembler::PatchWrite_NearCallSize()) {
      int32_t paddingSize = Assembler::PatchWrite_NearCallSize();
      paddingSize -= masm.currentOffset() - lastOsiPointOffset_;
@@ -1424,9 +1470,11 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
        masm.nop();
      }
    }
---- a/js/src/jsapi-tests/testJitMacroAssembler.cpp	2026-08-24 13:18:16.000000000 -0700
-+++ b/js/src/jsapi-tests/testJitMacroAssembler.cpp	2026-10-04 19:14:08.424113720 -0700
-@@ -875,3 +875,172 @@
+diff --git a/js/src/jsapi-tests/testJitMacroAssembler.cpp b/js/src/jsapi-tests/testJitMacroAssembler.cpp
+index 5ef72bf..54f2374 100644
+--- a/js/src/jsapi-tests/testJitMacroAssembler.cpp
++++ b/js/src/jsapi-tests/testJitMacroAssembler.cpp
+@@ -875,3 +875,172 @@ BEGIN_TEST(testJitMacroAssembler_rshift64) {
  END_TEST(testJitMacroAssembler_rshift64)
  
  #endif
@@ -1599,3 +1647,17 @@ diff -ruN -x obj -x '*.orig' -x '*.rej' /home/daedalao/AUR/firefox/src/firefox-1
 +END_TEST(testJitMacroAssembler_ppc64BoundBranchPrefix)
 +
 +#endif
+diff --git a/js/src/wasm/WasmSummarizeInsn.cpp b/js/src/wasm/WasmSummarizeInsn.cpp
+index 2da4f65..386146c 100644
+--- a/js/src/wasm/WasmSummarizeInsn.cpp
++++ b/js/src/wasm/WasmSummarizeInsn.cpp
+@@ -2343,7 +2343,8 @@ SummarizeResult SummarizeTrapInstruction(const InstructionBytes& insn) {
+       case 279:  // lhzx
+       case 343:  // lhax
+         return SummarizeResult(TrapMachineInsn::Load16, 4);
+-      case 23:  // lwzx
++      case 23:   // lwzx
++      case 341:  // lwax (indexed form of lwa: zero-offset BaseIndex load32)
+         return SummarizeResult(TrapMachineInsn::Load32, 4);
+       case 21:  // ldx
+         return SummarizeResult(TrapMachineInsn::Load64, 4);

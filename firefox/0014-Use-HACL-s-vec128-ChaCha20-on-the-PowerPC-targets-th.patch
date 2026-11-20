@@ -1,0 +1,466 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 6 Oct 2026 13:42:34 +1100
+Subject: [PATCH 14/34] Use HACL*'s vec128 ChaCha20 on the PowerPC targets the
+ assembly cannot serve
+
+freebl's accelerated ChaCha20 is the hand-written VSX in chacha20-ppc64le.S,
+which the dispatcher gates on __LITTLE_ENDIAN__. Big-endian POWER8 and later
+therefore fall back to scalar ChaCha20 despite having VSX, and a PPC970
+(PowerMac G4/G5) has no accelerated path at all.
+
+Use Hacl_Chacha20_Vec128 on both. It compiles against whichever vec128
+backend libintvector.h selects, so the same source covers VSX on big-endian
+POWER8+ and plain AltiVec on the 970, and little-endian keeps the assembly.
+USE_PPC_CHACHA20_VEC128 in ppc-crypto.h picks between them and honours
+NSS_DISABLE_CRYPTO_VSX and NSS_DISABLE_ALTIVEC.
+
+Two gaps had to be closed in libintvector.h. The existing PowerPC backend's
+load32_le/store32_le and load64_le/store64_le use vec_xl and vec_xst, which
+keep the CPU's byte order, so on big-endian they now reverse the bytes within
+each element. And the 970 has neither vec_xl/vec_xst nor a 64-bit vector
+element type, so it gets its own backend: unaligned access by the classic
+two-load plus vec_lvsl sequence, and byte permutes for the 64-bit interleaves.
+
+chacha20poly1305-ppc.c grows a Chacha20Poly1305_vec128_aead_{encrypt,decrypt}
+pair reusing the poly1305_do_32 already there. Poly1305 stays scalar: its
+vec128 form needs 64-bit vector adds and a 32x32->64 multiply the 970 lacks,
+and it is only about an eighth of the AEAD's cost. Inputs under two blocks
+stay scalar, where the vector setup does not pay for itself.
+
+AEAD gain over scalar at a 1440-byte record: 2.1x on big-endian POWER9,
+1.8x on 970-targeted code.
+
+# Conflicts:
+#	security/nss/lib/freebl/verified/libintvector.h
+---
+ .../nss/lib/freebl/chacha20poly1305-ppc.c     |  73 ++++++++++
+ security/nss/lib/freebl/chacha20poly1305.c    |  45 ++++++
+ security/nss/lib/freebl/freebl.gyp            |  26 ++++
+ security/nss/lib/freebl/ppc-crypto.h          |  10 ++
+ .../nss/lib/freebl/verified/libintvector.h    | 133 ++++++++++++++++--
+ 5 files changed, 279 insertions(+), 8 deletions(-)
+
+diff --git a/security/nss/lib/freebl/chacha20poly1305-ppc.c b/security/nss/lib/freebl/chacha20poly1305-ppc.c
+index c9766cd..c15866a 100644
+--- a/security/nss/lib/freebl/chacha20poly1305-ppc.c
++++ b/security/nss/lib/freebl/chacha20poly1305-ppc.c
+@@ -22,10 +22,16 @@
+  */
+ 
+ #include "Hacl_Chacha20Poly1305_32.h"
++#include "ppc-crypto.h"
+ 
++#ifdef USE_PPC_CHACHA20_VEC128
++#include "Hacl_Chacha20.h"
++#include "Hacl_Chacha20_Vec128.h"
++#else
+ /* Forward declaration from chacha20-ppc64le.S */
+ void chacha20vsx(uint32_t len, uint8_t *output, uint8_t *block, uint8_t *k,
+                  uint8_t *nonce, uint32_t ctr);
++#endif
+ 
+ static inline void
+ poly1305_padded_32(uint64_t *ctx, uint32_t len, uint8_t *text)
+@@ -540,6 +546,8 @@ poly1305_do_32(
+     Hacl_Poly1305_32_poly1305_finish(out, k, ctx);
+ }
+ 
++#ifndef USE_PPC_CHACHA20_VEC128
++
+ void
+ Chacha20Poly1305_vsx_aead_encrypt(
+     uint8_t *k,
+@@ -586,3 +594,68 @@ Chacha20Poly1305_vsx_aead_decrypt(
+     }
+     return (uint32_t)1U;
+ }
++
++#else /* HACL* vec128 ChaCha20: big-endian PowerPC, or a pre-VSX CPU */
++
++/* The 4-way vector block only pays off once its setup is amortised; under two
++ * blocks the scalar code wins, so short inputs (including the 64-byte Poly1305
++ * key block) stay scalar. */
++static inline void
++chacha20vec128(uint32_t len, uint8_t *output, uint8_t *block, uint8_t *k,
++            uint8_t *nonce, uint32_t ctr)
++{
++    if (len < 128) {
++        Hacl_Chacha20_chacha20_encrypt(len, output, block, k, nonce, ctr);
++    } else {
++        Hacl_Chacha20_Vec128_chacha20_encrypt_128(len, output, block, k, nonce, ctr);
++    }
++}
++
++void
++Chacha20Poly1305_vec128_aead_encrypt(
++    uint8_t *k,
++    uint8_t *n,
++    uint32_t aadlen,
++    uint8_t *aad,
++    uint32_t mlen,
++    uint8_t *m,
++    uint8_t *cipher,
++    uint8_t *mac)
++{
++    chacha20vec128(mlen, cipher, m, k, n, (uint32_t)1U);
++    uint8_t tmp[64U] = { 0U };
++    chacha20vec128((uint32_t)64U, tmp, tmp, k, n, (uint32_t)0U);
++    uint8_t *key = tmp;
++    poly1305_do_32(key, aadlen, aad, mlen, cipher, mac);
++}
++
++uint32_t
++Chacha20Poly1305_vec128_aead_decrypt(
++    uint8_t *k,
++    uint8_t *n,
++    uint32_t aadlen,
++    uint8_t *aad,
++    uint32_t mlen,
++    uint8_t *m,
++    uint8_t *cipher,
++    uint8_t *mac)
++{
++    uint8_t computed_mac[16U] = { 0U };
++    uint8_t tmp[64U] = { 0U };
++    chacha20vec128((uint32_t)64U, tmp, tmp, k, n, (uint32_t)0U);
++    uint8_t *key = tmp;
++    poly1305_do_32(key, aadlen, aad, mlen, cipher, computed_mac);
++    uint8_t res = (uint8_t)255U;
++    for (uint32_t i = (uint32_t)0U; i < (uint32_t)16U; i++) {
++        uint8_t uu____0 = FStar_UInt8_eq_mask(computed_mac[i], mac[i]);
++        res = uu____0 & res;
++    }
++    uint8_t z = res;
++    if (z == (uint8_t)255U) {
++        chacha20vec128(mlen, m, cipher, k, n, (uint32_t)1U);
++        return (uint32_t)0U;
++    }
++    return (uint32_t)1U;
++}
++
++#endif /* USE_PPC_CHACHA20_VEC128 */
+diff --git a/security/nss/lib/freebl/chacha20poly1305.c b/security/nss/lib/freebl/chacha20poly1305.c
+index 47aa18b..e69851d 100644
+--- a/security/nss/lib/freebl/chacha20poly1305.c
++++ b/security/nss/lib/freebl/chacha20poly1305.c
+@@ -14,6 +14,7 @@
+ #include "blapit.h"
+ #include "blapii.h"
+ #include "chacha20poly1305.h"
++#include "ppc-crypto.h"
+ 
+ // There are three implementations of ChaCha20Poly1305:
+ // 1) 128-bit with AVX hardware acceleration used on x64
+@@ -83,6 +84,16 @@ Chacha20Poly1305_vsx_aead_decrypt(uint8_t *k, uint8_t *n1, uint32_t aadlen,
+                                   uint8_t *aad, uint32_t mlen, uint8_t *m,
+                                   uint8_t *cipher, uint8_t *mac);
+ 
++// Forward declaration from chacha20poly1305-ppc.c (HACL* vec128 path)
++extern void
++Chacha20Poly1305_vec128_aead_encrypt(uint8_t *k, uint8_t *n1, uint32_t aadlen,
++                                  uint8_t *aad, uint32_t mlen, uint8_t *m,
++                                  uint8_t *cipher, uint8_t *mac);
++extern uint32_t
++Chacha20Poly1305_vec128_aead_decrypt(uint8_t *k, uint8_t *n1, uint32_t aadlen,
++                                  uint8_t *aad, uint32_t mlen, uint8_t *m,
++                                  uint8_t *cipher, uint8_t *mac);
++
+ SECStatus
+ ChaCha20_InitContext(ChaCha20Context *ctx, const unsigned char *key,
+                      unsigned int keyLen, const unsigned char *nonce,
+@@ -232,6 +243,12 @@ ChaCha20Xor(uint8_t *output, uint8_t *block, uint32_t len, uint8_t *k,
+         chacha20vsx(len, output, block, k, nonce, ctr);
+         return;
+     }
++#elif defined(USE_PPC_CHACHA20_VEC128)
++    /* The 4-way vector block only pays off once its setup is amortised. */
++    if (len >= 128) {
++        Hacl_Chacha20_Vec128_chacha20_encrypt_128(len, output, block, k, nonce, ctr);
++        return;
++    }
+ #endif
+     {
+         Hacl_Chacha20_chacha20_encrypt(len, output, block, k, nonce, ctr);
+@@ -316,6 +333,13 @@ ChaCha20Poly1305_Seal(const ChaCha20Poly1305Context *ctx, unsigned char *output,
+             (uint8_t *)input, output, output + inputLen);
+         goto finish;
+     }
++#elif defined(USE_PPC_CHACHA20_VEC128)
++    {
++        Chacha20Poly1305_vec128_aead_encrypt(
++            (uint8_t *)ctx->key, (uint8_t *)nonce, adLen, (uint8_t *)ad, inputLen,
++            (uint8_t *)input, output, output + inputLen);
++        goto finish;
++    }
+ #endif
+     {
+         Hacl_Chacha20Poly1305_32_aead_encrypt(
+@@ -389,6 +413,13 @@ ChaCha20Poly1305_Open(const ChaCha20Poly1305Context *ctx, unsigned char *output,
+             (uint8_t *)output, (uint8_t *)input, (uint8_t *)input + ciphertextLen);
+         goto finish;
+     }
++#elif defined(USE_PPC_CHACHA20_VEC128)
++    {
++        res = Chacha20Poly1305_vec128_aead_decrypt(
++            (uint8_t *)ctx->key, (uint8_t *)nonce, adLen, (uint8_t *)ad, ciphertextLen,
++            (uint8_t *)output, (uint8_t *)input, (uint8_t *)input + ciphertextLen);
++        goto finish;
++    }
+ #endif
+     {
+         res = Hacl_Chacha20Poly1305_32_aead_decrypt(
+@@ -463,6 +494,13 @@ ChaCha20Poly1305_Encrypt(const ChaCha20Poly1305Context *ctx,
+             (uint8_t *)input, output, outTag);
+         goto finish;
+     }
++#elif defined(USE_PPC_CHACHA20_VEC128)
++    {
++        Chacha20Poly1305_vec128_aead_encrypt(
++            (uint8_t *)ctx->key, (uint8_t *)nonce, adLen, (uint8_t *)ad, inputLen,
++            (uint8_t *)input, output, outTag);
++        goto finish;
++    }
+ #endif
+     {
+         Hacl_Chacha20Poly1305_32_aead_encrypt(
+@@ -536,6 +574,13 @@ ChaCha20Poly1305_Decrypt(const ChaCha20Poly1305Context *ctx,
+             (uint8_t *)output, (uint8_t *)input, (uint8_t *)tagIn);
+         goto finish;
+     }
++#elif defined(USE_PPC_CHACHA20_VEC128)
++    {
++        res = Chacha20Poly1305_vec128_aead_decrypt(
++            (uint8_t *)ctx->key, (uint8_t *)nonce, adLen, (uint8_t *)ad, ciphertextLen,
++            (uint8_t *)output, (uint8_t *)input, (uint8_t *)tagIn);
++        goto finish;
++    }
+ #endif
+     {
+         res = Hacl_Chacha20Poly1305_32_aead_decrypt(
+diff --git a/security/nss/lib/freebl/freebl.gyp b/security/nss/lib/freebl/freebl.gyp
+index 96b5d70..765b205 100644
+--- a/security/nss/lib/freebl/freebl.gyp
++++ b/security/nss/lib/freebl/freebl.gyp
+@@ -319,6 +319,22 @@
+         'chacha20-ppc64le.S',
+       ]
+     },
++    {
++      # HACL* vec128 ChaCha20 for the PowerPC targets the little-endian VSX
++      # assembly cannot serve: big-endian POWER8+, and pre-VSX CPUs (PPC970).
++      'target_name': 'chacha20-ppc-vec128_lib',
++      'type': 'static_library',
++      'sources': [
++        'chacha20poly1305-ppc.c',
++        'verified/Hacl_Chacha20_Vec128.c',
++      ],
++      'defines': [
++        'HACL_CAN_COMPILE_VEC128',
++      ],
++      'dependencies': [
++        '<(DEPTH)/exports.gyp:nss_exports',
++      ],
++    },
+     {
+       'target_name': 'armv8_c_lib',
+       'type': 'static_library',
+@@ -537,6 +553,11 @@
+             'sha512-ppc_c_lib',
+           ],
+         }],
++        [ 'disable_altivec==0 and target_arch=="ppc64"', {
++          'dependencies': [
++            'chacha20-ppc-vec128_lib',
++          ],
++        }],
+         [ 'disable_altivec==0 and target_arch=="ppc64le"', {
+           'dependencies': [
+             'sha512-ppc_c_lib',
+@@ -614,6 +635,11 @@
+             'NSS_DISABLE_CRYPTO_VSX',
+           ],
+         }],
++        [ 'disable_altivec==0 and target_arch=="ppc64"', {
++          'dependencies': [
++            'chacha20-ppc-vec128_lib',
++          ],
++        }],
+         [ 'OS!="linux"', {
+           'conditions': [
+             [ 'moz_fold_libs==0', {
+diff --git a/security/nss/lib/freebl/ppc-crypto.h b/security/nss/lib/freebl/ppc-crypto.h
+index 14fb31d..56cdd76 100644
+--- a/security/nss/lib/freebl/ppc-crypto.h
++++ b/security/nss/lib/freebl/ppc-crypto.h
+@@ -39,6 +39,16 @@
+ #define USE_PPC_CRYPTO_GHASH
+ #endif
+ 
++/* The hand-written VSX ChaCha20 in chacha20-ppc64le.S is little-endian only.
++ * Everywhere else on PowerPC use HACL*'s vec128 ChaCha20, which compiles to
++ * VSX where the target baseline has it and to plain AltiVec on a pre-VSX CPU
++ * such as the PPC970. __LITTLE_ENDIAN__ rather than IS_LITTLE_ENDIAN so the
++ * test does not depend on this header's include order. */
++#if !(defined(__VSX__) && defined(__LITTLE_ENDIAN__)) && \
++    !(defined(__VSX__) && defined(NSS_DISABLE_CRYPTO_VSX))
++#define USE_PPC_CHACHA20_VEC128
++#endif
++
+ #endif /* defined(__powerpc64__) && !defined(NSS_DISABLE_ALTIVEC) && defined(__ALTIVEC__) */
+ 
+ #endif
+diff --git a/security/nss/lib/freebl/verified/libintvector.h b/security/nss/lib/freebl/verified/libintvector.h
+index 99d1133..d42c5a5 100644
+--- a/security/nss/lib/freebl/verified/libintvector.h
++++ b/security/nss/lib/freebl/verified/libintvector.h
+@@ -795,6 +795,103 @@ vector128 Lib_IntVector_Intrinsics_vec128_xor(vector128 x0, vector128 x1) {
+ 
+ #endif /* HACL_CAN_COMPILE_VEC128 */
+ 
++#elif defined(__powerpc64__) && defined(__ALTIVEC__) && !defined(__VSX__)
++// PowerPC 64 with AltiVec but no VSX (PPC970, i.e. PowerMac G4/G5), GCC only.
++// Only the subset ChaCha20 uses is provided: the 970 has no 64-bit vector
++// element type and no vec_xl/vec_xst, and it is big-endian.
++
++#if defined(HACL_CAN_COMPILE_VEC128)
++
++#include <altivec.h>
++#include <string.h> // for memcpy
++#include <stdint.h>
++
++typedef vector unsigned char vector128_8;
++typedef vector unsigned int vector128_32;
++
++typedef vector128_8 Lib_IntVector_Intrinsics_vec128;
++typedef vector128_8 vector128;
++
++// vec_xl/vec_xst need VSX, so unaligned accesses go the classic AltiVec way:
++// two aligned loads combined with the shift vector for the misalignment.
++static inline vector128
++Lib_IntVector_Intrinsics_vmx_loadu(const void *p)
++{
++    const unsigned char *q = (const unsigned char *)p;
++    vector128 lo = vec_ld(0, q);
++    vector128 hi = vec_ld(15, q);
++    return vec_perm(lo, hi, vec_lvsl(0, q));
++}
++
++static inline void
++Lib_IntVector_Intrinsics_vmx_storeu(void *p, vector128 v)
++{
++    __attribute__((aligned(16))) unsigned char t[16];
++    vec_st(v, 0, t);
++    memcpy(p, t, 16);
++}
++
++#ifdef __LITTLE_ENDIAN__
++#define Lib_IntVector_Intrinsics_vmx_bswap32(v) (v)
++#else
++// Reverse the bytes of each 32-bit word: the data is little-endian, the CPU is not.
++#define Lib_IntVector_Intrinsics_vmx_bswap32(v)                       \
++    (vec_perm((vector128)(v), (vector128)(v),                         \
++              (vector128_8){ 3, 2, 1, 0, 7, 6, 5, 4,                  \
++                             11, 10, 9, 8, 15, 14, 13, 12 }))
++#endif
++
++#define Lib_IntVector_Intrinsics_vec128_load32_le(x) \
++    (Lib_IntVector_Intrinsics_vmx_bswap32(Lib_IntVector_Intrinsics_vmx_loadu(x)))
++
++#define Lib_IntVector_Intrinsics_vec128_store32_le(x0, x1)   \
++    (Lib_IntVector_Intrinsics_vmx_storeu((x0),               \
++                                         Lib_IntVector_Intrinsics_vmx_bswap32(x1)))
++
++#define Lib_IntVector_Intrinsics_vec128_add32(x0, x1) \
++    ((vector128)((vector128_32)(x0) + (vector128_32)(x1)))
++
++#define Lib_IntVector_Intrinsics_vec128_xor(x0, x1) \
++    ((vector128)(vec_xor((vector128)(x0), (vector128)(x1))))
++
++#define Lib_IntVector_Intrinsics_vec128_rotate_left32(x0, x1)                       \
++    ((vector128)(vec_rl((vector128_32)(x0),                                         \
++                        (vector128_32){ (unsigned int)(x1), (unsigned int)(x1),     \
++                                        (unsigned int)(x1), (unsigned int)(x1) })))
++
++#define Lib_IntVector_Intrinsics_vec128_rotate_right32(x0, x1) \
++    (Lib_IntVector_Intrinsics_vec128_rotate_left32(x0, (uint32_t)(32 - (x1))))
++
++#define Lib_IntVector_Intrinsics_vec128_interleave_low32(x0, x1) \
++    ((vector128)(vec_mergeh((vector128_32)(x0), (vector128_32)(x1))))
++
++#define Lib_IntVector_Intrinsics_vec128_interleave_high32(x0, x1) \
++    ((vector128)(vec_mergel((vector128_32)(x0), (vector128_32)(x1))))
++
++// No 64-bit vector element type here, so the 64-bit merges are byte permutes.
++#define Lib_IntVector_Intrinsics_vec128_interleave_low64(x0, x1) \
++    (vec_perm((vector128)(x0), (vector128)(x1),                  \
++              (vector128_8){ 0, 1, 2, 3, 4, 5, 6, 7,             \
++                             16, 17, 18, 19, 20, 21, 22, 23 }))
++
++#define Lib_IntVector_Intrinsics_vec128_interleave_high64(x0, x1) \
++    (vec_perm((vector128)(x0), (vector128)(x1),                   \
++              (vector128_8){ 8, 9, 10, 11, 12, 13, 14, 15,        \
++                             24, 25, 26, 27, 28, 29, 30, 31 }))
++
++#define Lib_IntVector_Intrinsics_vec128_load32(x)                          \
++    ((vector128)((vector128_32){ (unsigned int)(x), (unsigned int)(x),     \
++                                 (unsigned int)(x), (unsigned int)(x) }))
++
++#define Lib_IntVector_Intrinsics_vec128_load32s(x0, x1, x2, x3)             \
++    ((vector128)((vector128_32){ (unsigned int)(x0), (unsigned int)(x1),    \
++                                 (unsigned int)(x2), (unsigned int)(x3) }))
++
++#define Lib_IntVector_Intrinsics_vec128_zero \
++    ((vector128)((vector128_32){ 0, 0, 0, 0 }))
++
++#endif /* HACL_CAN_COMPILE_VEC128 */
++
+ #elif defined(__powerpc64__) // PowerPC 64 - this flag is for GCC only
+ 
+ #if defined(HACL_CAN_COMPILE_VEC128)
+@@ -814,17 +911,37 @@ typedef vector unsigned long long vector128_64;
+ typedef vector128_8 Lib_IntVector_Intrinsics_vec128;
+ typedef vector128_8 vector128;
+ 
+-#define Lib_IntVector_Intrinsics_vec128_load32_le(x) \
+-  ((vector128)((vector128_32)(vec_xl(0, (const unsigned int*) ((const uint8_t*)(x))))))
++#ifdef __LITTLE_ENDIAN__
++#define Lib_IntVector_Intrinsics_ppc_bswap32(v) (v)
++#define Lib_IntVector_Intrinsics_ppc_bswap64(v) (v)
++#else
++// vec_xl and vec_xst keep the CPU's byte order, but these loads and stores are
++// defined as little-endian, so reverse the bytes within each element.
++#define Lib_IntVector_Intrinsics_ppc_bswap32(v)                       \
++    (vec_perm((vector128)(v), (vector128)(v),                         \
++              (vector128_8){ 3, 2, 1, 0, 7, 6, 5, 4,                  \
++                             11, 10, 9, 8, 15, 14, 13, 12 }))
++#define Lib_IntVector_Intrinsics_ppc_bswap64(v)                       \
++    (vec_perm((vector128)(v), (vector128)(v),                         \
++              (vector128_8){ 7, 6, 5, 4, 3, 2, 1, 0,                  \
++                             15, 14, 13, 12, 11, 10, 9, 8 }))
++#endif
+ 
+-#define Lib_IntVector_Intrinsics_vec128_load64_le(x) \
+-  ((vector128)((vector128_64)(vec_xl(0, (const unsigned long long*) ((const uint8_t*)(x))))))
++#define Lib_IntVector_Intrinsics_vec128_load32_le(x)                 \
++    (Lib_IntVector_Intrinsics_ppc_bswap32(                           \
++        (vector128)((vector128_32)(vec_xl(0, (const unsigned int*)((const uint8_t*)(x)))))))
+ 
+-#define Lib_IntVector_Intrinsics_vec128_store32_le(x0, x1) \
+-  (vec_xst((vector128_32)(x1), 0, (unsigned int*) ((uint8_t*)(x0))))
++#define Lib_IntVector_Intrinsics_vec128_load64_le(x)                 \
++    (Lib_IntVector_Intrinsics_ppc_bswap64(                           \
++        (vector128)((vector128_64)(vec_xl(0, (const unsigned long long*)((const uint8_t*)(x)))))))
+ 
+-#define Lib_IntVector_Intrinsics_vec128_store64_le(x0, x1) \
+-  (vec_xst((vector128_64)(x1), 0, (unsigned long long*) ((uint8_t*)(x0))))
++#define Lib_IntVector_Intrinsics_vec128_store32_le(x0, x1)                      \
++    (vec_xst((vector128_32)Lib_IntVector_Intrinsics_ppc_bswap32(x1), 0,         \
++             (unsigned int*)((uint8_t*)(x0))))
++
++#define Lib_IntVector_Intrinsics_vec128_store64_le(x0, x1)                      \
++    (vec_xst((vector128_64)Lib_IntVector_Intrinsics_ppc_bswap64(x1), 0,         \
++             (unsigned long long*)((uint8_t*)(x0))))
+ 
+ #define Lib_IntVector_Intrinsics_vec128_add32(x0,x1)            \
+   ((vector128)((vector128_32)(((vector128_32)(x0)) + ((vector128_32)(x1)))))

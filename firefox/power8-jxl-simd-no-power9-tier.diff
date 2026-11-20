@@ -1,0 +1,19 @@
+--- a/third_party/rust/jxl_simd/src/powerpc64/mod.rs	2026-11-20 12:25:52.419939118 -0600
++++ b/third_party/rust/jxl_simd/src/powerpc64/mod.rs	2026-11-20 12:25:52.432917492 -0600
+@@ -48,12 +48,10 @@
+ #[macro_export]
+ macro_rules! simd_function_body_vsx {
+     ($name:ident($($arg:ident: $ty:ty),* $(,)?) $(-> $ret:ty )?; ($($val:expr),* $(,)?)) => {
+-        if let Some(d) = $crate::VsxDescriptor::<$crate::Power9>::new() {
+-            return d.call(
+-                #[inline(always)]
+-                |d| $name(d, $($val),*),
+-            );
+-        }
++        // Omarchy baseline pool (POWER8, ISA 2.07): no POWER9 tier. The arm that
++        // dispatched to VsxDescriptor<Power9> is removed rather than left behind a
++        // false runtime check, so no ISA 3.0 instance of any kernel is generated.
++        // The POWER9 pool keeps it.
+         if let Some(d) = $crate::VsxDescriptor::<$crate::Power8>::new() {
+             return $name(d, $($val),*);
+         }

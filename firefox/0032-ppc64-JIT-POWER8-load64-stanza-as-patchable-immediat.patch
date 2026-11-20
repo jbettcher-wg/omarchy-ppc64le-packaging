@@ -1,3 +1,4 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jordan Bettcher <thebettcher@gmail.com>
 Date: Sun, 04 Oct 2026 17:30:00 -0700
 Subject: [PATCH] ppc64 JIT: POWER8 load64 stanza as patchable immediates
@@ -34,11 +35,19 @@ jit-test suite: PASSED ALL. Octane 2.0 in the JS shell on POWER8:
 8993 -> 10407 (EarleyBoyer +53%, Box2D +39%, Richards +36%, RayTrace
 +29%, zlib +27%, DeltaBlue +26%, Typescript +15%), no test regressed.
 
+Rebased onto Firefox 160.0.1 and runlevel5's 160 series (FIREFOX_160_0_1
+_RELEASE + 30 commits, ppc64 branch head 108dab0153a3): applied cleanly.
 ---
-diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
---- a/js/src/jit/ppc64/Assembler-ppc64.cpp	2026-10-04 15:52:16.505159830 -0700
-+++ b/js/src/jit/ppc64/Assembler-ppc64.cpp	2026-10-04 16:01:57.682000000 -0700
-@@ -2221,6 +2221,7 @@
+ js/src/jit/ppc64/Assembler-ppc64.cpp      | 176 ++++++++++++++++------
+ js/src/jit/ppc64/MacroAssembler-ppc64.cpp |  18 ++-
+ js/src/jit/ppc64/MacroAssembler-ppc64.h   |  13 +-
+ 3 files changed, 150 insertions(+), 57 deletions(-)
+
+diff --git a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
+index a181644..6d3e852 100644
+--- a/js/src/jit/ppc64/Assembler-ppc64.cpp
++++ b/js/src/jit/ppc64/Assembler-ppc64.cpp
+@@ -2344,6 +2344,7 @@ BufferOffset Assembler::x_srdi(Register rd, Register rs, int n) {
  // Forward-declared shape helpers; full definitions and the layout
  // commentary live with the WriteLoad64Instructions section below.
  static bool IsAddpcisLoad64Stanza(uint32_t enc0);
@@ -46,7 +55,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  static uint8_t Load64StanzaDestReg(Instruction* inst0);
  static uint64_t* PoolEntryFromGPR64Load(Instruction* inst0);
  
-@@ -2237,12 +2238,12 @@
+@@ -2360,12 +2361,12 @@ void Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target) {
    intptr_t offset = target - branch;
    Instruction* i0 = (Instruction*)inst;
  
@@ -64,7 +73,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
      addLongJump(BufferOffset(branch), BufferOffset(target));
      return;
    }
-@@ -2430,14 +2431,9 @@
+@@ -2553,14 +2554,9 @@ void Assembler::processCodeLabels(uint8_t* rawCode) {
  }
  
  // ========================================================================
@@ -82,7 +91,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  // ========================================================================
  
  // ========================================================================
-@@ -2770,18 +2766,15 @@
+@@ -2893,18 +2889,15 @@ void Assembler::PatchShortRangeBranchToVeneer(PPCBuffer*, unsigned rangeIdx,
    MOZ_CRASH("PatchShortRangeBranchToVeneer: should not be called");
  }
  
@@ -109,7 +118,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  //
  //   POWER9+ (addpcis):
  //     [0] addpcis rD, 0        (rD := NIA = pc of [1])
-@@ -2790,13 +2783,73 @@
+@@ -2913,13 +2906,73 @@ void Assembler::PatchShortRangeBranchToVeneer(PPCBuffer*, unsigned rangeIdx,
  //     [3..5] NOP, NOP, NOP
  //     [6..7] .quad VALUE
  //
@@ -186,7 +195,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  // Recognize a patched PoolLoadGPR64 site — pld (possibly behind the
  // alignment nop) or addpcis r16 + ld rD, lo(r16) — and return the address of
  // its 8-byte pool entry. The addpcis pool form is distinguished from the
-@@ -2845,8 +2898,9 @@
+@@ -2968,8 +3021,9 @@ static uint64_t* PoolEntryFromGPR64Load(Instruction* inst0) {
  // Extract the destination register from a load64 stanza in either shape.
  // P8 stores rD in `mflr rD` at slot [2]; P9+ stores rD in `addpcis rD, 0`
  // at slot [0]. Both encode RT at LE bits [21..25].
@@ -197,7 +206,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
      return (inst0[0].encode() >> 21) & 0x1f;
    }
    return (inst0[2].encode() >> 21) & 0x1f;
-@@ -2863,7 +2917,33 @@
+@@ -2986,7 +3040,33 @@ void Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg,
    Instruction* i6 = i5->next();
    Instruction* i7 = i6->next();
  
@@ -232,7 +241,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
      // [0] addpcis rD, 0   (DX-form: opcode=19, XO=2, all D fields = 0)
      inst0->setData(0x4C000004u | (uint32_t(reg.code()) << 21));
      // [1] ld rD, 20(rD)   (rD := *(slot[1] + 20) = *(slot[6]) = .quad)
-@@ -2875,19 +2955,6 @@
+@@ -2998,19 +3078,6 @@ void Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg,
      i3->setData(NopInst);
      i4->setData(NopInst);
      i5->setData(NopInst);
@@ -252,7 +261,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
    }
  
    // [6..7] .quad VALUE. The trailing `ld` is a native 64-bit load, so the two
-@@ -2909,7 +2976,13 @@
+@@ -3032,7 +3099,13 @@ uint64_t Assembler::ExtractLoad64Value(Instruction* inst0) {
      memcpy(&v, entry, sizeof(v));
      return v;
    }
@@ -267,7 +276,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
    Instruction* i6 = inst0 + 6;
    Instruction* i7 = inst0 + 7;
  
-@@ -2930,6 +3003,13 @@
+@@ -3053,6 +3126,13 @@ void Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value) {
      memcpy(entry, &value, sizeof(value));
      return;
    }
@@ -281,7 +290,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
    // Sanity-check that inst0 is the start of a load64 stanza in either shape.
    // P8: inst0[1] == bcl 20,0,.+4. P9+: inst0[0] is addpcis (major opcode 19).
    MOZ_ASSERT(inst0[1].encode() == PPC_bcl_always_plus4 ||
-@@ -3011,10 +3091,12 @@
+@@ -3134,10 +3214,12 @@ void Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled) {
    Instruction* i8 = (Instruction*)(inst_.raw() + 8 * sizeof(uint32_t));
    Instruction* i9 = (Instruction*)(inst_.raw() + 9 * sizeof(uint32_t));
  
@@ -298,10 +307,11 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  
    // ToggleCall is idempotent across the same `enabled` value: re-enabling
    // an already-enabled site (or re-disabling a disabled one) is a no-op.
-diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
---- a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp	2026-10-04 15:52:16.505393408 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp	2026-10-04 15:58:55.518000000 -0700
-@@ -848,6 +848,14 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
+index 8b160ea..9eb0224 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
+@@ -785,6 +785,14 @@ void MacroAssembler::patchNearAddressMove(CodeLocationLabel loc,
                                            CodeLocationLabel target) {
    Instruction* inst = (Instruction*)loc.raw();
    UpdateLoad64Value(inst, (uint64_t)target.raw());
@@ -316,7 +326,7 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembl
  }
  
  // Return address operations (link register architectures).
-@@ -1184,12 +1192,14 @@
+@@ -1248,12 +1256,14 @@ void MacroAssembler::patchCall(uint32_t callerOffset, uint32_t calleeOffset) {
  void MacroAssembler::patchFarJump(CodeOffset farJump, uint32_t targetOffset) {
    Instruction* inst =
        (Instruction*)m_buffer.getInst(BufferOffset(farJump.offset()));
@@ -335,10 +345,11 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembl
                           ? ((i0 >> 21) & 0x1f)
                           : ((inst[2].encode() >> 21) & 0x1f);
    Register reg = Register::FromCode(regCode);
-diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler-ppc64.h
---- a/js/src/jit/ppc64/MacroAssembler-ppc64.h	2026-10-04 15:52:16.505454996 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64.h	2026-10-04 15:58:55.520000000 -0700
-@@ -32,12 +32,13 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler-ppc64.h
+index d3510c6..4ba731d 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64.h
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64.h
+@@ -58,12 +58,13 @@ inline bool is_uintN(uint64_t x, unsigned n) {
  //
  // kNoPoolLoad64StanzaInsns (8): emitLoad64Stanza body — 8 NOPs that
  //   WriteLoad64Instructions later overwrites in place. Two shapes share

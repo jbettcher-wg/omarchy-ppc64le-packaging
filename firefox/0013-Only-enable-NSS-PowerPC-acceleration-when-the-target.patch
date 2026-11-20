@@ -1,0 +1,254 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 6 Oct 2026 13:41:54 +1100
+Subject: [PATCH 13/34] Only enable NSS PowerPC acceleration when the target
+ baseline has it
+
+freebl's build adds -mcrypto -mvsx to five translation units whenever the
+target is PowerPC, unless NSS_DISABLE_CRYPTO_VSX is set, on the assumption
+that a PowerPC build targets POWER8 or later. Three of those units --
+sha512.c, gcm.c and rijndael.c -- are always executed and are not behind a
+runtime capability check, so the flag does not merely enable a hand-written
+vector path: it lets the compiler use those instructions anywhere in the
+file. A big-endian build of sha512.c ends up with VSX in SHA256_Update_Generic
+and the SHA begin/end routines even though freebl's own vector path is
+little-endian only and compiles to nothing there. On a pre-VSX CPU such as
+POWER4, POWER5 or a PowerMac G5 that aborts on the first hash.
+
+Use the PPC_TARGET_HAS_ALTIVEC and PPC_TARGET_HAS_VSX baseline probes to
+disable freebl's altivec and crypto-vsx paths when the target does not have
+them. The probes use the build's own CFLAGS, because that is what decides the
+baseline: the
+bare compiler default says nothing about a build configured with, say,
+-mcpu=970, and on a toolchain defaulting to POWER8 it would wrongly report
+VSX as present.
+
+This trades acceleration for correctness on old baselines. A build that
+targets POWER8 or later is unaffected and keeps the existing paths.
+
+Three places want more than VSX. vpmsumd in ghash-ppc.c and vcipher in
+ppc-gcm.S are ISA 2.07, and sha512.c's vector path is built on
+__builtin_crypto_vshasigmaw, yet all three were enabled by the VSX answer,
+and sha512-p8.s was pulled in on nothing but ppc_abi==2, a question about the
+calling convention that cannot answer one about instructions. Nothing crashes
+today only by luck: POWER5 is excluded for want of AltiVec and a PowerMac G5
+escapes the assembly by being ELFv1, but a POWER7, or a 970 built as ELFv2,
+would get POWER8 instructions in a translation unit that always runs. So
+carry PPC_TARGET_HAS_CRYPTO to NSS as disable_vec_crypto as well, and use it
+for those. USE_PPC_CRYPTO wants __CRYPTO__ too, so that dropping -mcrypto
+from a pre-POWER8 build does not leave sha512.c reaching for vshasigmaw
+without it.
+---
+ security/moz.build                   | 16 ++++++++++++++++
+ security/nss/coreconf/config.gypi    |  1 +
+ security/nss/lib/freebl/freebl.gyp   | 18 ++++++++++++------
+ security/nss/lib/freebl/gcm.gyp      | 28 +++++++++++++---------------
+ security/nss/lib/freebl/ghash.gyp    |  4 ++--
+ security/nss/lib/freebl/ppc-crypto.h |  6 ++++--
+ 6 files changed, 48 insertions(+), 25 deletions(-)
+
+diff --git a/security/moz.build b/security/moz.build
+index 78cd2fe..68152c1 100644
+--- a/security/moz.build
++++ b/security/moz.build
+@@ -96,6 +96,22 @@ gyp_vars["enable_sslkeylogfile"] = 1
+ # Whether we're using system NSS or Rust nssckbi, we don't need
+ # to build C nssckbi
+ gyp_vars["disable_ckbi"] = 1
++
++# freebl adds -mcrypto -mvsx to several translation units whenever the target
++# is PowerPC, assuming a POWER8 baseline. Some of those units (sha512.c in
++# particular) are always executed and are not protected by a runtime check, so
++# the compiler is free to use those instructions in ordinary scalar code. That
++# aborts on a pre-VSX CPU such as POWER4/5/6 or a PowerMac G5. Only let freebl
++# use them when the target baseline really has them.
++# vpmsumd, vcipher and vshasigmaw are POWER8, a step beyond VSX, so the
++# translation units and assembly that use them need their own answer.
++if CONFIG["TARGET_CPU"].startswith("ppc"):
++    if not CONFIG["PPC_TARGET_HAS_VSX"]:
++        gyp_vars["disable_crypto_vsx"] = 1
++    if not CONFIG["PPC_TARGET_HAS_ALTIVEC"]:
++        gyp_vars["disable_altivec"] = 1
++    if not CONFIG["PPC_TARGET_HAS_CRYPTO"]:
++        gyp_vars["disable_vec_crypto"] = 1
+ # pkg-config won't reliably find zlib on our builders, so just force it.
+ # System zlib is only used for modutil and signtool unless
+ # SSL zlib is enabled, which we are disabling immediately below this.
+diff --git a/security/nss/coreconf/config.gypi b/security/nss/coreconf/config.gypi
+index f0e0df9..e5802c6 100644
+--- a/security/nss/coreconf/config.gypi
++++ b/security/nss/coreconf/config.gypi
+@@ -119,6 +119,7 @@
+     'disable_werror%': 0,
+     'disable_altivec%': 0,
+     'disable_crypto_vsx%': 0,
++    'disable_vec_crypto%': 0,
+     'disable_arm32_neon%': 0,
+     'mozilla_client%': 0,
+     'comm_client%': 0,
+diff --git a/security/nss/lib/freebl/freebl.gyp b/security/nss/lib/freebl/freebl.gyp
+index a3d707e..96b5d70 100644
+--- a/security/nss/lib/freebl/freebl.gyp
++++ b/security/nss/lib/freebl/freebl.gyp
+@@ -224,12 +224,15 @@
+         '<(DEPTH)/exports.gyp:nss_exports'
+       ],
+       'conditions': [
+-        [ 'ppc_abi==2', {
++        # sha512-p8.s and sha512.c's vector path are built out of POWER8
++        # instructions, so they need the target baseline to have them. The
++        # assembly is ELFv2-only on top of that.
++        [ 'ppc_abi==2 and disable_vec_crypto==0', {
+           'sources': [
+             'sha512-p8.s',
+           ],
+         }],
+-        [ 'disable_crypto_vsx==0', {
++        [ 'disable_vec_crypto==0', {
+           'cflags': [
+             '-mcrypto',
+             '-maltivec',
+@@ -244,7 +247,7 @@
+             '-funroll-loops',
+             '-fpeel-loops'
+            ],
+-        }, 'disable_crypto_vsx==1', {
++        }, 'disable_vec_crypto==1', {
+           'cflags': [
+             '-maltivec',
+             '-funroll-loops',
+@@ -268,12 +271,15 @@
+         '<(DEPTH)/exports.gyp:nss_exports'
+       ],
+       'conditions': [
+-        [ 'ppc_abi==2', {
++        # sha512-p8.s and sha512.c's vector path are built out of POWER8
++        # instructions, so they need the target baseline to have them. The
++        # assembly is ELFv2-only on top of that.
++        [ 'ppc_abi==2 and disable_vec_crypto==0', {
+           'sources': [
+             'sha512-p8.s',
+           ],
+         }],
+-        [ 'disable_crypto_vsx==0', {
++        [ 'disable_vec_crypto==0', {
+           'cflags': [
+             '-mcrypto',
+             '-maltivec',
+@@ -288,7 +294,7 @@
+             '-funroll-loops',
+             '-fpeel-loops'
+            ],
+-        }, 'disable_crypto_vsx==1', {
++        }, 'disable_vec_crypto==1', {
+           'cflags': [
+             '-maltivec',
+             '-funroll-loops',
+diff --git a/security/nss/lib/freebl/gcm.gyp b/security/nss/lib/freebl/gcm.gyp
+index 3aee65a..1bbb88d 100644
+--- a/security/nss/lib/freebl/gcm.gyp
++++ b/security/nss/lib/freebl/gcm.gyp
+@@ -38,11 +38,11 @@
+           'HAVE_PLATFORM_GHASH'
+         ]
+       }],
+-      # Only claim a platform GHASH when the VSX implementation is actually
+-      # compiled: ghash-ppc.c's body is gated on USE_PPC_CRYPTO_GHASH, which
+-      # needs __VSX__. Defining HAVE_PLATFORM_GHASH unconditionally makes
+-      # gcm.c drop its stubs and reference symbols that do not exist.
+-      [ '(target_arch=="ppc64" or target_arch=="ppc64le") and disable_crypto_vsx==0', {
++      # Only claim a platform GHASH when the implementation is actually
++      # compiled: ghash-ppc.c multiplies with vpmsumd, a POWER8 instruction.
++      # Defining HAVE_PLATFORM_GHASH unconditionally makes gcm.c drop its
++      # stubs and reference symbols that do not exist.
++      [ '(target_arch=="ppc64" or target_arch=="ppc64le") and disable_vec_crypto==0', {
+         'dependencies': [
+           'ghash.gyp:ghash-aes-ppc_c_lib',
+         ],
+@@ -57,7 +57,7 @@
+       # offsets, corrupting the hardware GHASH dispatch.
+       [ 'target_arch=="ppc64" or target_arch=="ppc64le"', {
+         'conditions': [
+-          [ 'disable_crypto_vsx==0', {
++          [ 'disable_vec_crypto==0', {
+             'cflags': [
+               '-mcrypto',
+               '-maltivec'
+@@ -66,7 +66,7 @@
+               '-mcrypto',
+               '-maltivec'
+             ],
+-          }, 'disable_crypto_vsx==1', {
++          }, 'disable_vec_crypto==1', {
+             'cflags': [
+               '-maltivec'
+             ],
+@@ -95,10 +95,9 @@
+             'HAVE_PLATFORM_GCM'
+           ],
+         }],
+-        # The hardware GCM assembly needs the POWER8 crypto instructions, so it
+-        # is only built when the target baseline has them; ppc_crypto_support()
+-        # still gates the use of it at run time.
+-        [ 'disable_altivec==0 and disable_crypto_vsx==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
++        # vcipher is POWER8, so this is only built when the target baseline
++        # has it; ppc_crypto_support() still gates its use at run time.
++        [ 'disable_altivec==0 and disable_vec_crypto==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
+           'dependencies': [
+             'ppc-gcm-wrap.gyp:ppc-gcm-wrap-nodepend_c_lib',
+           ],
+@@ -127,10 +126,9 @@
+             'HAVE_PLATFORM_GCM'
+           ],
+         }],
+-        # The hardware GCM assembly needs the POWER8 crypto instructions, so it
+-        # is only built when the target baseline has them; ppc_crypto_support()
+-        # still gates the use of it at run time.
+-        [ 'disable_altivec==0 and disable_crypto_vsx==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
++        # vcipher is POWER8, so this is only built when the target baseline
++        # has it; ppc_crypto_support() still gates its use at run time.
++        [ 'disable_altivec==0 and disable_vec_crypto==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
+           'dependencies': [
+             'ppc-gcm-wrap.gyp:ppc-gcm-wrap_c_lib',
+           ],
+diff --git a/security/nss/lib/freebl/ghash.gyp b/security/nss/lib/freebl/ghash.gyp
+index e7731f0..2eee44d 100644
+--- a/security/nss/lib/freebl/ghash.gyp
++++ b/security/nss/lib/freebl/ghash.gyp
+@@ -99,7 +99,7 @@
+         '<(DEPTH)/exports.gyp:nss_exports'
+       ],
+       'conditions': [
+-        [ 'disable_crypto_vsx==0', {
++        [ 'disable_vec_crypto==0', {
+           'cflags': [
+             '-mcrypto',
+             '-maltivec'
+@@ -108,7 +108,7 @@
+              '-mcrypto',
+              '-maltivec'
+            ],
+-        }, 'disable_crypto_vsx==1', {
++        }, 'disable_vec_crypto==1', {
+           'cflags': [
+             '-maltivec'
+           ],
+diff --git a/security/nss/lib/freebl/ppc-crypto.h b/security/nss/lib/freebl/ppc-crypto.h
+index 79d1241..14fb31d 100644
+--- a/security/nss/lib/freebl/ppc-crypto.h
++++ b/security/nss/lib/freebl/ppc-crypto.h
+@@ -19,10 +19,12 @@
+ /*
+  * PPC CRYPTO requires at least gcc 8 or clang. The LE check is purely
+  * because it's only been tested on LE. If you're interested in BE,
+- * please send a patch.
++ * please send a patch. sha512.c's vector path is built on
++ * __builtin_crypto_vshasigmaw, so it also needs the POWER8 crypto
++ * instructions and not merely VSX.
+  */
+ #if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 8)) && \
+-    defined(IS_LITTLE_ENDIAN) && defined(__VSX__)
++    defined(IS_LITTLE_ENDIAN) && defined(__VSX__) && defined(__CRYPTO__)
+ #define USE_PPC_CRYPTO
+ #endif
+ 

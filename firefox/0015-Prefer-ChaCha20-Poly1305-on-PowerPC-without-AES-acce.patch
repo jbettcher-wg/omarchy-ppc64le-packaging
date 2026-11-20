@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Mon, 5 Oct 2026 22:54:35 +1100
+Subject: [PATCH 15/34] Prefer ChaCha20-Poly1305 on PowerPC without AES
+ acceleration
+
+NSS offers AES-128-GCM ahead of ChaCha20-Poly1305 and never reorders the
+list on hardware capability, so a target with no AES instructions negotiates
+the cipher it is slowest at. On a PPC970 the gap is large: 44 MB/s for
+AES-128-GCM against 178 MB/s for scalar ChaCha20-Poly1305 at a 1440-byte
+record.
+
+Offer the ChaCha20 suites first when the target baseline lacks the POWER8
+crypto instructions, which is the only source of AES acceleration on this
+architecture. SSL_ImplementedCiphers and cipherSuites have to stay in the
+same order, so both move together.
+---
+ security/nss/lib/ssl/ssl3con.c  | 12 ++++++++++++
+ security/nss/lib/ssl/sslenum.c  | 12 ++++++++++++
+ security/nss/lib/ssl/sslproto.h |  7 +++++++
+ 3 files changed, 31 insertions(+)
+
+diff --git a/security/nss/lib/ssl/ssl3con.c b/security/nss/lib/ssl/ssl3con.c
+index fb35271..3d01197 100644
+--- a/security/nss/lib/ssl/ssl3con.c
++++ b/security/nss/lib/ssl/ssl3con.c
+@@ -95,14 +95,26 @@ PR_STATIC_ASSERT(PR_ARRAY_SIZE(ssl_hello_retry_random) == SSL3_RANDOM_LENGTH);
+ static ssl3CipherSuiteCfg cipherSuites[ssl_V3_SUITES_IMPLEMENTED] = {
+    /*      cipher_suite                     policy       enabled   isPresent */
+  /* Special TLS 1.3 suites. */
++#ifdef NSS_PREFER_CHACHA20_SUITES
++ { TLS_CHACHA20_POLY1305_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE },
++ { TLS_AES_128_GCM_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE },
++#else
+  { TLS_AES_128_GCM_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE },
+  { TLS_CHACHA20_POLY1305_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE },
++#endif
+  { TLS_AES_256_GCM_SHA384, SSL_ALLOWED, PR_TRUE, PR_FALSE },
+ 
++#ifdef NSS_PREFER_CHACHA20_SUITES
++ { TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE},
++ { TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,   SSL_ALLOWED, PR_TRUE, PR_FALSE},
++ { TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE},
++ { TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,   SSL_ALLOWED, PR_TRUE, PR_FALSE},
++#else
+  { TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE},
+  { TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,   SSL_ALLOWED, PR_TRUE, PR_FALSE},
+  { TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, SSL_ALLOWED, PR_TRUE, PR_FALSE},
+  { TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,   SSL_ALLOWED, PR_TRUE, PR_FALSE},
++#endif
+  { TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, SSL_ALLOWED, PR_TRUE, PR_FALSE},
+  { TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,   SSL_ALLOWED, PR_TRUE, PR_FALSE},
+  { TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,    SSL_ALLOWED, PR_TRUE, PR_FALSE},
+diff --git a/security/nss/lib/ssl/sslenum.c b/security/nss/lib/ssl/sslenum.c
+index 3754c51..c6aee23 100644
+--- a/security/nss/lib/ssl/sslenum.c
++++ b/security/nss/lib/ssl/sslenum.c
+@@ -45,14 +45,26 @@
+  *      TLS 1.3 PSK-resumption is in use, come first.
+  */
+ const PRUint16 SSL_ImplementedCiphers[] = {
++#ifdef NSS_PREFER_CHACHA20_SUITES
++    TLS_CHACHA20_POLY1305_SHA256,
++    TLS_AES_128_GCM_SHA256,
++#else
+     TLS_AES_128_GCM_SHA256,
+     TLS_CHACHA20_POLY1305_SHA256,
++#endif
+     TLS_AES_256_GCM_SHA384,
+ 
++#ifdef NSS_PREFER_CHACHA20_SUITES
++    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
++    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
++    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
++    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++#else
+     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+     TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
++#endif
+     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+     TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+     TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+diff --git a/security/nss/lib/ssl/sslproto.h b/security/nss/lib/ssl/sslproto.h
+index beaee51..d726e97 100644
+--- a/security/nss/lib/ssl/sslproto.h
++++ b/security/nss/lib/ssl/sslproto.h
+@@ -291,4 +291,11 @@
+ 
+ /* clang-format on */
+ 
++/* PowerPC without the POWER8 crypto instructions has no AES acceleration, and
++ * there ChaCha20-Poly1305 is several times faster than AES-GCM, so it is the
++ * one to offer first. Keep SSL_ImplementedCiphers and cipherSuites in step. */
++#if defined(__powerpc64__) && !defined(__CRYPTO__)
++#define NSS_PREFER_CHACHA20_SUITES 1
++#endif
++
+ #endif /* __sslproto_h_ */

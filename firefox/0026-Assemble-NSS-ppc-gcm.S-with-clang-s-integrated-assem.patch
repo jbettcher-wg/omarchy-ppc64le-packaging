@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Sat, 31 Oct 2026 07:21:49 +1100
+Subject: [PATCH 26/34] Assemble NSS ppc-gcm.S with clang's integrated
+ assembler
+
+The file names the stack and TOC pointers with ".set SP, 1" and
+".set TOCP, 2". GNU as accepts those symbols as register numbers in
+memory operands; clang's integrated assembler rejects "-8(SP)" as an
+invalid memory operand, which is why clang builds have needed the
+system NSS so far. Define the two names with the preprocessor instead,
+so both assemblers see numerals. GNU as produces identical code.
+---
+ security/nss/lib/freebl/ppc-gcm.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/security/nss/lib/freebl/ppc-gcm.S b/security/nss/lib/freebl/ppc-gcm.S
+index 8447821..523eb7e 100644
+--- a/security/nss/lib/freebl/ppc-gcm.S
++++ b/security/nss/lib/freebl/ppc-gcm.S
+@@ -4,8 +4,8 @@
+ 
+ # Registers:
+ 
+-.set SP, 1
+-.set TOCP, 2
++#define SP 1
++#define TOCP 2
+ 
+ .macro VEC_LOAD_DATA   VR, DATA, GPR
+     addis        \GPR, 2, \DATA@got@ha

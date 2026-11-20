@@ -1,3 +1,4 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jordan Bettcher <thebettcher@gmail.com>
 Date: Sun, 04 Oct 2026 18:30:00 -0700
 Subject: [PATCH] ppc64 JIT: short forward branches with veneers instead of
@@ -37,11 +38,38 @@ jit-test flag configuration. Octane 2.0 in the JS shell on POWER8, over
 the load64-immediate patch: DeltaBlue 4423 -> 6334, Richards 4144 ->
 5299, EarleyBoyer 12960 -> 15794, Crypto 4988 -> 5957.
 
+Rebased onto Firefox 160.0.1 and runlevel5's 160 series. runlevel5 still
+has no short-range branch tracking (NumShortBranchRanges = 0), so this is
+still needed; the conflicts were with 160 changes in the same places:
+ - 160 records wasm trap sites as a FaultingCodeRange captured before the
+   faulting instruction(s) and appended after. All 28 trap sites (24 in
+   conflict, 4 new in 160) use flushPoolForTrapSite() before the capture;
+   it leaves no pool and no short-range deadline within
+   ShortRangeBranchHysteresis bytes, which covers the short multi-instruction
+   ranges 160 now records.
+ - jump(Label*) returns the BufferOffset of what it emitted in 160, so the
+   unbound path is `return emitUnboundJump(label);`, and toggledJump takes
+   its offset from jump() (plus an OOM guard) instead of nextOffset().
+ - The forward bc window is enterNoPool(5, 1): 160's own budget for the
+   DoubleCondition + POWER8-Overflow prefix (3 XER moves + cror + bc).
+ - alignWith/haltingAlign keep this patch's scheme: 160 added a full
+   flushPool() to every alignment; here only haltingAlign(sizeof(void*)),
+   in front of jump tables, does the full flush.
 ---
-diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
---- a/js/src/jit/ppc64/Assembler-ppc64.cpp	2026-10-04 15:58:11.793613013 -0700
-+++ b/js/src/jit/ppc64/Assembler-ppc64.cpp	2026-10-04 16:17:15.633000000 -0700
-@@ -276,48 +276,47 @@
+ js/src/jit/ppc64/Assembler-ppc64.cpp          | 356 +++++++++++++-----
+ js/src/jit/ppc64/Assembler-ppc64.h            |  82 ++++
+ js/src/jit/ppc64/CodeGenerator-ppc64.cpp      |   7 +
+ js/src/jit/ppc64/MacroAssembler-ppc64-inl.h   |   4 +-
+ js/src/jit/ppc64/MacroAssembler-ppc64.cpp     |  78 ++--
+ js/src/jit/ppc64/MacroAssembler-ppc64.h       |  68 ++--
+ .../IonAssemblerBufferWithConstantPools.h     |  18 +
+ 7 files changed, 467 insertions(+), 146 deletions(-)
+
+diff --git a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
+index 6d3e852..2d89d05 100644
+--- a/js/src/jit/ppc64/Assembler-ppc64.cpp
++++ b/js/src/jit/ppc64/Assembler-ppc64.cpp
+@@ -276,51 +276,47 @@ void Assembler::WriteInstStatic(uint32_t x, uint32_t* dest) {
  }
  
  // Alignment.
@@ -57,6 +85,9 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 +BufferOffset Assembler::alignWith(int alignment, uint32_t fill) {
    BufferOffset ret;
    MOZ_ASSERT(m_buffer.isAligned(4));
+-  // Used in front of code-pointer tables: dump any pending pool now so it
+-  // cannot land between the alignment and the table, or inside it.
+-  m_buffer.flushPool();
 -  if (alignment == 8) {
 -    if (!m_buffer.isAligned(alignment)) {
 -      BufferOffset tmp = xs_trap();
@@ -123,7 +154,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  }
  
  // Primitive instructions.
-@@ -2355,40 +2354,186 @@
+@@ -2479,40 +2475,186 @@ void Assembler::bind(InstImm* inst, uintptr_t branch, uintptr_t target) {
      return;
    }
  
@@ -132,14 +163,25 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 -    MOZ_ASSERT(JOffImm26::IsInRange(offset));
 -    i0->setData((i0->encode() & ~0x03FFFFFC) | JOffImm26(offset).encode());
 -    i0->next()->makeNop();
+-    return;
+-  }
+-
+-  if (i0->isOpcode(PPC_bc)) {
+-    // Short conditional branch — preserve upper 16 bits, set offset.
+-    MOZ_ASSERT(BOffImm16::IsInRange(offset));
+-    i0->setData((i0->encode() & 0xFFFF0003) | BOffImm16(offset).encode());
+-    i0->next()->makeNop();
+-    return;
+-  }
+-
 +  // Short `b`/`bc` chain elements carry their link in the displacement field
 +  // (no chain word follows them) and are resolved by bindShortBranch() from
 +  // bind(Label*), which knows the following chain element. They must never
 +  // reach this function: the old "short branch + chain word" layout that
 +  // used to be handled here is no longer emitted.
-+  MOZ_CRASH("Unexpected instruction in bind");
-+}
-+
+   MOZ_CRASH("Unexpected instruction in bind");
+ }
+ 
 +// ========================================================================
 +// Label-use chains.
 +//
@@ -235,8 +277,8 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 +  BufferOffset head(label);
 +  if (setNextLink(branch, head)) {
 +    label->use(branch.getOffset());
-     return;
-   }
++    return;
++  }
 +  // The head is out of (backward) reach of the new branch. Append the new
 +  // branch at the tail instead: by the chain invariant the tail reaches the
 +  // current end of the buffer, i.e. the new branch.
@@ -250,12 +292,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 +    m_buffer.fail_oom();
 +  }
 +}
- 
--  if (i0->isOpcode(PPC_bc)) {
--    // Short conditional branch — preserve upper 16 bits, set offset.
--    MOZ_ASSERT(BOffImm16::IsInRange(offset));
--    i0->setData((i0->encode() & 0xFFFF0003) | BOffImm16(offset).encode());
--    i0->next()->makeNop();
++
 +void Assembler::bindShortBranch(BufferOffset cur, BufferOffset next,
 +                                BufferOffset target) {
 +  Instruction* inst = editSrc(cur);
@@ -288,10 +325,9 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 +    JitSpew(JitSpew_Codegen, "ppc64: bc @%d cannot reach label @%d",
 +            cur.getOffset(), target.getOffset());
 +    m_buffer.fail_oom();
-     return;
-   }
- 
--  MOZ_CRASH("Unexpected instruction in bind");
++    return;
++  }
++
 +  MOZ_ASSERT(IsShortChainB(enc));
 +  if (JOffImm26::IsInRange(offset)) {
 +    inst->setData(EncodeBDisplacement(enc, offset));
@@ -301,8 +337,8 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 +  JitSpew(JitSpew_Codegen, "ppc64: b @%d cannot reach label @%d",
 +          cur.getOffset(), target.getOffset());
 +  m_buffer.fail_oom();
- }
- 
++}
++
  void Assembler::bind(Label* label, BufferOffset boff) {
 -  if (label->used()) {
 -    bool more;
@@ -332,7 +368,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
    }
    label->bind(boff.getOffset());
  }
-@@ -2399,24 +2544,23 @@
+@@ -2523,24 +2665,23 @@ void Assembler::retarget(Label* label, Label* target) {
      if (target->bound()) {
        bind(label, BufferOffset(target));
      } else if (target->used()) {
@@ -374,7 +410,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
        target->use(label->offset());
      }
    }
-@@ -2763,11 +2907,50 @@
+@@ -2882,11 +3023,50 @@ void Assembler::WritePoolHeader(uint8_t* start, Pool* p, bool isNatural) {
  }
  
  /* static */
@@ -427,8 +463,8 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
 +          veneer.getOffset(), branch.getOffset(), deadline.getOffset());
  }
  
- // Two stanza shapes share the same 8-slot footprint and the same .quad
-@@ -3038,8 +3221,10 @@
+ // Two stanza shapes are emitted, sharing the same 8-slot footprint:
+@@ -3243,8 +3423,10 @@ void Assembler::ToggleCall(CodeLocationLabel inst_, bool enabled) {
    FlushICache(i8, 2 * sizeof(Instruction));
  }
  
@@ -441,10 +477,11 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.c
  //   b offset:       [010010][LI:24][0][0]
  //   ori r0,r0,imm:  [011000][00000][00000][UI:16]
  // For short forward jumps (offset < 64KB), bits 25:16 of LI are 0, so
-diff a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
---- a/js/src/jit/ppc64/Assembler-ppc64.h	2026-10-04 15:58:11.792994460 -0700
-+++ b/js/src/jit/ppc64/Assembler-ppc64.h	2026-10-04 16:17:15.751000000 -0700
-@@ -1106,15 +1106,28 @@
+diff --git a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
+index dfac4ed..1ce868e 100644
+--- a/js/src/jit/ppc64/Assembler-ppc64.h
++++ b/js/src/jit/ppc64/Assembler-ppc64.h
+@@ -1121,15 +1121,28 @@ class Operand {
  // NumShortBranchRanges template arg were dropped: PPC64 previously passed
  // instBufferAlign=8 (unused on this backend; pool entries are 4-byte aligned)
  // and NumShortBranchRanges=0.
@@ -473,7 +510,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
      }>;
  
  // Inherits executableCopy() and appendRawCode() from
-@@ -1296,6 +1309,45 @@
+@@ -1306,6 +1319,45 @@ class Assembler : public AssemblerShared {
                                              BufferOffset deadline,
                                              BufferOffset veneer);
  
@@ -519,7 +556,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
    static Condition InvertCondition(Condition cond);
    static DoubleCondition InvertCondition(DoubleCondition cond);
  
-@@ -1396,6 +1448,11 @@
+@@ -1409,6 +1461,11 @@ class Assembler : public AssemblerShared {
   public:
    BufferOffset haltingAlign(int alignment);
    BufferOffset nopAlign(int alignment);
@@ -531,7 +568,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
    BufferOffset as_nop();
  
    // --- Instruction emission
-@@ -2001,6 +2058,26 @@
+@@ -2017,6 +2074,26 @@ class Assembler : public AssemblerShared {
    void bind(CodeLabel* label) { label->target()->bind(currentOffset()); }
    uint32_t currentOffset() { return nextOffset().getOffset(); }
    void retarget(Label* label, Label* target);
@@ -558,7 +595,7 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
    void call(Label* label);
    void call(void* target);
  
-@@ -2039,6 +2116,11 @@
+@@ -2062,6 +2139,11 @@ class Assembler : public AssemblerShared {
  
   public:
    void flushBuffer() { m_buffer.flushPool(); }
@@ -570,10 +607,11 @@ diff a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
    void comment(const char* msg) { spew("; %s", msg); }
    static uint32_t NopSize() { return 4; }
  
-diff a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
---- a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp	2026-10-04 15:58:11.793668388 -0700
-+++ b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp	2026-10-04 16:17:16.232000000 -0700
-@@ -192,7 +192,13 @@
+diff --git a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
+index 3a4669b..3329b7a 100644
+--- a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
++++ b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
+@@ -165,7 +165,13 @@ void CodeGeneratorPPC64::generateInvalidateEpilogue() {
  void CodeGeneratorPPC64::visitOutOfLineTableSwitch(OutOfLineTableSwitch* ool) {
    MTableSwitch* mir = ool->mir();
  
@@ -587,7 +625,7 @@ diff a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator
    masm.bind(ool->jumpLabel());
    masm.addCodeLabel(*ool->jumpLabel());
  
-@@ -206,6 +212,7 @@
+@@ -179,6 +185,7 @@ void CodeGeneratorPPC64::visitOutOfLineTableSwitch(OutOfLineTableSwitch* ool) {
      cl.target()->bind(caseoffset);
      masm.addCodeLabel(cl);
    }
@@ -595,57 +633,58 @@ diff a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator
  }
  
  void CodeGeneratorPPC64::visitOutOfLineWasmTruncateCheck(
-diff a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
---- a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h	2026-10-04 15:58:11.793724974 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h	2026-10-04 16:17:16.112000000 -0700
-@@ -740,10 +740,11 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
+index fb89d0f..47fd9be 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64-inl.h
+@@ -785,9 +785,11 @@ void MacroAssembler::addFloat32(FloatRegister src, FloatRegister dest) {
  }
  
  CodeOffset MacroAssembler::sub32FromStackPtrWithPatch(Register dest) {
--  CodeOffset offset = CodeOffset(currentOffset());
--  emitLoad64Stanza(dest, 0);
 +  // Offset of the stanza itself: emitLoad64Stanza's enterNoPool may dump a
 +  // pool or veneer island first.
-+  BufferOffset bo = emitLoad64Stanza(dest, 0);
+   BufferOffset bo = emitLoad64Stanza(dest, 0);
    as_subf(dest, dest, StackPointer);
--  return offset;
+-  return CodeOffset(bo.getOffset());
 +  return CodeOffset(bo.assigned() ? bo.getOffset() : currentOffset());
  }
  
  void MacroAssembler::patchSub32FromStackPtr(CodeOffset offset, Imm32 imm) {
-diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
---- a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp	2026-10-04 15:58:11.793796072 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp	2026-10-04 16:17:15.991000000 -0700
-@@ -1013,14 +1013,16 @@
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
+index 9eb0224..92ea37a 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64.cpp
+@@ -1091,15 +1091,17 @@ CodeOffset MacroAssembler::farJumpWithPatch() {
+   UseScratchRegisterScope temps(asMasm());
    Register scratch = temps.Acquire();
  
-   // stanza(8) + mtctr + bctr = 10 instructions.
--  CodeOffset loadOffset(currentOffset());
+-  // stanza(8) + mtctr + bctr = 10 instructions. enterNoPool() may dump a
+-  // pending pool first, so the offset is taken from the stanza itself.
++  // stanza(8) + mtctr + bctr = 10 instructions.
 +  // Take the offset from the stanza itself: enterNoPool() may dump a pool
 +  // or veneer island first, which would leave a pre-captured currentOffset()
 +  // pointing at the pool guard.
    m_buffer.enterNoPool(kNoPoolPatchableBranchInsns);
--  emitLoad64Stanza(scratch, 0);
-+  BufferOffset bo = emitLoad64Stanza(scratch, 0);
+   BufferOffset bo = emitLoad64Stanza(scratch, 0);
    xs_mtctr(scratch);
    as_bctr();
    m_buffer.leaveNoPool();
  
--  return loadOffset;
+-  return CodeOffset(bo.getOffset());
 +  return CodeOffset(bo.assigned() ? bo.getOffset() : currentOffset());
  }
  
  // ===============================================================
-@@ -1029,7 +1031,7 @@
+@@ -1108,7 +1110,7 @@ void MacroAssembler::flush() { Assembler::flush(); }
  // Wasm support.
  
- FaultingCodeOffset MacroAssembler::wasmTrapInstruction() {
+ FaultingCodeRange MacroAssembler::wasmTrapInstruction() {
 -  m_buffer.flushPool();  // see comment in wasmLoadImpl
 +  flushPoolForTrapSite();  // see comment in wasmLoadImpl
-   FaultingCodeOffset fco = FaultingCodeOffset(currentOffset());
+   FaultingCodeRange fco = FaultingCodeRange(currentOffset());
    xs_trap();
    return fco;
-@@ -1055,8 +1057,13 @@
+@@ -1134,8 +1136,13 @@ void MacroAssembler::wasmCheckSlowCallsite(Register ra_, Label* notSlow,
  
  CodeOffset MacroAssembler::wasmMarkedSlowCall(const wasm::CallSiteDesc& desc,
                                                const Register reg) {
@@ -659,20 +698,18 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembl
    return offset;
  }
  
-@@ -1770,9 +1777,9 @@
+@@ -1680,8 +1687,9 @@ void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
  }
  
  CodeOffset MacroAssembler::move32WithPatch(Register dest) {
--  CodeOffset offset(currentOffset());
--  emitLoad64Stanza(dest, 0);
--  return offset;
 +  // Offset of the stanza itself (see farJumpWithPatch).
-+  BufferOffset bo = emitLoad64Stanza(dest, 0);
+   BufferOffset bo = emitLoad64Stanza(dest, 0);
+-  return CodeOffset(bo.getOffset());
 +  return CodeOffset(bo.assigned() ? bo.getOffset() : currentOffset());
  }
  
  CodeOffset MacroAssembler::sub32FromMemAndBranchIfNegativeWithPatch(
-@@ -1784,8 +1791,14 @@
+@@ -1693,8 +1701,14 @@ CodeOffset MacroAssembler::sub32FromMemAndBranchIfNegativeWithPatch(
    // Subtract a placeholder value (will be patched).
    // Use addi with positive placeholder (128), which will be patched to
    // addi with negative value. The immediate is in the addi instruction.
@@ -689,160 +726,196 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembl
    store32(scratch, address);
    // Branch if result is negative (signed).
    as_cmpwi(scratch, 0);
-@@ -2331,7 +2344,7 @@
+@@ -2358,7 +2372,7 @@ static FaultingCodeRange CompareExchange(MacroAssembler& masm,
      masm.bind(&again);
  
      if (access) {
 -      masm.flushBuffer();  // see comment in wasmLoadImpl
 +      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-       masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                   FaultingCodeOffset(masm.currentOffset()));
      }
-@@ -2378,7 +2391,7 @@
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(output, r0, scratch);
+@@ -2418,7 +2432,7 @@ static FaultingCodeRange CompareExchange(MacroAssembler& masm,
+     masm.bind(&again);
+ 
+     if (access) {
+-      masm.flushBuffer();  // see comment in wasmLoadImpl
++      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
+     }
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(output, r0, scratch);
+@@ -2470,7 +2484,7 @@ static FaultingCodeRange CompareExchange(MacroAssembler& masm,
    masm.bind(&again);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -2477,7 +2490,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   switch (nbytes) {
+@@ -2571,7 +2585,7 @@ static FaultingCodeRange CompareExchange64(MacroAssembler& masm,
    masm.bind(&tryAgain);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -2558,7 +2571,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   masm.as_ldarx(output.reg, r0, scratch);
+@@ -2654,7 +2668,7 @@ static FaultingCodeRange AtomicExchange(MacroAssembler& masm,
      masm.bind(&again);
  
      if (access) {
 -      masm.flushBuffer();  // see comment in wasmLoadImpl
 +      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-       masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                   FaultingCodeOffset(masm.currentOffset()));
      }
-@@ -2593,7 +2606,7 @@
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(output, r0, memTemp);
+@@ -2694,7 +2708,7 @@ static FaultingCodeRange AtomicExchange(MacroAssembler& masm,
+     masm.bind(&again);
+ 
+     if (access) {
+-      masm.flushBuffer();  // see comment in wasmLoadImpl
++      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
+     }
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(output, r0, memTemp);
+@@ -2737,7 +2751,7 @@ static FaultingCodeRange AtomicExchange(MacroAssembler& masm,
    masm.bind(&again);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -2669,7 +2682,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   if (nbytes == 1) {
+@@ -2815,7 +2829,7 @@ static FaultingCodeRange AtomicExchange64(MacroAssembler& masm,
    masm.bind(&tryAgain);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -2726,7 +2739,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   masm.as_ldarx(output.reg, r0, scratch);
+@@ -2874,7 +2888,7 @@ static FaultingCodeRange AtomicFetchOp(MacroAssembler& masm,
      masm.bind(&again);
  
      if (access) {
 -      masm.flushBuffer();  // see comment in wasmLoadImpl
 +      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-       masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                   FaultingCodeOffset(masm.currentOffset()));
      }
-@@ -2800,7 +2813,7 @@
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(output, r0, memTemp);
+@@ -2947,7 +2961,7 @@ static FaultingCodeRange AtomicFetchOp(MacroAssembler& masm,
+     masm.bind(&again);
+ 
+     if (access) {
+-      masm.flushBuffer();  // see comment in wasmLoadImpl
++      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
+     }
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(output, r0, memTemp);
+@@ -3025,7 +3039,7 @@ static FaultingCodeRange AtomicFetchOp(MacroAssembler& masm,
    masm.bind(&again);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -2890,7 +2903,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   if (nbytes == 1) {
+@@ -3117,7 +3131,7 @@ static FaultingCodeRange AtomicFetchOp64(MacroAssembler& masm,
    masm.bind(&tryAgain);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -2974,7 +2987,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   masm.as_ldarx(output.reg, r0, scratch);
+@@ -3203,7 +3217,7 @@ static void AtomicEffectOp(MacroAssembler& masm,
      masm.bind(&again);
  
      if (access) {
 -      masm.flushBuffer();  // see comment in wasmLoadImpl
 +      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-       masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                   FaultingCodeOffset(masm.currentOffset()));
      }
-@@ -3038,7 +3051,7 @@
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(scratch2, r0, scratch);
+@@ -3264,7 +3278,7 @@ static void AtomicEffectOp(MacroAssembler& masm,
+     masm.bind(&again);
+ 
+     if (access) {
+-      masm.flushBuffer();  // see comment in wasmLoadImpl
++      masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
+     }
+     FaultingCodeRange fcr(masm.currentOffset());
+     masm.as_lwarx(scratch2, r0, scratch);
+@@ -3325,7 +3339,7 @@ static void AtomicEffectOp(MacroAssembler& masm,
    masm.bind(&again);
  
    if (access) {
 -    masm.flushBuffer();  // see comment in wasmLoadImpl
 +    masm.flushPoolForTrapSite();  // see comment in wasmLoadImpl
-     masm.append(*access, wasm::TrapMachineInsn::Atomic,
-                 FaultingCodeOffset(masm.currentOffset()));
    }
-@@ -3577,7 +3590,7 @@
+   FaultingCodeRange fcr(masm.currentOffset());
+   if (nbytes == 1) {
+@@ -3770,7 +3784,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmProbeLastByte(
    as_addi(probeAddr, ptr, int16_t(size - 1));
    // Record the probe as a wasm trap site so its SIGSEGV dispatches
    // through the wasm signal handler the same way the real access would.
 -  m_buffer.flushPool();
 +  flushPoolForTrapSite();
-   append(access, wasm::TrapMachineInsn::Load8,
-          FaultingCodeOffset(currentOffset()));
+   FaultingCodeRange fcr(currentOffset());
    // Probing 1-byte load; result discarded.
-@@ -3625,7 +3638,7 @@
+   as_lbzx(probeAddr, memoryBase, probeAddr);
+@@ -3817,7 +3831,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmLoadImpl(
    // otherwise a pool body inserted between the recorded offset and the
    // emitted load shifts the load and leaves the pool guard branch at the
    // recorded offset (SummarizeTrapInstruction then rejects the trap site).
 -  m_buffer.flushPool();
 +  flushPoolForTrapSite();
-   append(access, wasm::TrapMachineInsnForLoad(Scalar::byteSize(access.type())),
-          FaultingCodeOffset(currentOffset()));
+   FaultingCodeRange fcr(currentOffset());
  
-@@ -3831,7 +3844,7 @@
-   }
+   switch (access.type()) {
+@@ -4046,7 +4060,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmStoreImpl(
  #endif
+   FaultingCodeRange fcr;
    if (!deferTrapSite) {
 -    m_buffer.flushPool();
 +    flushPoolForTrapSite();
-     append(access,
-            wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
-            FaultingCodeOffset(currentOffset()));
-@@ -3874,7 +3887,7 @@
+     fcr = FaultingCodeRange(currentOffset());
+   }
+ 
+@@ -4093,7 +4107,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmStoreImpl(
        UseScratchRegisterScope temps(asMasm());
        Register tmp = temps.Acquire();
-       as_mfvsrd(tmp, value.fpu());
+       ma_mffprd(tmp, value.fpu());
 -      m_buffer.flushPool();
 +      flushPoolForTrapSite();
-       append(access, wasm::TrapMachineInsnForStore(8),
-              FaultingCodeOffset(currentOffset()));
-       as_stdbrx(tmp, memoryBase, ptr);
-@@ -3891,7 +3904,7 @@
+       fcr = FaultingCodeRange(currentOffset());
+       if (HasVSX()) {
+         as_stdbrx(tmp, memoryBase, ptr);
+@@ -4113,7 +4127,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmStoreImpl(
        UseScratchRegisterScope temps(asMasm());
        Register tmp = temps.Acquire();
        asMasm().moveFloat32ToGPR(value.fpu(), tmp);
 -      m_buffer.flushPool();
 +      flushPoolForTrapSite();
-       append(access, wasm::TrapMachineInsnForStore(4),
-              FaultingCodeOffset(currentOffset()));
+       fcr = FaultingCodeRange(currentOffset());
        as_stwbrx(tmp, memoryBase, ptr);
-@@ -3906,7 +3919,7 @@
+     }
+@@ -4127,7 +4141,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmStoreImpl(
          // wasm v128 memory is little-endian: byte-reverse (xxbrq) into a
          // scratch, then store. Record the trap site at the faulting stxvx.
          as_xxbrq(ScratchSimd128Reg, value.fpu());
 -        m_buffer.flushPool();
 +        flushPoolForTrapSite();
-         append(access,
-                wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
-                FaultingCodeOffset(currentOffset()));
-@@ -3918,13 +3931,13 @@
+         fcr = FaultingCodeRange(currentOffset());
+         as_stxvx(ScratchSimd128Reg, memoryBase, ptr);
+ #else
+@@ -4137,13 +4151,13 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmStoreImpl(
  #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
          // Byte-reverse the canonical value into the scratch and store it
          // raw (stxvd2x is an identity store on big-endian). The reversal's
@@ -855,31 +928,32 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.cpp b/js/src/jit/ppc64/MacroAssembl
  #endif
 -        m_buffer.flushPool();  // see comment in wasmLoadImpl
 +        flushPoolForTrapSite();  // see comment in wasmLoadImpl
-         append(access,
-                wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
-                FaultingCodeOffset(currentOffset()));
-@@ -3952,7 +3965,7 @@
-   wasmProbeLastByte(access, memoryBase, ptr);
+         fcr = FaultingCodeRange(currentOffset());
+         as_stxvd2x(ScratchSimd128Reg, memoryBase, ptr);
+       }
+@@ -4177,7 +4191,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmLoadI64Impl(
+   FaultingCodeRange probe = wasmProbeLastByte(access, memoryBase, ptr);
  
    asMasm().memoryBarrierBefore(access.sync());
 -  m_buffer.flushPool();  // see comment in wasmLoadImpl
 +  flushPoolForTrapSite();  // see comment in wasmLoadImpl
-   append(access, wasm::TrapMachineInsnForLoad(Scalar::byteSize(access.type())),
-          FaultingCodeOffset(currentOffset()));
+   FaultingCodeRange fcr(currentOffset());
  
-@@ -4023,7 +4036,7 @@
-   wasmProbeLastByte(access, memoryBase, ptr);
+   switch (access.type()) {
+@@ -4259,7 +4273,7 @@ FaultingCodeRange MacroAssemblerPPC64Compat::wasmStoreI64Impl(
+   FaultingCodeRange probe = wasmProbeLastByte(access, memoryBase, ptr);
  
    asMasm().memoryBarrierBefore(access.sync());
 -  m_buffer.flushPool();  // see comment in wasmLoadImpl
 +  flushPoolForTrapSite();  // see comment in wasmLoadImpl
-   append(access, wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
-          FaultingCodeOffset(currentOffset()));
+   FaultingCodeRange fcr(currentOffset());
  
-diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler-ppc64.h
---- a/js/src/jit/ppc64/MacroAssembler-ppc64.h	2026-10-04 15:58:11.793862908 -0700
-+++ b/js/src/jit/ppc64/MacroAssembler-ppc64.h	2026-10-04 16:17:15.870000000 -0700
-@@ -44,10 +44,12 @@
+   switch (access.type()) {
+diff --git a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler-ppc64.h
+index 4ba731d..7a0de4e 100644
+--- a/js/src/jit/ppc64/MacroAssembler-ppc64.h
++++ b/js/src/jit/ppc64/MacroAssembler-ppc64.h
+@@ -71,10 +71,12 @@ inline bool is_uintN(uint64_t x, unsigned n) {
  //   same budget:
  //     - load64 stanza (8) + mtctr + bctr[l]  = 10  (bound call/jump)
  //     - 9 NOPs + bl                          = 10  (short bound call)
@@ -895,27 +969,18 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler
  //   mfxer+rlwinm+mtcrf (3 insns) on top of the base shape. Budget =
  //   3 (XER inspection) + 1 (bc) + 8 (load64 stanza) + 2 (mtctr+bctr) = 14.
  static constexpr size_t kNoPoolLoad64StanzaInsns = 8;
-@@ -623,22 +625,18 @@
+@@ -822,13 +824,17 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
        addLongJump(bo, BufferOffset(label->offset()));
-       return;
+       return bo;
      }
 -    // Unbound label: emit trap-tagged stanza (10 slots).
 -    m_buffer.enterNoPool(kNoPoolPatchableBranchInsns);
--    BufferOffset bo = xs_trap_tagged(BTag);
--    writeInst(label->used() ? label->offset() : LabelBase::INVALID_OFFSET);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
+-    BufferOffset bo = emitTaggedStanza(BTag, label);
 -    m_buffer.leaveNoPool();
 -    if (!oom()) {
 -      label->use(bo.getOffset());
 -    }
-+    emitUnboundJump(label);
++    return emitUnboundJump(label);
 +  }
 +
 +  // Forward jump to an unbound label: a single `b` (+/-32 MiB) whose LI field
@@ -926,11 +991,10 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler
 +    MOZ_ASSERT(!label->bound());
 +    BufferOffset bo = as_b(0);
 +    linkShortBranchUse(bo, label);
-+    return bo;
+     return bo;
    }
    void jump(Register reg) {
-     xs_mtctr(reg);
-@@ -707,25 +705,22 @@
+@@ -897,16 +903,23 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
        addLongJump(boLoad, BufferOffset(label->offset()));
        return;
      }
@@ -939,16 +1003,7 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler
 -    // P8 Overflow: mfxer+rlwinm+mtcrf+bc+trap+chain+8NOPs = 14 max.
 -    m_buffer.enterNoPool(kNoPoolCondLongBranchInsnsP8Max);
 -    as_bc((int16_t)44, InvertCondition(cond));
--    BufferOffset bo = xs_trap_tagged(BCTag);
--    writeInst(label->used() ? label->offset() : LabelBase::INVALID_OFFSET);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
--    writeInst(NopInst);
+-    BufferOffset bo = emitTaggedStanza(BCTag, label);
 -    m_buffer.leaveNoPool();
 -    if (!oom()) {
 -      label->use(bo.getOffset());
@@ -957,10 +1012,11 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler
 +    // it reaches, +32764) is registered with the buffer, which inserts a `b`
 +    // veneer with the next pool if the label is not bound in time (see
 +    // Assembler::PatchShortRangeBranchToVeneer).
-+    // Window: XER ops (0-3, POWER8 Overflow) or cror/crandc (0-1, double
-+    // conditions) + bc = 4 instructions max, plus the one new deadline (so
-+    // enterNoPool accounts for its potential veneer).
-+    m_buffer.enterNoPool(4, /* maxNewDeadlines = */ 1);
++    // Window: XER ops (0-3, POWER8 Overflow) + cror/crandc (0-1, double
++    // conditions) + bc = 5 instructions max (the budget the bound path
++    // above uses for DoubleCondition+Overflow), plus the one new deadline
++    // (so enterNoPool accounts for its potential veneer).
++    m_buffer.enterNoPool(5, /* maxNewDeadlines = */ 1);
 +    BufferOffset bo = as_bc((int16_t)0, cond);
 +    if (!oom() && bo.assigned()) {
 +      m_buffer.registerBranchDeadline(
@@ -971,43 +1027,43 @@ diff a/js/src/jit/ppc64/MacroAssembler-ppc64.h b/js/src/jit/ppc64/MacroAssembler
    }
  
    // Set dest = 1 if CR0 satisfies cond, else dest = 0.
-@@ -2047,11 +2042,15 @@
-   void zeroDouble(FloatRegister reg) { as_xxlxor(reg, reg, reg); }
+@@ -2279,9 +2292,8 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
+   }
  
    void writeCodePointer(CodeLabel* label) {
+-    // Raw data in the instruction stream: a pool dump between the two words
+-    // would split the pointer. The caller's haltingAlign has already flushed
+-    // the pool, so this window never moves the label.
 +    // Keep the two words together and bind patchAt to the first of them, not
 +    // to an offset where a pool or veneer island might be dumped.
-+    m_buffer.enterNoPool(2);
+     m_buffer.enterNoPool(2);
      label->patchAt()->bind(currentOffset());
      label->setLinkMode(CodeLabel::RawPointer);
-     m_buffer.ensureSpace(sizeof(void*));
-     writeInst(-1);
-     writeInst(-1);
-+    m_buffer.leaveNoPool();
-   }
-   void writeDataRelocation(const Value& val) {
-     if (val.isGCThing()) {
-@@ -2073,6 +2072,17 @@
+@@ -2309,11 +2321,15 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
    }
  
    CodeOffset toggledJump(Label* label) {
+-    // The offset must come from the branch itself: jump() may dump a pending
+-    // constant pool before emitting it, and an offset sampled beforehand
+-    // would make ToggleToCmp/ToggleToJmp rewrite the pool's guard branch.
 +    // ToggleToJmp/ToggleToCmp patch the instruction at the returned offset,
-+    // so it must be the `b` itself: take the offset from the emitted
-+    // instruction, not from nextOffset() beforehand (a pool or veneer island
-+    // may be dumped right before the `b`).
-+    if (!label->bound()) {
-+      BufferOffset bo = emitUnboundJump(label);
-+      if (bo.assigned()) {
-+        return CodeOffset(bo.getOffset());
-+      }
-+      return CodeOffset(currentOffset());  // OOM; result is discarded.
++    // so it must be the branch itself: jump() returns the offset of what it
++    // emitted (the `b` for an unbound label), never nextOffset() sampled
++    // beforehand, since a pool or veneer island may be dumped right before it.
+     BufferOffset bo = jump(label);
+-    return CodeOffset(bo.getOffset());
++    if (bo.assigned()) {
++      return CodeOffset(bo.getOffset());
 +    }
-     CodeOffset ret(nextOffset().getOffset());
-     jump(label);
-     return ret;
---- a/js/src/jit/shared/IonAssemblerBufferWithConstantPools.h	2026-10-04 16:23:44.432898996 -0700
-+++ b/js/src/jit/shared/IonAssemblerBufferWithConstantPools.h	2026-10-04 16:23:44.433765144 -0700
-@@ -1094,6 +1094,24 @@
++    return CodeOffset(currentOffset());  // OOM; result is discarded.
+   }
+   CodeOffset toggledCall(JitCode* target, bool enabled);
+   // 8 instructions for load64 + mtctr + bctrl = 10 instructions total.
+diff --git a/js/src/jit/shared/IonAssemblerBufferWithConstantPools.h b/js/src/jit/shared/IonAssemblerBufferWithConstantPools.h
+index 299b382..6a0c9aa 100644
+--- a/js/src/jit/shared/IonAssemblerBufferWithConstantPools.h
++++ b/js/src/jit/shared/IonAssemblerBufferWithConstantPools.h
+@@ -1092,6 +1092,24 @@ struct AssemblerBufferWithConstantPools : public AssemblerBuffer<Inst> {
      finishPool(SIZE_MAX);
    }
  
