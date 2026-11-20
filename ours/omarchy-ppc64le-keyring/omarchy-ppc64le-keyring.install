@@ -1,0 +1,9 @@
+post_install() {
+  if [ -x usr/bin/pacman-key ]; then
+    pacman-key --populate omarchy-ppc64le
+  fi
+}
+
+post_upgrade() {
+  post_install
+}

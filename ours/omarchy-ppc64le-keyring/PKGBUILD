@@ -1,0 +1,49 @@
+# Maintainer: Jordan Bettcher
+
+# Public key that signs the omarchy-ppc64le and omarchy-power9 repositories,
+# installed into pacman's keyring the way archlinux-keyring installs Arch's.
+#
+# The primary key is certify-only and kept offline. Packages are signed by its
+# ed25519 signing subkey, so a lost or compromised subkey is revoked and
+# replaced with the primary key, and users only need this package updated:
+# their trust is in the primary key.
+pkgname=omarchy-ppc64le-keyring
+pkgver=20261120
+pkgrel=1
+pkgdesc='Omarchy ppc64le PGP keyring for package and repository signatures'
+arch=(any)
+url='https://github.com/jbettcher-wg/omarchy-ppc64le-packaging'
+license=(CC0-1.0)
+depends=(pacman)
+install=$pkgname.install
+source=(omarchy-ppc64le.gpg)
+sha256sums=('7d083f7cad4e2df858cc3dfe3172c10156c58c0c1870b55049d41d71cca48c44')
+
+# Primary key: ed25519, certify-only, expires 2031-11-19.
+# Signing subkey 0B0F4F4AC556DB7D: ed25519, expires 2028-11-19.
+_fpr=31B7002732CB146A841717AE7215840DD862F392
+
+prepare() {
+  # Refuse to package anything other than exactly this one public key.
+  local _home
+  _home=$(mktemp -d)
+  local _got
+  _got=$(gpg --homedir "$_home" --show-keys --with-colons omarchy-ppc64le.gpg \
+    | awk -F: '$1=="fpr"{print $10; exit}')
+  rm -rf "$_home"
+  if [[ $_got != "$_fpr" ]]; then
+    error "omarchy-ppc64le.gpg is $_got, expected $_fpr"
+    return 1
+  fi
+  if grep -q 'PRIVATE KEY' omarchy-ppc64le.gpg; then
+    error "omarchy-ppc64le.gpg contains private key material"
+    return 1
+  fi
+}
+
+package() {
+  local _k="$pkgdir/usr/share/pacman/keyrings"
+  install -Dm644 omarchy-ppc64le.gpg "$_k/omarchy-ppc64le.gpg"
+  printf '%s:4:\n' "$_fpr" | install -Dm644 /dev/stdin "$_k/omarchy-ppc64le-trusted"
+  install -Dm644 /dev/null "$_k/omarchy-ppc64le-revoked"
+}
