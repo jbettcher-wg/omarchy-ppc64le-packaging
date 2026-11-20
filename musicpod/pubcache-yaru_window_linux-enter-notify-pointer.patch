@@ -1,0 +1,34 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] yaru_window_linux: enter-notify-event handler takes GdkEventCrossing*
+
+Class:   UPSTREAMABLE FIX (ubuntu/yaru_window.dart,
+         packages/yaru_window_linux/linux/yaru_window_linux_plugin.cc; still
+         present upstream). Applied by prepare() to the pub cache's
+         yaru_window_linux 0.2.2, patch -p1 from its root.
+Fixes:   a SIGSEGV in g_closure_invoke on ppc64le as soon as the pointer
+         enters the window (MusicPod: about a second after it maps, on both
+         Wayland and X11).
+
+GTK calls an "enter-notify-event" handler as
+gboolean (*)(GtkWidget*, GdkEventCrossing*, gpointer). This one was declared
+with the event BY VALUE (GdkEventCrossing, 88 bytes). That is undefined
+behaviour everywhere; on x86-64 and arm64 the struct is passed in memory or by
+reference and nothing visible happens. Under the ppc64le ELFv2 ABI a callee
+whose parameters do not fit in r3-r10 may assume its caller allocated a
+Parameter Save Area and home its argument registers there, and this one does
+(std r4..r10 -> caller SP+40..+88). GTK's BOOLEAN__BOXED marshaller calls it
+with three pointer arguments, which fit in registers, so it allocated no save
+area: the stores land in the marshaller's own frame, a saved non-volatile
+register comes back as 0, and g_closure_invoke faults writing through it.
+---
+--- a/linux/yaru_window_linux_plugin.cc
++++ b/linux/yaru_window_linux_plugin.cc
+@@ -38,7 +38,7 @@
+ }
+ 
+ static gboolean window_enter_notify_cb(GtkWidget* window,
+-                                       GdkEventCrossing event,
++                                       GdkEventCrossing* event,
+                                        gpointer user_data) {
+   yaru_window_end_drag(GTK_WINDOW(window));
+   return false;

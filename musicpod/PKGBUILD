@@ -1,0 +1,436 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+# Contributor: Dee.H.Y <dongfengweixiao at hotmail dot com> (AUR musicpod)
+# Contributor: Mark Wagie <mark dot wagie at proton dot me>
+#
+# MusicPod 2.16.0 for ppc64le (POWER8+, little-endian, ELFv2, glibc): a
+# music, radio, television and podcast player, Flutter over libmpv (through
+# media_kit), built from source with this distribution's flutter,
+# flutter-engine and dart, and the pool's mpv.
+#
+# Class: local workaround (distribution packaging). Started from the AUR
+# `musicpod` 2.16.0-2 recipe (same tarball, same sha256), rebuilt on the
+# pattern of ours/localsend and open-chess, whose gates this reuses. What is
+# particular to this one:
+#
+# 1. AN ORPHANED GIT PIN. pubspec.lock pins audio_service_mpris to
+#    Feichtmeier/audio-service-mpris@6756580b, a one-commit side branch that
+#    master no longer reaches. pub mirrors only refs, so `pub get` fails with
+#    "bad object". prepare() seeds every locked git commit into pub's mirror
+#    ($PUB_CACHE/git/cache/<repo>-<sha1(url)>) by SHA first; GitHub serves it.
+#    The lock is not changed.
+#
+# 2. THE LOCK (0001) differs from upstream's in exactly the four packages
+#    Flutter 3.41 itself pins (upstream locks against 3.38.10).
+#
+# 3. PATCHES TO THE PUB CACHE, applied after `pub get`:
+#    - media_kit_video links the system libmpv (mpv package) instead of
+#      downloading a prebuilt x86_64/aarch64 one; nothing is bundled.
+#    - media_kit_libs_linux no longer downloads and builds mimalloc, which
+#      this app never links.
+#    - super_native_extensions (drag and drop) links a cargo-built
+#      libsuper_native_extensions.so instead of running cargokit.
+#    - yaru_window_linux's enter-notify-event handler takes the event by
+#      pointer. Upstream declares it BY VALUE; on ppc64le ELFv2 that callee
+#      homes r4-r10 into a parameter save area its caller never allocated,
+#      smashing GTK's marshaller frame: SIGSEGV in g_closure_invoke the
+#      moment the pointer enters the window. (Measured on Wayland and X11.)
+#      Reported upstream: https://github.com/ubuntu/yaru_window.dart/issues/75
+#      -- drop the patch once a yaru_window_linux release carries the fix.
+#
+# 4. RUST, gated per pool like localsend's: built here with the pool's
+#    toolchain from the crate's own Cargo.lock, given a SONAME so the
+#    plugin's NEEDED entry is a name, not a build path.
+#
+# 5. GATES (all in build(): bq runs makepkg --nocheck): bundle shape, 64 KiB
+#    LOADs, RUNPATH $ORIGIN only, no libmpv in the bundle, depends derived
+#    from NEEDED, no build paths in text files, and the ISA policy: Dart AOT
+#    code (lib/libapp.so) scans 0 in both pools; baseline: every native ELF
+#    0 or libgcc float128 *_hw only; POWER9: recorded.
+#
+# 6. BUILD THIS NATIVELY: bq / tools/build-ppc64le.sh, or makepkg in a native
+#    shell, never inside the POWERarm aarch64 sleeve.
+#
+# PKGREL RULE: bump pkgrel whenever flutter, flutter-engine or the pool's
+# rust is rebuilt (the bundle carries the engine library and code they made).
+
+pkgname=musicpod
+pkgver=2.16.0
+pkgrel=1
+pkgdesc='Music, radio, television and podcast player'
+arch=('powerpc64le')
+url='https://github.com/ubuntu-flutter-community/musicpod'
+license=('GPL-3.0-or-later')
+
+_flutter_pkgver=3.41.9
+
+# soname -> package, for every NEEDED soname outside the bundle.
+# A function, not a `declare -A`: makepkg sources this file inside a function.
+_soname_pkg() {
+  case $1 in
+    ld64.so.2 | libc.so.6 | libm.so.6)                    echo glibc ;;
+    libgcc_s.so.1)                                        echo libgcc ;;
+    libstdc++.so.6)                                       echo libstdc++ ;;
+    libgtk-3.so.0 | libgdk-3.so.0)                        echo gtk3 ;;
+    libatk-1.0.so.0)                                      echo at-spi2-core ;;
+    libcairo.so.2 | libcairo-gobject.so.2)                echo cairo ;;
+    libpango-1.0.so.0 | libpangocairo-1.0.so.0)           echo pango ;;
+    libharfbuzz.so.0)                                     echo harfbuzz ;;
+    libgdk_pixbuf-2.0.so.0)                               echo gdk-pixbuf2 ;;
+    libglib-2.0.so.0 | libgobject-2.0.so.0 | libgio-2.0.so.0) echo glib2 ;;
+    libepoxy.so.0)                                        echo libepoxy ;;
+    libfontconfig.so.1)                                   echo fontconfig ;;
+    libz.so.1)                                            echo zlib ;;
+    libmpv.so.2)                                          echo mpv ;;
+    libnotify.so.4)                                       echo libnotify ;;
+    libhandy-1.so.0)                                      echo libhandy ;;
+  esac
+}
+# ELF needs (the map's packages; measured on 2.16.0-1: 19 sonames, no
+# harfbuzz or zlib directly, and handy_window bundles its own libhandy as
+# libhandy_flutter.so), then what is loaded or run without a NEEDED entry:
+# media_kit dlopen()s libmpv.so.2 from Dart; Dart's TLS reads the system CA
+# store; url_launcher runs xdg-open; path_provider runs xdg-user-dir; MPRIS
+# and wakelock talk D-Bus; the icon theme.
+depends=(
+  at-spi2-core cairo fontconfig gdk-pixbuf2 glib2 glibc gtk3
+  libepoxy libgcc libnotify libstdc++ mpv pango
+  ca-certificates dbus hicolor-icon-theme xdg-user-dirs xdg-utils
+)
+optdepends=(
+  'xdg-desktop-portal-gtk: file chooser through the portal (the launcher sets GTK_USE_PORTAL=1)'
+  'zenity: file picker dialogs (file_picker runs zenity on Linux)'
+  'networkmanager: connectivity state for online radio and podcasts (connectivity_plus)'
+)
+makedepends=(
+  "flutter=$_flutter_pkgver" "flutter-engine=$_flutter_pkgver"
+  cargo clang cmake ninja pkgconf git binutils file python
+  gtk3 libepoxy libnotify mpv
+)
+options=('!lto')
+
+# 0 = POWER9 pool, 1 = baseline (POWER8-legal) pool. build-ppc64le.sh's
+# 00-power8.conf exports _power8_compat=1 and rewrites RUSTFLAGS to pwr8.
+_power8_compat=${_power8_compat:-0}
+_triple=powerpc64le-unknown-linux-gnu
+_bin=musicpod                     # BINARY_NAME in linux/CMakeLists.txt
+_appid=org.feichtmeier.Musicpod   # APPLICATION_ID (= Wayland app_id)
+_flutter_arch=ppc64
+_flutter_root=/usr/lib/flutter
+_engine_lib=$_flutter_root/bin/cache/artifacts/engine/linux-ppc64-release/libflutter_linux_gtk.so
+# Pub-cache packages patched in prepare(); versions/commits from pubspec.lock.
+_media_kit=git/media-kit-7d1e3f8116abce740bdf83dc5e85f37e89436db5
+_sne=hosted/pub.dev/super_native_extensions-0.9.1
+_yaru=hosted/pub.dev/yaru_window_linux-0.2.2
+_rustlib=libsuper_native_extensions.so
+
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+        0001-lock-flutter-3.41-sdk-pins.patch
+        0002-linux-plugins-runpath-origin.patch
+        pubcache-media_kit_video-system-libmpv.patch
+        pubcache-media_kit_libs_linux-no-mimalloc.patch
+        pubcache-super_native_extensions-no-cargokit.patch
+        pubcache-yaru_window_linux-enter-notify-pointer.patch
+        isa30-attribute.py)
+sha256sums=('a266df60dd79c1b8327da84810cc6ad241eb29b806cda47ea0e6028923634439'
+            '7899fdc162c50e5a725298b17818440b9d0668895f0b647fb5dbd40305b698a2'
+            '6d373ca2e7e0b6b2a8525e30427f270e278d573659e116ca7a5a1dc60004c88f'
+            '2e294fe6aa13ea7bb782c1455b6cba2fd109dcd98f256ce6ac66bc38d1a67683'
+            'e36627e91339ab8ce4026dccee2f75fbc42c40bcaba362858c842319ebae7120'
+            'e85b5fd29d4bdcf3fdfb0bea7c56b39ef9cb189b1a0dac22af038139d1744833'
+            '8ac6f276fc79b8349d572829ec715a1e3dcfc370cd4a59d3d6bcf055215089f4'
+            'f38059bccfcca8c4d0a1a747b518015702ef5b16ecf835b029ecf7f2b1fd4d4e')
+
+_pool() { (( _power8_compat )) && echo baseline || echo power9; }
+
+_env() {
+  # bq's $HOME is the real home: keep cargo, pub and flutter state out of it.
+  export HOME="$srcdir/home" XDG_CONFIG_HOME="$srcdir/home/.config"
+  export CARGO_HOME="$srcdir/cargo-home" PUB_CACHE="$srcdir/pub-cache"
+  export DART_SUPPRESS_ANALYTICS=true FLUTTER_SUPPRESS_ANALYTICS=true CI=true
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/usr/src/debug/$pkgname"
+  mkdir -p "$HOME" "$XDG_CONFIG_HOME"
+}
+
+# CONTROL: the flutter on PATH is the flutter package (managed, read-only),
+# built for this pool, on a flutter-engine from this pool.
+_control_flutter() {
+  local f info=$_flutter_root/.pkginfo einfo v
+  f=$(readlink -f "$(command -v flutter)")
+  [[ $f == "$_flutter_root/bin/flutter" ]] \
+    || { echo "CONTROL FAILED: flutter is $f, not $_flutter_root/bin/flutter" >&2; return 1; }
+  [[ -f $_flutter_root/bin/cache/managed-by ]] \
+    || { echo "CONTROL FAILED: $_flutter_root is not a managed SDK" >&2; return 1; }
+  grep -qx "pool: $(_pool)" "$info" \
+    || { echo "CONTROL FAILED: flutter is from pool '$(sed -n 's/^pool: //p' "$info")', this build is $(_pool)" >&2; return 1; }
+  v=$(flutter --version 2>&1 | head -1)
+  [[ $v == "Flutter $_flutter_pkgver "* ]] || { echo "CONTROL FAILED: flutter --version: $v" >&2; return 1; }
+  einfo=$_flutter_root/bin/cache/artifacts/engine/.pkginfo
+  [[ -f $einfo ]] || { echo "CONTROL FAILED: no flutter-engine .pkginfo at $einfo" >&2; return 1; }
+  grep -qx "pool: $(_pool)" "$einfo" \
+    || { echo "CONTROL FAILED: flutter-engine is from pool '$(sed -n 's/^pool: //p' "$einfo")'" >&2; return 1; }
+  printf 'flutter: %s (pool %s); flutter-engine %s (pool %s)\n' "$v" "$(_pool)" \
+    "$(sed -n 's/^version: //p' "$einfo")" "$(_pool)" | tee "$srcdir/flutter.info"
+}
+
+# 1. above: put every locked git commit into pub's mirror before pub looks.
+_seed_pub_git() {
+  local url ref b dir
+  awk '/^    source: git$/ { if (url && ref) print url, ref; url = ref = "" }
+       /^      resolved-ref:/ { gsub(/"/, "", $2); ref = $2 }
+       /^      url:/          { gsub(/"/, "", $2); url = $2 }' pubspec.lock | sort -u |
+  while read -r url ref; do
+    b=${url##*/}; b=${b%.git}
+    dir=$PUB_CACHE/git/cache/$b-$(printf %s "$url" | sha1sum | cut -c1-40)
+    [[ -d $dir ]] || git clone -q --mirror "$url" "$dir"
+    git --git-dir="$dir" cat-file -e "$ref^{commit}" 2>/dev/null \
+      || git --git-dir="$dir" fetch -q origin "$ref:refs/tags/pub-pin-$ref"
+    git --git-dir="$dir" cat-file -e "$ref^{commit}" \
+      || { echo "ERROR: cannot obtain $url@$ref" >&2; return 1; }
+  done
+}
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  _env
+  _control_flutter
+  patch -Np1 -F0 --no-backup-if-mismatch -i "$srcdir/0001-lock-flutter-3.41-sdk-pins.patch"
+  patch -Np1 -F0 --no-backup-if-mismatch -i "$srcdir/0002-linux-plugins-runpath-origin.patch"
+
+  _seed_pub_git
+  flutter pub get --enforce-lockfile
+
+  patch -d "$PUB_CACHE/$_media_kit/media_kit_video" -Np1 -F0 --no-backup-if-mismatch \
+    -i "$srcdir/pubcache-media_kit_video-system-libmpv.patch"
+  patch -d "$PUB_CACHE/$_media_kit/libs/linux/media_kit_libs_linux" -Np1 -F0 --no-backup-if-mismatch \
+    -i "$srcdir/pubcache-media_kit_libs_linux-no-mimalloc.patch"
+  patch -d "$PUB_CACHE/$_sne" -Np1 -F0 --no-backup-if-mismatch \
+    -i "$srcdir/pubcache-super_native_extensions-no-cargokit.patch"
+  patch -d "$PUB_CACHE/$_yaru" -Np1 -F0 --no-backup-if-mismatch \
+    -i "$srcdir/pubcache-yaru_window_linux-enter-notify-pointer.patch"
+
+  cargo fetch --locked --manifest-path "$PUB_CACHE/$_sne/rust/Cargo.toml" --target "$_triple"
+}
+
+# objdump -D -z -j .text: (.long under power8) - (.long under power9), with a
+# >= 99% coverage floor. (ours/localsend, verbatim.)
+_isa30_count() {
+  local f=$1 words lines n8 n9
+  words=$(( $(readelf -SW "$f" | sed 's/\[ *\([0-9]*\)\]/[\1]/' \
+                | awk '$2 == ".text" { print strtonum("0x" $6) }') / 4 ))
+  read -r lines n8 < <(objdump -D -z -j .text --no-show-raw-insn -M power8 "$f" \
+    | awk '$1 ~ /^[0-9a-f]+:$/ { l++; if ($2 == ".long") n++ } END { print l + 0, n + 0 }')
+  (( words > 0 && lines * 100 >= words * 99 )) \
+    || { echo "GATE FAILED: objdump decoded $lines of $words .text words in $f" >&2; return 1; }
+  n9=$(objdump -D -z -j .text --no-show-raw-insn -M power9 "$f" \
+    | awk '$1 ~ /^[0-9a-f]+:$/ && $2 == ".long" { n++ } END { print n + 0 }')
+  echo "$lines $words" > "$srcdir/isa30-coverage"
+  echo $((n8 - n9))
+}
+
+# CONTROL: one xscvhpdp (0xf030156c, ISA 3.0) written over the word in the
+# middle of .text must count exactly one more. Prints the unmodified count.
+_isa30_selftest() {
+  local f=$1 c=$srcdir/isa30-selftest.elf off size base got
+  read -r off size < <(readelf -SW "$f" | sed 's/\[ *\([0-9]*\)\]/[\1]/' \
+                         | awk '$2 == ".text" { print strtonum("0x" $5), strtonum("0x" $6) }')
+  [[ -n $off && -n $size ]] || { echo "GATE FAILED: no .text in $f" >&2; return 1; }
+  base=$(_isa30_count "$f") || return 1
+  cp "$f" "$c"
+  printf '\x6c\x15\x30\xf0' | dd of="$c" bs=1 seek=$((off + (size / 8) * 4)) conv=notrunc status=none
+  got=$(_isa30_count "$c") || return 1
+  rm -f "$c"
+  (( got == base + 1 )) \
+    || { echo "GATE FAILED: ISA 3.0 scanner self-test on ${f##*/}: $base -> $got, want $((base + 1))" >&2; return 1; }
+  echo "$base"
+}
+
+_gate_rust() {
+  local n
+  n=$(_isa30_selftest "$1") || return 1
+  if (( _power8_compat && n != 0 )); then
+    echo "GATE FAILED: $n ISA 3.0 instructions in ${1##*/}; the baseline pool's rust must ship POWER8 rlibs" >&2
+    return 1
+  fi
+  [[ $(readelf -dW "$1" | sed -n 's/.*(SONAME).*\[\(.*\)\]$/\1/p') == "$_rustlib" ]] \
+    || { echo "GATE FAILED: ${1##*/} has no SONAME $_rustlib" >&2; return 1; }
+  printf 'rust: %s; RUSTFLAGS %s; %s ISA 3.0: %d%s (scanner control fired)\n' \
+    "$(rustc -V)" "${RUSTFLAGS%% --remap-path-prefix*}" "${1##*/}" "$n" \
+    "$( (( _power8_compat )) && echo ', gated = 0' || echo ', recorded (POWER9 pool)')" | tee "$srcdir/rust.info"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  _env
+  _control_flutter
+  export FLUTTER_STORAGE_BASE_URL=http://127.0.0.1:9   # offline: fail fast
+
+  case " ${RUSTFLAGS:-} " in
+    *target-cpu=power*) echo "ERROR: RUSTFLAGS names power8/power9; rustc wants pwr8/pwr9: $RUSTFLAGS" >&2; return 1 ;;
+  esac
+  if (( _power8_compat )); then
+    case " ${RUSTFLAGS:-} " in *target-cpu=pwr8*) ;;
+      *) echo "ERROR: _power8_compat=1 but RUSTFLAGS has no target-cpu=pwr8: ${RUSTFLAGS:-<unset>}" >&2; return 1 ;;
+    esac
+  fi
+
+  # 1. super_native_extensions' Rust library: plain cargo, the pool's
+  #    toolchain, its own Cargo.lock. With --target, RUSTFLAGS reach only
+  #    target artifacts, so the SONAME link-arg never touches build scripts.
+  RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,-soname,$_rustlib" \
+    cargo build --frozen --release --manifest-path "$PUB_CACHE/$_sne/rust/Cargo.toml" \
+      --target "$_triple" --target-dir "$srcdir/target-sne"
+  export SUPER_NATIVE_EXTENSIONS_RUST_LIB="$srcdir/target-sne/$_triple/release/$_rustlib"
+  _gate_rust "$SUPER_NATIVE_EXTENSIONS_RUST_LIB"
+
+  # 2. The Flutter app.
+  flutter build linux --release --no-pub
+
+  local b=$PWD/build/linux/$_flutter_arch/release/bundle
+  _gate_bundle "$b"
+  _gate_isa30 "$b"
+  _gate_depends "$b"
+  _gate_leaks "$b"
+  _write_pkginfo "$srcdir/pkginfo"
+
+  # Upstream's snap entry, with the theme icon name and the real app id.
+  sed -e 's|^Icon=.*|Icon=musicpod|' -e "s|^StartupWMClass=.*|StartupWMClass=$_appid|" \
+    snap/gui/musicpod.desktop > "$srcdir/$_appid.desktop"
+  grep -qx 'Icon=musicpod' "$srcdir/$_appid.desktop" \
+    && grep -qx "StartupWMClass=$_appid" "$srcdir/$_appid.desktop" \
+    || { echo 'ERROR: desktop entry rewrite did not apply' >&2; return 1; }
+}
+
+_elves() {  # every ELF in the bundle, NUL-separated
+  local f
+  while IFS= read -r -d '' f; do
+    if [[ $(od -An -tx1 -N4 "$f") == " 7f 45 4c 46" ]]; then printf '%s\0' "$f"; fi
+  done < <(find "$1" -type f -print0 | sort -z)
+}
+
+_gate_bundle() {
+  local b=$1 f r al bad=0 rp seen=0
+  [[ -x $b/$_bin && -f $b/lib/libapp.so && -f $b/lib/libflutter_linux_gtk.so ]] \
+    || { echo "GATE FAILED: incomplete bundle at $b" >&2; return 1; }
+  cmp -s "$b/lib/$_rustlib" "$SUPER_NATIVE_EXTENSIONS_RUST_LIB" \
+    || { echo 'GATE FAILED: the bundled Rust library is not the one built and scanned here' >&2; return 1; }
+  cmp -s "$b/lib/libflutter_linux_gtk.so" "$_engine_lib" \
+    || { echo "GATE FAILED: the bundled engine is not flutter-engine's $_engine_lib" >&2; return 1; }
+  [[ ! -e $b/lib/libmpv.so.2 && ! -e $b/lib/libdartjni.so ]] \
+    || { echo 'GATE FAILED: libmpv.so.2 or libdartjni.so in the bundle' >&2; return 1; }
+  while IFS= read -r -d '' f; do
+    r=${f#"$b"/}
+    file -b "$f" | grep -q '^ELF 64-bit LSB .*PowerPC' \
+      || { echo "GATE FAILED: $r is $(file -b "$f" | cut -d, -f1-2)" >&2; bad=1; continue; }
+    al=$(readelf -lW "$f" | awk '$1 == "LOAD" { print $NF }' | sort -u | tr '\n' ' ')
+    [[ $al == '0x10000 ' ]] || { echo "GATE FAILED: $r LOAD alignment '$al', want 0x10000" >&2; bad=1; }
+    rp=$(readelf -dW "$f" | sed -n 's/.*(\(RUNPATH\|RPATH\)).*\[\(.*\)\]$/\2/p')
+    case $r:$rp in
+      "$_bin":'$ORIGIN/lib') seen=1 ;;
+      lib/*:'$ORIGIN' | lib/*:) ;;
+      *) echo "GATE FAILED: $r has RUNPATH/RPATH '$rp'" >&2; bad=1 ;;
+    esac
+  done < <(_elves "$b")
+  (( seen )) || { echo 'CONTROL FAILED: the RUNPATH check did not read the runner'"'"'s $ORIGIN/lib' >&2; bad=1; }
+  ! ldd "$b/$_bin" | grep -q 'not found' \
+    || { ldd "$b/$_bin" >&2; echo 'GATE FAILED: unresolved libraries' >&2; bad=1; }
+  (( ! bad )) || return 1
+  echo 'bundle: every ELF ppc64le with 64 KiB LOADs; RUNPATH $ORIGIN (lib/) and $ORIGIN/lib (runner) only; libmpv from the system, not bundled; nothing unresolved' \
+    | tee "$srcdir/bundle.info"
+}
+
+_gate_isa30() {
+  local b=$1 f r n bad=0 libgcc einfo=$_flutter_root/bin/cache/artifacts/engine/.pkginfo
+  local info=$srcdir/isa30.info
+  : > "$info"
+  n=$(_isa30_selftest "$b/lib/libapp.so") || return 1
+  (( n == 0 )) || { echo "GATE FAILED: $n ISA 3.0 instructions in lib/libapp.so (Dart AOT code is ISA 2.07 in both pools)" >&2; return 1; }
+  printf 'isa30 %8d  aot-elf  lib/libapp.so (%s of %s .text words decoded; mid-.text control fired)\n' 0 \
+    $(cat "$srcdir/isa30-coverage") >> "$info"
+  (( _power8_compat )) && libgcc=$(clang --target=powerpc64le-linux-gnu -print-libgcc-file-name)
+  while IFS= read -r -d '' f; do
+    r=${f#"$b"/}
+    [[ $r == lib/libapp.so ]] && continue
+    n=$(_isa30_count "$f") || return 1
+    printf 'isa30 %8d  native   %s\n' "$n" "$r" >> "$info"
+    (( _power8_compat && n )) || continue
+    if [[ $r == lib/$_rustlib ]]; then
+      bad=1
+    elif [[ $r == lib/libflutter_linux_gtk.so ]] && cmp -s "$f" "$_engine_lib" \
+         && grep -q "^isa30-allowed-total artifacts/engine/linux-ppc64-release/libflutter_linux_gtk.so $n " "$einfo"; then
+      printf 'isa30-allowed-total %s %d (flutter-engine attributed them to libgcc IFUNC float128 routines)\n' "$r" "$n" >> "$info"
+    elif python3 "$srcdir/isa30-attribute.py" --libgcc "$libgcc" "$f" > "$srcdir/isa30-attr.txt" 2>&1 \
+         && [[ $(sed -n 's/^RESULT ok //p' "$srcdir/isa30-attr.txt") == "$n" ]]; then
+      printf 'isa30-allowed-total %s %d (libgcc IFUNC float128 hardware routines only)\n' "$r" "$n" >> "$info"
+    else
+      cat "$srcdir/isa30-attr.txt" >&2 2>/dev/null
+      echo "GATE FAILED: $n ISA 3.0 instructions in $r (baseline pool)" >&2; bad=1
+    fi
+  done < <(_elves "$b")
+  cat "$info"
+  (( ! bad ))
+}
+
+_gate_depends() {
+  local b=$1 f s p bad=0 gtk=0 need
+  need=$(while IFS= read -r -d '' f; do
+           readelf -dW "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]$/\1/p'
+         done < <(_elves "$b") | sort -u)
+  for s in $need; do
+    [[ -e $b/lib/$s ]] && continue
+    p=$(_soname_pkg "$s")
+    [[ -n $p ]] || { echo "GATE FAILED: NEEDED $s is not in _soname_pkg (add it, and its package to depends)" >&2; bad=1; continue; }
+    [[ " ${depends[*]} " == *" $p "* ]] || { echo "GATE FAILED: $s comes from $p, which is not in depends" >&2; bad=1; }
+    if [[ $s == libgtk-3.so.0 ]]; then gtk=1; fi
+  done
+  (( gtk )) || { echo 'CONTROL FAILED: the NEEDED scan did not see libgtk-3.so.0' >&2; bad=1; }
+  (( ! bad )) || return 1
+  need=$(for s in $need; do [[ -e $b/lib/$s ]] || echo "$s"; done)
+  printf 'depends: %d NEEDED sonames outside the bundle, all mapped to depends: %s\n' "$(wc -w <<< "$need")" \
+    "$(tr '\n' ' ' <<< "$need")" | tee "$srcdir/depends.info"
+}
+
+_gate_leaks() {
+  local hits bins
+  hits=$(grep -rIl -F "$srcdir" "$1" | head -5)
+  [[ -z $hits ]] || { echo "GATE FAILED: bundle text files name the build tree:" >&2; echo "$hits" >&2; return 1; }
+  bins=$(grep -rl -F "$srcdir" "$1" | sed "s#^$1/##" | tr '\n' ' ')
+  printf 'leaks: no text file in the bundle names the build tree; binary files that do: %s\n' "${bins:-none}" \
+    | tee "$srcdir/leaks.info"
+}
+
+_write_pkginfo() {
+  cat > "$1" <<-INFO
+	version: $pkgver-$pkgrel
+	pool: $(_pool)
+	$(cat "$srcdir/flutter.info")
+	$(cat "$srcdir/rust.info")
+	$(cat "$srcdir/bundle.info")
+	$(cat "$srcdir/depends.info")
+	$(cat "$srcdir/leaks.info")
+	# ISA 3.0 instructions per bundled ELF (objdump -D -z -j .text, power8 vs
+	# power9; baseline pool: 0, or libgcc's IFUNC'd float128 *_hw only):
+	$(cat "$srcdir/isa30.info")
+	INFO
+  ! grep -qF "$srcdir" "$1" || { echo "GATE FAILED: .pkginfo names the build tree" >&2; return 1; }
+}
+
+package() {
+  # Files only: nothing runs here (package() is under fakeroot).
+  cd "$pkgname-$pkgver"
+  install -d "$pkgdir/usr/lib/$pkgname"
+  cp -a "build/linux/$_flutter_arch/release/bundle/." "$pkgdir/usr/lib/$pkgname/"
+  install -Dm644 "$srcdir/pkginfo" "$pkgdir/usr/lib/$pkgname/.pkginfo"
+
+  install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" <<-END
+	#!/bin/sh
+	: "\${GTK_USE_PORTAL:=1}"
+	export GTK_USE_PORTAL
+	exec /usr/lib/$pkgname/$_bin "\$@"
+	END
+
+  install -Dm644 "$srcdir/$_appid.desktop" "$pkgdir/usr/share/applications/$_appid.desktop"
+  install -Dm644 snap/gui/musicpod.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+  install -Dm644 flatpak/icon128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/$pkgname.png"
+  install -Dm644 flatpak/icon64.png "$pkgdir/usr/share/icons/hicolor/64x64/apps/$pkgname.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,47 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] super_native_extensions (linux): link a cargo-built library, not cargokit
+
+Class:   LOCAL WORKAROUND (distribution packaging; the cargokit bypass of
+         ours/localsend 0002, adapted). Applied by prepare() to the pub
+         cache's super_native_extensions 0.9.1, patch -p1 from its root.
+Fixes:   cargokit runs rustup, `dart pub get`s its own build tool, may fetch
+         precompiled binaries (rust/cargokit.yaml) and has no ppc64le triple.
+After:   the PKGBUILD builds rust/ with `cargo build --frozen --release` (the
+         package's own Cargo.lock), and SUPER_NATIVE_EXTENSIONS_RUST_LIB names
+         the result. The plugin links it, as cargokit did (the C++ plugin
+         calls super_native_extensions_init()), and bundles it.
+---
+--- a/linux/CMakeLists.txt
++++ b/linux/CMakeLists.txt
+@@ -44,13 +44,28 @@
+ target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
+ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
+ 
+-include("../cargokit/cmake/cargokit.cmake")
+-apply_cargokit(${PLUGIN_NAME} ../rust super_native_extensions "")
++# Cargokit is bypassed: it runs rustup, `dart pub get`s its own build tool,
++# may download precompiled binaries (cargokit.yaml) and knows no ppc64le
++# triple. SUPER_NATIVE_EXTENSIONS_RUST_LIB (environment or -D) names a
++# libsuper_native_extensions.so already built with plain `cargo build`;
++# the plugin links it, as cargokit did, and bundles it.
++if(NOT DEFINED SUPER_NATIVE_EXTENSIONS_RUST_LIB AND DEFINED ENV{SUPER_NATIVE_EXTENSIONS_RUST_LIB})
++  set(SUPER_NATIVE_EXTENSIONS_RUST_LIB "$ENV{SUPER_NATIVE_EXTENSIONS_RUST_LIB}")
++endif()
++if(NOT SUPER_NATIVE_EXTENSIONS_RUST_LIB OR NOT EXISTS "${SUPER_NATIVE_EXTENSIONS_RUST_LIB}")
++  message(FATAL_ERROR "SUPER_NATIVE_EXTENSIONS_RUST_LIB must name a built libsuper_native_extensions.so")
++endif()
++target_link_libraries(${PLUGIN_NAME} PRIVATE "${SUPER_NATIVE_EXTENSIONS_RUST_LIB}")
++# The library carries a SONAME, so the plugin NEEDs it by name; whatever
++# links the plugin (the runner) must be able to find it at link time.
++# -rpath-link affects only that search, never the output's RUNPATH.
++get_filename_component(SUPER_NATIVE_EXTENSIONS_RUST_DIR "${SUPER_NATIVE_EXTENSIONS_RUST_LIB}" DIRECTORY)
++target_link_options(${PLUGIN_NAME} INTERFACE "-Wl,-rpath-link,${SUPER_NATIVE_EXTENSIONS_RUST_DIR}")
+ 
+ # List of absolute paths to libraries that should be bundled with the plugin.
+ # This list could contain prebuilt libraries, or libraries created by an
+ # external build triggered from this build file.
+ set(super_native_extensions_bundled_libraries
+-  "${${PLUGIN_NAME}_cargokit_lib}"
++  "${SUPER_NATIVE_EXTENSIONS_RUST_LIB}"
+   PARENT_SCOPE
+ )

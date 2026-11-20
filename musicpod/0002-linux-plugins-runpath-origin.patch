@@ -1,0 +1,29 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] linux: link plugin libraries with RUNPATH $ORIGIN, not the build tree
+
+Class:   UPSTREAMABLE FIX (to Flutter's Linux app template; the same change as
+         ours/localsend 0004 and open-chess 0004).
+Applies: musicpod v2.16.0 (patch -p1 from the repository root).
+Fixes:   plugin libraries reach the bundle through install(FILES) and keep
+         CMake's build RUNPATH, the absolute flutter/ephemeral directory of
+         the build tree. Linked with RUNPATH $ORIGIN instead.
+---
+--- a/linux/CMakeLists.txt
++++ b/linux/CMakeLists.txt
+@@ -74,6 +74,16 @@
+ # them to the application.
+ include(flutter/generated_plugins.cmake)
+ 
++# Plugin libraries reach the bundle through install(FILES), which keeps the
++# RUNPATH they were linked with: CMake's build RUNPATH, the absolute
++# flutter/ephemeral directory of the build tree. Link them with the install
++# RUNPATH instead; libflutter_linux_gtk.so sits next to them in lib/.
++foreach(plugin ${FLUTTER_PLUGIN_LIST})
++  set_target_properties(${plugin}_plugin PROPERTIES
++    BUILD_WITH_INSTALL_RPATH TRUE
++    INSTALL_RPATH "$ORIGIN")
++endforeach(plugin)
++
+ 
+ # === Installation ===
+ # By default, "installing" just makes a relocatable bundle in the build
