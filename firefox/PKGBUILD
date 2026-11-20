@@ -4,7 +4,7 @@
 
 pkgname=firefox
 pkgver=160.0.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Fast, Private & Safe Web Browser"
 url="https://www.firefox.com/"
 arch=(x86_64 powerpc64le powerpc64)
@@ -248,10 +248,12 @@ b2sums=('b9b6e5b7b0f6d02f8bc22532fbc8c9cdc3d791dd475038c43c70a6137d880a24423ae4a
         'f096c3e4d7068e2e7d3eb284168fa64cbfb51ee922383188ebcf048483e0802f6d94cfb54f21e681826edefa084f3f5ea161a8fe6a50535de5c51867ef8b0534'
         '2512d8be785661d6d2ec25a838d002bc7bdd031ee56b8fd39fa38e929f056608c290f918e18faebcf8d7875aac4c8aeb6b5d630b75bcc0747bd628919a4eb761')
 
-# Google API keys (see https://www.chromium.org/developers/how-tos/api-keys)
-# Note: These are for Arch POWER use ONLY. For your own distribution, please
-# get your own set of keys.
-_google_api_key=AIzaSyDgkw4O3LM0Jnr2N7Wq2NG7iUVzRU5sBaA
+# Google API key (see https://www.chromium.org/developers/how-tos/api-keys)
+# Our own key, for Safe Browsing only: the key is restricted to the Safe
+# Browsing API, with no billing and no Geolocation API. It replaces Arch
+# POWER's key, which (like Arch's) is "for Arch POWER use ONLY".
+# For your own distribution, please get your own key.
+_google_api_key=AIzaSyBRj-u45qRB2XA-InzNP8e_NUx_0p8uf_E
 
 prepare() {
   mkdir mozbuild
@@ -302,8 +304,9 @@ ac_add_options --allow-addon-sideload
 export MOZILLA_OFFICIAL=1
 export MOZ_APP_REMOTINGNAME=$pkgname
 
-# Keys
-ac_add_options --with-google-location-service-api-keyfile=${PWD@Q}/google-api-key
+# Keys. Safe Browsing only: our key is not enabled for Google's Geolocation
+# API (paid), so it is not passed as a location key. On Linux, Firefox
+# gets location from GeoClue.
 ac_add_options --with-google-safebrowsing-api-keyfile=${PWD@Q}/google-api-key
 
 # System libraries
