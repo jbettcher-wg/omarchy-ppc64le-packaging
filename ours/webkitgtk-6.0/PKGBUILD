@@ -49,7 +49,7 @@ pkgname=(
   webkitgtk-6.0-docs
 )
 pkgver=2.54.1
-pkgrel=3
+pkgrel=4
 pkgdesc="Web content engine for GTK"
 url="https://webkitgtk.org"
 arch=(x86_64 powerpc64le)
@@ -92,6 +92,8 @@ depends=(
   gdk-pixbuf2
   glib2
   glibc
+  gst-plugin-va
+  gst-plugins-bad
   gst-plugins-bad-libs
   gst-plugins-base-libs
   gstreamer
@@ -126,6 +128,7 @@ depends=(
   libxslt
   mesa
   openjpeg2
+  openssl
   pango
   sqlite
   ttf-font
@@ -170,7 +173,10 @@ b2sums=('79c124b40fce5604c2adc81df7b640d1827b5e44577f1f728da77745f6f9859208d2ff5
         'SKIP'
         '44a8b2c4fd1d8c0eab1a84dd5000f532b01a91eb7c9bc5928b0506f2cbd6e7ffbda06d0b5fce18e8ec55e7742692830d40589ea97a7f3d8b3fc3333e60b95734')
 case $CARCH in
-  powerpc64le) options+=(!debug !lto) ;;
+  # Ship a -debug split package for webkitgtk-6.0 (overriding bq's !debug) so
+  # WebKitWebProcess crashes/hangs have DWARF symbols without manual .dynsym
+  # disassembly (WEBKIT-ON-POWER.md finding 5).
+  powerpc64le) options+=(debug !lto) ;;
 esac
 
 validpgpkeys=(
@@ -207,10 +213,16 @@ build() {
     -D ENABLE_DOCUMENTATION=ON
     -D ENABLE_MINIBROWSER=ON
     -D ENABLE_SPEECH_SYNTHESIS=OFF
+    -D ENABLE_WEB_RTC=ON
     -D PORT=GTK
     -D USE_FLITE=OFF
+    -D USE_GSTREAMER_WEBRTC=ON
     -D USE_GTK4=ON
     -D USE_LIBBACKTRACE=OFF
+    # librice (rice-proto / rice-io >= 0.4.2) is not packaged yet; disable it so
+    # GStreamer WebRTC uses gst-plugins-bad's webrtcbin + libnice. (Note: ICE
+    # inside a --unshare-net sandboxed WebProcess needs librice later.)
+    -D USE_LIBRICE=OFF
     -D USE_SOUP2=OFF
   )
 
@@ -284,7 +296,6 @@ package_webkitgtk-6.0() {
   optdepends=(
     'geoclue: Geolocation support'
     'gst-libav: nonfree media decoding'
-    'gst-plugins-bad: media decoding'
     'gst-plugins-good: media decoding'
   )
 

@@ -50,7 +50,7 @@ pkgname=(
   webkit2gtk-4.1-docs
 )
 pkgver=2.54.1
-pkgrel=3
+pkgrel=4
 pkgdesc="Web content engine for GTK"
 url="https://webkitgtk.org"
 arch=(x86_64 powerpc64le)
@@ -93,6 +93,8 @@ depends=(
   gdk-pixbuf2
   glib2
   glibc
+  gst-plugin-va
+  gst-plugins-bad
   gst-plugins-bad-libs
   gst-plugins-base-libs
   gstreamer
@@ -127,6 +129,7 @@ depends=(
   libxslt
   mesa
   openjpeg2
+  openssl
   pango
   sqlite
   ttf-font
@@ -208,10 +211,16 @@ build() {
     -D ENABLE_DOCUMENTATION=ON
     -D ENABLE_MINIBROWSER=ON
     -D ENABLE_SPEECH_SYNTHESIS=OFF
+    -D ENABLE_WEB_RTC=ON
     -D PORT=GTK
     -D USE_FLITE=OFF
+    -D USE_GSTREAMER_WEBRTC=ON
     -D USE_GTK4=OFF
     -D USE_LIBBACKTRACE=OFF
+    # librice (rice-proto / rice-io >= 0.4.2) is not packaged yet; disable it so
+    # GStreamer WebRTC uses gst-plugins-bad's webrtcbin + libnice. (Note: ICE
+    # inside a --unshare-net sandboxed WebProcess needs librice later.)
+    -D USE_LIBRICE=OFF
     -D USE_SOUP2=OFF
   )
 
@@ -285,7 +294,6 @@ package_webkit2gtk-4.1() {
   optdepends=(
     'geoclue: Geolocation support'
     'gst-libav: nonfree media decoding'
-    'gst-plugins-bad: media decoding'
     'gst-plugins-good: media decoding'
   )
 
