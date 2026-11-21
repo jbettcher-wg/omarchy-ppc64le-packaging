@@ -1,10 +1,10 @@
-NAME="Arch POWER"
-PRETTY_NAME="Arch POWER"
+NAME="Omarchy for POWER"
+PRETTY_NAME="Omarchy for POWER"
 ID=arch
 BUILD_ID=rolling
 ANSI_COLOR="38;2;23;147;209"
-HOME_URL="https://archlinuxpower.org/"
-DOCUMENTATION_URL="https://github.com/kth5/archpower/wiki"
-SUPPORT_URL="https://github.com/kth5/archpower/issue"
-BUG_REPORT_URL="https://github.com/kth5/archpower/issue"
+HOME_URL="https://github.com/jbettcher-wg/omarchy-ppc64le"
+DOCUMENTATION_URL="https://github.com/jbettcher-wg/omarchy-ppc64le#readme"
+SUPPORT_URL="https://github.com/jbettcher-wg/omarchy-ppc64le/issues"
+BUG_REPORT_URL="https://github.com/jbettcher-wg/omarchy-ppc64le/issues"
 LOGO=archlinux-logo
