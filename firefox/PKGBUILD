@@ -303,7 +303,7 @@ ac_add_options --disable-bootstrap
 # Branding
 ac_add_options --enable-official-branding
 ac_add_options --enable-update-channel=release
-ac_add_options --with-distribution-id=org.archpower
+ac_add_options --with-distribution-id=org.omarchy.power
 ac_add_options --with-unsigned-addon-scopes=app,system
 ac_add_options --allow-addon-sideload
 export MOZILLA_OFFICIAL=1
@@ -469,14 +469,14 @@ END
 
   install -Dvm644 /dev/stdin "$appdir/distribution/distribution.ini" <<END
 [Global]
-id=archlinux
+id=omarchy-power
 version=1.0
-about=Mozilla Firefox for Arch POWER
+about=Mozilla Firefox -- Omarchy for POWER
 
 [Preferences]
-app.distributor=archlinux
+app.distributor=omarchy-power
 app.distributor.channel=$pkgname
-app.partner.archlinux=archpower
+app.partner.omarchy-power=omarchy-power
 END
 
   # Link up system ONNX runtime (x86_64 only: no onnxruntime on POWER)
