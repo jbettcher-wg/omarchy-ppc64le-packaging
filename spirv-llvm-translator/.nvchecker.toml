@@ -1,4 +1,0 @@
-[spirv-llvm-translator]
-source = "git"
-git = "https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git"
-prefix = "v"
