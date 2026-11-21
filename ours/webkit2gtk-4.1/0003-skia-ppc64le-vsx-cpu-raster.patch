@@ -1,0 +1,1356 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] Skia: add ppc64le Power ISA 2.07 VSX CPU raster optimizations
+
+Enable ppc64le LE VSX SIMD acceleration (ISA 2.07 / POWER8 floor, compatible
+with both -mcpu=power8 and -mcpu=power9) in WebKit's bundled Skia CPU raster
+paths under Source/ThirdParty/skia/:
+
+1. include/private/SkFeatures.h + src/opts/SkOpts_SetTarget.h:
+   Define SK_PPC_HAS_VSX on little-endian 64-bit Power when __VSX__ and
+   __POWER8_VECTOR__ are active, routing SK_OPTS_NS=vsx.
+2. src/core/SkVx.h:
+   Add VSX specializations for if_then_else, any, all, ceil, floor, trunc,
+   sqrt, abs, lrint, saturated_add (vec_adds), and strided_load4 (vec_perm),
+   eliminating scalar libm calls and lane-by-lane spill loops.
+3. src/opts/SkRasterPipeline_opts.h (SKRP_CPU_VSX):
+   Replace scalar SKRP_CPU_SCALAR fallback (stride 1, lowp disabled) with
+   4-wide highp (N=4) and 8-wide lowp (N=8, SKRP_NARROW_STAGES=0) VSX SIMD
+   primitives, vectorized load2/store2/load4/store4 transposes, and
+   vectorized lowp::cast / mad / nmad / round_F_to_U16 / div255 / max_intr /
+   min_intr.
+4. src/opts/SkSwizzler_opts.inc:
+   Add VSX paths for all 12 swizzler functions (RGBA_to_BGRA, RGBA_to_rgbA,
+   RGBA_to_bgrA, inverted_CMYK_to_RGB1, inverted_CMYK_to_BGR1, rgbA_to_RGBA,
+   rgbA_to_BGRA, gray_to_RGB1, grayA_to_RGBA, grayA_to_rgbA, RGB_to_RGB1,
+   RGB_to_BGR1).
+5. src/opts/SkBlitRow_opts.h:
+   Add 4-pixel-per-iteration VSX blit_row_s32a_opaque using vec_mladd/vec_adds.
+6. src/opts/SkBlitMask_opts.h:
+   Add 8-pixel-per-iteration VSX blit_mask_d32_a8_{black,opaque,general}
+   bypassing GCC's non-inlined generic Sk4px/MapDstAlpha fallback.
+7. src/opts/SkBitmapProcState_opts.h:
+   Add 2-pixel batched Y-first VSX S32_alpha_D32_filter_DX bilinear filter
+   with scalar tail.
+
+Verified on native POWER9 against scalar portable oracle (--verify ref_p8)
+and audited with objdump -M power8 vs -M power9 (0 ISA 3.0 leaks, 0 vabsdu).
+---
+--- a/Source/ThirdParty/skia/include/private/SkFeatures.h
++++ b/Source/ThirdParty/skia/include/private/SkFeatures.h
+@@ -170,4 +170,9 @@
+     #define SK_ARM_HAS_NEON
+ #endif
+ 
++// PowerPC64 little-endian with POWER8 ISA 2.07 VSX/VMX baseline.
++#if defined(SK_CPU_PPC) && defined(SK_CPU_LENDIAN) && defined(__VSX__) && defined(__POWER8_VECTOR__)
++    #define SK_PPC_HAS_VSX 1
++#endif
++
+ #endif // SkFeatures_DEFINED
+--- a/Source/ThirdParty/skia/src/opts/SkOpts_SetTarget.h
++++ b/Source/ThirdParty/skia/src/opts/SkOpts_SetTarget.h
+@@ -41,6 +41,8 @@
+         #define SK_OPTS_NS lasx
+     #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
+         #define SK_OPTS_NS lsx
++    #elif defined(SK_PPC_HAS_VSX)
++        #define SK_OPTS_NS vsx
+     #else
+         #define SK_OPTS_NS portable
+     #endif
+--- a/Source/ThirdParty/skia/src/core/SkVx.h
++++ b/Source/ThirdParty/skia/src/core/SkVx.h
+@@ -55,6 +55,11 @@
+         #include <lsxintrin.h>
+     #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
+         #include <lsxintrin.h>
++    #elif defined(SK_PPC_HAS_VSX)
++        #include <altivec.h>
++        #undef vector
++        #undef pixel
++        #undef bool
+     #endif
+ #endif
+ 
+@@ -521,6 +526,13 @@
+                                                      sk_bit_cast<__m128i>(cond)));
+     }
+ #endif
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N*sizeof(T) == 16) {
++        return sk_bit_cast<Vec<N,T>>(vec_sel(sk_bit_cast<__vector unsigned int>(e),
++                                             sk_bit_cast<__vector unsigned int>(t),
++                                             sk_bit_cast<__vector unsigned int>(cond)));
++    }
++#endif
+     // Recurse for large vectors to try to hit the specializations above.
+     if constexpr (N*sizeof(T) > 16) {
+         return join(if_then_else(cond.lo, t.lo, e.lo),
+@@ -578,6 +590,12 @@
+         return retv[0] != 0b0000;
+     }
+ #endif
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N*sizeof(T) == 16) {
++        const __vector unsigned int zero = {0, 0, 0, 0};
++        return vec_any_ne(sk_bit_cast<__vector unsigned int>(x), zero);
++    }
++#endif
+     return any(x.lo)
+         || any(x.hi);
+ }
+@@ -621,6 +639,20 @@
+         return retv[0] == 0b1111;
+     }
+ #endif
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N*sizeof(T) == 16) {
++        if constexpr (sizeof(T) == 1) {
++            const __vector unsigned char zero = {};
++            return vec_all_ne(sk_bit_cast<__vector unsigned char>(x), zero);
++        } else if constexpr (sizeof(T) == 2) {
++            const __vector unsigned short zero = {};
++            return vec_all_ne(sk_bit_cast<__vector unsigned short>(x), zero);
++        } else if constexpr (sizeof(T) == 4) {
++            const __vector unsigned int zero = {0, 0, 0, 0};
++            return vec_all_ne(sk_bit_cast<__vector unsigned int>(x), zero);
++        }
++    }
++#endif
+     return all(x.lo)
+         && all(x.hi);
+ }
+@@ -700,12 +732,57 @@
+     return map(std::make_index_sequence<N>{}, fn, first,rest...);
+ }
+ 
+-SIN Vec<N,float>  ceil(const Vec<N,float>& x) { return map( ceilf, x); }
+-SIN Vec<N,float> floor(const Vec<N,float>& x) { return map(floorf, x); }
+-SIN Vec<N,float> trunc(const Vec<N,float>& x) { return map(truncf, x); }
++SIN Vec<N,float>  ceil(const Vec<N,float>& x) {
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N == 4) {
++        return sk_bit_cast<Vec<4,float>>(vec_ceil(sk_bit_cast<__vector float>(x)));
++    } else if constexpr (N > 4) {
++        return join(ceil(x.lo), ceil(x.hi));
++    }
++#endif
++    return map( ceilf, x);
++}
++SIN Vec<N,float> floor(const Vec<N,float>& x) {
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N == 4) {
++        return sk_bit_cast<Vec<4,float>>(vec_floor(sk_bit_cast<__vector float>(x)));
++    } else if constexpr (N > 4) {
++        return join(floor(x.lo), floor(x.hi));
++    }
++#endif
++    return map(floorf, x);
++}
++SIN Vec<N,float> trunc(const Vec<N,float>& x) {
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N == 4) {
++        return sk_bit_cast<Vec<4,float>>(vec_trunc(sk_bit_cast<__vector float>(x)));
++    } else if constexpr (N > 4) {
++        return join(trunc(x.lo), trunc(x.hi));
++    }
++#endif
++    return map(truncf, x);
++}
+ SIN Vec<N,float> round(const Vec<N,float>& x) { return map(roundf, x); }
+-SIN Vec<N,float>  sqrt(const Vec<N,float>& x) { return map( sqrtf, x); }
+-SIN Vec<N,float>   abs(const Vec<N,float>& x) { return map( fabsf, x); }
++SIN Vec<N,float>  sqrt(const Vec<N,float>& x) {
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N == 4) {
++        return sk_bit_cast<Vec<4,float>>(vec_sqrt(sk_bit_cast<__vector float>(x)));
++    } else if constexpr (N > 4) {
++        return join(sqrt(x.lo), sqrt(x.hi));
++    }
++#endif
++    return map( sqrtf, x);
++}
++SIN Vec<N,float>   abs(const Vec<N,float>& x) {
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N == 4) {
++        return sk_bit_cast<Vec<4,float>>(vec_abs(sk_bit_cast<__vector float>(x)));
++    } else if constexpr (N > 4) {
++        return join(abs(x.lo), abs(x.hi));
++    }
++#endif
++    return map( fabsf, x);
++}
+ SIN Vec<N,float>   fma(const Vec<N,float>& x,
+                        const Vec<N,float>& y,
+                        const Vec<N,float>& z) {
+@@ -738,6 +815,11 @@
+         return sk_bit_cast<Vec<N,int>>(__lsx_vftint_w_s(sk_bit_cast<__m128>(x)));
+     }
+ #endif
++#if SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++    if constexpr (N == 4) {
++        return sk_bit_cast<Vec<N,int>>(vec_cts(vec_rint(sk_bit_cast<__vector float>(x)), 0));
++    }
++#endif
+     return join(lrint(x.lo),
+                 lrint(x.hi));
+ }
+@@ -834,7 +916,7 @@
+ SINT std::enable_if_t<std::is_unsigned_v<T>, Vec<N,T>> saturated_add(const Vec<N,T>& x,
+                                                                      const Vec<N,T>& y) {
+ #if SKVX_USE_SIMD && (SK_CPU_X64_LEVEL >= SK_CPU_X64_LEVEL_SSE1 || defined(SK_ARM_HAS_NEON) || \
+-        SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX)
++        SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX || defined(SK_PPC_HAS_VSX))
+     // Both SSE and ARM have 16-lane saturated adds, so use intrinsics for those and recurse down
+     // or join up to take advantage.
+     if constexpr (N == 16 && sizeof(T) == 1) {
+@@ -844,6 +926,9 @@
+         #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
+         return sk_bit_cast<Vec<N,T>>(__lsx_vsadd_bu(sk_bit_cast<__m128i>(x),
+                                                     sk_bit_cast<__m128i>(y)));
++        #elif defined(SK_PPC_HAS_VSX)
++        return sk_bit_cast<Vec<N,T>>(vec_adds(sk_bit_cast<__vector unsigned char>(x),
++                                              sk_bit_cast<__vector unsigned char>(y)));
+         #else  // SK_ARM_HAS_NEON
+         return sk_bit_cast<Vec<N,T>>(vqaddq_u8(sk_bit_cast<uint8x16_t>(x),
+                                                sk_bit_cast<uint8x16_t>(y)));
+@@ -1173,6 +1258,43 @@
+     c = sk_bit_cast<Vec<4,int>>(c_);
+     d = sk_bit_cast<Vec<4,int>>(d_);
+ }
++#elif SKVX_USE_SIMD && defined(SK_PPC_HAS_VSX)
++SI void strided_load4(const float* v,
++                      Vec<4,float>& a,
++                      Vec<4,float>& b,
++                      Vec<4,float>& c,
++                      Vec<4,float>& d) {
++    __vector float a_ = vec_xl(0, v +  0),
++                   b_ = vec_xl(0, v +  4),
++                   c_ = vec_xl(0, v +  8),
++                   d_ = vec_xl(0, v + 12);
++    __vector float t0 = vec_mergeh(a_, b_),
++                   t1 = vec_mergeh(c_, d_),
++                   t2 = vec_mergel(a_, b_),
++                   t3 = vec_mergel(c_, d_);
++    a = shuffle<0,1,4,5>(join(sk_bit_cast<Vec<4,float>>(t0), sk_bit_cast<Vec<4,float>>(t1)));
++    b = shuffle<2,3,6,7>(join(sk_bit_cast<Vec<4,float>>(t0), sk_bit_cast<Vec<4,float>>(t1)));
++    c = shuffle<0,1,4,5>(join(sk_bit_cast<Vec<4,float>>(t2), sk_bit_cast<Vec<4,float>>(t3)));
++    d = shuffle<2,3,6,7>(join(sk_bit_cast<Vec<4,float>>(t2), sk_bit_cast<Vec<4,float>>(t3)));
++}
++SI void strided_load4(const int* v,
++                      Vec<4,int>& a,
++                      Vec<4,int>& b,
++                      Vec<4,int>& c,
++                      Vec<4,int>& d) {
++    __vector int a_ = vec_xl(0, v +  0),
++                 b_ = vec_xl(0, v +  4),
++                 c_ = vec_xl(0, v +  8),
++                 d_ = vec_xl(0, v + 12);
++    __vector int t0 = vec_mergeh(a_, b_),
++                 t1 = vec_mergeh(c_, d_),
++                 t2 = vec_mergel(a_, b_),
++                 t3 = vec_mergel(c_, d_);
++    a = shuffle<0,1,4,5>(join(sk_bit_cast<Vec<4,int>>(t0), sk_bit_cast<Vec<4,int>>(t1)));
++    b = shuffle<2,3,6,7>(join(sk_bit_cast<Vec<4,int>>(t0), sk_bit_cast<Vec<4,int>>(t1)));
++    c = shuffle<0,1,4,5>(join(sk_bit_cast<Vec<4,int>>(t2), sk_bit_cast<Vec<4,int>>(t3)));
++    d = shuffle<2,3,6,7>(join(sk_bit_cast<Vec<4,int>>(t2), sk_bit_cast<Vec<4,int>>(t3)));
++}
+ #endif
+ 
+ // De-interleaving load of 2 vectors.
+--- a/Source/ThirdParty/skia/src/opts/SkRasterPipeline_opts.h
++++ b/Source/ThirdParty/skia/src/opts/SkRasterPipeline_opts.h
+@@ -75,7 +75,7 @@
+ 
+ #if defined(SKRP_CPU_SCALAR) || defined(SKRP_CPU_NEON) || defined(SKRP_CPU_AVX2) || \
+         defined(SKRP_CPU_ML4) || defined(SKRP_CPU_AVX) || defined(SKRP_CPU_SSE41) || \
+-        defined(SKRP_CPU_SSE2)
++        defined(SKRP_CPU_SSE2) || defined(SKRP_CPU_VSX)
+     // Honor the existing setting
+ #elif !defined(__clang__) && !defined(__GNUC__)
+     #define SKRP_CPU_SCALAR
+@@ -95,6 +95,8 @@
+     #define SKRP_CPU_LASX
+ #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
+     #define SKRP_CPU_LSX
++#elif defined(SK_PPC_HAS_VSX)
++    #define SKRP_CPU_VSX
+ #else
+     #define SKRP_CPU_SCALAR
+ #endif
+@@ -108,6 +110,11 @@
+     #include <lsxintrin.h>
+ #elif defined(SKRP_CPU_LSX)
+     #include <lsxintrin.h>
++#elif defined(SKRP_CPU_VSX)
++    #include <altivec.h>
++    #undef vector
++    #undef pixel
++    #undef bool
+ #else
+     #include <immintrin.h>
+ #endif
+@@ -1534,6 +1541,142 @@
+         __lsx_vst(a, ptr, 48);
+     }
+ 
++#elif defined(SKRP_CPU_VSX)
++    template <typename T> using V = Vec<4, T>;
++    using F   = V<float   >;
++    using I32 = V< int32_t>;
++    using U64 = V<uint64_t>;
++    using U32 = V<uint32_t>;
++    using U16 = V<uint16_t>;
++    using U8  = V<uint8_t >;
++
++    using VF   = __vector float;
++    using VI32 = __vector int;
++    using VU32 = __vector unsigned int;
++    using VU16 = __vector unsigned short;
++    using VU8  = __vector unsigned char;
++
++    SI F   if_then_else(I32 c, F   t, F   e) { return (F)vec_sel((VF)e, (VF)t, (VU32)c); }
++    SI I32 if_then_else(I32 c, I32 t, I32 e) { return (I32)vec_sel((VI32)e, (VI32)t, (VU32)c); }
++
++    SI F   min(F a, F b)     { return (F)vec_min((VF)a, (VF)b); }
++    SI F   max(F a, F b)     { return (F)vec_max((VF)a, (VF)b); }
++    SI I32 min(I32 a, I32 b) { return (I32)vec_min((VI32)a, (VI32)b); }
++    SI U32 min(U32 a, U32 b) { return (U32)vec_min((VU32)a, (VU32)b); }
++    SI I32 max(I32 a, I32 b) { return (I32)vec_max((VI32)a, (VI32)b); }
++    SI U32 max(U32 a, U32 b) { return (U32)vec_max((VU32)a, (VU32)b); }
++
++    SI F   mad(F f, F m, F a)  { return (F)vec_madd((VF)f, (VF)m, (VF)a); }
++    SI F  nmad(F f, F m, F a)  { return (F)vec_nmsub((VF)f, (VF)m, (VF)a); }
++    SI F   abs_(F v)           { return (F)vec_abs((VF)v); }
++    SI I32 abs_(I32 v)         { return (I32)vec_abs((VI32)v); }
++    SI F   floor_(F v)         { return (F)vec_floor((VF)v); }
++    SI F   ceil_(F v)          { return (F)vec_ceil((VF)v); }
++    SI F   rcp_approx(F v)     { return (F)vec_re((VF)v); }
++    SI F   rcp_precise(F v) {
++        F e = rcp_approx(v);
++        return mad(nmad(v, e, F() + 1.0f), e, e);
++    }
++    SI F   rsqrt_approx(F v)   { return (F)vec_rsqrte((VF)v); }
++    SI F   sqrt_(F v)          { return (F)vec_sqrt((VF)v); }
++
++    SI I32 iround(F v)         { return (I32)vec_cts(vec_rint((VF)v), 0); }
++    SI U32 round(F v)          { return (U32)vec_cts(vec_rint((VF)v), 0); }
++
++    SI U16 pack(U32 v) {
++        VU16 p = vec_packs((VU32)v, (VU32)v);
++        return sk_unaligned_load<U16>(&p);
++    }
++    SI U8 pack(U16 v) {
++        VU16 tmp = widen_cast<VU16>(v);
++        VU8 p = vec_packs(tmp, tmp);
++        return sk_unaligned_load<U8>(&p);
++    }
++
++    SI bool any(I32 c) {
++        const VU32 zero = {0, 0, 0, 0};
++        return vec_any_ne((VU32)c, zero);
++    }
++    SI bool all(I32 c) {
++        const VU32 zero = {0, 0, 0, 0};
++        return vec_all_ne((VU32)c, zero);
++    }
++
++    template <typename T>
++    SI V<T> gather(const T* p, U32 ix) {
++        return V<T>{p[ix[0]], p[ix[1]], p[ix[2]], p[ix[3]]};
++    }
++    template <typename T>
++    SI V<T> gather_unaligned(const T* p, U32 ix) {
++        return gather(p, ix);
++    }
++    SI void scatter_masked(I32 src, int* dst, U32 ix, I32 mask) {
++        I32 before = gather(dst, ix);
++        I32 after = if_then_else(mask, src, before);
++        dst[ix[0]] = after[0];
++        dst[ix[1]] = after[1];
++        dst[ix[2]] = after[2];
++        dst[ix[3]] = after[3];
++    }
++
++    SI void load2(const uint16_t* ptr, U16* r, U16* g) {
++        const VU8 v = (VU8)vec_xl(0, ptr);
++        const VU8 mask = {0,1, 4,5, 8,9, 12,13, 2,3, 6,7, 10,11, 14,15};
++        VU8 rg = vec_perm(v, v, mask);
++        *r = sk_unaligned_load<U16>(reinterpret_cast<const uint16_t*>(&rg) + 0);
++        *g = sk_unaligned_load<U16>(reinterpret_cast<const uint16_t*>(&rg) + 4);
++    }
++    SI void store2(uint16_t* ptr, U16 r, U16 g) {
++        VU16 rg = vec_mergeh(widen_cast<VU16>(r), widen_cast<VU16>(g));
++        vec_xst(rg, 0, ptr);
++    }
++
++    SI void load4(const uint16_t* ptr, U16* r, U16* g, U16* b, U16* a) {
++        VU16 _01 = vec_xl(0, ptr + 0),
++             _23 = vec_xl(0, ptr + 8);
++        VU16 _02 = vec_mergeh(_01, _23),
++             _13 = vec_mergel(_01, _23);
++        VU16 rg = vec_mergeh(_02, _13),
++             ba = vec_mergel(_02, _13);
++        *r = sk_unaligned_load<U16>(reinterpret_cast<const uint16_t*>(&rg) + 0);
++        *g = sk_unaligned_load<U16>(reinterpret_cast<const uint16_t*>(&rg) + 4);
++        *b = sk_unaligned_load<U16>(reinterpret_cast<const uint16_t*>(&ba) + 0);
++        *a = sk_unaligned_load<U16>(reinterpret_cast<const uint16_t*>(&ba) + 4);
++    }
++    SI void store4(uint16_t* ptr, U16 r, U16 g, U16 b, U16 a) {
++        VU16 rg = vec_mergeh(widen_cast<VU16>(r), widen_cast<VU16>(g)),
++             ba = vec_mergeh(widen_cast<VU16>(b), widen_cast<VU16>(a));
++        VU16 _01 = (VU16)vec_mergeh((VU32)rg, (VU32)ba),
++             _23 = (VU16)vec_mergel((VU32)rg, (VU32)ba);
++        vec_xst(_01, 0, ptr + 0);
++        vec_xst(_23, 0, ptr + 8);
++    }
++
++    SI void load4(const float* ptr, F* r, F* g, F* b, F* a) {
++        VF _0 = vec_xl(0, ptr +  0),
++           _1 = vec_xl(0, ptr +  4),
++           _2 = vec_xl(0, ptr +  8),
++           _3 = vec_xl(0, ptr + 12);
++        VF t0 = vec_mergeh(_0, _1),
++           t1 = vec_mergeh(_2, _3),
++           t2 = vec_mergel(_0, _1),
++           t3 = vec_mergel(_2, _3);
++        *r = __builtin_shuffle((F)t0, (F)t1, I32{0, 1, 4, 5});
++        *g = __builtin_shuffle((F)t0, (F)t1, I32{2, 3, 6, 7});
++        *b = __builtin_shuffle((F)t2, (F)t3, I32{0, 1, 4, 5});
++        *a = __builtin_shuffle((F)t2, (F)t3, I32{2, 3, 6, 7});
++    }
++    SI void store4(float* ptr, F r, F g, F b, F a) {
++        VF t0 = vec_mergeh((VF)r, (VF)g),
++           t1 = vec_mergeh((VF)b, (VF)a),
++           t2 = vec_mergel((VF)r, (VF)g),
++           t3 = vec_mergel((VF)b, (VF)a);
++        vec_xst((VF)__builtin_shuffle((F)t0, (F)t1, I32{0, 1, 4, 5}), 0, ptr +  0);
++        vec_xst((VF)__builtin_shuffle((F)t0, (F)t1, I32{2, 3, 6, 7}), 0, ptr +  4);
++        vec_xst((VF)__builtin_shuffle((F)t2, (F)t3, I32{0, 1, 4, 5}), 0, ptr +  8);
++        vec_xst((VF)__builtin_shuffle((F)t2, (F)t3, I32{2, 3, 6, 7}), 0, ptr + 12);
++    }
++
+ #endif
+ 
+ // Helpers to do scalar -> vector promotion on GCC (clang does this automatically)
+@@ -1761,7 +1904,8 @@
+     // instead of {b,a} on the stack.  Narrow stages work best for __vectorcall.
+     #define ABI __vectorcall
+     #define SKRP_NARROW_STAGES 1
+-#elif defined(__x86_64__) || defined(SK_CPU_ARM64) || defined(SK_CPU_LOONGARCH)
++#elif defined(__x86_64__) || defined(SK_CPU_ARM64) || defined(SK_CPU_LOONGARCH) || \
++        (defined(SK_CPU_PPC) && defined(__powerpc64__) && defined(SK_CPU_LENDIAN))
+     // These platforms are ideal for wider stages, and their default ABI is ideal.
+     #define ABI
+     #define SKRP_NARROW_STAGES 0
+@@ -5734,11 +5878,6 @@
+ SI U16 lerp(U16 from, U16 to, U16 t) { return div255( from*inv(t) + to*t ); }
+ 
+ template <typename D, typename S>
+-SI D cast(S src) {
+-    return __builtin_convertvector(src, D);
+-}
+-
+-template <typename D, typename S>
+ SI void split(S v, D* lo, D* hi) {
+     static_assert(2*sizeof(D) == sizeof(S), "");
+     memcpy(lo, (const char*)&v + 0*sizeof(D), sizeof(D));
+@@ -5753,6 +5892,54 @@
+     return v;
+ }
+ 
++template <typename D, typename S>
++SI D cast(S src) {
++#if defined(SKRP_CPU_VSX)
++    if constexpr (std::is_same_v<D, U16> && std::is_same_v<S, F>) {
++        VF lo, hi;
++        split(src, &lo, &hi);
++        return (U16)vec_pack((VU32)vec_ctu(lo, 0), (VU32)vec_ctu(hi, 0));
++    } else if constexpr (std::is_same_v<D, I32> && std::is_same_v<S, F>) {
++        VF lo, hi;
++        split(src, &lo, &hi);
++        return join<I32>((Vec<4, int32_t>)vec_cts(lo, 0), (Vec<4, int32_t>)vec_cts(hi, 0));
++    } else if constexpr (std::is_same_v<D, U32> && std::is_same_v<S, F>) {
++        VF lo, hi;
++        split(src, &lo, &hi);
++        return join<U32>((Vec<4, uint32_t>)vec_ctu(lo, 0), (Vec<4, uint32_t>)vec_ctu(hi, 0));
++    } else if constexpr (std::is_same_v<D, F> && std::is_same_v<S, I32>) {
++        VI32 lo, hi;
++        split(src, &lo, &hi);
++        return join<F>((Vec<4, float>)vec_ctf(lo, 0), (Vec<4, float>)vec_ctf(hi, 0));
++    } else if constexpr (std::is_same_v<D, F> && std::is_same_v<S, U32>) {
++        VU32 lo, hi;
++        split(src, &lo, &hi);
++        return join<F>((Vec<4, float>)vec_ctf(lo, 0), (Vec<4, float>)vec_ctf(hi, 0));
++    } else if constexpr (std::is_same_v<D, U16> && (std::is_same_v<S, U32> || std::is_same_v<S, I32>)) {
++        VU32 lo, hi;
++        split(src, &lo, &hi);
++        return (U16)vec_pack(lo, hi);
++    } else if constexpr (std::is_same_v<D, I16> && (std::is_same_v<S, I32> || std::is_same_v<S, U32>)) {
++        VI32 lo, hi;
++        split(src, &lo, &hi);
++        return (I16)vec_pack(lo, hi);
++    } else if constexpr (std::is_same_v<D, U8> && std::is_same_v<S, U16>) {
++        const VU16 zero = vec_splats((uint16_t)0);
++        VU8 p = vec_pack((VU16)src, zero);
++        return sk_unaligned_load<U8>(&p);
++    } else if constexpr (std::is_same_v<D, U16> && std::is_same_v<S, U8>) {
++        const VU8 v = widen_cast<VU8>(src);
++        const VU8 zero = vec_splats((uint8_t)0);
++        return (U16)vec_mergeh(v, zero);
++    } else if constexpr (std::is_same_v<D, U32> && std::is_same_v<S, U16>) {
++        const VU16 zero = vec_splats((uint16_t)0);
++        return join<U32>((Vec<4, uint32_t>)vec_mergeh((VU16)src, zero),
++                         (Vec<4, uint32_t>)vec_mergel((VU16)src, zero));
++    } else
++#endif
++    return __builtin_convertvector(src, D);
++}
++
+ SI F if_then_else(I32 c, F t, F e) {
+     return sk_bit_cast<F>( (sk_bit_cast<I32>(t) & c) | (sk_bit_cast<I32>(e) & ~c) );
+ }
+@@ -5878,6 +6065,33 @@
+ SI U16 max_intr(U16 x, U16 y) { return max(x, y); }
+ SI U16 min_intr(U16 x, U16 y) { return min(x, y); }
+ #endif // defined(SKRP_CPU_SSE41) || defined(SKRP_CPU_AVX)
++#elif defined(SKRP_CPU_VSX)
++SI F max_intr(F x, F y) {
++    VF x_lo, x_hi, y_lo, y_hi;
++    split(x, &x_lo, &x_hi);
++    split(y, &y_lo, &y_hi);
++    return join<F>((Vec<4, float>)vec_max(x_lo, y_lo), (Vec<4, float>)vec_max(x_hi, y_hi));
++}
++SI F min_intr(F x, F y) {
++    VF x_lo, x_hi, y_lo, y_hi;
++    split(x, &x_lo, &x_hi);
++    split(y, &y_lo, &y_hi);
++    return join<F>((Vec<4, float>)vec_min(x_lo, y_lo), (Vec<4, float>)vec_min(x_hi, y_hi));
++}
++SI I32 max_intr(I32 x, I32 y) {
++    VI32 x_lo, x_hi, y_lo, y_hi;
++    split(x, &x_lo, &x_hi);
++    split(y, &y_lo, &y_hi);
++    return join<I32>((Vec<4, int32_t>)vec_max(x_lo, y_lo), (Vec<4, int32_t>)vec_max(x_hi, y_hi));
++}
++SI I32 min_intr(I32 x, I32 y) {
++    VI32 x_lo, x_hi, y_lo, y_hi;
++    split(x, &x_lo, &x_hi);
++    split(y, &y_lo, &y_hi);
++    return join<I32>((Vec<4, int32_t>)vec_min(x_lo, y_lo), (Vec<4, int32_t>)vec_min(x_hi, y_hi));
++}
++SI U16 max_intr(U16 x, U16 y) { return (U16)vec_max((VU16)x, (VU16)y); }
++SI U16 min_intr(U16 x, U16 y) { return (U16)vec_min((VU16)x, (VU16)y); }
+ #else
+ // TODO(kjlubick) make sure NEON and other architectures are handling this well
+ SI F   max_intr(F x, F y) { return max(x, y); }
+@@ -5917,7 +6131,18 @@
+ SI U16 min_intr(U16      a, uint16_t b) { return min_intr(     a , U16_(b)); }
+ SI U16 min_intr(uint16_t a, U16      b) { return min_intr(U16_(a),      b ); }
+ 
++#if defined(SKRP_CPU_VSX)
++SI F mad(F f, F m, F a) {
++    VF fl, fh, ml, mh, al, ah;
++    split(f, &fl, &fh);
++    split(m, &ml, &mh);
++    split(a, &al, &ah);
++    return join<F>((Vec<4, float>)vec_madd(fl, ml, al),
++                   (Vec<4, float>)vec_madd(fh, mh, ah));
++}
++#else
+ SI F mad(F     f, F     m, F     a) { return a+f*m; }
++#endif
+ SI F mad(F     f, F     m, float a) { return mad(   f ,    m , F_(a)); }
+ SI F mad(F     f, float m, F     a) { return mad(   f , F_(m),    a ); }
+ SI F mad(F     f, float m, float a) { return mad(   f , F_(m), F_(a)); }
+@@ -5925,7 +6150,18 @@
+ SI F mad(float f, F     m, float a) { return mad(F_(f),    m , F_(a)); }
+ SI F mad(float f, float m, F     a) { return mad(F_(f), F_(m),    a ); }
+ 
++#if defined(SKRP_CPU_VSX)
++SI F nmad(F f, F m, F a) {
++    VF fl, fh, ml, mh, al, ah;
++    split(f, &fl, &fh);
++    split(m, &ml, &mh);
++    split(a, &al, &ah);
++    return join<F>((Vec<4, float>)vec_nmsub(fl, ml, al),
++                   (Vec<4, float>)vec_nmsub(fh, mh, ah));
++}
++#else
+ SI F nmad(F     f, F     m, F     a) { return a-f*m; }
++#endif
+ SI F nmad(F     f, F     m, float a) { return nmad(   f ,    m , F_(a)); }
+ SI F nmad(F     f, float m, F     a) { return nmad(   f , F_(m),    a ); }
+ SI F nmad(F     f, float m, float a) { return nmad(   f , F_(m), F_(a)); }
+@@ -5960,6 +6196,10 @@
+     __m128 lo,hi;
+     split(x, &lo,&hi);
+     return join<F>(__lsx_vfrecip_s(lo), __lsx_vfrecip_s(hi));
++#elif defined(SKRP_CPU_VSX)
++    Vec<4, float> lo, hi;
++    split(x, &lo, &hi);
++    return join<F>(SK_OPTS_NS::rcp_precise(lo), SK_OPTS_NS::rcp_precise(hi));
+ #else
+     return 1.0f / x;
+ #endif
+@@ -5997,6 +6237,10 @@
+     __m128 lo,hi;
+     split(x, &lo,&hi);
+     return join<F>(__lsx_vfsqrt_s(lo), __lsx_vfsqrt_s(hi));
++#elif defined(SKRP_CPU_VSX)
++    VF lo, hi;
++    split(x, &lo, &hi);
++    return join<F>((Vec<4, float>)vec_sqrt(lo), (Vec<4, float>)vec_sqrt(hi));
+ #else
+     return F{
+         sqrtf(x[0]), sqrtf(x[1]), sqrtf(x[2]), sqrtf(x[3]),
+@@ -6028,6 +6272,10 @@
+     __m128 lo,hi;
+     split(x, &lo,&hi);
+     return join<F>(__lsx_vfrintrm_s(lo), __lsx_vfrintrm_s(hi));
++#elif defined(SKRP_CPU_VSX)
++    VF lo, hi;
++    split(x, &lo, &hi);
++    return join<F>((Vec<4, float>)vec_floor(lo), (Vec<4, float>)vec_floor(hi));
+ #else
+     F roundtrip = cast<F>(cast<I32>(x));
+     return roundtrip - if_then_else(roundtrip > x, F_(1), F_(0));
+@@ -6472,6 +6720,18 @@
+     *g = __lsx_vsrli_h(rg, 8);
+     *b = __lsx_vand_v(ba, mask_00ff);
+     *a = __lsx_vsrli_h(ba, 8);
++#elif defined(SKRP_CPU_VSX)
++    VU8 lo, hi;
++    split(rgba, &lo, &hi);
++    const VU8 mask_rg = {0,4,8,12, 16,20,24,28, 1,5,9,13, 17,21,25,29};
++    const VU8 mask_ba = {2,6,10,14, 18,22,26,30, 3,7,11,15, 19,23,27,31};
++    const VU8 zero    = vec_splats((uint8_t)0);
++    VU8 rg8 = vec_perm(lo, hi, mask_rg);
++    VU8 ba8 = vec_perm(lo, hi, mask_ba);
++    *r = (U16)vec_mergeh(rg8, zero);
++    *g = (U16)vec_mergel(rg8, zero);
++    *b = (U16)vec_mergeh(ba8, zero);
++    *a = (U16)vec_mergel(ba8, zero);
+ #else
+     #if defined(SKRP_CPU_AVX2)
+         // Swap the middle 128-bit lanes to make _mm256_packus_epi32() in cast_U16() work out nicely.
+@@ -6562,6 +6822,13 @@
+         cast<U8>(a),
+     }};
+     vst4_u8((uint8_t*)(ptr), rgba);
++#elif defined(SKRP_CPU_VSX)
++    VU8 rg8 = vec_packs((VU16)r, (VU16)g);
++    VU8 ba8 = vec_packs((VU16)b, (VU16)a);
++    const VU8 mask_lo = {0,8,16,24, 1,9,17,25, 2,10,18,26, 3,11,19,27};
++    const VU8 mask_hi = {4,12,20,28, 5,13,21,29, 6,14,22,30, 7,15,23,31};
++    vec_xst(vec_perm(rg8, ba8, mask_lo), 0, reinterpret_cast<uint8_t*>(ptr) +  0);
++    vec_xst(vec_perm(rg8, ba8, mask_hi), 0, reinterpret_cast<uint8_t*>(ptr) + 16);
+ #else
+     store(ptr, cast<U32>(r | (g<<8)) <<  0
+              | cast<U32>(b | (a<<8)) << 16);
+@@ -6945,12 +7212,21 @@
+ }
+ 
+ SI void round_F_to_U16(F R, F G, F B, F A, U16* r, U16* g, U16* b, U16* a) {
++#if defined(SKRP_CPU_VSX)
++    auto round_color = [](F x) { return cast<U16>(mad(x, 255.0f, 0.5f)); };
++
++    *r = round_color(min_intr(max_intr(0, R), 1));
++    *g = round_color(min_intr(max_intr(0, G), 1));
++    *b = round_color(min_intr(max_intr(0, B), 1));
++    *a = round_color(A);  // we assume alpha is already in [0,1].
++#else
+     auto round_color = [](F x) { return cast<U16>(x * 255.0f + 0.5f); };
+ 
+     *r = round_color(min(max(0, R), 1));
+     *g = round_color(min(max(0, G), 1));
+     *b = round_color(min(max(0, B), 1));
+     *a = round_color(A);  // we assume alpha is already in [0,1].
++#endif
+ }
+ 
+ SI void gradient_lookup(const SkRasterPipelineContexts::GradientCtx* c,
+--- a/Source/ThirdParty/skia/src/opts/SkSwizzler_opts.inc
++++ b/Source/ThirdParty/skia/src/opts/SkSwizzler_opts.inc
+@@ -22,6 +22,11 @@
+     #include <lasxintrin.h>
+ #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
+     #include <lsxintrin.h>
++#elif defined(SK_PPC_HAS_VSX)
++    #include <altivec.h>
++    #undef vector
++    #undef pixel
++    #undef bool
+ #endif
+ 
+ // This file is included in multiple translation units with different #defines set enabling
+@@ -128,6 +133,9 @@
+     return vcvtq_u32_f32(vN)[0];
+ #elif SK_CPU_X64_LEVEL >= SK_CPU_X64_LEVEL_SSE2 && (defined(__clang__) || !defined(_MSC_VER))
+     return _mm_cvtps_epi32(__m128{n})[0];
++#elif defined(SK_PPC_HAS_VSX)
++    __vector float v = vec_splats(n);
++    return vec_cts(vec_rint(v), 0)[0];
+ #else
+     return (uint32_t)(n + 0.5f);
+ #endif
+@@ -1577,6 +1585,210 @@
+     rgbA_to_BGRA_portable(dst, src, count);
+ }
+ 
++#elif defined(SK_PPC_HAS_VSX)
++// -- VSX (POWER8 ISA 2.07 floor) ------------------------------------------------------------------
++
++// Exact (x + 127) / 255 for all x = a * b where a, b in [0, 255]:
++//   (x + 127) / 255 == ((x + 128) + ((x + 128) >> 8)) >> 8
++SI __vector unsigned short div255_round_vsx(__vector unsigned short x) {
++    const __vector unsigned short v128 = vec_splats((uint16_t)128);
++    const __vector unsigned short v8   = vec_splats((uint16_t)8);
++    __vector unsigned short t = vec_add(x, v128);
++    return vec_sr(vec_add(t, vec_sr(t, v8)), v8);
++}
++
++static void premul_should_swapRB_vsx(bool kSwapRB, uint32_t* dst, const uint32_t* src, int count) {
++    using VU8  = __vector unsigned char;
++    using VU16 = __vector unsigned short;
++    using VU32 = __vector unsigned int;
++
++    const VU8 alpha_splat_mask = {3,3,3,3, 7,7,7,7, 11,11,11,11, 15,15,15,15};
++    // rb16 bytes (LE): R0 at 0, B0 at 2, R1 at 4, B1 at 6, R2 at 8, B2 at 10, R3 at 12, B3 at 14.
++    // ga16 bytes (LE): G0 at 16, G1 at 20, G2 at 24, G3 at 28 (byte 17 is 0).
++    const VU8 pack_mask = kSwapRB
++        ? (VU8){2,16,0,17,  6,20,4,17, 10,24, 8,17, 14,28,12,17}
++        : (VU8){0,16,2,17,  4,20,6,17,  8,24,10,17, 12,28,14,17};
++    const VU32 alpha_sel = vec_splats((uint32_t)0xFF000000);
++
++    while (count >= 4) {
++        VU8 px = (VU8)vec_xl(0, src);
++        VU8 a_splat = vec_perm(px, px, alpha_splat_mask);
++        VU16 rb16 = div255_round_vsx(vec_mule(px, a_splat));
++        VU16 ga16 = div255_round_vsx(vec_mulo(px, a_splat));
++        VU8 rgb = vec_perm((VU8)rb16, (VU8)ga16, pack_mask);
++        VU32 out = vec_sel((VU32)rgb, (VU32)px, alpha_sel);
++        vec_xst(out, 0, dst);
++        src += 4;
++        dst += 4;
++        count -= 4;
++    }
++
++    auto proc = kSwapRB ? RGBA_to_bgrA_portable : RGBA_to_rgbA_portable;
++    proc(dst, src, count);
++}
++
++/*not static*/ inline void RGBA_to_rgbA(uint32_t* dst, const uint32_t* src, int count) {
++    premul_should_swapRB_vsx(false, dst, src, count);
++}
++
++/*not static*/ inline void RGBA_to_bgrA(uint32_t* dst, const uint32_t* src, int count) {
++    premul_should_swapRB_vsx(true, dst, src, count);
++}
++
++/*not static*/ inline void RGBA_to_BGRA(uint32_t* dst, const uint32_t* src, int count) {
++    using VU8 = __vector unsigned char;
++    const VU8 swapRB = {2,1,0,3, 6,5,4,7, 10,9,8,11, 14,13,12,15};
++    while (count >= 4) {
++        VU8 rgba = (VU8)vec_xl(0, src);
++        vec_xst(vec_perm(rgba, rgba, swapRB), 0, reinterpret_cast<uint8_t*>(dst));
++        src += 4;
++        dst += 4;
++        count -= 4;
++    }
++    RGBA_to_BGRA_portable(dst, src, count);
++}
++
++/*not static*/ inline void grayA_to_RGBA(uint32_t dst[], const uint8_t* src, int count) {
++    using VU8 = __vector unsigned char;
++    // src bytes: g0,a0, g1,a1, g2,a2, g3,a3, g4,a4, g5,a5, g6,a6, g7,a7
++    const VU8 expand_lo = {0,0,0,1, 2,2,2,3,  4, 4, 4, 5,  6, 6, 6, 7};
++    const VU8 expand_hi = {8,8,8,9, 10,10,10,11, 12,12,12,13, 14,14,14,15};
++    while (count >= 8) {
++        VU8 ga = vec_xl(0, src);
++        vec_xst(vec_perm(ga, ga, expand_lo), 0, reinterpret_cast<uint8_t*>(dst + 0));
++        vec_xst(vec_perm(ga, ga, expand_hi), 0, reinterpret_cast<uint8_t*>(dst + 4));
++        src += 16;
++        dst += 8;
++        count -= 8;
++    }
++    grayA_to_RGBA_portable(dst, src, count);
++}
++
++/*not static*/ inline void grayA_to_rgbA(uint32_t dst[], const uint8_t* src, int count) {
++    using VU8  = __vector unsigned char;
++    using VU16 = __vector unsigned short;
++    const VU8 swap_ga   = {1,0, 3,2, 5,4, 7,6, 9,8, 11,10, 13,12, 15,14};
++    const VU8 expand_lo = {0,0,0,1, 2,2,2,3,  4, 4, 4, 5,  6, 6, 6, 7};
++    const VU8 expand_hi = {8,8,8,9, 10,10,10,11, 12,12,12,13, 14,14,14,15};
++    const VU16 a_mask   = vec_splats((uint16_t)0xFF00);
++    while (count >= 8) {
++        VU8 ga = vec_xl(0, src);
++        VU8 ag = vec_perm(ga, ga, swap_ga);
++        VU16 g_premul = div255_round_vsx(vec_mule(ga, ag));  // low byte of each u16 = g'
++        VU8 ga_premul = (VU8)vec_or(g_premul, vec_and((VU16)ga, a_mask));
++        vec_xst(vec_perm(ga_premul, ga_premul, expand_lo), 0, reinterpret_cast<uint8_t*>(dst + 0));
++        vec_xst(vec_perm(ga_premul, ga_premul, expand_hi), 0, reinterpret_cast<uint8_t*>(dst + 4));
++        src += 16;
++        dst += 8;
++        count -= 8;
++    }
++    grayA_to_rgbA_portable(dst, src, count);
++}
++
++enum Format { kRGB1, kBGR1 };
++static void inverted_cmyk_to_vsx(Format format, uint32_t* dst, const uint32_t* src, int count) {
++    using VU8  = __vector unsigned char;
++    using VU16 = __vector unsigned short;
++    using VU32 = __vector unsigned int;
++
++    const VU8 k_splat_mask = {3,3,3,3, 7,7,7,7, 11,11,11,11, 15,15,15,15};
++    const VU8 pack_mask = (kBGR1 == format)
++        ? (VU8){2,16,0,17,  6,20,4,17, 10,24, 8,17, 14,28,12,17}
++        : (VU8){0,16,2,17,  4,20,6,17,  8,24,10,17, 12,28,14,17};
++    const VU32 alpha_mask = vec_splats((uint32_t)0xFF000000);
++
++    while (count >= 4) {
++        VU8 px = (VU8)vec_xl(0, src);
++        VU8 k_splat = vec_perm(px, px, k_splat_mask);
++        VU16 cy16 = div255_round_vsx(vec_mule(px, k_splat));
++        VU16 mk16 = div255_round_vsx(vec_mulo(px, k_splat));
++        VU8 rgb = vec_perm((VU8)cy16, (VU8)mk16, pack_mask);
++        vec_xst(vec_or((VU32)rgb, alpha_mask), 0, dst);
++        src += 4;
++        dst += 4;
++        count -= 4;
++    }
++
++    auto proc = (kBGR1 == format) ? inverted_CMYK_to_BGR1_portable : inverted_CMYK_to_RGB1_portable;
++    proc(dst, src, count);
++}
++
++/*not static*/ inline void inverted_CMYK_to_RGB1(uint32_t dst[], const uint32_t* src, int count) {
++    inverted_cmyk_to_vsx(kRGB1, dst, src, count);
++}
++
++/*not static*/ inline void inverted_CMYK_to_BGR1(uint32_t dst[], const uint32_t* src, int count) {
++    inverted_cmyk_to_vsx(kBGR1, dst, src, count);
++}
++
++static void unpremul_should_swapRB_vsx(bool kSwapRB, uint32_t* dst, const uint32_t* src, int count) {
++    using VU8  = __vector unsigned char;
++    using VU16 = __vector unsigned short;
++    using VU32 = __vector unsigned int;
++    using VF   = __vector float;
++
++    const VU32 mask_ff = vec_splats((uint32_t)0xFF);
++    const VU32 mask_a  = vec_splats((uint32_t)0xFF000000);
++    const VF   v255    = vec_splats(255.0f);
++    const VF   vzero   = vec_splats(0.0f);
++    const VF   vinv255 = vec_splats(1.0f / 255.0f);
++    const VF   vhalf   = vec_splats(0.5f);
++    const VU8  pack_mask = kSwapRB
++        ? (VU8){2,16,0,17,  6,20,4,17, 10,24, 8,17, 14,28,12,17}
++        : (VU8){0,16,2,17,  4,20,6,17,  8,24,10,17, 12,28,14,17};
++
++    while (count >= 4) {
++        VU32 px = vec_xl(0, src);
++        VU32 a_u32 = vec_sr(px, vec_splats((uint32_t)24));
++        VF a_flt = vec_ctf(a_u32, 0);
++        VF r_flt = vec_ctf(vec_and(px, mask_ff), 0);
++        VF g_flt = vec_ctf(vec_and(vec_sr(px, vec_splats((uint32_t)8)), mask_ff), 0);
++        VF b_flt = vec_ctf(vec_and(vec_sr(px, vec_splats((uint32_t)16)), mask_ff), 0);
++
++        __vector __bool int nz = vec_cmpgt(a_flt, vzero);
++        VF scale;
++        if constexpr (kFastUnpremul) {
++            scale = vec_sel(vzero, vec_div(v255, a_flt), nz);
++        } else {
++            VF normA = vec_mul(a_flt, vinv255);
++            scale = vec_sel(vzero, vec_mul(vec_div(vec_splats(1.0f), normA), v255), nz);
++            r_flt = vec_mul(r_flt, vinv255);
++            g_flt = vec_mul(g_flt, vinv255);
++            b_flt = vec_mul(b_flt, vinv255);
++        }
++
++        auto cvt_chan = [&](VF c) -> VU32 {
++            VF ans = vec_min(v255, kFastUnpremul ? vec_add(vec_mul(c, scale), vhalf)
++                                                 : vec_mul(c, scale));
++            return kFastUnpremul ? vec_ctu(ans, 0) : vec_ctu(vec_rint(ans), 0);
++        };
++        VU32 r_out = cvt_chan(r_flt);
++        VU32 g_out = cvt_chan(g_flt);
++        VU32 b_out = cvt_chan(b_flt);
++
++        // rb16: r in even halfwords, b in odd halfwords (0..255); ga16: g in even halfwords
++        VU16 rb16 = (VU16)vec_or(r_out, vec_sl(b_out, vec_splats((uint32_t)16)));
++        VU16 ga16 = (VU16)g_out;
++        VU8 rgb = vec_perm((VU8)rb16, (VU8)ga16, pack_mask);
++        vec_xst(vec_sel((VU32)rgb, px, mask_a), 0, dst);
++
++        src += 4;
++        dst += 4;
++        count -= 4;
++    }
++
++    auto proc = kSwapRB ? rgbA_to_BGRA_portable : rgbA_to_RGBA_portable;
++    proc(dst, src, count);
++}
++
++/*not static*/ inline void rgbA_to_RGBA(uint32_t* dst, const uint32_t* src, int count) {
++    unpremul_should_swapRB_vsx(false, dst, src, count);
++}
++
++/*not static*/ inline void rgbA_to_BGRA(uint32_t* dst, const uint32_t* src, int count) {
++    unpremul_should_swapRB_vsx(true, dst, src, count);
++}
++
+ #else
+ // -- No Opts --------------------------------------------------------------------------------------
+ 
+@@ -1795,6 +2007,29 @@
+         }
+         gray_to_RGB1_portable(dst, src, count);
+     }
++#elif defined(SK_PPC_HAS_VSX)
++    /*not static*/ inline void gray_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
++        using VU8  = __vector unsigned char;
++        using VU16 = __vector unsigned short;
++        const VU8 ff = vec_splats((uint8_t)0xFF);
++        while (count >= 16) {
++            VU8 grays = vec_xl(0, src);
++            VU8 gg_lo = vec_mergeh(grays, grays);
++            VU8 gg_hi = vec_mergel(grays, grays);
++            VU8 ga_lo = vec_mergeh(grays, ff);
++            VU8 ga_hi = vec_mergel(grays, ff);
++
++            vec_xst((VU8)vec_mergeh((VU16)gg_lo, (VU16)ga_lo), 0, reinterpret_cast<uint8_t*>(dst +  0));
++            vec_xst((VU8)vec_mergel((VU16)gg_lo, (VU16)ga_lo), 0, reinterpret_cast<uint8_t*>(dst +  4));
++            vec_xst((VU8)vec_mergeh((VU16)gg_hi, (VU16)ga_hi), 0, reinterpret_cast<uint8_t*>(dst +  8));
++            vec_xst((VU8)vec_mergel((VU16)gg_hi, (VU16)ga_hi), 0, reinterpret_cast<uint8_t*>(dst + 12));
++
++            src += 16;
++            dst += 16;
++            count -= 16;
++        }
++        gray_to_RGB1_portable(dst, src, count);
++    }
+ #else
+     void gray_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
+         gray_to_RGB1_portable(dst, src, count);
+@@ -2014,6 +2249,34 @@
+     /*not static*/ inline void RGB_to_BGR1(uint32_t dst[], const uint8_t* src, int count) {
+         insert_alpha_should_swaprb(true, dst, src, count);
+     }
++#elif defined(SK_PPC_HAS_VSX)
++    static void insert_alpha_should_swaprb_vsx(bool kSwapRB,
++                                               uint32_t dst[], const uint8_t* src, int count) {
++        using VU8  = __vector unsigned char;
++        using VU32 = __vector unsigned int;
++        const VU32 alphaMask = vec_splats((uint32_t)0xFF000000);
++        const VU8 expand = kSwapRB
++            ? (VU8){2,1,0,2, 5,4,3,5, 8,7,6,8, 11,10,9,11}
++            : (VU8){0,1,2,0, 3,4,5,3, 6,7,8,6,  9,10,11,9};
++
++        while (count >= 6) {
++            VU8 rgb = vec_xl(0, src);
++            VU32 rgba = vec_or((VU32)vec_perm(rgb, rgb, expand), alphaMask);
++            vec_xst(rgba, 0, dst);
++            src += 12;
++            dst += 4;
++            count -= 4;
++        }
++
++        auto proc = kSwapRB ? RGB_to_BGR1_portable : RGB_to_RGB1_portable;
++        proc(dst, src, count);
++    }
++    /*not static*/ inline void RGB_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
++        insert_alpha_should_swaprb_vsx(false, dst, src, count);
++    }
++    /*not static*/ inline void RGB_to_BGR1(uint32_t dst[], const uint8_t* src, int count) {
++        insert_alpha_should_swaprb_vsx(true, dst, src, count);
++    }
+ #else
+     void RGB_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
+         RGB_to_RGB1_portable(dst, src, count);
+--- a/Source/ThirdParty/skia/src/opts/SkBlitRow_opts.h
++++ b/Source/ThirdParty/skia/src/opts/SkBlitRow_opts.h
+@@ -158,6 +158,40 @@
+     }
+ #endif
+ 
++#if defined(SK_PPC_HAS_VSX)
++    #include <altivec.h>
++    #undef vector
++    #undef pixel
++    #undef bool
++
++    static inline __vector unsigned int SkPMSrcOver_VSX(__vector unsigned int src,
++                                                        __vector unsigned int dst) {
++        const __vector unsigned int v256 = vec_splats((uint32_t)256);
++        const __vector unsigned int v24  = vec_splats((uint32_t)24);
++        const __vector unsigned int v16  = vec_splats((uint32_t)16);
++        const __vector unsigned int mask = vec_splats((uint32_t)0x00ff00ff);
++        const __vector unsigned short v8 = vec_splats((uint16_t)8);
++        const __vector unsigned short zero16 = vec_splats((uint16_t)0);
++
++        __vector unsigned int scale = vec_sub(v256, vec_sr(src, v24));
++        __vector unsigned short scale_x2 =
++                (__vector unsigned short)vec_or(vec_sl(scale, v16), scale);
++
++        __vector unsigned short rb =
++                (__vector unsigned short)vec_and(dst, mask);
++        rb = vec_mladd(rb, scale_x2, zero16);
++        rb = vec_sr(rb, v8);
++
++        __vector unsigned short ga = vec_sr((__vector unsigned short)dst, v8);
++        ga = vec_mladd(ga, scale_x2, zero16);
++        __vector unsigned int ga32 = vec_andc((__vector unsigned int)ga, mask);
++
++        return (__vector unsigned int)vec_adds(
++                (__vector unsigned char)src,
++                (__vector unsigned char)vec_or((__vector unsigned int)rb, ga32));
++    }
++#endif
++
+ namespace SK_OPTS_NS {
+ 
+ /*not static*/
+@@ -228,6 +262,17 @@
+         src += 4;
+         dst += 4;
+         len -= 4;
++    }
++#endif
++
++#if defined(SK_PPC_HAS_VSX)
++    while (len >= 4) {
++        __vector unsigned int s = vec_xl(0, src);
++        __vector unsigned int d = vec_xl(0, dst);
++        vec_xst(SkPMSrcOver_VSX(s, d), 0, dst);
++        src += 4;
++        dst += 4;
++        len -= 4;
+     }
+ #endif
+ 
+--- a/Source/ThirdParty/skia/src/opts/SkBlitMask_opts.h
++++ b/Source/ThirdParty/skia/src/opts/SkBlitMask_opts.h
+@@ -13,6 +13,11 @@
+ 
+ #if defined(SK_ARM_HAS_NEON)
+     #include <arm_neon.h>
++#elif defined(SK_PPC_HAS_VSX)
++    #include <altivec.h>
++    #undef vector
++    #undef pixel
++    #undef bool
+ #endif
+ 
+ namespace SK_OPTS_NS {
+@@ -337,6 +342,202 @@
+ 
+                 mask += 8;
+                 device += 8;
++                w -= 8;
++            }
++
++            while (w-- > 0) {
++                unsigned aa = *mask++;
++                *device = (aa << SK_A32_SHIFT)
++                            + SkAlphaMulQ(*device, SkAlpha255To256(255 - aa));
++                device += 1;
++            }
++
++            device = (uint32_t*)((char*)device + dstRB);
++            mask += mask_adjust;
++
++        } while (--height != 0);
++    }
++
++#elif defined(SK_PPC_HAS_VSX)
++
++    static inline __vector unsigned short SkAlphaMul_vsx(__vector unsigned short x,
++                                                         __vector unsigned short y) {
++        const __vector unsigned short zero = vec_splats((uint16_t)0);
++        const __vector unsigned short v8   = vec_splats((uint16_t)8);
++        return vec_sr(vec_mladd(x, y, zero), v8);
++    }
++
++    template <bool isTranslucent>
++    static void blit_mask_d32_a8_vsx(void* SK_RESTRICT dst, size_t dstRB,
++                                     const void* SK_RESTRICT maskPtr, size_t maskRB,
++                                     SkColor color, int width, int height) {
++        const SkPMColor pmc = SkPreMultiplyColor(color);
++        const U8CPU colorAlpha = SkGetPackedA32(pmc);
++        SkPMColor* SK_RESTRICT device = (SkPMColor*)dst;
++        const uint8_t* SK_RESTRICT mask = (const uint8_t*)maskPtr;
++
++        ptrdiff_t mask_adjust = (ptrdiff_t)maskRB - width;
++        dstRB -= (width << 2);
++
++        using VU8  = __vector unsigned char;
++        using VU16 = __vector unsigned short;
++
++        const VU8  zero8   = vec_splats((uint8_t)0);
++        const VU16 zero16  = vec_splats((uint16_t)0);
++        const VU16 one16   = vec_splats((uint16_t)1);
++        const VU16 v256    = vec_splats((uint16_t)256);
++        const VU16 v8      = vec_splats((uint16_t)8);
++        const VU8  vpmc8   = (VU8)vec_splats(pmc);
++        const VU16 vpmc16  = (VU16)vec_mergeh(vpmc8, zero8);  // 2x [B,G,R,A] as uint16_t
++        const VU16 vpmca   = vec_splats(static_cast<uint16_t>(colorAlpha));
++
++        const VU8 rep01 = { 0, 1,  0, 1,  0, 1,  0, 1,   2, 3,  2, 3,  2, 3,  2, 3};
++        const VU8 rep23 = { 4, 5,  4, 5,  4, 5,  4, 5,   6, 7,  6, 7,  6, 7,  6, 7};
++        const VU8 rep45 = { 8, 9,  8, 9,  8, 9,  8, 9,  10,11, 10,11, 10,11, 10,11};
++        const VU8 rep67 = {12,13, 12,13, 12,13, 12,13,  14,15, 14,15, 14,15, 14,15};
++
++        do {
++            int w = width;
++            while (w >= 8) {
++                uint64_t m8;
++                memcpy(&m8, mask, 8);
++                const VU8 vm8 = (VU8)(__vector unsigned long long){m8, 0};
++                const VU16 m16 = (VU16)vec_mergeh(vm8, zero8);
++                const VU16 m256 = vec_add(m16, one16);
++
++                VU16 vscale;
++                if constexpr (isTranslucent) {
++                    const VU16 tmp = vec_sr(vec_mladd(vpmca, m256, zero16), v8);
++                    vscale = vec_sub(v256, tmp);
++                } else {
++                    vscale = vec_sub(v256, m16);
++                }
++
++                const VU8 d_lo = (VU8)vec_xl(0, device);
++                const VU8 d_hi = (VU8)vec_xl(16, device);
++
++                const VU16 d01 = (VU16)vec_mergeh(d_lo, zero8);
++                const VU16 d23 = (VU16)vec_mergel(d_lo, zero8);
++                const VU16 d45 = (VU16)vec_mergeh(d_hi, zero8);
++                const VU16 d67 = (VU16)vec_mergel(d_hi, zero8);
++
++                const VU16 m01  = (VU16)vec_perm((VU8)m256, (VU8)m256, rep01);
++                const VU16 m23  = (VU16)vec_perm((VU8)m256, (VU8)m256, rep23);
++                const VU16 m45  = (VU16)vec_perm((VU8)m256, (VU8)m256, rep45);
++                const VU16 m67  = (VU16)vec_perm((VU8)m256, (VU8)m256, rep67);
++
++                const VU16 sc01 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep01);
++                const VU16 sc23 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep23);
++                const VU16 sc45 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep45);
++                const VU16 sc67 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep67);
++
++                const VU16 r01 = vec_add(SkAlphaMul_vsx(vpmc16, m01), SkAlphaMul_vsx(d01, sc01));
++                const VU16 r23 = vec_add(SkAlphaMul_vsx(vpmc16, m23), SkAlphaMul_vsx(d23, sc23));
++                const VU16 r45 = vec_add(SkAlphaMul_vsx(vpmc16, m45), SkAlphaMul_vsx(d45, sc45));
++                const VU16 r67 = vec_add(SkAlphaMul_vsx(vpmc16, m67), SkAlphaMul_vsx(d67, sc67));
++
++                vec_xst(vec_pack(r01, r23), 0, reinterpret_cast<uint8_t*>(device));
++                vec_xst(vec_pack(r45, r67), 16, reinterpret_cast<uint8_t*>(device));
++
++                mask += 8;
++                device += 8;
++                w -= 8;
++            }
++
++            while (w-- > 0) {
++                const U8CPU vmask = *mask++;
++                const U16CPU vmask256 = SkAlpha255To256(vmask);
++                U16CPU vscale;
++                if constexpr (isTranslucent) {
++                    vscale = 256 - SkAlphaMulQ(colorAlpha, vmask256);
++                } else {
++                    vscale = 256 - vmask;
++                }
++                *device = SkAlphaMulQ(pmc, vmask256)
++                        + SkAlphaMulQ(*device, vscale);
++                device += 1;
++            }
++
++            device = (uint32_t*)((char*)device + dstRB);
++            mask += mask_adjust;
++
++        } while (--height != 0);
++    }
++
++    static void blit_mask_d32_a8_general(SkPMColor* dst, size_t dstRB,
++                                         const SkAlpha* mask, size_t maskRB,
++                                         SkColor color, int w, int h) {
++        blit_mask_d32_a8_vsx<true>(dst, dstRB, mask, maskRB, color, w, h);
++    }
++
++    static void blit_mask_d32_a8_opaque(SkPMColor* dst, size_t dstRB,
++                                         const SkAlpha* mask, size_t maskRB,
++                                         SkColor color, int w, int h) {
++        blit_mask_d32_a8_vsx<false>(dst, dstRB, mask, maskRB, color, w, h);
++    }
++
++    static void blit_mask_d32_a8_black(SkPMColor* dst, size_t dstRB,
++                                       const SkAlpha* maskPtr, size_t maskRB,
++                                       int width, int height) {
++        SkPMColor* SK_RESTRICT device = (SkPMColor*)dst;
++        const uint8_t* SK_RESTRICT mask = (const uint8_t*)maskPtr;
++
++        ptrdiff_t mask_adjust = (ptrdiff_t)maskRB - width;
++        dstRB -= (width << 2);
++
++        using VU8  = __vector unsigned char;
++        using VU16 = __vector unsigned short;
++
++        const VU8  zero8  = vec_splats((uint8_t)0);
++        const VU16 zero16 = vec_splats((uint16_t)0);
++        const VU16 v256   = vec_splats((uint16_t)256);
++        const VU16 v8     = vec_splats((uint16_t)8);
++
++        const VU8 rep01 = { 0, 1,  0, 1,  0, 1,  0, 1,   2, 3,  2, 3,  2, 3,  2, 3};
++        const VU8 rep23 = { 4, 5,  4, 5,  4, 5,  4, 5,   6, 7,  6, 7,  6, 7,  6, 7};
++        const VU8 rep45 = { 8, 9,  8, 9,  8, 9,  8, 9,  10,11, 10,11, 10,11, 10,11};
++        const VU8 rep67 = {12,13, 12,13, 12,13, 12,13,  14,15, 14,15, 14,15, 14,15};
++
++        // Place mask bytes directly in the alpha byte slot of each pixel (byte 3 on LE BGRA).
++        static_assert(SK_A32_SHIFT == 24, "Expected SK_A32_SHIFT == 24 on ppc64le");
++        const VU8 alpha_lo = {16,16,16,0, 16,16,16,1, 16,16,16,2, 16,16,16,3};
++        const VU8 alpha_hi = {16,16,16,4, 16,16,16,5, 16,16,16,6, 16,16,16,7};
++
++        do {
++            int w = width;
++            while (w >= 8) {
++                uint64_t m8;
++                memcpy(&m8, mask, 8);
++                const VU8 vm8 = (VU8)(__vector unsigned long long){m8, 0};
++                const VU16 m16 = (VU16)vec_mergeh(vm8, zero8);
++                const VU16 vscale = vec_sub(v256, m16);
++
++                const VU8 d_lo = (VU8)vec_xl(0, device);
++                const VU8 d_hi = (VU8)vec_xl(16, device);
++
++                const VU16 d01 = (VU16)vec_mergeh(d_lo, zero8);
++                const VU16 d23 = (VU16)vec_mergel(d_lo, zero8);
++                const VU16 d45 = (VU16)vec_mergeh(d_hi, zero8);
++                const VU16 d67 = (VU16)vec_mergel(d_hi, zero8);
++
++                const VU16 sc01 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep01);
++                const VU16 sc23 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep23);
++                const VU16 sc45 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep45);
++                const VU16 sc67 = (VU16)vec_perm((VU8)vscale, (VU8)vscale, rep67);
++
++                const VU16 r01 = vec_sr(vec_mladd(d01, sc01, zero16), v8);
++                const VU16 r23 = vec_sr(vec_mladd(d23, sc23, zero16), v8);
++                const VU16 r45 = vec_sr(vec_mladd(d45, sc45, zero16), v8);
++                const VU16 r67 = vec_sr(vec_mladd(d67, sc67, zero16), v8);
++
++                const VU8 a_lo = vec_perm(vm8, zero8, alpha_lo);
++                const VU8 a_hi = vec_perm(vm8, zero8, alpha_hi);
++
++                vec_xst(vec_add(vec_pack(r01, r23), a_lo), 0, reinterpret_cast<uint8_t*>(device));
++                vec_xst(vec_add(vec_pack(r45, r67), a_hi), 16, reinterpret_cast<uint8_t*>(device));
++
++                mask += 8;
++                device += 8;
+                 w -= 8;
+             }
+ 
+--- a/Source/ThirdParty/skia/src/opts/SkBitmapProcState_opts.h
++++ b/Source/ThirdParty/skia/src/opts/SkBitmapProcState_opts.h
+@@ -29,6 +29,11 @@
+     #include <lasxintrin.h>
+ #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
+     #include <lsxintrin.h>
++#elif defined(SK_PPC_HAS_VSX)
++    #include <altivec.h>
++    #undef vector
++    #undef pixel
++    #undef bool
+ #endif
+ 
+ namespace SK_OPTS_NS {
+@@ -429,6 +434,91 @@
+         }
+     }
+ 
++#elif defined(SK_PPC_HAS_VSX)
++
++    /*not static*/ inline
++    void S32_alpha_D32_filter_DX(const SkBitmapProcState& s,
++                                 const uint32_t* xy, int count, uint32_t* colors) {
++        SkASSERT(count > 0 && colors != nullptr);
++        SkASSERT(s.fBilerp);
++        SkASSERT(kN32_SkColorType == s.fPixmap.colorType());
++        SkASSERT(s.fAlphaScale <= 256);
++
++        int y0, y1, wy;
++        decode_packed_coordinates_and_weight(*xy++, &y0, &y1, &wy);
++
++        auto row0 = (const uint32_t*)( (const char*)s.fPixmap.addr() + y0 * s.fPixmap.rowBytes() ),
++             row1 = (const uint32_t*)( (const char*)s.fPixmap.addr() + y1 * s.fPixmap.rowBytes() );
++
++        using VU8  = __vector unsigned char;
++        using VU16 = __vector unsigned short;
++        using VU64 = __vector unsigned long long;
++
++        const VU8  zero8  = vec_splats((uint8_t)0);
++        const VU16 zero16 = vec_splats((uint16_t)0);
++        const VU16 v8     = vec_splats((uint16_t)8);
++        const VU16 vwy0   = vec_splats(static_cast<uint16_t>(16 - wy));
++        const VU16 vwy1   = vec_splats(static_cast<uint16_t>(wy));
++        const VU16 v16_16 = vec_splats((uint16_t)16);
++        const VU16 vAlpha = vec_splats(static_cast<uint16_t>(s.fAlphaScale));
++
++        while (count >= 2) {
++            int x0_0, x1_0, wx0, x0_1, x1_1, wx1;
++            decode_packed_coordinates_and_weight(xy[0], &x0_0, &x1_0, &wx0);
++            decode_packed_coordinates_and_weight(xy[1], &x0_1, &x1_1, &wx1);
++            xy += 2;
++
++            const uint64_t t_l = (uint64_t)row0[x0_0] | ((uint64_t)row0[x0_1] << 32);
++            const uint64_t b_l = (uint64_t)row1[x0_0] | ((uint64_t)row1[x0_1] << 32);
++            const VU8 tl_bl = (VU8)(VU64){t_l, b_l};
++
++            const uint64_t t_r = (uint64_t)row0[x1_0] | ((uint64_t)row0[x1_1] << 32);
++            const uint64_t b_r = (uint64_t)row1[x1_0] | ((uint64_t)row1[x1_1] << 32);
++            const VU8 tr_br = (VU8)(VU64){t_r, b_r};
++
++            const VU16 L = vec_mladd((VU16)vec_mergeh(tl_bl, zero8), vwy0,
++                                     vec_mladd((VU16)vec_mergel(tl_bl, zero8), vwy1, zero16));
++            const VU16 R = vec_mladd((VU16)vec_mergeh(tr_br, zero8), vwy0,
++                                     vec_mladd((VU16)vec_mergel(tr_br, zero8), vwy1, zero16));
++
++            const uint64_t w0q = (uint64_t)(uint16_t)wx0 * 0x0001000100010001ULL;
++            const uint64_t w1q = (uint64_t)(uint16_t)wx1 * 0x0001000100010001ULL;
++            const VU16 vwx  = (VU16)(VU64){w0q, w1q};
++            const VU16 viwx = vec_sub(v16_16, vwx);
++
++            VU16 sum = vec_sr(vec_mladd(L, viwx, vec_mladd(R, vwx, zero16)), v8);
++
++            if (s.fAlphaScale < 256) {
++                sum = vec_sr(vec_mladd(sum, vAlpha, zero16), v8);
++            }
++
++            const VU8 packed = vec_pack(sum, zero16);
++            const uint64_t out2 = ((VU64)packed)[0];
++            memcpy(colors, &out2, sizeof(out2));
++            colors += 2;
++            count -= 2;
++        }
++
++        if (count > 0) {
++            int x0, x1, wx;
++            decode_packed_coordinates_and_weight(*xy++, &x0, &x1, &wx);
++            const uint32_t mask = 0xFF00FF;
++            int xyw = wx * wy;
++            int s00 = 256 - 16 * wy - 16 * wx + xyw;
++            int s01 = 16 * wx - xyw;
++            int s10 = 16 * wy - xyw;
++            uint32_t a00 = row0[x0], a01 = row0[x1], a10 = row1[x0], a11 = row1[x1];
++            uint32_t lo = (a00 & mask) * s00 + (a01 & mask) * s01 + (a10 & mask) * s10 + (a11 & mask) * xyw;
++            uint32_t hi = ((a00 >> 8) & mask) * s00 + ((a01 >> 8) & mask) * s01
++                        + ((a10 >> 8) & mask) * s10 + ((a11 >> 8) & mask) * xyw;
++            if (s.fAlphaScale < 256) {
++                lo = ((lo >> 8) & mask) * s.fAlphaScale;
++                hi = ((hi >> 8) & mask) * s.fAlphaScale;
++            }
++            *colors++ = ((lo >> 8) & mask) | (hi & ~mask);
++        }
++    }
++
+ #else
+ 
+     // The NEON code only actually differs from the portable code in the
