@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Fri, 20 Nov 2026 19:42:04 -0600
+Subject: [PATCH] ppc64 JIT: patch OSI points with a single bl
+
+Ion invalidation patches each active frame's OSI point with
+PatchWrite_NearCall, and CodeGeneratorShared::ensureOsiSpace() only
+keeps PatchWrite_NearCallSize bytes free *between* OSI points. On ppc64
+the patch was a 10-instruction load64 + mtctr + bctrl stanza (40 bytes),
+and the bytes after a function's last OSI point are not necessarily
+code: generateEpilogue() flushes the constant pool right after the
+epilogue (6 instructions since our call-path patch), so the tail of the
+stanza landed on the pool guard, header and first entry.
+
+An invalidated frame still runs the code between its call's return and
+the OSI point. After a cross-realm call that is the switchToRealm()
+restore, which on POWER9 loads the caller's Realm* and &cx->realm_ from
+that pool (lnia + ld). After a generic call (the trampoline does the
+realm switch, so the restore's constants are the first pool entries)
+it read the stanza's own `mtctr r16; bctrl`, 0x4e8004217e0903a6, and
+stored it in cx->realm_; the next realm access faulted (SIGSEGV,
+si_code 3: the address is outside the user segment). Seen as a Firefox
+160.0.1 content-process crash in an inlined JSContext::leaveRealm under
+the invalidation bailout, and reproduced in the optimised JS shell
+(cx->realm_ == 0x4e8004217e0903a6 in
+JitActivation::removeRematerializedFramesFromDebugger).
+
+Do what arm and arm64 do: PatchWrite_NearCall writes one `bl` and
+PatchWrite_NearCallSize() is 4. Both callers (Ion invalidation and
+Baseline debug-mode OSR) call an epilogue inside the same JitCode, well
+within bl range; release-assert it. A pool dump always starts with its
+guard branch, so a one-instruction patch can only overwrite an
+instruction. The return address left in LR is start + 4, which is what
+OsiIndex::returnPointDisplacement() and the debug-mode OSR handler
+compute from PatchWrite_NearCallSize(). Side effects: the patch no
+longer clobbers SavedScratchRegister (r16), ensureOsiSpace() pads at
+most one nop instead of ten, and the invalidation epilogue's pad is one
+nop.
+
+New jit-test ion/invalidate-osi-pool-realm.js: the unpatched opt shell
+segfaults on it 3/3 (POWER9 code; it passes with MOZ_PPC64_FORCE_POWER8=1
+and in the debug shell, whose OSI register checks move the pool); with
+this patch the opt and debug shells pass it, natively and forced to
+POWER8.
+
+---
+ .../tests/ion/invalidate-osi-pool-realm.js    | 32 +++++++++++++++
+ js/src/jit/ppc64/Assembler-ppc64.cpp          | 41 +++++++++++++------
+ js/src/jit/ppc64/CodeGenerator-ppc64.cpp      |  4 +-
+ js/src/jit/shared/CodeGenerator-shared.cpp    |  4 +-
+ 4 files changed, 65 insertions(+), 16 deletions(-)
+ create mode 100644 js/src/jit-test/tests/ion/invalidate-osi-pool-realm.js
+
+diff --git a/js/src/jit-test/tests/ion/invalidate-osi-pool-realm.js b/js/src/jit-test/tests/ion/invalidate-osi-pool-realm.js
+new file mode 100644
+index 0000000..9d9d477
+--- /dev/null
++++ b/js/src/jit-test/tests/ion/invalidate-osi-pool-realm.js
+@@ -0,0 +1,32 @@
++// |jit-test| --fast-warmup; --no-threads
++// Ion frame invalidated while suspended in its last call, where the call is a
++// polymorphic (generic-stub) call to functions in another realm. The caller
++// restores its realm after the call from constants in the constant pool that
++// is flushed right after the function epilogue -- inside the window that
++// invalidation patches at the OSI point.
++var g = newGlobal({sameCompartmentAs: this});
++g.eval(`
++  var hook = null;
++  function f0(x) { if (hook) { var h = hook; hook = null; h(); } return x + 1; }
++  function f1(x) { return x + 1; }
++  function f2(x) { return x + 1; }
++  function f3(x) { return x + 1; }
++  function f4(x) { return x + 1; }
++  function f5(x) { return x + 1; }
++`);
++var fs = [g.f0, g.f1, g.f2, g.f3, g.f4, g.f5];
++function outer(f, x) { return f(x); }
++function check() {
++  if (Object.getPrototypeOf([]) !== Array.prototype) throw new Error("wrong realm");
++  if (!(new Error("x") instanceof Error)) throw new Error("wrong realm (Error)");
++}
++function warm() { for (var i = 0; i < 3000; i++) outer(fs[i % fs.length], i); }
++warm();
++for (var round = 0; round < 40; round++) {
++  g.hook = function () { gc(undefined, "shrinking"); };
++  var r = outer(g.f0, round);
++  if (r !== round + 1) throw new Error("bad result " + r);
++  check();
++  warm();
++}
++
+diff --git a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
+index e14cfc9..843e5a0 100644
+--- a/js/src/jit/ppc64/Assembler-ppc64.cpp
++++ b/js/src/jit/ppc64/Assembler-ppc64.cpp
+@@ -3224,9 +3224,10 @@ static uint8_t Load64StanzaDestReg(Instruction* inst0) {
+ //
+ // Only RelocationKind::HARDCODED entries are rewritten. Their stanza value is
+ // never read back: no jump relocation is recorded for them (GC tracing only
+-// decodes JITCODE entries) and no patcher targets them (ToggleCall and
+-// PatchWrite_NearCall write whole stanzas or only touch toggledCall, which is
+-// JITCODE). JITCODE entries are left alone. Targets outside JIT executable
++// decodes JITCODE entries) and no patcher targets them (ToggleCall writes
++// whole stanzas or only touches toggledCall, which is JITCODE;
++// PatchWrite_NearCall writes one `bl` at an OSI point or a debug-mode OSR
++// return site). JITCODE entries are left alone. Targets outside JIT executable
+ // memory (C++ functions) are left alone too: ELFv2 callees need r12 = entry
+ // to set up their TOC, and they are out of `bl` range anyway. Nothing here
+ // changes the stanza footprint (kNoPoolPatchableBranchInsns).
+@@ -3395,21 +3396,37 @@ void Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value) {
+ 
+ /* static */
+ uint32_t Assembler::PatchWrite_NearCallSize() {
+-  // 8 instructions for Load64 + mtctr + bctrl = 10 instructions.
+-  return 10 * sizeof(uint32_t);
++  // A single `bl`, as on arm and arm64.
++  //
++  // This used to be a load64 + mtctr + bctrl stanza (10 instructions, 40
++  // bytes), and the bytes after an OSI point are not necessarily code:
++  // CodeGeneratorShared::generateEpilogue() flushes the constant pool right
++  // after the 6-instruction epilogue, so when the last OSI point immediately
++  // precedes the epilogue, the tail of a 40-byte patch landed on the pool
++  // guard, header and first entry. An invalidated frame still runs the code
++  // between its call's return and the OSI point; after a cross-realm call
++  // that is the switchToRealm() restore, which loads the caller's Realm*
++  // from that pool, and it read the patch's `mtctr r16; bctrl`
++  // (0x4e8004217e0903a6) instead. A pool dump always starts with its guard
++  // branch, so a one-instruction patch can only overwrite an instruction.
++  return sizeof(uint32_t);
+ }
+ 
+ /* static */
+ void Assembler::PatchWrite_NearCall(CodeLocationLabel start,
+                                     CodeLocationLabel toCall) {
++  // Both callers (Ion invalidation of an OSI point, Baseline debug-mode OSR
++  // of a return site) call an epilogue inside the same JitCode, which is
++  // always within the +/-32 MiB reach of `bl`. The return address it leaves
++  // in LR is start + PatchWrite_NearCallSize(), which is what
++  // OsiIndex::returnPointDisplacement() and the debug-mode OSR handler
++  // expect.
+   Instruction* inst = (Instruction*)start.raw();
+-  uint8_t* dest = toCall.raw();
+-
+-  Assembler::WriteLoad64Instructions(inst, SavedScratchRegister,
+-                                     (uint64_t)dest);
+-  inst[8].makeOp_mtctr(SavedScratchRegister);
+-  inst[9].makeOp_bctr(LinkB);
+-  FlushICache(inst, 10 * sizeof(Instruction));
++  intptr_t disp = intptr_t(toCall.raw()) - intptr_t(inst);
++  MOZ_RELEASE_ASSERT((disp & 3) == 0);
++  MOZ_RELEASE_ASSERT(JOffImm26::IsInRange(disp));
++  inst->setData(PPC_b | JOffImm26(disp).encode() | LinkB);
++  FlushICache(inst, sizeof(Instruction));
+ }
+ 
+ /* static */
+diff --git a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
+index 29b7d4a..e16e2b6 100644
+--- a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
++++ b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
+@@ -146,8 +146,8 @@ void CodeGeneratorPPC64::emitTableSwitchDispatch(MTableSwitch* mir,
+ void CodeGeneratorPPC64::generateInvalidateEpilogue() {
+   // Pad with enough nops so that PatchWrite_NearCall on the last OSI point
+   // cannot overlap the invalidation epilogue. The patch area is
+-  // PatchWrite_NearCallSize (40) bytes; the last OSI point could be right
+-  // before this epilogue.
++  // PatchWrite_NearCallSize bytes (one `bl`); the last OSI point could be
++  // right before this epilogue.
+   masm.emitNopStanza(Assembler::PatchWrite_NearCallSize() /
+                      Assembler::NopSize());
+ 
+diff --git a/js/src/jit/shared/CodeGenerator-shared.cpp b/js/src/jit/shared/CodeGenerator-shared.cpp
+index 9fa0290..7f050fc 100644
+--- a/js/src/jit/shared/CodeGenerator-shared.cpp
++++ b/js/src/jit/shared/CodeGenerator-shared.cpp
+@@ -1018,8 +1018,8 @@ void CodeGeneratorShared::ensureOsiSpace() {
+     paddingSize -= masm.currentOffset() - lastOsiPointOffset_;
+     // paddingSize is in bytes; each nop() emits Assembler::NopSize() bytes
+     // (1 on x86, 4 on the fixed-width ISAs). Stepping by one byte per nop
+-    // over-padded by 4x on fixed-width ISAs (up to 40 nops instead of 10 on
+-    // ppc64, where PatchWrite_NearCallSize is 40 bytes).
++    // over-padded by 4x on fixed-width ISAs (e.g. 4 nops instead of 1 where
++    // PatchWrite_NearCallSize is a single 4-byte branch).
+     for (int32_t i = 0; i < paddingSize; i += Assembler::NopSize()) {
+       masm.nop();
+     }

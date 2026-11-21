@@ -4,7 +4,7 @@
 
 pkgname=firefox
 pkgver=160.0.1
-pkgrel=2
+pkgrel=3
 pkgdesc="Fast, Private & Safe Web Browser"
 url="https://www.firefox.com/"
 arch=(x86_64 powerpc64le powerpc64)
@@ -131,6 +131,9 @@ source=(
   0032-ppc64-JIT-POWER8-load64-stanza-as-patchable-immediat.patch
   0033-ppc64-JIT-short-forward-branches-with-veneers-instea.patch
   0034-ppc64-JIT-codegen-call-path-and-bound-branch-fixes.patch
+  # Invalidation patched OSI points with a 40-byte stanza that overwrote the
+  # constant pool after the epilogue (tab crashes with a garbage cx->realm_).
+  0035-ppc64-JIT-patch-OSI-points-with-a-single-bl.patch
 
   # T2 SDE portability fixes
   hotfix-32bit.patch
@@ -192,6 +195,7 @@ sha256sums=('7b9d95ddf24f7bbf5d0d05698bc02a66dac1eca438f80e093c5c76af7648b06d'
             '536ee6b4874c9f5486c14bfa2ada529c3dd64b723f4cd7a299de45a373a93087'
             '709bdf238bfdc0fac83a06e46f1fd7d4a616a4eb37282c8eda250f34cb23087b'
             '5b16948817ae326d0473b5490c4fe4a7a127705ed1783f41996d97221ec2ec9e'
+            'ac50d0de0cab4cc39908972e36f6aedd64b2d9d7b8c8bf63b8064fb8a1f06cb6'
             '6e7ed5f86d081e979713542594fb4b01b0a4f6ac9fdd84ed479dc88aa3bd0a2f'
             '57c58477a455bcb5ccff387d205321b7a9ff58ec25ae365e330993b428ba1a6a'
             'af135adc5e982aede73f33ea19d4580cbfbe4f0d99f74ff2e01f86049dd00761'
@@ -239,6 +243,7 @@ b2sums=('b9b6e5b7b0f6d02f8bc22532fbc8c9cdc3d791dd475038c43c70a6137d880a24423ae4a
         '8183a8e52e8521804677fe1f266405d43d008d288ea2550ecaf13c0a93bd0c15ac912bed843224854da1520bb2239f5f55fdbc454b97f0bac7bf2199103ee562'
         '5d30ecc8ded47de18b4661bfe8d0661696d9c6da4d70d43c0cbbf28207bc867c683612b17863b86619a793f5a0ca1387cd65f4dc7634a5dac6530f9eb85d7a09'
         '7b6a4425171245703f2efc2957b8b8fa55f0bb5c3740a6a49d66253ea9e31d0a05bfe96c5b7f0595156dcf14701e3edb6b5cd1976961dcc85b2b0744e81de042'
+        '55d65ee5ad5ba7418b55e0b302da2b500af4320d82e0c92f58a7d62a4f36a16233302d3d734eeb996768f3b4c83753ef959b460fa5bac4bcbec4f255b09189f2'
         '17c591390027867b5807f8a0b2a3895bf3be2a046bd48e2d8fd7940ac0b7e4db671b3dcb2174030b16b7ac87f689d443cbf9c66f6fad5c4f15cb64c815ef80d9'
         '5e29f6218e35a2d470457ec8293801e25cf1490fb0094a1254533f095b17456ca8275eae89bac6a6669baf438d050c14742d070b8f96af03fb972938132ef8bd'
         'a21fe43cf7e7fb8c7a489fba9ded4fe9548ac198cb8c51a34fc6d4588965a05f1374196c0d6ce4068b443113131f2e2fdc1817918fe17e07149c0196a673f426'

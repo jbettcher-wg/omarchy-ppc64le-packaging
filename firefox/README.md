@@ -11,6 +11,7 @@ performance patches on top.
 | `0001` | Arch | install under the remoting name |
 | `0002`–`0031` | [runlevel5/firefox-ppc64](https://github.com/runlevel5/firefox-ppc64) | the ppc64 JIT, VSX/AltiVec paths (Skia, libwebp, libyuv, jxl, swizzles, SWGL, text scanning, string search), NSS acceleration gated on the target baseline, the Linux sandbox on ppc64 |
 | `0032`–`0034` | ours | the ppc64 JIT performance series: roughly 2x JavaScript on POWER8 |
+| `0035` | ours | ppc64 JIT: patch OSI points with a single `bl` (fixes tab crashes with a garbage `cx->realm_` on POWER9) |
 | `hotfix-*`, `sandbox-*`, `xlib-success` | T2 SDE | portability fixes |
 | `power8-jxl-simd-no-power9-tier.diff` | ours | baseline pool only: drop jxl_simd's POWER9 tier (see POWER8 below) |
 
