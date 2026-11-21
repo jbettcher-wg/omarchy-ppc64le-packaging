@@ -46,6 +46,30 @@ just conflict resolution:
 Verified with the SpiderMonkey jit-test suite on a debug shell of exactly this
 tree: no failures and no timeouts, natively and with `MOZ_PPC64_FORCE_POWER8=1`.
 
+### 0035: OSI points patched with a single `bl`
+
+Ion invalidation patches each active frame's OSI point (`PatchWrite_NearCall`).
+On ppc64 the patch was a 40-byte load64 + mtctr + bctrl stanza, and
+`generateEpilogue()` flushes the constant pool right after the epilogue,
+which is 24 bytes since 0034. That put the first pool entry inside the
+patched window.
+
+An invalidated frame still runs the code between its call's return and the
+OSI point. After a generic cross-realm call that code restores the realm from
+that first pool entry. So on POWER9 it stored the stanza's own `mtctr r16;
+bctrl` (`0x4e8004217e0903a6`) in `cx->realm_`, and the tab crashed with
+SIGSEGV `si_code` 3.
+
+The patch is now one `bl` (`PatchWrite_NearCallSize()` = 4), as on arm and
+arm64. Both callers call an epilogue in the same JitCode, and a pool dump
+always starts with its guard branch, so the patch only ever lands on an
+instruction.
+
+The new jit-test `ion/invalidate-osi-pool-realm.js` segfaults the unpatched
+opt shell 3/3. With 0035, the opt and debug shells pass it, both natively and
+forced to POWER8. The full jit-test suite passes on the debug shell: 14514/0
+natively, and PASSED ALL with `MOZ_PPC64_FORCE_POWER8=1`.
+
 ## Dropped since 154.0.1-4
 
 - `hotfix-ppc-not-power8.diff`: it stripped NSS's VSX AES/GHASH/SHA paths
