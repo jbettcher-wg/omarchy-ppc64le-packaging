@@ -14,8 +14,8 @@ Include what each file uses. Not architecture-specific; observed on
 ppc64le with GCC 16.1.1, will affect every target on that compiler.
 
 ---
---- a/src/intel/compiler/gen/gen_private.h	2026-09-06 18:27:03.882364106 -0600
-+++ b/src/intel/compiler/gen/gen_private.h	2026-09-06 18:27:03.880488518 -0600
+--- a/src/intel/compiler/gen/gen_private.h
++++ b/src/intel/compiler/gen/gen_private.h
 @@ -3,6 +3,8 @@
   * SPDX-License-Identifier: MIT
   */
@@ -25,10 +25,10 @@ ppc64le with GCC 16.1.1, will affect every target on that compiler.
  #include "gen.h"
  #include "gen_names.h"
  
---- a/src/gallium/drivers/r600/sfn/sfn_valuefactory.cpp	2026-09-06 18:27:03.884628843 -0600
-+++ b/src/gallium/drivers/r600/sfn/sfn_valuefactory.cpp	2026-09-06 18:27:03.881438288 -0600
-@@ -11,6 +11,7 @@
- #include "sfn_instr.h"
+--- a/src/gallium/drivers/r600/sfn/sfn_valuefactory.cpp
++++ b/src/gallium/drivers/r600/sfn/sfn_valuefactory.cpp
+@@ -13,6 +13,7 @@
+ #include "pipe/p_shader_tokens.h"
  
  #include <algorithm>
 +#include <limits>
