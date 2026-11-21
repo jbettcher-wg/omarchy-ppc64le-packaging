@@ -1,5 +1,0 @@
-[libfyaml]
-source = "git"
-git = "https://github.com/pantoniou/libfyaml.git"
-prefix = "v"
-exclude_regex = ".*(alpha|beta|rc).*"
