@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 21 Nov 2026 14:25:22 -0600
+Subject: [PATCH 1/2] core/compositor: don't seed a subsurface's extends() at
+ the toplevel origin
+
+breadthfirst() reports every subsurface at its offset relative to the
+toplevel surface, including the root when the root is itself a
+subsurface. extends() also seeded the region with {0, 0, size}, so a
+subsurface's extents covered both its real box and a phantom box at the
+toplevel's origin.
+
+A subsurface placed under a header bar therefore compared equal to its
+parent's extents. getSolitaryResource() and findWithCM() then treated it
+as covering the whole window. GTK 4 graphics offload hits this: WebKitGTK
+puts the web view in an opaque XR24 subsurface at (0, 46) below the main
+surface, and the window was judged opaque.
+---
+ src/protocols/core/Compositor.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/protocols/core/Compositor.cpp b/src/protocols/core/Compositor.cpp
+index ddc034d2..c5e4bfad 100644
+--- a/src/protocols/core/Compositor.cpp
++++ b/src/protocols/core/Compositor.cpp
+@@ -553,7 +553,13 @@ SP<CWlSurface> CWLSurfaceResource::getResource() {
+ }
+ 
+ CBox CWLSurfaceResource::extends() {
+-    CRegion full = CBox{{}, m_current.size};
++    // breadthfirst() hands every subsurface its offset relative to the toplevel surface, and that
++    // includes this surface when it is itself a subsurface. Seeding the region with {0,0,size} as
++    // well would add a phantom box at the toplevel's origin, so a subsurface placed below a header
++    // bar would appear to cover the whole window. Only a non-subsurface root starts at the origin.
++    CRegion full;
++    if (!m_role || m_role->role() != SURFACE_ROLE_SUBSURFACE)
++        full = CBox{{}, m_current.size};
+     breadthfirst(
+         [](SP<CWLSurfaceResource> surf, const Vector2D& offset, void* d) {
+             if (surf->m_role->role() != SURFACE_ROLE_SUBSURFACE)

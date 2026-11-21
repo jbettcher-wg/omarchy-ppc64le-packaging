@@ -1,4 +1,12 @@
-# ppc64le: added powerpc64le to arch(). That was the only change needed.
+# ppc64le: added powerpc64le to arch().
+#
+# 3.1: two upstream-bound fixes (ours, from ~/Development/hyprland branch
+# offload-black-fix) for GTK 4 graphics offload rendering black under
+# decoration:rounding = 0, which Omarchy uses. Epiphany with one tab showed an
+# all-black page: extends() put a phantom box at the toplevel origin for
+# subsurfaces, so WebKit's offloaded subsurface looked like it covered the
+# window, and drawSurface() then drew the main surface's transparent hole
+# without blending. Drop both patches once upstream carries them.
 #
 # Maintainer: Caleb Maclennan <caleb@alerque.com>
 # Contributor: ThatOneCalculator <kainoa@t1c.dev>
@@ -7,7 +15,7 @@
 
 pkgname=(hyprland hyprpm)
 pkgver=0.56.2
-pkgrel=3
+pkgrel=3.1
 pkgdesc='a highly customizable dynamic tiling Wayland compositor'
 arch=(x86_64 aarch64 powerpc64le)
 url="https://github.com/hyprwm/${pkgname^}"
@@ -74,12 +82,18 @@ optdepends=('hyprpm: build and install plugins'
             'xdg-desktop-portal-hyprland: xdg-desktop-portal backend for hyprland')
 provides=(wayland-compositor)
 _archive="${pkgname^}-$pkgver"
-source=("$_archive.tar.gz::$url/releases/download/v$pkgver/source-v$pkgver.tar.gz")
-sha256sums=('03ad3f5ef152ff44116ffd56fcf808486211ecabf4f0ba567108ee746ba5cd2e')
+source=("$_archive.tar.gz::$url/releases/download/v$pkgver/source-v$pkgver.tar.gz"
+        0001-core-compositor-don-t-seed-a-subsurface-s-extends-at.patch
+        0002-renderer-only-disable-blending-when-the-main-surface.patch)
+sha256sums=('03ad3f5ef152ff44116ffd56fcf808486211ecabf4f0ba567108ee746ba5cd2e'
+            '062f9fc095bcb13d5336eda23e3a44a61a7cb89531b6f3ab4b257ec862ac09b6'
+            '8e3506dad1d8399124fdc3f4ddcec4dec0fe80135208ea0a7fb6a89517cd996c')
 
 prepare() {
 	ln -sf hyprland-source "$_archive"
 	cd "$_archive"
+	patch -Np1 -i "$srcdir/0001-core-compositor-don-t-seed-a-subsurface-s-extends-at.patch"
+	patch -Np1 -i "$srcdir/0002-renderer-only-disable-blending-when-the-main-surface.patch"
 	sed -i -e '/^release:/{n;s/-D/-DCMAKE_SKIP_RPATH=ON -D/}' Makefile
 	sed -i -e '/find_package.glaze/s/7...<8 //' {.,hyprpm,start}/CMakeLists.txt
 }

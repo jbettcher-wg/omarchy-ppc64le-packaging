@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan Bettcher <thebettcher@gmail.com>
+Date: Sat, 21 Nov 2026 14:25:22 -0600
+Subject: [PATCH 2/2] renderer: only disable blending when the main surface is
+ the solitary one
+
+CWindow::opaque() is also true when a single opaque subsurface covers
+the window. drawSurface() used it to draw the *main* surface without
+blending, but the subsurface's opacity says nothing about the main
+surface's pixels. With GTK graphics offload the main surface is
+transparent where a subsurface placed below it shows through. Drawn
+without blending, that hole is written as black over the subsurface.
+
+With rounding > 0 blending stays on, so this only shows with
+decoration:rounding = 0, and on fullscreen windows. Epiphany with a
+single tab rendered an all-black page on a tiled, unrounded window.
+
+Keep opaque() for occlusion and blur decisions, and only skip blending
+when the main surface is itself the solitary resource.
+---
+ src/render/ElementRenderer.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/render/ElementRenderer.cpp b/src/render/ElementRenderer.cpp
+index 50b5a797..21c23ecf 100644
+--- a/src/render/ElementRenderer.cpp
++++ b/src/render/ElementRenderer.cpp
+@@ -292,7 +292,13 @@ void IElementRenderer::drawSurface(WP<CSurfacePassElement> element, const CRegio
+         roundingPower = 2.0f;
+     }
+ 
+-    const bool WINDOWOPAQUE    = m_data.pWindow && m_data.pWindow->wlSurface()->resource() == m_data.surface ? m_data.pWindow->opaque() : false;
++    // CWindow::opaque() describes the window as a whole, and it is also true when a single opaque
++    // subsurface covers the window (getSolitaryResource()). That says nothing about the main
++    // surface's own pixels: with GTK graphics offload the main surface is transparent where a
++    // subsurface placed *below* it shows through, and drawing it without blending paints that hole
++    // black. Only skip blending when the main surface itself is the solitary resource.
++    const bool MAINSURFACE     = m_data.pWindow && m_data.pWindow->wlSurface()->resource() == m_data.surface;
++    const bool WINDOWOPAQUE    = MAINSURFACE && m_data.pWindow->opaque() && m_data.pWindow->getSolitaryResource() == m_data.surface;
+     const bool CANDISABLEBLEND = ALPHA >= 1.f && OVERALL_ALPHA >= 1.f && rounding <= 0 && WINDOWOPAQUE;
+ 
+     if (CANDISABLEBLEND)
