@@ -1,4 +1,0 @@
-[numactl]
-source = "git"
-git = "https://github.com/numactl/numactl.git"
-prefix = "v"

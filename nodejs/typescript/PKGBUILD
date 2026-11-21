@@ -28,11 +28,6 @@ prepare() {
   # tasks and the `format` npm script. The @dprint/formatter and
   # @dprint/typescript packages that scripts/dtsBundler.mjs does use are wasm
   # (createFromBuffer on a .wasm) and are arch-independent, so they still work.
-  #
-  # Arch POWER's 5.8.3 recipe solved this with 0001-Remove-dprint.patch; that
-  # patch deletes 223 lines of package-lock.json and does not survive the bump
-  # to 6.0.3. One flag replaces it. The stale 000{1,2,3}-*.patch files in this
-  # directory are from 5.8.3 and are no longer referenced.
   npm ci --ignore-scripts
 }
 

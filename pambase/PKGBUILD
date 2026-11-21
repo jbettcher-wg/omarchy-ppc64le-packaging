@@ -1,13 +1,12 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Contributor: Dave Reisner <dreisner@archlinux.org>
 
 pkgname=pambase
-pkgver=20250719
+pkgver=20260616
 pkgrel=1
 pkgdesc="Base PAM configuration for services"
 arch=(any)
-url="https://archlinuxpower.org"
+url="https://www.archlinux.org"
 license=(GPL-3.0-or-later)
 backup=(
   etc/pam.d/system-auth

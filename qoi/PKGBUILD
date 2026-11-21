@@ -1,8 +1,7 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Christian Heusel <christian@heusel.eu>
 
 pkgname=qoi
-pkgver=r350.4461cc3
+pkgver=r381.ffb2d2c
 pkgrel=1
 pkgdesc='The “Quite OK Image Format” for fast, lossless image compression'
 arch=('any')

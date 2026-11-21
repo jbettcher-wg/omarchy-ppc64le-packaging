@@ -1,4 +1,0 @@
-[lilv]
-source = "git"
-git = "https://gitlab.com/lv2/lilv"
-prefix = "v"

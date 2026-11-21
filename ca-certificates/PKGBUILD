@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 # Contributor: Pierre Schmitz <pierre@archlinux.de>
 
@@ -8,7 +7,7 @@ pkgname=(
   ca-certificates
 )
 pkgver=20240618
-pkgrel=1.1
+pkgrel=1.2
 pkgdesc="Common CA certificates"
 url="https://src.fedoraproject.org/rpms/ca-certificates"
 arch=(any)
@@ -87,7 +86,6 @@ package_ca-certificates-utils() {
 
 package_ca-certificates() {
   pkgdesc+=" - default providers"
-  license=(CC0-1.0)
   depends=(
     ca-certificates-mozilla
   )

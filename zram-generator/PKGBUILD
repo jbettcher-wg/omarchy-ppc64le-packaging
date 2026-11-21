@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 # Contributor: Sergey Shatunov <me@prok.pw>
 
@@ -6,7 +5,7 @@ pkgname=zram-generator
 pkgver=1.2.1
 pkgrel=1
 pkgdesc="Systemd unit generator for zram devices"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=("x86_64" powerpc64le)
 url="https://github.com/systemd/zram-generator"
 license=('MIT')
 depends=(systemd)

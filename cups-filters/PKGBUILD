@@ -1,11 +1,10 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Andreas Radke <andyrtr@archlinux.org>
 
 pkgname=cups-filters
 pkgver=2.0.1
 pkgrel=3
 pkgdesc="OpenPrinting CUPS Filters"
-arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+arch=('x86_64' powerpc64le)
 url="https://wiki.linuxfoundation.org/openprinting/cups-filters"
 license=('Apache-2.0 WITH LLVM-exception')
 depends=('libcups' 'libppd' 'libcupsfilters' 'glibc' 'sh')

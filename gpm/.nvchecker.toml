@@ -1,3 +1,0 @@
-[gpm]
-source = "git"
-git = "https://github.com/telmich/gpm.git"

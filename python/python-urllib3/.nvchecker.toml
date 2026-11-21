@@ -1,4 +1,0 @@
-[python-urllib3]
-source = "git"
-git = "https://github.com/urllib3/urllib3.git"
-prefix = "v"

@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Contributor: Dan McGee <dan@archlinux.org>
 # Contributor: Florian Zeitz <florob at babelmonkeys dot de>
@@ -7,7 +6,7 @@ pkgname=numactl
 pkgver=2.0.19
 pkgrel=1
 pkgdesc="Simple NUMA policy support"
-arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+arch=(x86_64 powerpc64le)
 url="https://github.com/numactl/numactl"
 license=(
   GPL-2.0-only

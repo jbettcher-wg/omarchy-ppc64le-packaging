@@ -1,12 +1,11 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 # Contributor: ponsfoot <cabezon dot hashimoto at gmail dot com>
 
 pkgbase=marisa
 pkgname=('marisa' 'perl-marisa' 'python-marisa' 'ruby-marisa')
 pkgver=0.3.1
-pkgrel=1
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+pkgrel=2
+arch=('x86_64' powerpc64le)
 url="https://github.com/s-yata/marisa-trie"
 license=('BSD-2-Clause OR LGPL-2.1-or-later')
 makedepends=('git' 'cmake' 'python' 'ruby' 'perl' 'swig' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
@@ -67,7 +66,10 @@ check() {
 
 package_marisa() {
   pkgdesc="Static and space-efficient trie data structure library"
-  depends=('gcc-libs')
+  depends=(
+    'libgcc'
+    'libstdc++'
+  )
 
   cd marisa-trie
   DESTDIR="$pkgdir" cmake --install build

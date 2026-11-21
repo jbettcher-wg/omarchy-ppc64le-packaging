@@ -1,4 +1,0 @@
-[simdjson]
-source = "git"
-git = "https://github.com/simdjson/simdjson.git"
-prefix = "v"

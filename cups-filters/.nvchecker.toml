@@ -1,5 +1,0 @@
-[cups-filters]
-source = "github"
-github = "OpenPrinting/cups-filters"
-use_max_tag = true
-prefix = "v"

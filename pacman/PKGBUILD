@@ -1,15 +1,14 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
 # Maintainer: Morten Linderud <foxboron@archlinux.org>
 
 pkgname=pacman
 pkgver=7.1.0.r9.g54d9411
-pkgrel=2.4
+pkgrel=4.1
 # use annotated tag and patch level commit from release branch (can be empty for no patches)
 _git_tag=7.1.0
 _git_patch_level_commit=54d94116164b0b2202c6061c4a59c6f3e70820d8
 pkgdesc="A library-based package manager with dependency support"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=('x86_64' powerpc64le)
 url="https://www.archlinux.org/pacman/"
 license=('GPL-2.0-or-later')
 depends=(
@@ -27,6 +26,8 @@ depends=(
   systemd
   libmakepkg-dropins
 )
+# powerpc64le's pacman.conf names its servers directly; there is no mirrorlist
+depends_x86_64=(pacman-mirrorlist)
 makedepends=(
   asciidoc
   doxygen
@@ -44,27 +45,29 @@ optdepends=(
 provides=('libalpm.so')
 backup=(etc/pacman.conf
         etc/makepkg.conf
-        etc/makepkg.conf.d/rust.conf
-        etc/makepkg.conf.d/fortran.conf)
+        etc/makepkg.conf.d/fortran.conf
+        etc/makepkg.conf.d/rust.conf)
 validpgpkeys=('6645B0A8C7005E78DB1D7864F99FFE0FEAE999BD'  # Allan McRae <allan@archlinux.org>
               'B8151B117037781095514CA7BBDFFC92306B1121') # Andrew Gregory (pacman) <andrew@archlinux.org>
 source=("git+https://gitlab.archlinux.org/pacman/pacman.git?signed#tag=v${_git_tag}"
         "revertme-makepkg-remove-libdepends-and-libprovides.patch::https://gitlab.archlinux.org/pacman/pacman/-/commit/354a300cd26bb1c7e6551473596be5ecced921de.patch"
         "patch-reproducible-builds.patch::https://gitlab.archlinux.org/pacman/pacman/-/commit/f4bdb77470528019aaba4d8b8f947e918c6db17d.patch"
-        0001-libalpm-invalidate-curl-data-in-child.patch
+        '0001-libalpm-invalidate-curl-data-in-child.patch'
+        '0002-libalpm-use-curl-s-effective-url-without-authenticat.patch'
         pacman.conf
         makepkg.conf
-        fortran.conf
         alpm.sysusers
+        fortran.conf
         rust.conf)
 sha256sums=('74cfd4b6d2b10c742f5a4a7cdaeffb01405ab897b11b80681a9063245113a308'
             'b3bce9d662e189e8e49013b818f255d08494a57e13fc264625f852f087d3def2'
             'de428b496a825772ef49ec5555a386a4b23ffa10b9dfd9907f0671d5c1dc2178'
             '9a734e5d75be603d58aa92e8d29a15466b3ac2af6b7d6f6728dd5c3e5ed8758d'
-            'a5a3be8014539605cb7ccb1704e0bc0167ab62898f6ec06766e2b5d16cab5e31'
-            'df0975c258b5a99e41f25b775f0147ad4528cfa2561a7e195fb9d09be39c6036'
-            '43998f5227d0b08dd8313fb2681330a01e6d2a85dea267f94730bb9f957ab7c6'
-            '471422b3790cbfebd98dc31aaf193cbaa3ca624e94bbeb28cb38f710076c6c3e'
+            '021893dd44ec23251cfc0f2b81c12d832927ea60095d4d2956d9760e8bbfaa58'
+            'd6f6ca86104df026462ab634efa1ecc850bccfa748ed5a6a88283e7659ec90c5'
+            '20497c90cbb678a9ca1a71eca66cf2a1d0c991c3e695f7b7d10fb68fc0ac4f12'
+            '9c14afbc7dabee5a563202c833a043bd3b80c4522f8943c33d550641d7d1bbf1'
+            '933b0b878fa611bf24b92f655040a3bcb4a1b67841d929013802abbb09b2ccf4'
             '6fe03e6ea3f69d99d59a48847a8ae97c2160fca847c7aedf7b89d05e4aa9386d')
 
 pkgver() {
@@ -101,52 +104,101 @@ prepare() {
       fi
     done
   fi
+
+  if [[ $CARCH == powerpc64le ]]; then
+    _power_confs
+  fi
+}
+
+# Omarchy for POWER: Arch's pacman.conf, makepkg.conf, fortran.conf and
+# rust.conf describe x86_64. Retarget them at the pool this package is built
+# for, so each pool's pacman ships the flags that pool's own packages are built
+# with: -mcpu/-mtune come from this build's CFLAGS, power9 in omarchy-power9
+# and power8 in omarchy-ppc64le (the POWER8 drop-in rewrites them). Only flags
+# x86 alone has go (-march=x86-64, -fcf-protection,
+# -mno-omit-leaf-frame-pointer), plus -fno-plt, which neither pool is built
+# with. The rest is Arch's, _FORTIFY_SOURCE=3 and DT_RELR included. The
+# asserts make an Arch change to these files fail the build instead of
+# shipping x86 flags.
+_power_confs() {
+  local cpu tune
+  cpu=$(grep -o -- '-mcpu=power[0-9]*' <<< "$CFLAGS" | tail -n1)
+  tune=$(grep -o -- '-mtune=power[0-9]*' <<< "$CFLAGS" | tail -n1)
+  cpu=${cpu#-mcpu=} tune=${tune#-mtune=}
+  case $cpu in
+    power8|power9) ;;
+    *) error "CFLAGS name no -mcpu=power8 or power9: $CFLAGS"; return 1 ;;
+  esac
+  tune=${tune:-$cpu}
+
+  local f
+  for f in makepkg.conf fortran.conf; do
+    sed -i -e 's/^CARCH="x86_64"$/CARCH="powerpc64le"/' \
+           -e 's/^CHOST="x86_64-pc-linux-gnu"$/CHOST="powerpc64le-unknown-linux-gnu"/' \
+           -e "s/-march=x86-64 -mtune=generic/-mcpu=$cpu -mtune=$tune/" \
+           -e 's/ -fno-plt\b//g; s/ -fcf-protection\b//g' \
+           -e 's/ -mno-omit-leaf-frame-pointer\b//g' \
+           "$srcdir/$f"
+  done
+  grep -q target-cpu "$srcdir/rust.conf" ||
+    sed -i "s/^RUSTFLAGS=\"/&-C target-cpu=pwr${cpu#power} /" "$srcdir/rust.conf"
+
+  # The pools first, then Arch POWER for what they do not carry yet. The
+  # pools are unsigned until package signing rolls out (PackageNever: a
+  # missing .sig on R2 returns a 404 page larger than pacman accepts).
+  local p9='#'
+  [[ $cpu == power9 ]] && p9=
+  cat > "$srcdir/omarchy-repos" <<EOF
+# Omarchy for POWER. [omarchy-ppc64le] runs on POWER8 and later.
+# [omarchy-power9] holds POWER9-tuned builds and is opt-in: listed above
+# the baseline pool, its build wins where both carry a package.
+${p9}[omarchy-power9]
+${p9}SigLevel = PackageNever DatabaseOptional TrustAll
+${p9}Server = https://omappc64le.download/omarchy-power9
+
+[omarchy-ppc64le]
+SigLevel = PackageNever DatabaseOptional TrustAll
+Server = https://omappc64le.download/omarchy-ppc64le
+
+# Arch POWER, for what the pools above do not carry yet.
+[base-any]
+Server = https://repo.archlinuxpower.org/base/any
+
+[base]
+Server = https://repo.archlinuxpower.org/base/\$arch
+EOF
+  # Replace Arch's repository block, from the testing note through the
+  # commented [multilib] entry; the [custom] example after it stays.
+  awk -v r="$srcdir/omarchy-repos" '
+    /^# The testing repositories are disabled by default/ {
+      while ((getline l < r) > 0) print l
+      skip = 1; n++; next
+    }
+    skip && prev == "#[multilib]" && /^#Include = / { skip = 0; next }
+    skip { prev = $0; next }
+    { print }
+    END { exit (n == 1 && !skip) ? 0 : 1 }' "$srcdir/pacman.conf" > "$srcdir/pacman.conf.new" ||
+    { error "pacman.conf: Arch's repository block is not where expected"; return 1; }
+  mv "$srcdir/pacman.conf.new" "$srcdir/pacman.conf"
+
+  local bad
+  if bad=$(grep -hvE '^[[:space:]]*#' "$srcdir"/{makepkg,fortran}.conf |
+           grep -E 'x86|-march=|generic|-fcf-protection|-fno-plt|leaf-frame-pointer'); then
+    error "x86 flags survived the retarget: $bad"; return 1
+  fi
+  grep -qx 'CARCH="powerpc64le"' "$srcdir/makepkg.conf" &&
+    grep -qx 'CHOST="powerpc64le-unknown-linux-gnu"' "$srcdir/makepkg.conf" &&
+    grep -q -- "-mcpu=$cpu -mtune=$tune" "$srcdir/makepkg.conf" &&
+    grep -q -- "-mcpu=$cpu -mtune=$tune" "$srcdir/fortran.conf" &&
+    grep -q "target-cpu=pwr${cpu#power} " "$srcdir/rust.conf" &&
+    grep -qx '\[omarchy-ppc64le\]' "$srcdir/pacman.conf" &&
+    ! grep -qE '^\[(core|extra)\]|^Include' "$srcdir/pacman.conf" ||
+    { error "retargeting pacman's config files did not take"; return 1; }
+  msg2 "config files retargeted at $cpu (-mtune=$tune)"
 }
 
 build() {
   cd "$pkgname"
-
-  CC=${CHOST}-gcc
-  CXX=${CHOST}-g++
-
-  sed "s@^Architecture.*@Architecture = ${CARCH}@g" -i "$srcdir/pacman.conf"
-  sed "s@%ARCH%@${CARCH}@g" -i "$srcdir/makepkg.conf"
-
-  case "${CARCH}" in
-    powerpc)
-      _CFLAGS="-O2 -pipe"
-      _LDFLAGS="-Wl,--no-warn-rwx-segments -Wl,--no-warn-execstack"
-    ;;
-    powerpc64le)
-      _CFLAGS="-O2 -pipe -mcpu=power8"
-    ;;
-    powerpc64)
-      _CFLAGS="-O2 -pipe -mcpu=powerpc64 -mabi=altivec -maltivec"
-    ;;
-    *)
-      _CFLAGS="-O2 -pipe"
-    ;;
-  esac
-
-  # add WiiU Espresso CPU bug work around
-  if [[ "${CFLAGS}" == *"mcpu=espresso"* ]]; then
-    msg2 "Modifying CFLAGS for WiiU Espresso CPU bug to support SMP"
-    _CFLAGS="-mcpu=espresso -O2 -pipe"
-    CC="powerpc-espresso-linux-gnu-gcc"
-    CXX="powerpc-espresso-linux-gnu-g++"
-    sed "s@/\$arch@/espresso@g" -i "$srcdir/pacman.conf"
-  fi
-
-  sed "s@%CFLAGS%@${_CFLAGS}@g" -i "$srcdir/makepkg.conf"
-  sed "s@%LDFLAGS%@${_LDFLAGS}@g" -i "$srcdir/makepkg.conf"
-  sed "s@%CFLAGS%@${_CFLAGS}@g" -i "$srcdir/fortran.conf"
-  sed "s@%CARCH%@${CARCH}@g" -i "$srcdir/makepkg.conf"
-  sed "s@%CHOST%@${CHOST}@g" -i "$srcdir/makepkg.conf"
-  sed "s@%CC%@${CC}@g" -i "$srcdir/makepkg.conf"
-  sed "s@%CXX%@${CXX}@g" -i "$srcdir/makepkg.conf"
-
-
-  export LD_LIBRARY_PATH=${srcdir}/../:${LD_LIBRARY_PATH}
 
   meson --prefix=/usr \
         --buildtype=plain \

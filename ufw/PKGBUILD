@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: T.J. Townsend <blakkheim@archlinux.org>
 # Contributor: Kyle Keen <keenerd@gmail.com>
 # Contributor: Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
@@ -10,7 +9,7 @@ pkgname=ufw
 pkgver=0.36.2
 pkgrel=7
 pkgdesc="Uncomplicated and easy to use CLI tool for managing a netfilter firewall"
-arch=(any)
+arch=('any')
 url="https://launchpad.net/ufw"
 license=('GPL3')
 makedepends=('git' 'python-setuptools')

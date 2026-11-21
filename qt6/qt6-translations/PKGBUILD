@@ -1,10 +1,9 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Antonio Rojas <arojas@archlinux.org>
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 # Contributor: Andrea Scarpino <andrea@archlinux.org>
 
 pkgname=qt6-translations
-_pkgver=6.11.1
+_pkgver=6.11.2
 pkgver=${_pkgver/-/}
 pkgrel=1
 arch=(any)
@@ -22,7 +21,7 @@ makedepends=(cmake
 groups=(qt6)
 _pkgfn=${pkgname/6-/}
 source=(git+https://code.qt.io/qt/$_pkgfn#tag=v$_pkgver)
-sha256sums=('59c11d3553b5fc0c0d37f6ad50cfa6a29758ee634c855f7306435a1320c7ec4b')
+sha256sums=('a4e30322c34350aa1242eaf05b4c98db6980027e2eef3d270dee3de599822898')
 
 build() {
   export PATH="/usr/lib/qt6/bin:$PATH"
