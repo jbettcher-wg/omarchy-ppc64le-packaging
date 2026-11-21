@@ -254,6 +254,16 @@ build() {
     CXXFLAGS+=' -DSKCMS_HAS_MUSTTAIL=0 -mminimal-toc'
     # The final link otherwise peaks past what this machine will give it.
     LDFLAGS+=' -Wl,--no-keep-memory'
+
+    # -g1 for the -debug package (options=(debug) below): full -g puts
+    # libwebkitgtk-6.0.so's .debug_info past 4 GiB, and the 32-bit DWARF
+    # offsets in .debug_loclists (R_PPC64_ADDR32) no longer fit at link time
+    # ("relocation truncated to fit", 2.54.3-1, both lanes, 2026-11-21).
+    # -g1 keeps function names and line tables, which is what backtraces of
+    # WebKitWebProcess need (WEBKIT-ON-POWER.md finding 5). Locals and types
+    # need -gdwarf64 instead, once debugedit is shown to handle it.
+    CFLAGS+=' -g1'
+    CXXFLAGS+=' -g1'
   else
     # Upstream prefers Clang
     # https://gitlab.archlinux.org/archlinux/packaging/packages/webkitgtk-6.0/-/issues/4
