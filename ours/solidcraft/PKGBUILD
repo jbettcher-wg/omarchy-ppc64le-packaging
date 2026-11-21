@@ -5,30 +5,36 @@
 # so this ports by recompiling rather than by patching. Same shape as
 # ours/cadcraft.
 #
-# NAMING: the repository and the product are SolidCraft, but the crates and the
-# installed binaries are still `solvecraft` -- upstream's rename is in flight on
-# an unmerged `rename-solidcraft` branch and has not reached a release. Upstream's
-# own packaging/linux/package.sh installs usr/bin/solvecraft, and its .desktop
-# reads `Name=SolidCraft` with `Exec=solvecraft`, so this package follows that
-# exactly rather than inventing a third spelling. The app id is
-# ai.storyteller.solvecraft.
+# NAMING: since 0.45 the crates, binaries and app id are all SolidCraft
+# (`solidcraft`, `solidcraft-cli`, io.tangencylabs.solidcraft). 0.4.0 shipped
+# `solvecraft` and ai.storyteller.solvecraft; upstream dropped those names, and
+# its .desktop carries X-Flatpak-RenamedFrom for launchers' pinned entries.
+# The repository moved from bherbruck/solidcraft to tangency-labs/solidcraft.
 #
-# The workspace holds four members and we want two:
-#   solvecraft       the GUI application
-#   solvecraft-cli   the command line tool, which also draws the app icon
-#   solvecraft-web   a wasm32 target -- not built here
-#   xtask            repo build tooling -- not built here
-# `cargo build --workspace` would take all four and fail on the wasm one, so the
-# packages are named explicitly.
+# BRAND: LICENSE-BRAND (new in this range) covers the UI kit, look, theme, name
+# and icon. It allows distributing them "as part of SolidCraft", but a *fork or
+# modified build* under the SolidCraft name needs the maintainers' written
+# permission. So this recipe must stay patch-free: build upstream's tag as is.
 #
-# vendor/ holds third-party crates carrying local fixes (truck-shapeops and
-# friends) and is wired in through [patch.crates-io] with path dependencies, not
-# through cargo's source replacement -- so `cargo fetch --locked` is still what
-# populates the registry and --frozen is still correct.
+# The workspace is crates/*, apps/* and xtask. We build two packages:
+#   solidcraft       the GUI application (apps/solidcraft)
+#   solidcraft-cli   the command line tool (apps/solidcraft-cli)
+# apps/solidcraft-web is a wasm32 target, not built here. `cargo build
+# --workspace` would take it and fail, so the packages are named explicitly,
+# exactly as upstream's packaging/linux/package.sh does.
 #
-# NO GTK: rfd resolves its file dialogs through the XDG desktop portal over zbus,
-# not the GTK3 backend -- there is no gtk-sys, glib-sys or gdk-sys anywhere in
-# Cargo.lock. ours/cadcraft lists gtk3; this one must not.
+# vendor/ (third-party crates with local fixes) and solidcore/ (the vendored
+# kernel) are path dependencies outside the workspace, not cargo source
+# replacement, so `cargo fetch --locked` still populates the registry and
+# --frozen is still correct.
+#
+# NO GTK: rfd resolves its file dialogs through the XDG desktop portal over zbus.
+#
+# UPDATE CHECK: only a binary built by upstream's release workflow checks for
+# updates (it sets SOLIDCRAFT_VERSION at compile time; crates/ui-egui/src/
+# update.rs). We leave it unset, so this build never checks -- no patch needed.
+# rust-toolchain.toml pins 1.99.1 for rustup users; the system cargo ignores it,
+# and Cargo.toml's rust-version (1.95) is the real floor.
 #
 # ISA: nothing in this tree computes its own -mcpu, so RUSTFLAGS from the
 # buildroot's makepkg.conf governs codegen -- `-C target-cpu=pwr9` for the
@@ -38,20 +44,18 @@
 # the substitution took.
 
 pkgname=solidcraft
-pkgver=0.4.0
+pkgver=0.45.0
 pkgrel=1
-_commit=e6252ae094f3695e898b5b4ec8e76050cd2955eb   # refs/tags/v0.4.0
-_appid=ai.storyteller.solvecraft
+_commit=e8ce12ef78fe76281a04b7242a9ce059ff7d5067   # refs/tags/v0.45.0
+_appid=io.tangencylabs.solidcraft
 pkgdesc='Parametric 3D CAD: sketch, constrain, extrude, and change a parameter to rebuild'
 arch=('powerpc64le')
-url='https://github.com/bherbruck/solidcraft'
-license=('Apache-2.0' 'MIT')
-# Measured, not inherited from ours/cadcraft: the binaries link only libgcc_s,
-# libm and libc directly -- x11-dl, xkbcommon-dl and ash all dlopen, so every
-# other entry here comes from the SONAME strings in usr/bin/solvecraft mapped to
-# their owning package. Note what is NOT here: no libXrandr.so.2 and no
-# libfontconfig.so.1 appear anywhere in the binary, so neither libxrandr nor
-# fontconfig is a dependency, though cadcraft's recipe lists the latter.
+url='https://github.com/tangency-labs/solidcraft'
+license=('Apache-2.0 OR MIT' 'LicenseRef-SolidCraft-Brand')
+# Measured on 0.45.0, both lanes: the binaries link only libgcc_s, libm and
+# libc directly -- x11-dl, xkbcommon-dl and ash dlopen, so the list comes from
+# the SONAME strings in usr/bin/solidcraft mapped to their owning packages.
+# Unchanged from 0.4.0; still no libXrandr, fontconfig or GTK.
 depends=(
   glibc
   gcc-libs
@@ -102,43 +106,42 @@ build() {
     *) echo "ERROR: RUSTFLAGS sets no pwr8/pwr9 target-cpu: ${RUSTFLAGS:-<unset>}" >&2
        return 1 ;;
   esac
+  # A release-workflow version string would turn the update check on.
+  unset SOLIDCRAFT_VERSION
 
-  cargo build --release --frozen -p solvecraft -p solvecraft-cli
+  cargo build --release --frozen -p solidcraft -p solidcraft-cli
 }
 
 package() {
   cd "$pkgname"
 
-  install -Dm755 "target/release/solvecraft"     "$pkgdir/usr/bin/solvecraft"
-  install -Dm755 "target/release/solvecraft-cli" "$pkgdir/usr/bin/solvecraft-cli"
+  install -Dm755 target/release/solidcraft     "$pkgdir/usr/bin/solidcraft"
+  install -Dm755 target/release/solidcraft-cli "$pkgdir/usr/bin/solidcraft-cli"
 
-  # Upstream's own desktop entry, mime types and appstream metadata, rather than
-  # a hand-written approximation. The metainfo is a template: package.sh
-  # substitutes @VERSION@ and @DATE@, so do the same.
-  install -Dm644 "packaging/linux/$_appid.desktop" \
-    "$pkgdir/usr/share/applications/$_appid.desktop"
-  install -Dm644 "packaging/linux/$_appid.mime.xml" \
-    "$pkgdir/usr/share/mime/packages/$_appid.xml"
+  # Upstream's own desktop entry, MIME types and AppStream metadata
+  # (assets/platforms/linux since the rename). The metainfo is a template:
+  # package.sh substitutes @VERSION@ and @DATE@, so do the same.
+  local _p=assets/platforms/linux
+  install -Dm644 "$_p/$_appid.desktop"  "$pkgdir/usr/share/applications/$_appid.desktop"
+  install -Dm644 "$_p/$_appid.mime.xml" "$pkgdir/usr/share/mime/packages/$_appid.xml"
   install -d "$pkgdir/usr/share/metainfo"
   sed -e "s/@VERSION@/$pkgver/g" \
       -e "s/@DATE@/$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y-%m-%d)/g" \
-      "packaging/linux/$_appid.metainfo.xml.in" \
+      "$_p/$_appid.metainfo.xml.in" \
       > "$pkgdir/usr/share/metainfo/$_appid.metainfo.xml"
 
-  # The icon is drawn in code by the CLI we just built, not shipped as a file
-  # (app_icon.rs is shared between the GUI and the CLI). Native build, so the
-  # binary runs here. Upstream only emits 256x256 for its AppImage; a desktop
-  # install wants the usual hicolor set.
+  # The app icon now ships as exported PNGs (packaging/env.sh make_icons); the
+  # CLI no longer draws it.
   local _s
-  for _s in 16 22 24 32 48 64 128 256 512; do
-    ./target/release/solvecraft-cli icon --out "$srcdir/icon-$_s.png" --size "$_s"
-    install -Dm644 "$srcdir/icon-$_s.png" \
+  for _s in 16 24 32 48 64 128 256 512; do
+    install -Dm644 "assets/icons/app/linux/exports/hicolor/${_s}x${_s}/apps/$_appid.png" \
       "$pkgdir/usr/share/icons/hicolor/${_s}x${_s}/apps/$_appid.png"
   done
 
-  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
-  install -Dm644 LICENSE-MIT    "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
-  install -Dm644 NOTICE         "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
-  install -Dm644 THIRD-PARTY-LICENSES.txt \
-    "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES.txt"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  local _f
+  for _f in LICENSE-APACHE LICENSE-MIT LICENSE-BRAND NOTICE ATTRIBUTION.md \
+            THIRD-PARTY-LICENSES.txt; do
+    install -Dm644 "$_f" "$pkgdir/usr/share/licenses/$pkgname/$_f"
+  done
 }
