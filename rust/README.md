@@ -6,6 +6,35 @@ Bootstrapped from the installed `rust 1:1.97.1-1` -- the supported N-1 path,
 `rustc = /usr/bin/rustc` in `bootstrap.toml` as in Arch POWER's recipe -- and
 the compiler that ships is built `-C target-cpu=pwr9`.
 
+## 1.100.0 (2026-11-21)
+
+Moved to **1:1.100.0-1** for the LLVM 23 wave and bootstrapped from the
+installed 1.99.1. It links the system LLVM 23.1.5 (`link-shared = true`).
+Patches 0001-0004, 0006 and 0008 are Arch's 1.100.0 set, refreshed. The
+`target-cpu` handling below is unchanged: `pwr9`, or `pwr8` when the baseline
+lane exports `_power8=1`. Both lanes built it on 2026-11-21, and gandalf
+passed `rust`, `rust-src`, `rust-wasm` and `rustc-dev` at each lane's floor.
+Two traps came with the bump, and each cost about an hour of compile:
+
+- **`0009-bootstrap-Never-copy-stage0-sources-into-the-tree.patch`**. When
+  the stage0 rustc has `rust-src` or `rustc-dev` installed, bootstrap's
+  `cp_link_r` of the stage0 `lib/rustlib` follows the sysroot's
+  `src/rust` and `rustc-src/rust` symlinks back into the source tree. It then
+  overwrites the tree with the stage0 compiler's own sources: 1.100.0 got
+  1.99.1's `Cargo.lock` and manifests and failed to resolve `object ^0.38.1`.
+  The patch removes both links before every copy, not only on local
+  rebuilds. Our sysroot carries the whole pool, so `rust-src` is always
+  staged. The shipped `rust-src`'s `library/Cargo.lock` is byte-identical to
+  the 1.100.0 tarball's `[MEASURED]`.
+- **The `src` tool is now `rust-src`** in `bootstrap.toml`'s `tools` list.
+  Bootstrap silently ignores the old name, so `usr/lib/rustlib/src` was never
+  installed and `package_rust-src()`'s `mv` failed after a complete compile.
+  The rename is in Arch's `bootstrap.*.toml`, not their PKGBUILD. On the next
+  bump, diff those files as well.
+
+The rest of this file was written for 1.98.1 and is kept for the target-cpu
+reasoning, which still applies. Its version numbers are historical.
+
 ## Deviations from Arch POWER's recipe
 
 - **`arch=(powerpc64le)`**, was `(powerpc64le powerpc espresso)`. The two

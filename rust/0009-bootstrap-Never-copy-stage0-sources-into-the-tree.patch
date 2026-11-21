@@ -1,0 +1,25 @@
+From: Omarchy for POWER
+Subject: [PATCH] bootstrap: never copy stage0 sources into the source tree
+
+A system stage0 whose lib/rustlib carries rust-src or rustc-src overwrote the
+source tree through the stage0 sysroot's src/rust and rustc-src/rust symlinks.
+Remove both links before copying, not only on local rebuilds.
+---
+--- a/src/bootstrap/src/core/build_steps/compile.rs
++++ b/src/bootstrap/src/core/build_steps/compile.rs
+@@ -811,6 +811,15 @@
+                 let _ = fs::remove_dir_all(sysroot.join("lib/rustlib/src/rust"));
+             }
+ 
++            // The stage0 sysroot's lib/rustlib can carry rust-src and rustc-src
++            // trees (a system rustc with rust-src or rustc-dev installed). In
++            // this sysroot src/rust and rustc-src/rust are symlinks to this
++            // source tree, so copying through them overwrites it with the stage0
++            // compiler's own sources: 1.100.0 built against 1.99.1's Cargo.lock
++            // and compiler manifests and failed to resolve object ^0.38.1.
++            // Drop both links first, always, not only on local rebuilds.
++            let _ = fs::remove_dir_all(sysroot.join("lib/rustlib/src/rust"));
++            let _ = fs::remove_dir_all(sysroot.join("lib/rustlib/rustc-src/rust"));
+             builder.cp_link_r(
+                 &builder.initial_sysroot.join("lib/rustlib"),
+                 &sysroot.join("lib/rustlib"),
