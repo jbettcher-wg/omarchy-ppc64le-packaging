@@ -1,6 +1,0 @@
-[xkeyboard-config]
-source = "gitlab"
-gitlab = "xkeyboard-config/xkeyboard-config"
-host = "gitlab.freedesktop.org"
-use_max_tag = true
-prefix = "xkeyboard-config-"

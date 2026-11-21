@@ -1,3 +1,0 @@
-[wayland-protocols]
-source = "git"
-git = "https://gitlab.freedesktop.org/wayland/wayland-protocols.git"

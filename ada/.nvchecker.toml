@@ -1,4 +1,0 @@
-[ada]
-source = "git"
-git = "https://github.com/ada-url/ada.git"
-prefix = "v"

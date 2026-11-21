@@ -1,3 +1,0 @@
-[python-installer]
-source = "git"
-git = "https://github.com/pypa/installer.git"

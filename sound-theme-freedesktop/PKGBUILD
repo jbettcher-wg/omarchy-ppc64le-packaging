@@ -1,9 +1,8 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Jan de Groot <jgc@archlinux.org>
 
 pkgname=sound-theme-freedesktop
 pkgver=0.8
-pkgrel=6.1
+pkgrel=6
 pkgdesc="Freedesktop sound theme"
 arch=(any)
 license=('GPL-2.0-only'

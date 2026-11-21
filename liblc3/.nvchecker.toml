@@ -1,4 +1,0 @@
-[liblc3]
-source = "git"
-git = "https://github.com/google/liblc3.git"
-prefix = "v"

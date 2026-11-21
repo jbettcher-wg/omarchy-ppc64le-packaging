@@ -1,4 +1,0 @@
-[libnsbmp]
-source = 'git'
-git = 'git://git.netsurf-browser.org/libnsbmp.git'
-prefix = 'release/'

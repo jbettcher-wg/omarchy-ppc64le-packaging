@@ -1,8 +1,0 @@
-[xorgproto]
-source = "gitlab"
-gitlab = "xorg/proto/xorgproto"
-host = "gitlab.freedesktop.org"
-use_max_tag = true
-
-include_regex = ".*xorgproto-.*"
-prefix = "xorgproto-"

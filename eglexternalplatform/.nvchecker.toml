@@ -1,3 +1,0 @@
-[eglexternalplatform]
-source = "git"
-git = "https://github.com/NVIDIA/eglexternalplatform.git"

@@ -1,3 +1,0 @@
-[xdg-dbus-proxy]
-source = "git"
-git = "https://github.com/flatpak/xdg-dbus-proxy.git"

@@ -1,3 +1,0 @@
-[libmakepkg-dropins]
-source = "git"
-git = "https://gitlab.archlinux.org/pacman/libmakepkg-dropins.git"

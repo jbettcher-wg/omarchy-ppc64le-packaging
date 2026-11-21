@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 
 pkgname=libfreeaptx
@@ -6,7 +5,7 @@ pkgver=0.2.2
 pkgrel=1
 pkgdesc="Open Source aptX codec library"
 url="https://github.com/regularhunter/libfreeaptx"
-arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+arch=(x86_64 powerpc64le)
 license=(LGPL-2.1-or-later)
 depends=(glibc)
 makedepends=(git)

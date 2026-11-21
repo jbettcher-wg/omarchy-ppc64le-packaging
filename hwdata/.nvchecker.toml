@@ -1,4 +1,0 @@
-[hwdata]
-source = "git"
-git = "https://github.com/vcrhonek/hwdata.git"
-prefix = "v"

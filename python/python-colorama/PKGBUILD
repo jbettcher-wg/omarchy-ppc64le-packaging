@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Felix Yan <felixonmars@archlinux.org>
 # Contributor: Alexander Duscheleit <jinks@archlinux.us>
 
@@ -6,7 +5,7 @@ pkgname=python-colorama
 pkgver=0.4.6
 pkgrel=6
 pkgdesc="Python API for cross-platform colored terminal text."
-arch=(any)
+arch=('any')
 url="https://pypi.python.org/pypi/colorama"
 license=('BSD')
 depends=('python')

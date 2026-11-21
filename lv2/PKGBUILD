@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Contributor: Ray Rashif <schiv@archlinux.org>
 
@@ -7,7 +6,7 @@ pkgname=(lv2 lv2-docs lv2-example-plugins)
 pkgver=1.18.10
 pkgrel=2
 pkgdesc="Plugin standard for audio systems"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(x86_64 powerpc64le)
 url="https://lv2plug.in/"
 license=(ISC)
 makedepends=(

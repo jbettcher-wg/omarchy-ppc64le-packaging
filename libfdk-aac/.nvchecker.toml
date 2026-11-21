@@ -1,4 +1,0 @@
-[libfdk-aac]
-source = "git"
-git = "https://github.com/mstorsjo/fdk-aac.git"
-prefix = "v"

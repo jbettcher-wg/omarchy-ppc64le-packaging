@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Lukas Fleischer <lfleischer@archlinux.org>
 # Maintainer: Daniel M. Capella <polyzen@archlinux.org>
 # Contributor: Ronald van Haren <ronald.archlinux.org>
@@ -9,9 +8,9 @@
 
 pkgname=ttf-liberation
 pkgver=2.1.5
-pkgrel=2.1
+pkgrel=2
 pkgdesc='Font family which aims at metric compatibility with Arial, Times New Roman, and Courier New'
-arch=(any)
+arch=('any')
 url=https://github.com/liberationfonts/liberation-fonts
 license=('custom:OFL')
 makedepends=('fontforge' 'python-fonttools')

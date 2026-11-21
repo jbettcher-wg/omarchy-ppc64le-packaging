@@ -1,5 +1,0 @@
-[libebur128]
-source = 'github'
-github = 'jiixyj/libebur128'
-use_max_tag = true
-prefix = 'v'

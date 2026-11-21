@@ -1,4 +1,0 @@
-[python-idna]
-source = "git"
-git = "https://github.com/kjd/idna.git"
-prefix = "v"

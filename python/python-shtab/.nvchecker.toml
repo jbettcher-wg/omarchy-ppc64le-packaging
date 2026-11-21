@@ -1,4 +1,0 @@
-[python-shtab]
-source = "git"
-git = "https://github.com/iterative/shtab.git"
-prefix = "v"

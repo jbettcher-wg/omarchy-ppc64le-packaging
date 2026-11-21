@@ -1,4 +1,0 @@
-[python-typing_extensions]
-source = "git"
-git = "https://github.com/python/typing_extensions.git"
-exclude_regex = ".*(rc|alpha|beta).*"

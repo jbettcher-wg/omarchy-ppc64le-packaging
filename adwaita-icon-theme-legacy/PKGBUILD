@@ -1,10 +1,9 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 # Maintainer: Fabian Bornschein <fabiscafe@archlinux.org>
 
 pkgname=adwaita-icon-theme-legacy
 pkgver=46.2
-pkgrel=3.1
+pkgrel=3
 pkgdesc="GNOME fallback icons for legacy apps"
 url="https://gitlab.gnome.org/GNOME/adwaita-icon-theme-legacy"
 arch=(any)

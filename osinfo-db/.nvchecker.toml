@@ -1,4 +1,0 @@
-[osinfo-db]
-source = "git"
-git = "https://gitlab.com/libosinfo/osinfo-db.git"
-prefix = "v"

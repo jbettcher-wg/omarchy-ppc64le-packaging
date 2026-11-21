@@ -1,13 +1,12 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: Andreas Radke <andyrtr@archlinux.org>
 # Contributor: Jan de Groot <jgc@archlinux.org>
 
 pkgname=poppler-data
 pkgver=0.4.12
-pkgrel=2.1
+pkgrel=2
 _POPPLER_DATA_EXTRA_VERSION="0.4.11-2"
 pkgdesc="Encoding data for the poppler PDF rendering library"
-arch=(any)
+arch=('any')
 license=('GPL-2.0-only OR GPL-3.0-only' 'BSD-3-Clause')
 conflicts=('poppler<0.10.5')
 url="https://poppler.freedesktop.org/"

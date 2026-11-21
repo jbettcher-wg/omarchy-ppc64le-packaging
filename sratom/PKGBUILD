@@ -1,4 +1,3 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Contributor: Ray Rashif <schiv@archlinux.org>
 # Contributor: speps <speps at aur dot archlinux dot org>
@@ -8,7 +7,7 @@ pkgname=(sratom{,-docs})
 pkgver=0.6.22
 pkgrel=1
 pkgdesc="An LV2 Atom RDF serialisation library"
-arch=(x86_64 powerpc64le powerpc64 powerpc espresso)
+arch=(x86_64 powerpc64le)
 url="https://drobilla.net/software/sratom.html"
 license=(ISC)
 makedepends=(

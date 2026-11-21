@@ -1,4 +1,0 @@
-[woff2]
-source = "git"
-git = "https://github.com/google/woff2.git"
-prefix = "v"

@@ -1,12 +1,11 @@
-# POWER Maintainer: Alexander Baldeck <alex.bldck@gmail.com>
 # Maintainer: David Runge <dvzrv@archlinux.org>
 # Contributor: Eric Bélanger <eric@archlinux.org>
 
 pkgname=libsamplerate
 pkgver=0.2.2
-pkgrel=3.1
+pkgrel=3
 pkgdesc="An audio sample rate conversion library"
-arch=(x86_64 powerpc64le powerpc64 powerpc riscv64)
+arch=(x86_64 powerpc64le)
 url="https://libsndfile.github.io/libsamplerate/"
 license=(BSD)
 depends=(glibc)
@@ -26,6 +25,9 @@ build() {
     -D CMAKE_INSTALL_PREFIX=/usr
     -D CMAKE_BUILD_TYPE=None
     -D BUILD_SHARED_LIBS=ON
+    # Omarchy ppc64le: CMake 4 refuses cmake_minimum_required < 3.5; CMake's
+    # own suggested fix (Arch's recipe needs it on its next rebuild too).
+    -D CMAKE_POLICY_VERSION_MINIMUM=3.5
     -S $pkgname-$pkgver
     -Wno-dev
   )

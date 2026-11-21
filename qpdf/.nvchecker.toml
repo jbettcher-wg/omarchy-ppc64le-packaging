@@ -1,5 +1,0 @@
-[qpdf]
-source = "github"
-github = "qpdf/qpdf"
-use_max_tag = true
-prefix = "v"
