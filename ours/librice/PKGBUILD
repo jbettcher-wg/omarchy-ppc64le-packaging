@@ -1,0 +1,98 @@
+# Maintainer: Jordan Bettcher <thebettcher@gmail.com>
+#
+# librice -- Rust implementation of ICE (RFC 8445) with C APIs (rice-proto and
+# rice-io), required by WebKitGTK >= 2.54 for sandboxed GStreamer WebRTC
+# (USE_LIBRICE=ON requires rice-proto >= 0.4.2 and rice-io >= 0.4.2; 0.4.3 also
+# enables RiceBackend's RICE_CHECK_VERSION(0, 4, 3) TCP socket allocation and
+# socket timeout configuration).
+#
+# Upstream workspace tarball (github.com/ystreet/librice) rather than crates.io's
+# rice-proto crate: crates.io ships only rice-proto without Cargo.lock or
+# rice-io, whereas the GitHub release workspace provides both rice-proto and
+# rice-io, Cargo.lock, and LICENSE-MIT / LICENSE-APACHE.
+#
+# ppc64le notes:
+# - options=(!lto): prevents makepkg's GCC -flto=auto in CFLAGS/LDFLAGS from
+#   breaking rustc when linking C objects from crates like ring and openssl-sys
+#   into cdylibs (matches AUR rice-proto and cargo-c).
+# - Inherits RUSTFLAGS and CFLAGS from makepkg (tools/makepkg.conf.d/00-power8.conf
+#   enforces -C target-cpu=pwr8 and -mcpu=power8 for the baseline pool; POWER9
+#   builds keep -C target-cpu=pwr9). No ppc64le source patches are needed.
+
+pkgname=librice
+pkgver=0.4.3
+pkgrel=1
+pkgdesc='Sans-IO implementation of the ICE (RFC 8445) protocol, with C APIs'
+arch=(x86_64 powerpc64le)
+url='https://github.com/ystreet/librice'
+license=('MIT OR Apache-2.0')
+depends=(
+  glibc
+  libgcc
+  openssl
+)
+makedepends=(
+  cargo-c
+  rust
+)
+provides=(
+  librice-proto.so
+  librice-io.so
+  "rice-proto=$pkgver"
+  "rice-io=$pkgver"
+)
+options=(!lto)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('4671e1835f9ab0f8d87e8d9e22b6bfb06f928aeae442841ab81881dff61e3f4b')
+b2sums=('c2675eff5e4d1136591a21a9cf8da75fd0c4aaf6a9e733e0d1f6905ab6b9d08480ca00e586f0662d1405b43a6365e3fc218c4c6f9a0ac02d41ce486e1315f9e7')
+
+_env() {
+  export CARGO_HOME="$srcdir/cargo-home"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  case " ${RUSTFLAGS:-} " in
+    *"--remap-path-prefix=$srcdir="*) ;;
+    *) export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/usr/src/debug/$pkgname" ;;
+  esac
+}
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  _env
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  _env
+
+  local _crate
+  for _crate in rice-proto rice-io; do
+    cargo cbuild -p "$_crate" --release --frozen \
+      --prefix=/usr --libdir=/usr/lib --features capi
+  done
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  _env
+
+  local _crate
+  for _crate in rice-proto rice-io; do
+    cargo ctest -p "$_crate" --release --frozen --features capi
+  done
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  _env
+
+  local _crate
+  for _crate in rice-proto rice-io; do
+    cargo cinstall -p "$_crate" --release --frozen \
+      --prefix=/usr --libdir=/usr/lib --destdir="$pkgdir" --features capi
+  done
+
+  install -Dm644 LICENSE-MIT -t "$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 LICENSE-APACHE -t "$pkgdir/usr/share/licenses/$pkgname"
+}

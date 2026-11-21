@@ -1,0 +1,87 @@
+From: Jordan Bettcher <thebettcher@gmail.com>
+Subject: [PATCH] bmalloc/mimalloc + WTF OSAllocator: 64 KiB slice packing and MADV_NOHUGEPAGE on ppc64le
+
+Portability and 64 KiB-page memory-footprint fix (measured on 64 KiB-page
+POWER9 host; see ours/webkit/research/64K-PAGES-AND-LIBPAS.md):
+
+1. Source/bmalloc/mimalloc/mimalloc/src/options.c:
+   Default MI_DEFAULT_ALLOW_THP=0 on ppc64le. Under host THP=always,
+   MI_DEFAULT_ALLOW_THP=1 promotes sparse 64 KiB touches to 2 MiB THPs and
+   raises _mi_os_minimal_purge_size() to 2 MiB, suppressing sub-2 MiB purges.
+2. Source/bmalloc/mimalloc/mimalloc/src/alloc-aligned.c, arena.c:
+   Allow 64 KiB-aligned 64 KiB allocations (bsize == MI_ARENA_SLICE_SIZE &&
+   alignment == MI_ARENA_SLICE_SIZE, used by JSC MarkedBlock and
+   StructureMemoryManager) to pack naturally at slice 1 inside 512 KiB
+   MI_MEDIUM_PAGEs instead of falling back to oversize = 131071 (128 KiB
+   blocks / 160 KiB non-Release in 4 MiB MI_LARGE_PAGEs). Cuts 128 x 64 KiB
+   anonymous RSS by 50.6% (21,248 KiB -> 10,496 KiB) with 0 KiB THP.
+3. Source/bmalloc/mimalloc/mimalloc/src/os.c:
+   Relax _mi_os_guard_page_size() debug assertion from <= (MI_ARENA_SLICE_SIZE/4)
+   to <= MI_ARENA_SLICE_SIZE so debug/assert builds do not abort on 64 KiB
+   OS pages.
+4. Source/WTF/wtf/posix/OSAllocatorPOSIX.cpp:
+   Apply MADV_NOHUGEPAGE to tryReserveUncommitted() reservations on Linux
+   (matching webkit-ppc64le) so JSC Structure (4 GiB) and JIT (128 MiB) VMAs
+   opt out of THP per VMA without relying solely on PR_SET_THP_DISABLE.
+
+--- a/Source/bmalloc/mimalloc/mimalloc/src/options.c
++++ b/Source/bmalloc/mimalloc/mimalloc/src/options.c
+@@ -101,7 +101,7 @@
+ #endif
+ 
+ #ifndef MI_DEFAULT_ALLOW_THP
+-#if defined(__ANDROID__)
++#if defined(__ANDROID__) || ((defined(__PPC64__) || defined(__powerpc64__)) && defined(__LITTLE_ENDIAN__))
+ #define MI_DEFAULT_ALLOW_THP  0
+ #else
+ #define MI_DEFAULT_ALLOW_THP  1
+--- a/Source/bmalloc/mimalloc/mimalloc/src/alloc-aligned.c
++++ b/Source/bmalloc/mimalloc/mimalloc/src/alloc-aligned.c
+@@ -22,7 +22,8 @@ static bool mi_malloc_is_naturally_aligned( size_t size, size_t alignment ) {
+   if (alignment > size) return false;
+   const size_t bsize = mi_good_size(size);
+   const bool ok = (bsize <= MI_PAGE_MAX_START_BLOCK_ALIGN2 && _mi_is_power_of_two(bsize)) ||             // power-of-two under N
+-                  (alignment==MI_PAGE_OSPAGE_BLOCK_ALIGN2 && (bsize % MI_PAGE_OSPAGE_BLOCK_ALIGN2)==0);  // or multiple of N
++                  (alignment==MI_PAGE_OSPAGE_BLOCK_ALIGN2 && (bsize % MI_PAGE_OSPAGE_BLOCK_ALIGN2)==0) || // or multiple of N
++                  (bsize == MI_ARENA_SLICE_SIZE && alignment == MI_ARENA_SLICE_SIZE);                    // 64 KiB slice-aligned blocks (JSC MarkedBlock)
+   if (ok) { mi_assert_internal((bsize & (alignment-1)) == 0); } // since both power of 2 and alignment <= size
+   return ok;
+ }
+--- a/Source/bmalloc/mimalloc/mimalloc/src/arena.c
++++ b/Source/bmalloc/mimalloc/mimalloc/src/arena.c
+@@ -808,6 +808,10 @@ static mi_page_t* mi_arenas_page_alloc_fresh(mi_theap_t* theap, size_t slice_cou
+     // naturally align power-of-2 blocks up to MI_PAGE_MAX_START_BLOCK_ALIGN2 size (4KiB)
+     block_start = _mi_align_up(mi_page_info_size(), block_size);
+   }
++  else if (block_size == MI_ARENA_SLICE_SIZE) {
++    // start 64 KiB blocks on slice 1 so every block in the page is 64 KiB-aligned
++    block_start = _mi_align_up(mi_page_info_size(), MI_ARENA_SLICE_SIZE);
++  }
+   else if (block_size != 0 && (block_size % MI_PAGE_OSPAGE_BLOCK_ALIGN2) == 0) {
+     // also align large pages that are a multiple of MI_PAGE_OSPAGE_BLOCK_ALIGN2 (4KiB)
+     block_start = _mi_align_up(mi_page_info_size(), MI_PAGE_OSPAGE_BLOCK_ALIGN2);
+--- a/Source/bmalloc/mimalloc/mimalloc/src/os.c
++++ b/Source/bmalloc/mimalloc/mimalloc/src/os.c
+@@ -67,7 +67,7 @@ size_t _mi_os_minimal_purge_size(void) {
+ 
+ size_t _mi_os_guard_page_size(void) {
+   const size_t gsize = _mi_os_page_size();
+-  mi_assert(gsize <= (MI_ARENA_SLICE_SIZE/4)); // issue #1166
++  mi_assert(gsize <= MI_ARENA_SLICE_SIZE);
+   return gsize;
+ }
+ 
+--- a/Source/WTF/wtf/posix/OSAllocatorPOSIX.cpp
++++ b/Source/WTF/wtf/posix/OSAllocatorPOSIX.cpp
+@@ -139,6 +139,11 @@ void* OSAllocator::tryReserveUncommitted(size_t bytes, Usage usage, void* addres
+     void* result = tryReserveAndCommitImpl(bytes, usage, address, writable, executable, jitCageEnabled, numGuardPagesToAddOnEachEnd, /* uncommitted */ true);
+     if (result)
+         while (madvise(result, bytes, MADV_DONTNEED) == -1 && errno == EAGAIN) { }
++#ifdef MADV_NOHUGEPAGE
++    // Opt sparse JSC VMAs (Structure 4 GiB, JIT pool) out of THP per VMA.
++    if (result)
++        while (madvise(result, bytes, MADV_NOHUGEPAGE) == -1 && errno == EAGAIN) { }
++#endif
+ #else // not OS(LINUX) || OS(HAIKU)
+     void* result = tryReserveAndCommit(bytes, usage, address, writable, executable, jitCageEnabled, numGuardPagesToAddOnEachEnd);
+ #if HAVE(MADV_FREE_REUSE)
